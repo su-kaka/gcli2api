@@ -1,0 +1,78 @@
+name: Sync fork from upstream (fast-forward)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # 每天 03:00 UTC 运行
+  workflow_dispatch:       # 也支持手动触发
+
+permissions:
+  contents: write          # 需要写权限才能 push 到自己的 fork
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  # 修改为你的上游仓库地址：例如 https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git
+  UPSTREAM_URL: https://github.com/su-kaka/gcli2api.git
+  # 要同步的分支（逗号分隔）。常见是 main 或 master
+  BRANCHES: master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 必须拿到全部提交历史才能快进合并
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          if ! git remote | grep -q upstream; then
+            git remote add upstream "${UPSTREAM_URL}"
+          fi
+          git fetch upstream --tags
+
+      - name: Sync branches (fast-forward only)
+        shell: bash
+        run: |
+          IFS=',' read -ra BRs <<< "${BRANCHES}"
+          for br in "${BRs[@]}"; do
+            br=$(echo "$br" | xargs)   # trim
+            echo "==> Syncing branch: $br"
+            # 如果本地没有该分支，则创建跟踪分支
+            if ! git show-ref --verify --quiet "refs/heads/$br"; then
+              # 若 fork 中也没有该分支，先从 origin 拉一下
+              git fetch origin "$br" || true
+              if git ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1; then
+                git checkout -B "$br" "origin/$br"
+              else
+                # fork 完全没有该分支，则直接基于 upstream 创建
+                git checkout -B "$br" "upstream/$br"
+                git push -u origin "$br"
+              fi
+            else
+              git checkout "$br"
+            fi
+
+            # 尝试快进合并
+            if git merge --ff-only "upstream/$br"; then
+              echo "Fast-forwarded $br from upstream/$br"
+              # 推到 fork
+              git push origin "$br"
+            else
+              echo "::warning::Could not fast-forward $br (local changes diverged). Skipping."
+            fi
+          done
+
+      - name: (Optional) Push tags
+        if: always()
+        run: |
+          # 如需同步 tag，取消下一行注释
+          # git push --tags origin
