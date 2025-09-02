@@ -1,7 +1,7 @@
 [project]
 name = "gcli2api"
 version = "0.1.0"
-description = "Add your description here"
+description = "gcli2api"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "httpx[socks]>=0.28.1",
     "hypercorn>=0.17.3",
+    "psutil>=7.0.0",
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",

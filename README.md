@@ -1,59 +1,44 @@
 # GeminiCLI to API
 
-**将 Gemini 转换为 OpenAI 兼容 API 接口**
-
-专业解决方案，旨在解决 Gemini API 服务中频繁的 API 密钥中断和质量下降问题。
+**将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口**
 
 ---
 
-## ⚠️ 重要使用限制声明
+## ⚠️ 许可证声明
 
-**严格禁止商业用途**
+**本项目采用 Cooperative Non-Commercial License (CNC-1.0)**
 
-本项目仅供个人学习、研究和非商业用途使用。严格禁止以下用途：
+这是一个反商业化的严格开源协议，详情请查看 [LICENSE](LICENSE) 文件。
 
-### 完全禁止的用途：
-- ❌ **任何形式的商业用途**，包括但不限于：
-  - 商业产品开发或集成
-  - 商业服务提供
-  - 收费项目或付费服务
-  - 企业内部商业运营
-  - 商业咨询服务
-- ❌ **盈利性质的活动**，包括但不限于：
-  - 直接或间接收费
-  - 广告盈利
-  - 数据销售或变现
-  - 订阅服务
-  - 代理服务收费
-- ❌ **生产环境部署**用于服务外部用户
-- ❌ **重新包装或二次分发**作为商业产品
-- ❌ **规模化部署**用于大量用户服务
-- ❌ **API 转售**或代理服务
+### ✅ 允许的用途：
+- 个人学习、研究、教育用途
+- 非营利组织使用
+- 开源项目集成（需遵循相同协议）
+- 学术研究和论文发表
 
-### 允许的用途：
-- ✅ 个人学习和研究
-- ✅ 教育用途（非营利性）
-- ✅ 开源项目贡献
-- ✅ 技术测试和实验
-
-### 法律责任声明：
-- 违反商业使用限制的用户将承担全部法律责任
-- 项目作者不承担任何因商业使用导致的法律后果
-- 用户使用本项目即表示同意遵守上述限制条款
+### ❌ 禁止的用途：
+- 任何形式的商业使用
+- 年收入超过100万美元的企业使用
+- 风投支持或公开交易的公司使用  
+- 提供付费服务或产品
+- 商业竞争用途
 
 ---
 
 ## 核心功能
 
-**双格式支持**
-- 同一端点 `/v1/chat/completions` 自动识别并支持：
-  - OpenAI 格式请求（messages 结构）
-  - Gemini 原生格式请求（contents 结构）
-- 自动格式检测和转换，无需手动切换
+**多端点双格式支持**
+- **OpenAI 兼容端点**：`/v1/chat/completions` 和 `/v1/models`
+  - 支持标准 OpenAI 格式（messages 结构）
+  - 支持 Gemini 原生格式（contents 结构）
+  - 自动格式检测和转换，无需手动切换
+- **Gemini 原生端点**：`/v1/models/{model}:generateContent` 和 `streamGenerateContent`
+  - 支持完整的 Gemini 原生 API 规范
+  - 多种认证方式：Bearer Token、x-goog-api-key 头部、URL 参数 key
 
-**OpenAI 兼容性**
-- 标准 `/v1/chat/completions` 和 `/v1/models` 端点
-- 完全符合 OpenAI API 规范
+**灵活的密码管理**
+- **分离密码支持**：API 密码（聊天端点）和控制面板密码可独立设置
+- **多种认证方式**：支持 Authorization Bearer、x-goog-api-key 头部、URL 参数等
 
 **流式支持**
 - 实时流式响应
@@ -122,7 +107,11 @@ bash start.sh
 
 **Docker 运行命令**
 ```bash
-docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(pwd)/data/creds:/app/geminicli/creds ghcr.io/cetaceang/gcli2api:latest
+# 使用通用密码
+docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
+
+# 使用分离密码
+docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
 ```
 
 **Docker Compose 运行命令**
@@ -132,15 +121,19 @@ docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(p
 
     services:
       gcli2api:
-        image: ghcr.io/cetaceang/gcli2api:latest
+        image: ghcr.io/su-kaka/gcli2api:latest
         container_name: gcli2api
         restart: unless-stopped
         network_mode: host
         environment:
+          # 使用通用密码（推荐用于简单部署）
           - PASSWORD=pwd
           - PORT=7861
+          # 或使用分离密码（推荐用于生产环境）
+          # - API_PASSWORD=your_api_password
+          # - PANEL_PASSWORD=your_panel_password
         volumes:
-          - ./data/creds:/app/geminicli/creds
+          - ./data/creds:/app/creds
         healthcheck:
           test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
           interval: 30s
@@ -166,55 +159,86 @@ docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(p
 ## 配置说明
 
 1. 访问 `http://127.0.0.1:7861/auth` （默认端口，可通过 PORT 环境变量修改）
-2. 完成 OAuth 认证流程（默认密码：`pwd`，可通过 PASSWORD 环境变量修改）
-3. 配置 OpenAI 兼容客户端：
-   - **端点地址**：`http://127.0.0.1:7861/v1` （默认端口）
-   - **API 密钥**：`pwd`（默认值）
+2. 完成 OAuth 认证流程（默认密码：`pwd`，可通过环境变量修改）
+3. 配置客户端：
+
+**OpenAI 兼容客户端：**
+   - **端点地址**：`http://127.0.0.1:7861/v1`
+   - **API 密钥**：`pwd`（默认值，可通过 API_PASSWORD 或 PASSWORD 环境变量修改）
+
+**Gemini 原生客户端：**
+   - **端点地址**：`http://127.0.0.1:7861`
+   - **认证方式**：
+     - `Authorization: Bearer your_api_password`
+     - `x-goog-api-key: your_api_password` 
+     - URL 参数：`?key=your_api_password`
 
 ### 环境变量配置
+
+**基础配置**
 - `PORT`: 服务端口（默认：7861）
-- `PASSWORD`: API 密钥（默认：pwd）
-- `GOOGLE_CREDENTIALS`: Google OAuth 凭证 JSON（支持原始 JSON 或 base64 编码）
-- `GOOGLE_CREDENTIALS_2` 到 `GOOGLE_CREDENTIALS_10`: 额外的凭证（用于多凭证轮换）
+- `HOST`: 服务器监听地址（默认：0.0.0.0）
+
+**密码配置**
+- `API_PASSWORD`: 聊天 API 访问密码（默认：继承 PASSWORD 或 pwd）
+- `PANEL_PASSWORD`: 控制面板访问密码（默认：继承 PASSWORD 或 pwd）  
+- `PASSWORD`: 通用密码，设置后覆盖上述两个（默认：pwd）
+
+**凭证配置**
+
+支持使用 `GCLI_CREDS_*` 环境变量导入多个凭证：
 
 #### 凭证环境变量使用示例
 
-**方式 1：直接传入 JSON**
+**方式 1：编号格式**
 ```bash
-export GOOGLE_CREDENTIALS='{"type":"authorized_user","client_id":"...","client_secret":"...","refresh_token":"..."}'
+export GCLI_CREDS_1='{"client_id":"your-client-id","client_secret":"your-secret","refresh_token":"your-token","token_uri":"https://oauth2.googleapis.com/token","project_id":"your-project"}'
+export GCLI_CREDS_2='{"client_id":"...","project_id":"..."}'
 ```
 
-**方式 2：Base64 编码（推荐，更安全）**
+**方式 2：项目名格式**
 ```bash
-# 将凭证文件转为 base64
-cat credential.json | base64 -w 0 > credential.b64
-# 设置环境变量
-export GOOGLE_CREDENTIALS=$(cat credential.b64)
+export GCLI_CREDS_myproject='{"client_id":"...","project_id":"myproject",...}'
+export GCLI_CREDS_project2='{"client_id":"...","project_id":"project2",...}'
 ```
 
-**方式 3：多凭证轮换**
+**启用自动加载**
 ```bash
-export GOOGLE_CREDENTIALS='{"type":"authorized_user",...}'  # 第一个凭证
-export GOOGLE_CREDENTIALS_2='{"type":"authorized_user",...}' # 第二个凭证
-export GOOGLE_CREDENTIALS_3='{"type":"authorized_user",...}' # 第三个凭证
+export AUTO_LOAD_ENV_CREDS=true  # 程序启动时自动导入环境变量凭证
 ```
 
 **Docker 使用示例**
 ```bash
+# 使用通用密码
 docker run -d --name gcli2api \
   -e PASSWORD=mypassword \
   -e PORT=8080 \
   -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
-  ghcr.io/cetaceang/gcli2api:latest
+  ghcr.io/su-kaka/gcli2api:latest
+
+# 使用分离密码
+docker run -d --name gcli2api \
+  -e API_PASSWORD=my_api_password \
+  -e PANEL_PASSWORD=my_panel_password \
+  -e PORT=8080 \
+  -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
+  ghcr.io/su-kaka/gcli2api:latest
 ```
 
 注意：当设置了凭证环境变量时，系统将优先使用环境变量中的凭证，忽略 `creds` 目录中的文件。
 
-### API 格式支持
+### API 使用方式
 
-该服务现在支持两种请求格式，会自动检测并处理：
+本服务支持两套完整的 API 端点：
 
-**OpenAI 格式示例：**
+#### 1. OpenAI 兼容端点
+
+**端点：** `/v1/chat/completions`  
+**认证：** `Authorization: Bearer your_api_password`
+
+支持两种请求格式，会自动检测并处理：
+
+**OpenAI 格式：**
 ```json
 {
   "model": "gemini-2.5-pro",
@@ -222,11 +246,12 @@ docker run -d --name gcli2api \
     {"role": "system", "content": "You are a helpful assistant"},
     {"role": "user", "content": "Hello"}
   ],
-  "temperature": 0.7
+  "temperature": 0.7,
+  "stream": true
 }
 ```
 
-**Gemini 原生格式示例：**
+**Gemini 原生格式：**
 ```json
 {
   "model": "gemini-2.5-pro",
@@ -240,7 +265,43 @@ docker run -d --name gcli2api \
 }
 ```
 
-两种格式都会返回 OpenAI 兼容的响应格式。
+#### 2. Gemini 原生端点
+
+**非流式端点：** `/v1/models/{model}:generateContent`  
+**流式端点：** `/v1/models/{model}:streamGenerateContent`  
+**模型列表：** `/v1/models`
+
+**认证方式（任选一种）：**
+- `Authorization: Bearer your_api_password`
+- `x-goog-api-key: your_api_password`  
+- URL 参数：`?key=your_api_password`
+
+**请求示例：**
+```bash
+# 使用 x-goog-api-key 头部
+curl -X POST "http://127.0.0.1:7861/v1/models/gemini-2.5-pro:generateContent" \
+  -H "x-goog-api-key: your_api_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello"}]}
+    ]
+  }'
+
+# 使用 URL 参数
+curl -X POST "http://127.0.0.1:7861/v1/models/gemini-2.5-pro:streamGenerateContent?key=your_api_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello"}]}
+    ]
+  }'
+```
+
+**说明：**
+- OpenAI 端点返回 OpenAI 兼容格式
+- Gemini 端点返回 Gemini 原生格式
+- 两种端点使用相同的 API 密码
 
 ---
 

@@ -11,7 +11,7 @@ services:
       - PORT=7861
       # - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}  # 可选：从环境变量传入凭证
     volumes:
-      - ./data/creds:/app/geminicli/creds
+      - ./data/creds:/app/creds
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
       interval: 30s

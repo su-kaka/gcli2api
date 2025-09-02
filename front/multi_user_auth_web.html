@@ -289,12 +289,19 @@
                 <p style="margin: 15px 0; color: #0c5460;"><strong>说明：</strong>无需手动启用API，系统会自动处理这些配置步骤。</p>
             </div>
 
+            <!-- 折叠式 Project ID 输入框 -->
             <div class="form-group">
-                <label for="projectId">Google Cloud Project ID (可选):</label>
-                <input type="text" id="projectId" placeholder="留空将尝试自动检测，或手动输入项目ID" />
-                <small style="color: #666; font-size: 12px; margin-top: 5px; display: block;">
-                    💡 提示：如果你不懂这是什么，可以留空此字段让系统自动检测项目ID
-                </small>
+                <div style="cursor: pointer; user-select: none; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center;" onclick="toggleProjectIdSection()">
+                    <span style="font-weight: 600; color: #555;">📁 高级选项：Google Cloud Project ID (不用管，直接点击获取链接即可)</span>
+                    <span id="projectIdToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▶</span>
+                </div>
+                <div id="projectIdSection" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #e1e5e9; border-top: none; border-radius: 0 0 8px 8px; background: #ffffff;">
+                    <label for="projectId" style="display: block; margin-bottom: 8px; font-weight: 600; color: #555; font-size: 14px;">Google Cloud Project ID (可选):</label>
+                    <input type="text" id="projectId" style="width: 100%; padding: 12px 16px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 16px; box-sizing: border-box; transition: all 0.3s ease;" placeholder="留空将尝试自动检测，或手动输入项目ID" />
+                    <small style="color: #666; font-size: 12px; margin-top: 5px; display: block;">
+                        💡 提示：如果你不懂这是什么，可以留空此字段让系统自动检测项目ID
+                    </small>
+                </div>
             </div>
             
             <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
@@ -313,6 +320,11 @@
                         <li>看到 "OAuth authentication successful!" 页面后，关闭该窗口</li>
                         <li>返回本页面，点击下方"获取认证文件"按钮</li>
                     </ol>
+                    
+                    <div class="status warning" style="margin-top: 20px;">
+                        <h4>⚠️ 注意</h4>
+                        <p>当回源时，网页访问会显示报错。这时请手动将浏览器地址栏的 <code>localhost</code> 修改为 <code>gcli-auth.sukaka.top</code>，然后重新访问即可。</p>
+                    </div>
                 </div>
                 
                 <button class="btn secondary" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
@@ -581,6 +593,22 @@
             currentCredentials = null;
             
             showStatus('请输入新的 Project ID 开始认证', 'info');
+        }
+
+        // Project ID 折叠切换函数
+        function toggleProjectIdSection() {
+            const section = document.getElementById('projectIdSection');
+            const icon = document.getElementById('projectIdToggleIcon');
+            
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                icon.style.transform = 'rotate(90deg)';
+                icon.textContent = '▼';
+            } else {
+                section.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
+                icon.textContent = '▶';
+            }
         }
 
         // 页面加载时的初始化

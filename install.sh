@@ -1,4 +1,4 @@
-apt update && apt upgrade -y
+apt update
 apt install git -y
 curl -Ls https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env.sh

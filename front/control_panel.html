@@ -1,0 +1,3254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCLI2API 控制面板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus {
+            border-color: #4285f4;
+            outline: none;
+        }
+        .btn {
+            background-color: #4285f4;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background-color: #3367d6;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .auth-url {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            word-break: break-all;
+        }
+        .auth-url a {
+            color: #4285f4;
+            text-decoration: none;
+        }
+        .auth-url a:hover {
+            text-decoration: underline;
+        }
+        .credentials {
+            background-color: #f0f8ff;
+            border: 1px solid #b0d4ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .hidden {
+            display: none;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .login-form {
+            text-align: center;
+            padding: 50px 0;
+        }
+        .login-form input[type="password"] {
+            width: 300px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: #f5f5f5;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            background: white;
+            border-bottom-color: #4285f4;
+            color: #4285f4;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            padding: 40px;
+            text-align: center;
+            background-color: #fafafa;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #4285f4;
+        }
+        .upload-area.dragover {
+            border-color: #4285f4;
+            background-color: #f0f8ff;
+        }
+        .file-list {
+            margin: 20px 0;
+        }
+        .file-item {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 3px;
+            padding: 10px;
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-item .file-name {
+            font-family: monospace;
+            color: #333;
+        }
+        .file-item .file-size {
+            color: #666;
+            font-size: 12px;
+        }
+        .file-item .remove-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .upload-progress {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+        
+        /* 文件管理样式 */
+        .cred-card {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            position: relative;
+        }
+        .cred-card.disabled {
+            background-color: #f5f5f5;
+            border-color: #ccc;
+            opacity: 0.7;
+        }
+        .cred-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .cred-filename {
+            font-family: monospace;
+            font-weight: bold;
+            color: #333;
+            font-size: 14px;
+        }
+        .cred-status {
+            display: flex;
+            gap: 5px;
+        }
+        .status-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: white;
+        }
+        .status-badge.enabled {
+            background-color: #28a745;
+        }
+        .status-badge.disabled {
+            background-color: #6c757d;
+        }
+        .error-codes {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .cred-actions {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .cred-btn {
+            padding: 4px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .cred-btn.enable {
+            background-color: #28a745;
+            color: white;
+        }
+        .cred-btn.disable {
+            background-color: #6c757d;
+            color: white;
+        }
+        .cred-btn.delete {
+            background-color: #dc3545;
+            color: white;
+        }
+        .cred-btn.download {
+            background-color: #007bff;
+            color: white;
+        }
+        .cred-btn.view {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .cred-details {
+            margin-top: 10px;
+            display: none;
+        }
+        .cred-details.show {
+            display: block;
+        }
+        .cred-content {
+            background-color: #f0f8ff;
+            border: 1px solid #b0d4ff;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .manage-actions {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        /* 文件管理新增样式 */
+        .stats-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px 20px;
+            text-align: center;
+            min-width: 120px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            display: block;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+        .stat-item.total { border-left: 4px solid #007bff; }
+        .stat-item.normal { border-left: 4px solid #28a745; }
+        .stat-item.disabled { border-left: 4px solid #6c757d; }
+        
+        .filter-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .filter-select {
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: white;
+        }
+        .filter-select:focus {
+            border-color: #4285f4;
+            outline: none;
+        }
+        
+        .pagination-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .pagination-info {
+            color: #666;
+            font-size: 14px;
+        }
+        .pagination-btn {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .pagination-btn:hover:not(:disabled) {
+            background: #f8f9fa;
+            border-color: #4285f4;
+        }
+        .pagination-btn:disabled {
+            background: #f5f5f5;
+            color: #ccc;
+            cursor: not-allowed;
+        }
+        .pagination-btn.active {
+            background: #4285f4;
+            color: white;
+            border-color: #4285f4;
+        }
+        .page-size-select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .refresh-btn {
+            background-color: #17a2b8;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .download-all-btn {
+            background-color: #28a745;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        /* 批量操作样式 */
+        .batch-controls {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            margin-right: 15px;
+        }
+        .batch-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .batch-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .batch-btn.batch-enable {
+            background-color: #28a745;
+            color: white;
+        }
+        .batch-btn.batch-disable {
+            background-color: #6c757d;
+            color: white;
+        }
+        .batch-btn.batch-delete {
+            background-color: #dc3545;
+            color: white;
+        }
+        .batch-btn.batch-email {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .batch-btn:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+        .cred-btn.email {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .cred-btn.email:hover {
+            background-color: #138496;
+        }
+        .selected-count {
+            font-weight: bold;
+            color: #007bff;
+            margin-right: 10px;
+        }
+        .select-all-checkbox {
+            margin-right: 8px;
+            transform: scale(1.2);
+        }
+        
+        /* 错误码筛选增强 */
+        .error-filter-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .error-code-badge {
+            display: inline-block;
+            background-color: #dc3545;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin: 1px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .error-code-badge:hover {
+            background-color: #c82333;
+        }
+        .error-code-badge.selected {
+            background-color: #007bff;
+        }
+        
+        /* 配置管理样式 */
+        .config-group {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+        }
+        .config-group h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 8px;
+        }
+        .config-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+            margin-bottom: 5px;
+        }
+        .config-input:focus {
+            border-color: #4285f4;
+            outline: none;
+        }
+        .config-input:disabled {
+            background-color: #f5f5f5;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .config-checkbox {
+            margin-right: 8px;
+            transform: scale(1.2);
+        }
+        .config-note {
+            display: block;
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+
+        .config-info {
+            background-color: #e3f2fd;
+            border: 1px solid #1976d2;
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 8px;
+            font-size: 13px;
+            color: #1565c0;
+        }
+
+        .config-info ul {
+            margin: 8px 0 4px 0;
+            color: #424242;
+        }
+
+        .config-info li {
+            margin: 3px 0;
+        }
+        .env-locked {
+            position: relative;
+        }
+        .env-locked::after {
+            content: "🔒 环境变量锚定";
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: #ffc107;
+            color: #212529;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            pointer-events: none;
+        }
+        
+        /* 使用统计样式 */
+        .usage-card {
+            background-color: #f8f9fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            position: relative;
+        }
+        .usage-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .usage-filename {
+            font-family: monospace;
+            font-weight: bold;
+            color: #333;
+            font-size: 14px;
+        }
+        .usage-progress {
+            margin: 10px 0;
+        }
+        .usage-progress-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .usage-progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        .usage-progress-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        .usage-progress-fill.gemini {
+            background-color: #ff6b35;
+        }
+        .usage-progress-fill.total {
+            background-color: #007bff;
+        }
+        .usage-progress-fill.warning {
+            background-color: #ffc107;
+        }
+        .usage-progress-fill.danger {
+            background-color: #dc3545;
+        }
+        .usage-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        .usage-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .usage-btn.reset {
+            background-color: #6c757d;
+            color: white;
+        }
+        .usage-btn.limits {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .usage-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .usage-info-item {
+            background-color: #ffffff;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .usage-info-label {
+            font-weight: bold;
+            color: #666;
+            display: block;
+            margin-bottom: 2px;
+        }
+        .usage-info-value {
+            color: #333;
+        }
+        .reset-time {
+            font-size: 11px;
+            color: #666;
+            font-style: italic;
+            margin-top: 5px;
+        }
+        
+        /* 限制设置弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 400px;
+            max-width: 90%;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .modal-title {
+            margin: 0;
+            font-size: 16px;
+            color: #333;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #999;
+        }
+        .modal-close:hover {
+            color: #333;
+        }
+        .modal-body {
+            margin-bottom: 15px;
+        }
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 登录界面 -->
+        <div id="loginSection" class="login-form">
+            <h1>GCLI2API 管理面板</h1>
+            <p>请输入访问密码：</p>
+            <input type="password" id="loginPassword" placeholder="输入密码" onkeypress="handlePasswordEnter(event)" />
+            <br>
+            <button class="btn" onclick="login()">登录</button>
+        </div>
+
+        <!-- 主界面 -->
+        <div id="mainSection" class="hidden">
+            <h1>GCLI2API 管理面板</h1>
+            
+            <!-- 标签页 -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
+                <button class="tab" onclick="switchTab('upload')">批量上传</button>
+                <button class="tab" onclick="switchTab('envload')">环境变量</button>
+                <button class="tab" onclick="switchTab('manage')">文件管理</button>
+                <button class="tab" onclick="switchTab('usage')">使用统计</button>
+                <button class="tab" onclick="switchTab('config')">配置管理</button>
+                <button class="tab" onclick="switchTab('logs')">实时日志</button>
+            </div>
+
+            <!-- OAuth认证标签页 -->
+            <div id="oauthTab" class="tab-content active">
+                <!-- API 自动启用说明 -->
+                <div class="status success" style="margin-bottom: 20px;">
+                    <strong>✨ 自动化优化：</strong> 系统现在会在认证成功后自动为您的项目启用必需的API服务
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        <li><strong>Gemini Cloud Assist API</strong></li>
+                        <li><strong>Gemini for Google Cloud API</strong></li>
+                    </ul>
+                    <p style="margin: 10px 0; color: #155724;"><strong>说明：</strong>无需手动启用API，系统会自动处理这些配置步骤，让认证流程更加顺畅。</p>
+                </div>
+
+                <!-- 折叠式 Project ID 输入框 -->
+                <div class="form-group">
+                    <div style="cursor: pointer; user-select: none; padding: 12px; border: 2px solid #ddd; border-radius: 5px; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center;" onclick="toggleProjectIdSection()">
+                        <span style="font-weight: bold; color: #555;">📁 高级选项：Google Cloud Project ID (不用管，直接点击获取链接即可)</span>
+                        <span id="projectIdToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▶</span>
+                    </div>
+                    <div id="projectIdSection" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #ddd; border-top: none; border-radius: 0 0 5px 5px; background: #ffffff;">
+                        <label for="projectId" style="display: block; margin-bottom: 5px; font-weight: bold; color: #555;">Google Cloud Project ID (可选):</label>
+                        <input type="text" id="projectId" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 16px; box-sizing: border-box;" placeholder="留空将尝试自动检测，或手动输入项目ID" />
+                        <small style="color: #666; font-size: 12px; margin-top: 5px; display: block;">
+                            💡 提示：如果你不懂这是什么，可以留空此字段让系统自动检测项目ID
+                        </small>
+                    </div>
+                </div>
+                
+                <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
+                
+                <div id="authUrlSection" class="hidden">
+                    <h3>认证链接：</h3>
+                    <div class="auth-url">
+                        <a id="authUrl" href="#" target="_blank">点击此链接进行认证</a>
+                    </div>
+                    <div class="status info">
+                        <strong>重要说明：</strong>
+                        <ol style="margin: 10px 0; padding-left: 20px;">
+                            <li>点击上方认证链接，会在新窗口中打开Google OAuth页面</li>
+                            <li>完成Google账号登录和授权</li>
+                            <li>授权成功后会跳转到localhost:8080显示成功页面</li>
+                            <li>关闭OAuth窗口，返回本页面</li>
+                            <li>点击下方"获取认证文件"按钮完成流程</li>
+                        </ol>
+                    </div>
+                    <button class="btn" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
+                </div>
+                
+                <div id="credentialsSection" class="hidden">
+                    <h3>认证文件内容：</h3>
+                    <div class="credentials" id="credentialsContent"></div>
+                </div>
+            </div>
+
+            <!-- 批量上传标签页 -->
+            <div id="uploadTab" class="tab-content">
+                <h3>批量上传认证文件</h3>
+                <p>支持上传多个JSON格式的认证文件到服务器</p>
+                
+                <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                    <p>点击选择文件或拖拽文件到此区域</p>
+                    <p style="color: #666; font-size: 14px;">支持 .json 和 .zip 格式文件</p>
+                    <p style="color: #888; font-size: 12px;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                </div>
+                
+                <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;" onchange="handleFileSelect(event)" />
+                
+                <div id="fileListSection" class="hidden">
+                    <h4>选择的文件：</h4>
+                    <div class="file-list" id="fileList"></div>
+                    <button class="btn" onclick="uploadFiles()">上传文件</button>
+                    <button class="btn" style="background-color: #6c757d;" onclick="clearFiles()">清空列表</button>
+                </div>
+                
+                <div id="uploadProgressSection" class="hidden">
+                    <div class="upload-progress">
+                        <h4>上传进度：</h4>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                        </div>
+                        <p id="progressText">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 环境变量标签页 -->
+            <div id="envloadTab" class="tab-content">
+                <h3>环境变量凭证导入</h3>
+                <p>从环境变量批量导入认证文件，支持部署自动化场景</p>
+                
+                <!-- 环境变量状态信息 -->
+                <div id="envStatusSection">
+                    <div class="loading" id="envStatusLoading">正在检查环境变量状态...</div>
+                    <div id="envStatusContent" class="hidden">
+                        <div class="config-group">
+                            <h4>环境变量状态</h4>
+                            
+                            <div class="form-group">
+                                <label>可用的环境变量:</label>
+                                <div id="envVarsList" class="cred-content"></div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>自动加载设置:</label>
+                                <span id="autoLoadStatus" style="font-weight: bold;"></span>
+                                <small class="config-note">
+                                    要启用自动加载，请设置环境变量 AUTO_LOAD_ENV_CREDS=true
+                                </small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>已导入的环境变量文件:</label>
+                                <span id="envFilesCount" style="font-weight: bold;"></span>
+                                <div id="envFilesList" class="config-note"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 操作按钮 -->
+                <div class="manage-actions">
+                    <button class="btn" onclick="checkEnvCredsStatus()">刷新状态</button>
+                    <button class="btn" onclick="loadEnvCredentials()">从环境变量导入</button>
+                    <button class="btn" style="background-color: #dc3545;" onclick="clearEnvCredentials()">清除环境变量文件</button>
+                </div>
+                
+                <!-- 使用说明 -->
+                <div class="config-group">
+                    <h4>使用说明</h4>
+                    <div class="config-info">
+                        <strong>环境变量格式：</strong>
+                        <ul>
+                            <li><code>GCLI_CREDS_1</code>, <code>GCLI_CREDS_2</code>, ... (编号格式)</li>
+                            <li><code>GCLI_CREDS_项目名1</code>, <code>GCLI_CREDS_项目名2</code>, ... (项目名格式)</li>
+                        </ul>
+                        
+                        <strong>环境变量值：</strong> 完整的认证文件JSON内容
+                        
+                        <br><br>
+                        <strong>示例：</strong>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 11px;">
+export GCLI_CREDS_1='{"client_id":"your-client-id","client_secret":"your-secret","refresh_token":"your-token","token_uri":"https://oauth2.googleapis.com/token","project_id":"your-project"}'
+export GCLI_CREDS_myproject='{"client_id":"...","project_id":"myproject",...}'
+export AUTO_LOAD_ENV_CREDS=true  # 启用程序启动时自动导入</pre>
+                        
+                        <strong>Docker部署示例：</strong>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 11px;">
+docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
+           -e AUTO_LOAD_ENV_CREDS=true \
+           your-image</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 文件管理标签页 -->
+            <div id="manageTab" class="tab-content">
+                <h3>凭证文件管理</h3>
+                <p>管理所有认证文件，查看状态和执行操作</p>
+                
+                <!-- 状态统计 -->
+                <div class="stats-container" id="statsContainer">
+                    <div class="stat-item total">
+                        <span class="stat-number" id="statTotal">0</span>
+                        <span class="stat-label">总计</span>
+                    </div>
+                    <div class="stat-item normal">
+                        <span class="stat-number" id="statNormal">0</span>
+                        <span class="stat-label">正常</span>
+                    </div>
+                    <div class="stat-item disabled">
+                        <span class="stat-number" id="statDisabled">0</span>
+                        <span class="stat-label">禁用</span>
+                    </div>
+                </div>
+                
+                <div class="manage-actions">
+                    <button class="refresh-btn" onclick="refreshCredsStatus()">刷新状态</button>
+                    <button class="download-all-btn" onclick="downloadAllCreds()">打包下载所有文件</button>
+                </div>
+                
+                <!-- 批量操作控件 -->
+                <div class="batch-controls">
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">批量操作</h4>
+                    <div class="batch-actions">
+                        <div class="checkbox-container">
+                            <input type="checkbox" id="selectAllCheckbox" class="select-all-checkbox" onchange="toggleSelectAll()">
+                            <label for="selectAllCheckbox">全选</label>
+                        </div>
+                        <span class="selected-count" id="selectedCount">已选择 0 项</span>
+                        <button class="batch-btn batch-enable" id="batchEnableBtn" onclick="batchAction('enable')" disabled>批量启用</button>
+                        <button class="batch-btn batch-disable" id="batchDisableBtn" onclick="batchAction('disable')" disabled>批量禁用</button>
+                        <button class="batch-btn batch-delete" id="batchDeleteBtn" onclick="batchAction('delete')" disabled>批量删除</button>
+                        <button class="batch-btn batch-email" onclick="refreshAllEmails()">刷新所有邮箱</button>
+                    </div>
+                </div>
+
+                <!-- 筛选和分页控件 -->
+                <div class="filter-container">
+                    <label for="statusFilter">状态筛选：</label>
+                    <select id="statusFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="all">全部</option>
+                        <option value="normal">正常</option>
+                        <option value="disabled">禁用</option>
+                    </select>
+                    
+                    <label for="errorCodeFilter">错误码筛选：</label>
+                    <select id="errorCodeFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="all">全部错误码</option>
+                        <option value="no-errors">无错误</option>
+                        <option value="has-errors">有错误</option>
+                        <option value="400">错误码 400</option>
+                        <option value="401">错误码 401</option>
+                        <option value="403">错误码 403</option>
+                        <option value="404">错误码 404</option>
+                        <option value="429">错误码 429</option>
+                        <option value="500">错误码 500</option>
+                    </select>
+                    
+                    <label for="pageSizeSelect">每页显示：</label>
+                    <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize()">
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                    
+                    <div class="error-filter-container" id="errorFilterContainer">
+                        <span>快速筛选错误码：</span>
+                        <div id="errorCodeBadges"></div>
+                    </div>
+                </div>
+                
+                <div id="credsListSection">
+                    <div class="loading" id="credsLoading">正在加载凭证文件...</div>
+                    <div id="credsList"></div>
+                    
+                    <!-- 分页控件 -->
+                    <div class="pagination-container" id="paginationContainer" style="display: none;">
+                        <button class="pagination-btn" id="prevPageBtn" onclick="changePage(-1)">上一页</button>
+                        <div class="pagination-info" id="paginationInfo">第 1 页，共 1 页</div>
+                        <button class="pagination-btn" id="nextPageBtn" onclick="changePage(1)">下一页</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 使用统计标签页 -->
+            <div id="usageTab" class="tab-content">
+                <h3>使用统计</h3>
+                <p>查看每个凭证文件的API调用统计和配额使用情况</p>
+                
+                <!-- 统计概览 -->
+                <div class="stats-container" id="usageStatsContainer">
+                    <div class="stat-item total">
+                        <span class="stat-number" id="totalApiCalls">0</span>
+                        <span class="stat-label">总调用数</span>
+                    </div>
+                    <div class="stat-item normal" style="border-left: 4px solid #ff6b35;">
+                        <span class="stat-number" id="geminiProCalls">0</span>
+                        <span class="stat-label">Gemini 2.5 Pro</span>
+                    </div>
+                    <div class="stat-item disabled">
+                        <span class="stat-number" id="totalFiles">0</span>
+                        <span class="stat-label">活跃文件数</span>
+                    </div>
+                </div>
+                
+                <div class="manage-actions">
+                    <button class="refresh-btn" onclick="refreshUsageStats()">刷新统计</button>
+                    <button class="btn" style="background-color: #dc3545;" onclick="resetAllUsageStats()">重置所有统计</button>
+                </div>
+                
+                <!-- 文件使用统计列表 -->
+                <div id="usageListSection">
+                    <div class="loading" id="usageLoading">正在加载使用统计...</div>
+                    <div id="usageList"></div>
+                </div>
+                
+                <!-- 使用说明 -->
+                <div class="config-group">
+                    <h4>使用说明</h4>
+                    <div class="config-info">
+                        <strong>统计范围：</strong>
+                        <ul>
+                            <li><strong>Gemini 2.5 Pro 调用次数：</strong>仅统计 gemini-2.5-pro 及其变体模型的成功调用</li>
+                            <li><strong>所有模型调用次数：</strong>统计所有模型的成功调用总数</li>
+                            <li><strong>每日配额：</strong>默认每日配额 Gemini 2.5 Pro: 100次，所有模型: 1500次</li>
+                            <li><strong>配额重置：</strong>每天 UTC 07:00 自动重置调用计数</li>
+                        </ul>
+                        
+                        <strong>注意：</strong>
+                        <ul>
+                            <li>只统计返回正常响应的API调用，报错的调用不计入统计</li>
+                            <li>统计数据持久化保存在 creds_state.toml 文件中</li>
+                            <li>支持每个凭证文件独立统计和配额管理</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 配置管理标签页 -->
+            <div id="configTab" class="tab-content">
+                <h3>配置管理</h3>
+                <p>管理系统配置参数，修改后立即生效</p>
+                
+                <div class="manage-actions">
+                    <button class="refresh-btn" onclick="loadConfig()">刷新配置</button>
+                    <button class="btn" onclick="saveConfig()">保存配置</button>
+                </div>
+                
+                <div id="configSection">
+                    <div class="loading" id="configLoading">正在加载配置...</div>
+                    <div id="configForm" class="hidden">
+                        <div class="config-group">
+                            <h4>服务器配置</h4>
+                            
+                            <div class="form-group">
+                                <label for="host">服务器主机地址:</label>
+                                <input type="text" id="host" class="config-input" placeholder="例如: 0.0.0.0, 127.0.0.1" />
+                                <small class="config-note">服务器监听的主机地址，0.0.0.0表示监听所有接口</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="port">服务器端口:</label>
+                                <input type="number" id="port" class="config-input" min="1" max="65535" placeholder="7861" />
+                                <small class="config-note">服务器监听的端口号，修改后需要重启服务器</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="configApiPassword">API访问密码:</label>
+                                <input type="text" id="configApiPassword" class="config-input" placeholder="pwd" />
+                                <small class="config-note">聊天API访问密码，用于OpenAI和Gemini API端点的认证</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="configPanelPassword">控制面板密码:</label>
+                                <input type="text" id="configPanelPassword" class="config-input" placeholder="pwd" />
+                                <small class="config-note">控制面板访问密码，用于web界面登录认证</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="configPassword">通用密码:</label>
+                                <input type="text" id="configPassword" class="config-input" placeholder="pwd" />
+                                <small class="config-note">（兼容性保留）设置后将覆盖上述两个密码，留空则使用分开的密码设置</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>基础配置</h4>
+                            
+                            <div class="form-group">
+                                <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
+                                <input type="text" id="codeAssistEndpoint" class="config-input" />
+                                <small class="config-note">Google Cloud Code Assist API端点地址</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="credentialsDir">凭证目录路径:</label>
+                                <input type="text" id="credentialsDir" class="config-input" />
+                                <small class="config-note">存储认证文件的目录路径</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="proxy">代理设置:</label>
+                                <input type="text" id="proxy" class="config-input" placeholder="例如: http://proxy:8080 或 socks5://proxy:1080" />
+                                <small class="config-note">HTTP/HTTPS/SOCKS5代理地址，留空表示不使用代理</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>自动封禁配置</h4>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="autoBanEnabled" class="config-checkbox" />
+                                    启用自动封禁
+                                </label>
+                                <small class="config-note">遇到指定错误码时自动禁用凭证</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="autoBanErrorCodes">自动封禁错误码:</label>
+                                <input type="text" id="autoBanErrorCodes" class="config-input" placeholder="例如: 400,403" />
+                                <small class="config-note">用逗号分隔的错误码列表</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>性能配置</h4>
+                            
+                            <div class="form-group">
+                                <label for="callsPerRotation">凭证轮换调用次数:</label>
+                                <input type="number" id="callsPerRotation" class="config-input" min="1" max="100" />
+                                <small class="config-note">每个凭证使用多少次后轮换到下一个</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="httpTimeout">HTTP超时时间(秒):</label>
+                                <input type="number" id="httpTimeout" class="config-input" min="5" max="300" />
+                                <small class="config-note">HTTP请求超时时间</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="maxConnections">最大连接数:</label>
+                                <input type="number" id="maxConnections" class="config-input" min="10" max="1000" />
+                                <small class="config-note">HTTP连接池最大连接数</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>429重试配置</h4>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="retry429Enabled" class="config-checkbox" />
+                                    启用429重试
+                                </label>
+                                <small class="config-note">遇到429错误时自动重试</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="retry429MaxRetries">429重试次数:</label>
+                                <input type="number" id="retry429MaxRetries" class="config-input" min="1" max="50" />
+                                <small class="config-note">遇到429错误时的最大重试次数</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="retry429Interval">429重试间隔(秒):</label>
+                                <input type="number" id="retry429Interval" class="config-input" min="0.01" max="10" step="0.01" />
+                                <small class="config-note">遇到429错误时每两次重试间的等待时间</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>日志配置</h4>
+                            
+                            <div class="form-group">
+                                <label for="logLevel">日志级别:</label>
+                                <select id="logLevel" class="config-input">
+                                    <option value="debug">Debug (调试)</option>
+                                    <option value="info">Info (信息)</option>
+                                    <option value="warning">Warning (警告)</option>
+                                    <option value="error">Error (错误)</option>
+                                    <option value="critical">Critical (严重)</option>
+                                </select>
+                                <small class="config-note">设置日志输出级别，级别越低记录的信息越详细</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="logFile">日志文件路径:</label>
+                                <input type="text" id="logFile" class="config-input" placeholder="例如: log.txt" />
+                                <small class="config-note">日志文件的保存路径，相对于程序运行目录</small>
+                            </div>
+                        </div>
+                        
+                        <div class="config-group">
+                            <h4>兼容性配置</h4>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="compatibilityModeEnabled" class="config-checkbox" />
+                                    启用兼容性模式
+                                </label>
+                                <small class="config-note">启用后所有system消息全部转换成user，停用system_instructions</small>
+                                <div class="config-info" style="background-color: #fff3cd; border: 1px solid #ffc107; color: #856404;">
+                                    <strong>⚠️ 注意：</strong>该选项可能会降低模型理解能力，但是能避免流式空回的情况。
+                                    <br><strong>适用场景：</strong>当遇到流式传输时模型不返回内容或返回空响应时启用此选项。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="config-group">
+                            <h4>抗截断配置</h4>
+                            
+                            <div class="form-group">
+                                <label for="antiTruncationMaxAttempts">抗截断最大重试次数:</label>
+                                <input type="number" id="antiTruncationMaxAttempts" class="config-input" min="1" max="10" />
+                                <small class="config-note">当检测到输出截断时的最大续传尝试次数</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="config-info">
+                                    <strong>注意：</strong>抗截断功能现在通过模型名控制：
+                                    <ul style="margin: 5px 0; padding-left: 20px;">
+                                        <li>选择带有 "-流式抗截断" 后缀的模型即可启用</li>
+                                        <li>该功能仅在流式传输时生效</li>
+                                        <li>例如: "gemini-2.5-pro-流式抗截断"</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="config-group">
+                            <h4>配置热更新说明</h4>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724;">
+                                    <strong>🔥 热更新配置（立即生效）：</strong>
+                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
+                                        <li><strong>网络配置：</strong>代理设置、HTTP超时时间、最大连接数</li>
+                                        <li><strong>API配置：</strong>凭证轮换次数、429重试设置、自动封禁配置</li>
+                                        <li><strong>密码配置：</strong>API密码、控制面板密码、通用密码</li>
+                                        <li><strong>日志级别：</strong>debug、info、warning、error、critical</li>
+                                        <li><strong>功能配置：</strong>抗截断最大重试次数</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #fff3cd; border: 1px solid #ffc107; color: #856404;">
+                                    <strong>🔄 需要重启的配置：</strong>
+                                    <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
+                                        <li><strong>服务器配置：</strong>主机地址、端口号</li>
+                                        <li><strong>日志文件：</strong>日志文件路径</li>
+                                        <li><strong>目录配置：</strong>凭证目录路径、Code Assist端点</li>
+                                        <li><strong>内存监控：</strong>所有内存监控相关配置</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="config-info" style="background-color: #e3f2fd; border: 1px solid #1976d2; color: #1565c0;">
+                                    <strong>💡 内存监控配置：</strong>
+                                    <div style="margin: 8px 0; color: #212529;">
+                                        内存监控功能默认关闭，需要通过环境变量启用：
+                                    </div>
+                                    <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 8px 0;">
+# 启用内存监控
+AUTO_START_MEMORY_MONITOR=true
+
+# 内存限制配置 (可选)
+MAX_MEMORY_MB=100                    # 最大内存限制(MB)
+MEMORY_WARNING_THRESHOLD=0.9        # 警告阈值(90%)
+MEMORY_CRITICAL_THRESHOLD=0.95       # 清理阈值(95%)
+MEMORY_CHECK_INTERVAL=30            # 检查间隔(秒)</pre>
+
+                                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; padding: 8px; margin-top: 10px; color: #721c24; border-radius: 4px;">
+                                        <strong>⚠️ 注意：</strong>内存监控配置需要<strong>重启服务器</strong>才能生效
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 实时日志标签页 -->
+            <div id="logsTab" class="tab-content">
+                <h3>实时日志</h3>
+                <p>查看系统实时日志输出，支持日志筛选和自动滚动</p>
+                
+                <div class="manage-actions">
+                    <button class="refresh-btn" onclick="connectWebSocket()">连接日志流</button>
+                    <button class="btn" style="background-color: #dc3545;" onclick="disconnectWebSocket()">断开连接</button>
+                    <button class="btn" style="background-color: #28a745;" onclick="downloadLogs()">下载日志</button>
+                    <button class="btn" style="background-color: #6c757d;" onclick="clearLogs()">清空日志</button>
+                </div>
+                
+                <div class="filter-container">
+                    <label for="logLevelFilter">日志级别筛选：</label>
+                    <select id="logLevelFilter" class="filter-select" onchange="filterLogs()">
+                        <option value="all">全部</option>
+                        <option value="ERROR">错误</option>
+                        <option value="WARNING">警告</option>
+                        <option value="INFO">信息</option>
+                        <option value="DEBUG">调试</option>
+                    </select>
+                    
+                    <label>
+                        <input type="checkbox" id="autoScroll" checked> 自动滚动到底部
+                    </label>
+                </div>
+                
+                <div id="logConnectionStatus" class="status info">
+                    <strong>连接状态：</strong> <span id="connectionStatusText">未连接</span>
+                </div>
+                
+                <div id="logContainer" style="background-color: #1e1e1e; color: #ffffff; font-family: 'Courier New', monospace; font-size: 12px; height: 600px; overflow-y: auto; border: 1px solid #333; border-radius: 5px; padding: 15px; white-space: pre-wrap; word-break: break-all;">
+                    <div id="logContent">等待连接日志流...</div>
+                </div>
+            </div>
+
+            <div id="statusSection"></div>
+        </div>
+    </div>
+
+    <!-- 限制设置弹窗 -->
+    <div id="limitsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">设置使用限制</h3>
+                <button class="modal-close" onclick="closeLimitsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="modalFilename">文件名:</label>
+                    <input type="text" id="modalFilename" class="config-input" readonly />
+                </div>
+                <div class="form-group">
+                    <label for="modalGeminiLimit">Gemini 2.5 Pro 每日限制:</label>
+                    <input type="number" id="modalGeminiLimit" class="config-input" min="1" max="10000" />
+                    <small class="config-note">每日Gemini 2.5 Pro模型调用次数限制</small>
+                </div>
+                <div class="form-group">
+                    <label for="modalTotalLimit">所有模型每日限制:</label>
+                    <input type="number" id="modalTotalLimit" class="config-input" min="1" max="50000" />
+                    <small class="config-note">每日所有模型调用次数总限制</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeLimitsModal()" style="background-color: #6c757d;">取消</button>
+                <button class="btn" onclick="saveLimits()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentProjectId = '';
+        let authInProgress = false;
+        let uploadSelectedFiles = []; // 上传页面用的文件列表
+        let authToken = '';
+        let credsData = {};
+        
+        // 分页和筛选相关变量
+        let filteredCredsData = {};
+        let currentPage = 1;
+        let pageSize = 20;
+        let currentFilter = 'all';
+        let currentErrorCodeFilter = 'all';
+        let selectedCredFiles = new Set(); // 选中的凭证文件名集合
+        let availableErrorCodes = new Set(); // 所有可用的错误码
+        let statsData = {
+            total: 0,
+            normal: 0,
+            disabled: 0
+        };
+
+        function showStatus(message, type = 'info') {
+            console.log('showStatus called:', message, type);
+            const statusSection = document.getElementById('statusSection');
+            if (statusSection) {
+                statusSection.innerHTML = `<div class="status ${type}">${message}</div>`;
+            } else {
+                console.error('statusSection not found');
+                alert(message); // 临时回退方案
+            }
+        }
+
+        // 登录相关函数
+        async function login() {
+            console.log('Login function called');
+            const password = document.getElementById('loginPassword').value;
+            console.log('Password length:', password ? password.length : 0);
+            
+            if (!password) {
+                showStatus('请输入密码', 'error');
+                return;
+            }
+
+            try {
+                console.log('Sending login request...');
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: password })
+                });
+
+                console.log('Login response status:', response.status);
+                const data = await response.json();
+                console.log('Login response data:', data);
+                
+                if (response.ok) {
+                    authToken = data.token;
+                    console.log('Login successful, token received');
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('mainSection').classList.remove('hidden');
+                    showStatus('登录成功', 'success');
+                } else {
+                    console.log('Login failed:', data);
+                    showStatus(`登录失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        function handlePasswordEnter(event) {
+            if (event.key === 'Enter') {
+                login();
+            }
+        }
+
+        // 标签页切换
+        function switchTab(tabName) {
+            // 移除所有活动标签
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // 激活选中标签
+            event.target.classList.add('active');
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // 如果切换到文件管理页面，自动加载数据
+            if (tabName === 'manage') {
+                refreshCredsStatus();
+            }
+            // 如果切换到使用统计页面，自动加载统计
+            if (tabName === 'usage') {
+                refreshUsageStats();
+            }
+            // 如果切换到配置管理页面，自动加载配置
+            if (tabName === 'config') {
+                loadConfig();
+            }
+            // 如果切换到环境变量页面，自动检查状态
+            if (tabName === 'envload') {
+                checkEnvCredsStatus();
+            }
+            // 如果切换到日志页面，自动连接WebSocket
+            if (tabName === 'logs') {
+                connectWebSocket();
+            }
+        }
+
+        // 获取认证头
+        function getAuthHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            };
+        }
+
+        async function startAuth() {
+            const projectId = document.getElementById('projectId').value.trim();
+            // 项目ID现在是可选的
+            currentProjectId = projectId || null;
+            
+            const btn = document.getElementById('getAuthBtn');
+            btn.disabled = true;
+            btn.textContent = '正在获取认证链接...';
+
+            try {
+                const requestBody = {};
+                if (projectId) {
+                    requestBody.project_id = projectId;
+                    showStatus('使用指定的项目ID生成认证链接...', 'info');
+                } else {
+                    showStatus('将尝试自动检测项目ID，正在生成认证链接...', 'info');
+                }
+
+                const response = await fetch('/auth/start', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('authUrl').href = data.auth_url;
+                    document.getElementById('authUrl').textContent = data.auth_url;
+                    document.getElementById('authUrlSection').classList.remove('hidden');
+                    
+                    if (data.auto_project_detection) {
+                        showStatus('认证链接已生成（将在认证完成后自动检测项目ID），请点击链接完成授权', 'info');
+                    } else {
+                        showStatus(`认证链接已生成（项目ID: ${data.detected_project_id}），请点击链接完成授权`, 'info');
+                    }
+                    authInProgress = true;
+                } else {
+                    showStatus(`错误: ${data.error || '获取认证链接失败'}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '获取认证链接';
+            }
+        }
+
+        async function getCredentials() {
+            if (!authInProgress) {
+                showStatus('请先获取认证链接并完成授权', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('getCredsBtn');
+            btn.disabled = true;
+            btn.textContent = '等待OAuth回调中...';
+
+            try {
+                showStatus('正在等待OAuth回调，这可能需要一些时间...', 'info');
+                
+                const requestBody = {};
+                if (currentProjectId) {
+                    requestBody.project_id = currentProjectId;
+                }
+                
+                const response = await fetch('/auth/callback', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('credentialsContent').textContent = JSON.stringify(data.credentials, null, 2);
+                    document.getElementById('credentialsSection').classList.remove('hidden');
+                    
+                    if (data.auto_detected_project) {
+                        showStatus(`✅ 认证成功！项目ID已自动检测为: ${data.credentials.project_id}，文件已保存到: ${data.file_path}`, 'success');
+                    } else {
+                        showStatus(`✅ 认证成功！文件已保存到: ${data.file_path}`, 'success');
+                    }
+                    
+                    authInProgress = false;
+                } else {
+                    // 检查是否需要项目选择
+                    if (data.requires_project_selection && data.available_projects) {
+                        let projectOptions = "请选择一个项目：\n\n";
+                        data.available_projects.forEach((project, index) => {
+                            projectOptions += `${index + 1}. ${project.name} (${project.projectId})\n`;
+                        });
+                        projectOptions += `\n请输入序号 (1-${data.available_projects.length}):`;
+                        
+                        const selection = prompt(projectOptions);
+                        const projectIndex = parseInt(selection) - 1;
+                        
+                        if (projectIndex >= 0 && projectIndex < data.available_projects.length) {
+                            const selectedProject = data.available_projects[projectIndex];
+                            currentProjectId = selectedProject.projectId;
+                            btn.textContent = '重新尝试获取认证文件';
+                            showStatus(`使用选择的项目 ${selectedProject.name} (${selectedProject.projectId}) 重新尝试...`, 'info');
+                            setTimeout(() => getCredentials(), 1000);
+                            return;
+                        } else {
+                            showStatus('无效的选择，请重新开始认证', 'error');
+                        }
+                    }
+                    // 检查是否需要手动输入项目ID
+                    else if (data.requires_manual_project_id) {
+                        const userProjectId = prompt('无法自动检测项目ID，请手动输入您的Google Cloud项目ID:');
+                        if (userProjectId && userProjectId.trim()) {
+                            // 重新尝试，使用用户输入的项目ID
+                            currentProjectId = userProjectId.trim();
+                            btn.textContent = '重新尝试获取认证文件';
+                            showStatus('使用手动输入的项目ID重新尝试...', 'info');
+                            setTimeout(() => getCredentials(), 1000);
+                            return;
+                        } else {
+                            showStatus('需要项目ID才能完成认证，请重新开始并输入正确的项目ID', 'error');
+                        }
+                    } else {
+                        showStatus(`❌ 错误: ${data.error || '获取认证文件失败'}`, 'error');
+                        if (data.error && data.error.includes('未接收到授权回调')) {
+                            showStatus('提示：请确保已完成浏览器中的OAuth认证，并看到了"OAuth authentication successful"页面', 'info');
+                        }
+                    }
+                }
+            } catch (error) {
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '获取认证文件';
+            }
+        }
+
+        // 文件上传相关函数
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            addFiles(files);
+        }
+
+        function addFiles(files) {
+            files.forEach(file => {
+                if (file.type === 'application/json' || file.name.endsWith('.json') || 
+                    file.type === 'application/zip' || file.name.endsWith('.zip')) {
+                    if (!uploadSelectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                        uploadSelectedFiles.push(file);
+                    }
+                } else {
+                    showStatus(`文件 ${file.name} 格式不支持，只支持JSON和ZIP文件`, 'error');
+                }
+            });
+            
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileList = document.getElementById('fileList');
+            const fileListSection = document.getElementById('fileListSection');
+            
+            if (uploadSelectedFiles.length === 0) {
+                fileListSection.classList.add('hidden');
+                return;
+            }
+            
+            fileListSection.classList.remove('hidden');
+            fileList.innerHTML = '';
+            
+            uploadSelectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                const isZip = file.name.endsWith('.zip');
+                const fileIcon = isZip ? '📦' : '📄';
+                const fileType = isZip ? ' (ZIP压缩包)' : ' (JSON文件)';
+                fileItem.innerHTML = `
+                    <div>
+                        <span class="file-name">${fileIcon} ${file.name}</span>
+                        <span class="file-size">(${formatFileSize(file.size)}${fileType})</span>
+                    </div>
+                    <button class="remove-btn" onclick="removeFile(${index})">删除</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        function removeFile(index) {
+            uploadSelectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            uploadSelectedFiles = [];
+            updateFileList();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+            return Math.round(bytes / (1024 * 1024)) + ' MB';
+        }
+
+        async function uploadFiles() {
+            if (uploadSelectedFiles.length === 0) {
+                showStatus('请选择要上传的文件', 'error');
+                return;
+            }
+
+            // 检查文件大小
+            const totalSize = uploadSelectedFiles.reduce((sum, file) => sum + file.size, 0);
+            const maxSize = 200 * 1024 * 1024; // 200MB limit
+            if (totalSize > maxSize) {
+                showStatus(`文件总大小 ${(totalSize/1024/1024).toFixed(1)}MB 超过限制 ${maxSize/1024/1024}MB。请分批上传或删除部分文件。`, 'error');
+                return;
+            }
+            
+            // 检查单个文件大小
+            for (const file of uploadSelectedFiles) {
+                if (file.size > 5 * 1024 * 1024) {
+                    showStatus(`文件 "${file.name}" 大小 ${(file.size/1024/1024).toFixed(1)}MB 超过单文件5MB限制`, 'error');
+                    return;
+                }
+            }
+
+            const progressSection = document.getElementById('uploadProgressSection');
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            progressSection.classList.remove('hidden');
+            
+            const formData = new FormData();
+            uploadSelectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            // 检查是否有ZIP文件，给用户提示
+            const hasZipFiles = uploadSelectedFiles.some(file => file.name.endsWith('.zip'));
+            if (hasZipFiles) {
+                showStatus('正在上传并解压ZIP文件...', 'info');
+            }
+
+            try {
+                const xhr = new XMLHttpRequest();
+                
+                // 设置超时时间 (5分钟)
+                xhr.timeout = 300000;
+                
+                xhr.upload.onprogress = function(event) {
+                    if (event.lengthComputable) {
+                        const percentComplete = (event.loaded / event.total) * 100;
+                        progressFill.style.width = percentComplete + '%';
+                        progressText.textContent = Math.round(percentComplete) + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            showStatus(`成功上传 ${data.uploaded_count} 个文件`, 'success');
+                            clearFiles();
+                            progressSection.classList.add('hidden');
+                        } catch (e) {
+                            showStatus('上传失败: 服务器响应格式错误', 'error');
+                        }
+                    } else {
+                        try {
+                            const error = JSON.parse(xhr.responseText);
+                            showStatus(`上传失败: ${error.detail || error.error || '未知错误'}`, 'error');
+                        } catch (e) {
+                            showStatus(`上传失败: HTTP ${xhr.status} - ${xhr.statusText || '未知错误'}`, 'error');
+                        }
+                    }
+                };
+
+                xhr.onerror = function() {
+                    console.error('Upload XHR error:', {
+                        readyState: xhr.readyState,
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        responseText: xhr.responseText,
+                        fileCount: uploadSelectedFiles.length,
+                        totalSize: (totalSize / 1024 / 1024).toFixed(1) + 'MB'
+                    });
+                    showStatus(`上传失败：连接中断 - 可能原因：文件过多(${uploadSelectedFiles.length}个)或网络不稳定。建议分批上传。`, 'error');
+                    progressSection.classList.add('hidden');
+                };
+                
+                xhr.ontimeout = function() {
+                    showStatus('上传失败：请求超时 - 文件处理时间过长，请减少文件数量或检查网络连接', 'error');
+                    progressSection.classList.add('hidden');
+                };
+
+                xhr.open('POST', '/auth/upload');
+                xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                xhr.send(formData);
+
+            } catch (error) {
+                showStatus(`上传失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 拖拽功能
+        const uploadArea = document.getElementById('uploadArea');
+        
+        uploadArea.addEventListener('dragover', function(event) {
+            event.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', function(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', function(event) {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(event.dataTransfer.files);
+            addFiles(files);
+        });
+
+        // WebSocket日志相关变量和函数
+        let logWebSocket = null;
+        let allLogs = [];
+        let filteredLogs = [];
+        let currentLogFilter = 'all';
+
+        function connectWebSocket() {
+            if (logWebSocket && logWebSocket.readyState === WebSocket.OPEN) {
+                showStatus('WebSocket已经连接', 'info');
+                return;
+            }
+
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/auth/logs/stream`;
+                
+                document.getElementById('connectionStatusText').textContent = '连接中...';
+                document.getElementById('logConnectionStatus').className = 'status info';
+                
+                logWebSocket = new WebSocket(wsUrl);
+                
+                logWebSocket.onopen = function(event) {
+                    document.getElementById('connectionStatusText').textContent = '已连接';
+                    document.getElementById('logConnectionStatus').className = 'status success';
+                    showStatus('日志流连接成功', 'success');
+                    clearLogsDisplay(); // 只清空前端显示的旧日志，不清空服务器文件
+                };
+                
+                logWebSocket.onmessage = function(event) {
+                    const logLine = event.data;
+                    if (logLine.trim()) {
+                        allLogs.push(logLine);
+                        
+                        // 限制日志数量，保留最后1000条
+                        if (allLogs.length > 1000) {
+                            allLogs = allLogs.slice(-1000);
+                        }
+                        
+                        filterLogs();
+                        
+                        // 自动滚动到底部
+                        if (document.getElementById('autoScroll').checked) {
+                            const logContainer = document.getElementById('logContainer');
+                            logContainer.scrollTop = logContainer.scrollHeight;
+                        }
+                    }
+                };
+                
+                logWebSocket.onclose = function(event) {
+                    document.getElementById('connectionStatusText').textContent = '连接断开';
+                    document.getElementById('logConnectionStatus').className = 'status error';
+                    showStatus('日志流连接断开', 'info');
+                };
+                
+                logWebSocket.onerror = function(error) {
+                    document.getElementById('connectionStatusText').textContent = '连接错误';
+                    document.getElementById('logConnectionStatus').className = 'status error';
+                    showStatus('日志流连接错误: ' + error, 'error');
+                };
+                
+            } catch (error) {
+                showStatus('创建WebSocket连接失败: ' + error.message, 'error');
+                document.getElementById('connectionStatusText').textContent = '连接失败';
+                document.getElementById('logConnectionStatus').className = 'status error';
+            }
+        }
+
+        function disconnectWebSocket() {
+            if (logWebSocket) {
+                logWebSocket.close();
+                logWebSocket = null;
+                document.getElementById('connectionStatusText').textContent = '未连接';
+                document.getElementById('logConnectionStatus').className = 'status info';
+                showStatus('日志流连接已断开', 'info');
+            }
+        }
+
+        function clearLogsDisplay() {
+            // 只清空前端显示的日志，不清空服务器文件
+            allLogs = [];
+            filteredLogs = [];
+            document.getElementById('logContent').textContent = '日志已清空，等待新日志...';
+        }
+
+        async function downloadLogs() {
+            try {
+                // 调用后端API下载日志文件
+                const response = await fetch('/auth/logs/download', {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.ok) {
+                    // 获取文件名
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = 'gcli2api_logs.txt';
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename=(.+)/);
+                        if (filenameMatch) {
+                            filename = filenameMatch[1];
+                        }
+                    }
+                    
+                    // 下载文件
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    showStatus(`日志文件下载成功: ${filename}`, 'success');
+                } else {
+                    const errorText = await response.text();
+                    let errorMsg = '下载失败';
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMsg = errorData.detail || errorData.error || '未知错误';
+                    } catch (e) {
+                        errorMsg = errorText || '未知错误';
+                    }
+                    showStatus(`下载日志失败: ${errorMsg}`, 'error');
+                }
+            } catch (error) {
+                console.error('downloadLogs error:', error);
+                showStatus(`下载日志时网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearLogs() {
+            try {
+                // 调用后端API清空日志文件
+                const response = await fetch('/auth/logs/clear', {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // 清空前端显示的日志
+                    clearLogsDisplay();
+                    showStatus(data.message, 'success');
+                } else {
+                    showStatus(`清空日志失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('clearLogs error:', error);
+                // 即使后端清空失败，也清空前端显示
+                clearLogsDisplay();
+                showStatus(`清空日志时网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        function filterLogs() {
+            const filter = document.getElementById('logLevelFilter').value;
+            currentLogFilter = filter;
+            
+            if (filter === 'all') {
+                filteredLogs = [...allLogs];
+            } else {
+                filteredLogs = allLogs.filter(log => log.toUpperCase().includes(filter));
+            }
+            
+            displayLogs();
+        }
+
+        function displayLogs() {
+            const logContent = document.getElementById('logContent');
+            if (filteredLogs.length === 0) {
+                logContent.textContent = currentLogFilter === 'all' ? 
+                    '暂无日志...' : `暂无${currentLogFilter}级别的日志...`;
+            } else {
+                logContent.textContent = filteredLogs.join('\n');
+            }
+        }
+
+        // 凭证文件管理相关函数
+        async function refreshCredsStatus() {
+            const credsLoading = document.getElementById('credsLoading');
+            const credsList = document.getElementById('credsList');
+            
+            try {
+                credsLoading.style.display = 'block';
+                credsList.innerHTML = '';
+                
+                console.log('Fetching creds status...');
+                
+                const response = await fetch('/creds/status', {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                
+                console.log('Creds status response:', response.status);
+                
+                const data = await response.json();
+                console.log('Creds status data:', data);
+                
+                if (response.ok) {
+                    credsData = data.creds;
+                    
+                    // 计算统计数据
+                    calculateStats();
+                    
+                    // 更新统计显示
+                    updateStatsDisplay();
+                    
+                    // 应用筛选并显示第一页
+                    currentPage = 1;
+                    applyFilters();
+                    
+                    showStatus(`已加载 ${Object.keys(credsData).length} 个凭证文件`, 'success');
+                } else {
+                    showStatus(`加载失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('refreshCredsStatus error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                credsLoading.style.display = 'none';
+            }
+        }
+
+        // 计算统计数据
+        function calculateStats() {
+            statsData = {
+                total: 0,
+                normal: 0,
+                disabled: 0
+            };
+            
+            // 清空并重新收集错误码
+            availableErrorCodes.clear();
+            
+            for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                statsData.total++;
+                
+                if (credInfo.status.disabled) {
+                    statsData.disabled++;
+                } else {
+                    statsData.normal++;
+                }
+                
+                // 收集错误码信息
+                if (credInfo.status.error_codes && credInfo.status.error_codes.length > 0) {
+                    credInfo.status.error_codes.forEach(code => {
+                        availableErrorCodes.add(code);
+                    });
+                }
+            }
+            
+            // 更新错误码快速筛选按钮
+            updateErrorCodeBadges();
+        }
+        
+        // 更新错误码筛选快速按钮
+        function updateErrorCodeBadges() {
+            const errorCodeBadges = document.getElementById('errorCodeBadges');
+            errorCodeBadges.innerHTML = '';
+            
+            if (availableErrorCodes.size === 0) {
+                errorCodeBadges.innerHTML = '<span style="color: #28a745;">所有文件都无错误</span>';
+                return;
+            }
+            
+            const sortedCodes = Array.from(availableErrorCodes).sort((a, b) => a - b);
+            sortedCodes.forEach(code => {
+                const badge = document.createElement('span');
+                badge.className = 'error-code-badge';
+                badge.textContent = code;
+                badge.onclick = () => filterByErrorCode(code);
+                errorCodeBadges.appendChild(badge);
+            });
+        }
+        
+        // 按错误码快速筛选
+        function filterByErrorCode(code) {
+            document.getElementById('errorCodeFilter').value = code.toString();
+            applyFilters();
+        }
+        
+        // 更新统计显示
+        function updateStatsDisplay() {
+            document.getElementById('statTotal').textContent = statsData.total;
+            document.getElementById('statNormal').textContent = statsData.normal;
+            document.getElementById('statDisabled').textContent = statsData.disabled;
+        }
+        
+        // 应用筛选
+        function applyFilters() {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const errorCodeFilter = document.getElementById('errorCodeFilter').value;
+            currentFilter = statusFilter;
+            currentErrorCodeFilter = errorCodeFilter;
+            filteredCredsData = {};
+            
+            for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                let shouldInclude = false;
+                
+                // 状态筛选
+                switch (statusFilter) {
+                    case 'all':
+                        shouldInclude = true;
+                        break;
+                    case 'normal':
+                        shouldInclude = !credInfo.status.disabled;
+                        break;
+                    case 'disabled':
+                        shouldInclude = credInfo.status.disabled;
+                        break;
+                }
+                
+                // 如果状态筛选已经排除，跳过错误码筛选
+                if (!shouldInclude) {
+                    continue;
+                }
+                
+                // 错误码筛选
+                const errorCodes = credInfo.status.error_codes || [];
+                switch (errorCodeFilter) {
+                    case 'all':
+                        // 保持当前状态
+                        break;
+                    case 'no-errors':
+                        shouldInclude = errorCodes.length === 0;
+                        break;
+                    case 'has-errors':
+                        shouldInclude = errorCodes.length > 0;
+                        break;
+                    default:
+                        // 具体错误码筛选
+                        const targetCode = parseInt(errorCodeFilter);
+                        if (!isNaN(targetCode)) {
+                            shouldInclude = errorCodes.includes(targetCode);
+                        }
+                        break;
+                }
+                
+                if (shouldInclude) {
+                    filteredCredsData[fullPath] = credInfo;
+                }
+            }
+            
+            // 清空选择状态
+            selectedCredFiles.clear();
+            updateBatchControls();
+            
+            currentPage = 1;
+            renderCredsList();
+            updatePagination();
+        }
+        
+        // 获取当前页数据
+        function getCurrentPageData() {
+            const filteredEntries = Object.entries(filteredCredsData);
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = startIndex + pageSize;
+            return filteredEntries.slice(startIndex, endIndex);
+        }
+        
+        // 获取总页数
+        function getTotalPages() {
+            return Math.ceil(Object.keys(filteredCredsData).length / pageSize);
+        }
+        
+        // 渲染凭证列表
+        function renderCredsList() {
+            const credsList = document.getElementById('credsList');
+            credsList.innerHTML = '';
+            
+            const currentPageData = getCurrentPageData();
+            
+            if (currentPageData.length === 0) {
+                const message = Object.keys(credsData).length === 0 ? 
+                    '暂无凭证文件' : '当前筛选条件下暂无数据';
+                credsList.innerHTML = `<p style="text-align: center; color: #666;">${message}</p>`;
+                document.getElementById('paginationContainer').style.display = 'none';
+                return;
+            }
+            
+            for (const [fullPath, credInfo] of currentPageData) {
+                const card = createCredCard(fullPath, credInfo);
+                credsList.appendChild(card);
+            }
+            
+            document.getElementById('paginationContainer').style.display = getTotalPages() > 1 ? 'flex' : 'none';
+            
+            // 更新批量控件状态
+            updateBatchControls();
+        }
+        
+        // 更新分页信息
+        function updatePagination() {
+            const totalPages = getTotalPages();
+            const totalItems = Object.keys(filteredCredsData).length;
+            const startItem = (currentPage - 1) * pageSize + 1;
+            const endItem = Math.min(currentPage * pageSize, totalItems);
+            
+            document.getElementById('paginationInfo').textContent = 
+                `第 ${currentPage} 页，共 ${totalPages} 页 (显示 ${startItem}-${endItem}，共 ${totalItems} 项)`;
+            
+            document.getElementById('prevPageBtn').disabled = currentPage <= 1;
+            document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+        }
+        
+        // 切换页面
+        function changePage(direction) {
+            const totalPages = getTotalPages();
+            const newPage = currentPage + direction;
+            
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                renderCredsList();
+                updatePagination();
+            }
+        }
+        
+        // 改变每页显示数量
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('pageSizeSelect').value);
+            currentPage = 1;
+            renderCredsList();
+            updatePagination();
+        }
+
+        function createCredCard(fullPath, credInfo) {
+            const div = document.createElement('div');
+            const status = credInfo.status;
+            const filename = credInfo.filename;
+            
+            // 调试：记录状态
+            if (filename.includes('atomic-affinity')) {
+                console.log(`Creating card for ${filename}:`, status);
+            }
+            
+            // 设置卡片状态样式
+            let cardClass = 'cred-card';
+            if (status.disabled) cardClass += ' disabled';
+            
+            div.className = cardClass;
+            
+            // 创建状态标签
+            let statusBadges = '';
+            if (status.disabled) {
+                statusBadges += '<span class="status-badge disabled">已禁用</span>';
+            } else {
+                statusBadges += '<span class="status-badge enabled">已启用</span>';
+            }
+            
+            
+            // 调试：记录 error_codes
+            console.log(`Error codes for ${filename}:`, status.error_codes);
+            
+            if (status.error_codes && status.error_codes.length > 0) {
+                statusBadges += `<span class="error-codes">错误码: ${status.error_codes.join(', ')}</span>`;
+                // 检查是否包含自动封禁的错误码
+                const autoBanErrors = status.error_codes.filter(code => code === 400 || code === 403);
+                if (autoBanErrors.length > 0 && status.disabled) {
+                    statusBadges += `<span class="status-badge" style="background-color: #e74c3c; color: white;">AUTO_BAN</span>`;
+                }
+            } else {
+                // 显示无错误码状态
+                statusBadges += `<span class="status-badge" style="background-color: #28a745; color: white;">无错误</span>`;
+            }
+            
+            // 为HTML ID生成安全的标识符
+            const pathId = btoa(encodeURIComponent(fullPath)).replace(/[+/=]/g, '_');
+            
+            // 创建操作按钮 - 使用文件名而不是完整路径
+            let actionButtons = '';
+            if (status.disabled) {
+                actionButtons += `<button class="cred-btn enable" data-filename="${filename}" data-action="enable">启用</button>`;
+            } else {
+                actionButtons += `<button class="cred-btn disable" data-filename="${filename}" data-action="disable">禁用</button>`;
+            }
+            
+            actionButtons += `
+                <button class="cred-btn view" onclick="toggleCredDetails('${pathId}')">查看内容</button>
+                <button class="cred-btn download" onclick="downloadCred('${filename}')">下载</button>
+                <button class="cred-btn email" onclick="fetchUserEmail('${filename}')">查看账号邮箱</button>
+                <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
+            `;
+            
+            // 构建邮箱显示
+            let emailInfo = '';
+            if (credInfo.user_email) {
+                emailInfo = `<div class="cred-email" style="font-size: 12px; color: #666; margin-top: 2px;">${credInfo.user_email}</div>`;
+            } else {
+                emailInfo = `<div class="cred-email" style="font-size: 12px; color: #999; margin-top: 2px; font-style: italic;">未获取邮箱</div>`;
+            }
+            
+            div.innerHTML = `
+                <div class="cred-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" class="file-checkbox" data-filename="${filename}" onchange="toggleFileSelection('${filename}')">
+                        <div>
+                            <div class="cred-filename">${filename}</div>
+                            ${emailInfo}
+                        </div>
+                    </div>
+                    <div class="cred-status">${statusBadges}</div>
+                </div>
+                <div class="cred-actions">${actionButtons}</div>
+                <div class="cred-details" id="details-${pathId}">
+                    <div class="cred-content"></div>
+                </div>
+            `;
+            
+            // 设置文件内容（避免HTML注入）
+            const contentDiv = div.querySelector('.cred-content');
+            if (credInfo.content) {
+                contentDiv.textContent = JSON.stringify(credInfo.content, null, 2);
+            } else {
+                contentDiv.textContent = credInfo.error || '无法读取文件内容';
+            }
+            
+            // 添加事件监听器到按钮
+            const actionButtonElements = div.querySelectorAll('[data-filename][data-action]');
+            actionButtonElements.forEach(button => {
+                button.addEventListener('click', function() {
+                    const filename = this.getAttribute('data-filename');
+                    const action = this.getAttribute('data-action');
+                    
+                    if (action === 'delete') {
+                        deleteCred(filename);
+                    } else {
+                        credAction(filename, action);
+                    }
+                });
+            });
+            
+            return div;
+        }
+
+        async function credAction(filename, action) {
+            try {
+                console.log('Performing action:', action, 'on file:', filename);
+                console.log('Filename type:', typeof filename);
+                console.log('Filename length:', filename.length);
+                console.log('Ends with .json:', filename.endsWith('.json'));
+                
+                const requestBody = {
+                    filename: filename,
+                    action: action
+                };
+                
+                console.log('Request body:', requestBody);
+                
+                const response = await fetch('/creds/action', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(requestBody)
+                });
+                
+                console.log('Response status:', response.status);
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                    await refreshCredsStatus(); // 刷新状态
+                } else {
+                    showStatus(`操作失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('credAction error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        function toggleCredDetails(pathId) {
+            const detailsId = 'details-' + pathId;
+            const details = document.getElementById(detailsId);
+            if (details) {
+                details.classList.toggle('show');
+            }
+        }
+
+        async function downloadCred(filename) {
+            try {
+                const response = await fetch(`/creds/download/${filename}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    showStatus(`已下载文件: ${filename}`, 'success');
+                } else {
+                    const data = await response.json();
+                    showStatus(`下载失败: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`下载失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function downloadAllCreds() {
+            try {
+                const response = await fetch('/creds/download-all', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = 'credentials.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    showStatus('已下载所有凭证文件', 'success');
+                } else {
+                    const data = await response.json();
+                    showStatus(`打包下载失败: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`打包下载失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteCred(filename) {
+            if (!confirm(`确定要删除凭证文件吗？\n${filename}`)) {
+                return;
+            }
+            
+            await credAction(filename, 'delete');
+        }
+
+        // 配置管理相关函数
+        let currentConfig = {};
+        let envLockedFields = new Set();
+
+        async function loadConfig() {
+            const configLoading = document.getElementById('configLoading');
+            const configForm = document.getElementById('configForm');
+            
+            try {
+                configLoading.style.display = 'block';
+                configForm.classList.add('hidden');
+                
+                const response = await fetch('/config/get', {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentConfig = data.config;
+                    envLockedFields = new Set(data.env_locked || []);
+                    
+                    populateConfigForm();
+                    configForm.classList.remove('hidden');
+                    showStatus('配置加载成功', 'success');
+                } else {
+                    showStatus(`加载配置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('loadConfig error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                configLoading.style.display = 'none';
+            }
+        }
+
+        function populateConfigForm() {
+            // 服务器配置
+            setConfigField('host', currentConfig.host || '0.0.0.0');
+            setConfigField('port', currentConfig.port || 7861);
+            setConfigField('configApiPassword', currentConfig.api_password || '');
+            setConfigField('configPanelPassword', currentConfig.panel_password || '');
+            setConfigField('configPassword', currentConfig.password || 'pwd');
+            
+            // 基础配置
+            setConfigField('codeAssistEndpoint', currentConfig.code_assist_endpoint || '');
+            setConfigField('credentialsDir', currentConfig.credentials_dir || '');
+            setConfigField('proxy', currentConfig.proxy || '');
+            
+            // 自动封禁配置
+            document.getElementById('autoBanEnabled').checked = Boolean(currentConfig.auto_ban_enabled);
+            setConfigField('autoBanErrorCodes', (currentConfig.auto_ban_error_codes || []).join(','));
+            
+            // 性能配置
+            setConfigField('callsPerRotation', currentConfig.calls_per_rotation || 10);
+            setConfigField('httpTimeout', currentConfig.http_timeout || 30);
+            setConfigField('maxConnections', currentConfig.max_connections || 100);
+            
+            // 429重试配置
+            document.getElementById('retry429Enabled').checked = Boolean(currentConfig.retry_429_enabled);
+            setConfigField('retry429MaxRetries', currentConfig.retry_429_max_retries || 20);
+            setConfigField('retry429Interval', currentConfig.retry_429_interval || 0.1);
+            
+            // 日志配置
+            setConfigField('logLevel', currentConfig.log_level || 'info');
+            setConfigField('logFile', currentConfig.log_file || 'log.txt');
+            
+            // 兼容性配置
+            document.getElementById('compatibilityModeEnabled').checked = Boolean(currentConfig.compatibility_mode_enabled);
+            
+            // 抗截断配置
+            setConfigField('antiTruncationMaxAttempts', currentConfig.anti_truncation_max_attempts || 3);
+        }
+
+        function setConfigField(fieldId, value) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.value = value;
+                
+                // 检查是否被环境变量锚定
+                const configKey = fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
+                if (envLockedFields.has(configKey)) {
+                    field.disabled = true;
+                    field.classList.add('env-locked');
+                } else {
+                    field.disabled = false;
+                    field.classList.remove('env-locked');
+                }
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                // 调试：检查password字段的实际值
+                const passwordElement = document.getElementById('configPassword');
+                console.log('DEBUG: configPassword元素:', passwordElement);
+                console.log('DEBUG: configPassword值:', passwordElement ? passwordElement.value : 'ELEMENT_NOT_FOUND');
+                
+                const config = {
+                    host: document.getElementById('host').value.trim(),
+                    port: parseInt(document.getElementById('port').value) || 7861,
+                    api_password: document.getElementById('configApiPassword').value.trim(),
+                    panel_password: document.getElementById('configPanelPassword').value.trim(),
+                    password: document.getElementById('configPassword').value.trim(),
+                    code_assist_endpoint: document.getElementById('codeAssistEndpoint').value.trim(),
+                    credentials_dir: document.getElementById('credentialsDir').value.trim(),
+                    proxy: document.getElementById('proxy').value.trim(),
+                    auto_ban_enabled: document.getElementById('autoBanEnabled').checked,
+                    auto_ban_error_codes: document.getElementById('autoBanErrorCodes').value
+                        .split(',')
+                        .map(code => parseInt(code.trim()))
+                        .filter(code => !isNaN(code)),
+                    calls_per_rotation: parseInt(document.getElementById('callsPerRotation').value) || 10,
+                    http_timeout: parseInt(document.getElementById('httpTimeout').value) || 30,
+                    max_connections: parseInt(document.getElementById('maxConnections').value) || 100,
+                    retry_429_enabled: document.getElementById('retry429Enabled').checked,
+                    retry_429_max_retries: parseInt(document.getElementById('retry429MaxRetries').value) || 20,
+                    retry_429_interval: parseFloat(document.getElementById('retry429Interval').value) || 0.1,
+                    // 日志配置
+                    log_level: document.getElementById('logLevel').value || 'info',
+                    log_file: document.getElementById('logFile').value.trim() || 'log.txt',
+                    // 兼容性配置
+                    compatibility_mode_enabled: document.getElementById('compatibilityModeEnabled').checked,
+                    // 抗截断配置
+                    anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || 3
+                };
+
+                const response = await fetch('/config/save', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ config: config })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    let message = '配置保存成功';
+                    
+                    // 处理热更新状态信息
+                    if (data.hot_updated && data.hot_updated.length > 0) {
+                        message += `，以下配置已立即生效: ${data.hot_updated.join(', ')}`;
+                    }
+                    
+                    // 处理重启提醒
+                    if (data.restart_required && data.restart_required.length > 0) {
+                        message += `\n⚠️ 重启提醒: ${data.restart_notice}`;
+                        showStatus(message, 'info');
+                    } else {
+                        showStatus(message, 'success');
+                    }
+                    
+                    // 重新加载配置以获取最新状态
+                    setTimeout(() => loadConfig(), 1000);
+                } else {
+                    showStatus(`保存配置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('saveConfig error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 环境变量凭证管理相关函数
+        async function checkEnvCredsStatus() {
+            const envStatusLoading = document.getElementById('envStatusLoading');
+            const envStatusContent = document.getElementById('envStatusContent');
+            
+            try {
+                envStatusLoading.style.display = 'block';
+                envStatusContent.classList.add('hidden');
+                
+                const response = await fetch('/auth/env-creds-status', {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // 更新环境变量列表
+                    const envVarsList = document.getElementById('envVarsList');
+                    if (Object.keys(data.available_env_vars).length > 0) {
+                        envVarsList.textContent = Object.keys(data.available_env_vars).join(', ');
+                    } else {
+                        envVarsList.textContent = '未找到GCLI_CREDS_*环境变量';
+                    }
+                    
+                    // 更新自动加载状态
+                    const autoLoadStatus = document.getElementById('autoLoadStatus');
+                    autoLoadStatus.textContent = data.auto_load_enabled ? '✅ 已启用' : '❌ 未启用';
+                    autoLoadStatus.style.color = data.auto_load_enabled ? '#28a745' : '#dc3545';
+                    
+                    // 更新已导入文件统计
+                    const envFilesCount = document.getElementById('envFilesCount');
+                    envFilesCount.textContent = `${data.existing_env_files_count} 个文件`;
+                    
+                    const envFilesList = document.getElementById('envFilesList');
+                    if (data.existing_env_files.length > 0) {
+                        envFilesList.textContent = data.existing_env_files.join(', ');
+                    } else {
+                        envFilesList.textContent = '无';
+                    }
+                    
+                    envStatusContent.classList.remove('hidden');
+                    showStatus('环境变量状态检查完成', 'success');
+                } else {
+                    showStatus(`获取环境变量状态失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('checkEnvCredsStatus error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                envStatusLoading.style.display = 'none';
+            }
+        }
+
+        async function loadEnvCredentials() {
+            try {
+                showStatus('正在从环境变量导入凭证...', 'info');
+                
+                const response = await fetch('/auth/load-env-creds', {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.loaded_count > 0) {
+                        showStatus(`✅ 成功导入 ${data.loaded_count}/${data.total_count} 个凭证文件`, 'success');
+                        // 刷新状态
+                        setTimeout(() => checkEnvCredsStatus(), 1000);
+                    } else {
+                        showStatus(`⚠️ ${data.message}`, 'info');
+                    }
+                } else {
+                    showStatus(`导入失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('loadEnvCredentials error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearEnvCredentials() {
+            if (!confirm('确定要清除所有从环境变量导入的凭证文件吗？\n这将删除所有文件名以 "env-" 开头的认证文件。')) {
+                return;
+            }
+            
+            try {
+                showStatus('正在清除环境变量凭证文件...', 'info');
+                
+                const response = await fetch('/auth/env-creds', {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(`✅ 成功删除 ${data.deleted_count} 个环境变量凭证文件`, 'success');
+                    // 刷新状态
+                    setTimeout(() => checkEnvCredsStatus(), 1000);
+                } else {
+                    showStatus(`清除失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('clearEnvCredentials error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 批量操作相关函数
+        function toggleFileSelection(filename) {
+            if (selectedCredFiles.has(filename)) {
+                selectedCredFiles.delete(filename);
+            } else {
+                selectedCredFiles.add(filename);
+            }
+            updateBatchControls();
+        }
+        
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+            
+            if (selectAllCheckbox.checked) {
+                // 全选当前页面的文件
+                fileCheckboxes.forEach(checkbox => {
+                    const filename = checkbox.getAttribute('data-filename');
+                    selectedCredFiles.add(filename);
+                    checkbox.checked = true;
+                });
+            } else {
+                // 取消全选
+                selectedCredFiles.clear();
+                fileCheckboxes.forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+            }
+            updateBatchControls();
+        }
+        
+        function updateBatchControls() {
+            const selectedCount = selectedCredFiles.size;
+            const selectedCountElement = document.getElementById('selectedCount');
+            const batchEnableBtn = document.getElementById('batchEnableBtn');
+            const batchDisableBtn = document.getElementById('batchDisableBtn');
+            const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            
+            selectedCountElement.textContent = `已选择 ${selectedCount} 项`;
+            
+            // 启用/禁用批量操作按钮
+            const hasSelection = selectedCount > 0;
+            batchEnableBtn.disabled = !hasSelection;
+            batchDisableBtn.disabled = !hasSelection;
+            batchDeleteBtn.disabled = !hasSelection;
+            
+            // 更新全选复选框状态
+            const currentPageFileCount = document.querySelectorAll('.file-checkbox').length;
+            const currentPageSelectedCount = Array.from(document.querySelectorAll('.file-checkbox'))
+                .filter(checkbox => selectedCredFiles.has(checkbox.getAttribute('data-filename'))).length;
+            
+            if (currentPageSelectedCount === 0) {
+                selectAllCheckbox.indeterminate = false;
+                selectAllCheckbox.checked = false;
+            } else if (currentPageSelectedCount === currentPageFileCount) {
+                selectAllCheckbox.indeterminate = false;
+                selectAllCheckbox.checked = true;
+            } else {
+                selectAllCheckbox.indeterminate = true;
+                selectAllCheckbox.checked = false;
+            }
+            
+            // 更新页面上的复选框状态
+            document.querySelectorAll('.file-checkbox').forEach(checkbox => {
+                const filename = checkbox.getAttribute('data-filename');
+                checkbox.checked = selectedCredFiles.has(filename);
+            });
+        }
+        
+        async function batchAction(action) {
+            const selectedFiles = Array.from(selectedCredFiles);
+            
+            if (selectedFiles.length === 0) {
+                showStatus('请先选择要操作的文件', 'error');
+                return;
+            }
+            
+            let confirmMessage = '';
+            switch (action) {
+                case 'enable':
+                    confirmMessage = `确定要启用选中的 ${selectedFiles.length} 个文件吗？`;
+                    break;
+                case 'disable':
+                    confirmMessage = `确定要禁用选中的 ${selectedFiles.length} 个文件吗？`;
+                    break;
+                case 'delete':
+                    confirmMessage = `确定要删除选中的 ${selectedFiles.length} 个文件吗？\n注意：此操作不可恢复！`;
+                    break;
+            }
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            try {
+                showStatus(`正在执行批量${action === 'enable' ? '启用' : action === 'disable' ? '禁用' : '删除'}操作...`, 'info');
+                
+                const requestBody = {
+                    action: action,
+                    filenames: selectedFiles
+                };
+                
+                const response = await fetch('/creds/batch-action', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(`批量操作完成：成功处理 ${data.success_count}/${selectedFiles.length} 个文件`, 'success');
+                    
+                    // 清空选择
+                    selectedCredFiles.clear();
+                    updateBatchControls();
+                    
+                    // 刷新列表
+                    await refreshCredsStatus();
+                } else {
+                    showStatus(`批量操作失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('batchAction error:', error);
+                showStatus(`批量操作网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 邮箱相关函数
+        async function fetchUserEmail(filename) {
+            try {
+                showStatus('正在获取用户邮箱...', 'info');
+                
+                const response = await fetch(`/creds/fetch-email/${encodeURIComponent(filename)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.user_email) {
+                    showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
+                    // 刷新凭证状态以更新显示
+                    await refreshCredsStatus();
+                } else {
+                    showStatus(data.message || '无法获取用户邮箱', 'error');
+                }
+            } catch (error) {
+                console.error('fetchUserEmail error:', error);
+                showStatus(`获取邮箱失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function refreshAllEmails() {
+            try {
+                if (!confirm('确定要刷新所有凭证的用户邮箱吗？这可能需要一些时间。')) {
+                    return;
+                }
+                
+                showStatus('正在刷新所有用户邮箱...', 'info');
+                
+                const response = await fetch('/creds/refresh-all-emails', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(`邮箱刷新完成：成功获取 ${data.success_count}/${data.total_count} 个邮箱地址`, 'success');
+                    // 刷新凭证状态以更新显示
+                    await refreshCredsStatus();
+                } else {
+                    showStatus(data.message || '邮箱刷新失败', 'error');
+                }
+            } catch (error) {
+                console.error('refreshAllEmails error:', error);
+                showStatus(`邮箱刷新网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        // Project ID 折叠切换函数
+        function toggleProjectIdSection() {
+            const section = document.getElementById('projectIdSection');
+            const icon = document.getElementById('projectIdToggleIcon');
+            
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                icon.style.transform = 'rotate(90deg)';
+                icon.textContent = '▼';
+            } else {
+                section.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
+                icon.textContent = '▶';
+            }
+        }
+
+        // 页面加载时检查状态
+        window.onload = function() {
+            console.log('Page loaded');
+            console.log('Login section exists:', !!document.getElementById('loginSection'));
+            console.log('Main section exists:', !!document.getElementById('mainSection'));
+            console.log('Status section exists:', !!document.getElementById('statusSection'));
+            showStatus('请输入密码登录', 'info');
+        };
+
+        // =====================================================================
+        // 使用统计相关函数
+        // =====================================================================
+        
+        let usageStatsData = {};
+        let currentEditingFile = '';
+
+        // 刷新使用统计
+        async function refreshUsageStats() {
+            const usageLoading = document.getElementById('usageLoading');
+            const usageList = document.getElementById('usageList');
+            
+            try {
+                usageLoading.style.display = 'block';
+                usageList.innerHTML = '';
+                
+                // 获取所有文件的使用统计
+                const [statsResponse, aggregatedResponse] = await Promise.all([
+                    fetch('/usage/stats', {
+                        method: 'GET',
+                        headers: getAuthHeaders()
+                    }),
+                    fetch('/usage/aggregated', {
+                        method: 'GET',
+                        headers: getAuthHeaders()
+                    })
+                ]);
+                
+                const statsData = await statsResponse.json();
+                const aggregatedData = await aggregatedResponse.json();
+                
+                if (statsResponse.ok && aggregatedResponse.ok) {
+                    usageStatsData = statsData.data;
+                    
+                    // 更新概览统计
+                    document.getElementById('totalApiCalls').textContent = aggregatedData.data.total_all_model_calls || 0;
+                    document.getElementById('geminiProCalls').textContent = aggregatedData.data.total_gemini_2_5_pro_calls || 0;
+                    document.getElementById('totalFiles').textContent = aggregatedData.data.total_files || 0;
+                    
+                    // 渲染使用统计列表
+                    renderUsageList();
+                    
+                    showStatus(`已加载 ${aggregatedData.data.total_files} 个文件的使用统计`, 'success');
+                } else {
+                    showStatus('加载使用统计失败', 'error');
+                }
+            } catch (error) {
+                console.error('refreshUsageStats error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            } finally {
+                usageLoading.style.display = 'none';
+            }
+        }
+        
+        // 渲染使用统计列表
+        function renderUsageList() {
+            const usageList = document.getElementById('usageList');
+            usageList.innerHTML = '';
+            
+            if (Object.keys(usageStatsData).length === 0) {
+                usageList.innerHTML = '<p style="text-align: center; color: #666;">暂无使用统计数据</p>';
+                return;
+            }
+            
+            for (const [filename, stats] of Object.entries(usageStatsData)) {
+                const card = createUsageCard(filename, stats);
+                usageList.appendChild(card);
+            }
+        }
+        
+        // 创建使用统计卡片
+        function createUsageCard(filename, stats) {
+            const div = document.createElement('div');
+            div.className = 'usage-card';
+            
+            // 计算使用百分比
+            const geminiPercent = Math.min((stats.gemini_2_5_pro_calls / stats.daily_limit_gemini_2_5_pro) * 100, 100);
+            const totalPercent = Math.min((stats.total_calls / stats.daily_limit_total) * 100, 100);
+            
+            // 确定进度条颜色
+            function getProgressClass(percent) {
+                if (percent >= 90) return 'danger';
+                if (percent >= 70) return 'warning';
+                return 'gemini';
+            }
+            
+            function getTotalProgressClass(percent) {
+                if (percent >= 90) return 'danger';
+                if (percent >= 70) return 'warning';
+                return 'total';
+            }
+            
+            // 格式化时间
+            function formatTime(isoString) {
+                if (!isoString) return '未知';
+                try {
+                    const date = new Date(isoString);
+                    return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                } catch (e) {
+                    return '格式错误';
+                }
+            }
+            
+            div.innerHTML = `
+                <div class="usage-header">
+                    <div class="usage-filename">${filename}</div>
+                </div>
+                
+                <div class="usage-progress">
+                    <div class="usage-progress-label">
+                        <span>Gemini 2.5 Pro</span>
+                        <span>${stats.gemini_2_5_pro_calls}/${stats.daily_limit_gemini_2_5_pro} (${geminiPercent.toFixed(1)}%)</span>
+                    </div>
+                    <div class="usage-progress-bar">
+                        <div class="usage-progress-fill ${getProgressClass(geminiPercent)}" style="width: ${geminiPercent}%"></div>
+                    </div>
+                </div>
+                
+                <div class="usage-progress">
+                    <div class="usage-progress-label">
+                        <span>所有模型</span>
+                        <span>${stats.total_calls}/${stats.daily_limit_total} (${totalPercent.toFixed(1)}%)</span>
+                    </div>
+                    <div class="usage-progress-bar">
+                        <div class="usage-progress-fill ${getTotalProgressClass(totalPercent)}" style="width: ${totalPercent}%"></div>
+                    </div>
+                </div>
+                
+                <div class="usage-info">
+                    <div class="usage-info-item" style="grid-column: 1 / -1;">
+                        <span class="usage-info-label">下次重置时间</span>
+                        <span class="usage-info-value">${formatTime(stats.next_reset_time)}</span>
+                    </div>
+                </div>
+                
+                <div class="usage-actions">
+                    <button class="usage-btn limits" onclick="openLimitsModal('${filename}')">设置限制</button>
+                    <button class="usage-btn reset" onclick="resetSingleUsageStats('${filename}')">重置统计</button>
+                </div>
+            `;
+            
+            return div;
+        }
+        
+        // 打开限制设置弹窗
+        function openLimitsModal(filename) {
+            const stats = usageStatsData[filename];
+            if (!stats) {
+                showStatus('找不到文件统计数据', 'error');
+                return;
+            }
+            
+            currentEditingFile = filename;
+            document.getElementById('modalFilename').value = filename;
+            document.getElementById('modalGeminiLimit').value = stats.daily_limit_gemini_2_5_pro;
+            document.getElementById('modalTotalLimit').value = stats.daily_limit_total;
+            document.getElementById('limitsModal').style.display = 'block';
+        }
+        
+        // 关闭限制设置弹窗
+        function closeLimitsModal() {
+            document.getElementById('limitsModal').style.display = 'none';
+            currentEditingFile = '';
+        }
+        
+        // 保存限制设置
+        async function saveLimits() {
+            const geminiLimit = parseInt(document.getElementById('modalGeminiLimit').value);
+            const totalLimit = parseInt(document.getElementById('modalTotalLimit').value);
+            
+            if (isNaN(geminiLimit) || geminiLimit < 1) {
+                showStatus('Gemini 2.5 Pro 限制必须是大于0的数字', 'error');
+                return;
+            }
+            
+            if (isNaN(totalLimit) || totalLimit < 1) {
+                showStatus('总调用限制必须是大于0的数字', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/usage/update-limits', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        filename: currentEditingFile,
+                        gemini_2_5_pro_limit: geminiLimit,
+                        total_limit: totalLimit
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                    closeLimitsModal();
+                    // 刷新统计数据
+                    await refreshUsageStats();
+                } else {
+                    showStatus(`设置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('saveLimits error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 重置单个文件的使用统计
+        async function resetSingleUsageStats(filename) {
+            if (!confirm(`确定要重置 ${filename} 的使用统计吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/usage/reset', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ filename: filename })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                    await refreshUsageStats();
+                } else {
+                    showStatus(`重置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('resetSingleUsageStats error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 重置所有使用统计
+        async function resetAllUsageStats() {
+            if (!confirm('确定要重置所有文件的使用统计吗？此操作不可恢复！')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/usage/reset', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({})  // 不提供filename表示重置所有
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                    await refreshUsageStats();
+                } else {
+                    showStatus(`重置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('resetAllUsageStats error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+        
+        // 关闭弹窗当点击弹窗外部时
+        window.onclick = function(event) {
+            const modal = document.getElementById('limitsModal');
+            if (event.target == modal) {
+                closeLimitsModal();
+            }
+        }
+    </script>
+</body>
+</html>

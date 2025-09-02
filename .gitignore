@@ -7,6 +7,7 @@ creds/
 .env
 
 # Python
+tools/
 uv.lock
 __pycache__/
 *.py[cod]
@@ -66,6 +67,7 @@ venv.bak/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -81,3 +83,4 @@ Thumbs.db
 
 # Logs
 *.log
+log.txt

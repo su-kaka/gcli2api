@@ -1,7 +1,8 @@
 """
 Format detection utilities for supporting both OpenAI and Gemini request formats
 """
-from typing import Dict, Any, Union, List
+from typing import Dict, Any
+
 from log import log
 
 def detect_request_format(data: Dict[str, Any]) -> str:

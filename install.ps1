@@ -9,10 +9,10 @@ if (Get-Command scoop -ErrorAction SilentlyContinue) {
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
     if ($IsElevated) {
         # 管理员：使用官方一行命令并传入 -RunAsAdmin
-        iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
+        Invoke-Expression "& {$(Invoke-RestMethod get.scoop.sh)} -RunAsAdmin"
     } else {
         # 普通用户安装
-        iwr -useb get.scoop.sh | iex
+        Invoke-WebRequest -useb get.scoop.sh | Invoke-Expression
     }
 }
 
