@@ -39,35 +39,58 @@ jobs:
           fi
           git fetch upstream --tags
 
-      - name: Sync branches (fast-forward only)
+      - name: Sync branches (ff-only, then no-ff merge)
         shell: bash
         run: |
+          set -euo pipefail
+      
+          # 建议：确保有身份信息，避免 merge 提交失败
+          git config --global user.email "${GIT_AUTHOR_EMAIL:-github-actions[bot]@users.noreply.github.com}"
+          git config --global user.name  "${GIT_AUTHOR_NAME:-github-actions[bot]}"
+      
+          # 拉取远端引用，确保有 upstream/origin 的最新
+          git fetch --prune --multiple origin upstream
+      
           IFS=',' read -ra BRs <<< "${BRANCHES}"
           for br in "${BRs[@]}"; do
             br=$(echo "$br" | xargs)   # trim
             echo "==> Syncing branch: $br"
-            # 如果本地没有该分支，则创建跟踪分支
+      
+            # 若本地没有该分支，按你的逻辑创建跟踪分支
             if ! git show-ref --verify --quiet "refs/heads/$br"; then
-              # 若 fork 中也没有该分支，先从 origin 拉一下
               git fetch origin "$br" || true
               if git ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1; then
                 git checkout -B "$br" "origin/$br"
               else
-                # fork 完全没有该分支，则直接基于 upstream 创建
                 git checkout -B "$br" "upstream/$br"
                 git push -u origin "$br"
               fi
             else
               git checkout "$br"
             fi
-
-            # 尝试快进合并
+      
+            # 确保有上游分支引用
+            if ! git ls-remote --exit-code --heads upstream "$br" >/dev/null 2>&1; then
+              echo "::warning::upstream/$br 不存在，跳过"
+              continue
+            fi
+      
+            # 尝试快进
             if git merge --ff-only "upstream/$br"; then
               echo "Fast-forwarded $br from upstream/$br"
-              # 推到 fork
               git push origin "$br"
+              continue
+            fi
+      
+            # 分叉：创建合并提交以保留本地提交（不改写 SHA）
+            echo "::notice::${br} 与 upstream/${br} 已分叉，进行 --no-ff 合并以保留本地提交"
+            if git merge --no-ff --no-edit "upstream/$br"; then
+              git push origin "$br"
+              echo "Merged (no-ff) upstream/$br into $br and pushed"
             else
-              echo "::warning::Could not fast-forward $br (local changes diverged). Skipping."
+              # 合并冲突时，回滚并跳过该分支（或你也可以 exit 1 让 workflow 失败）
+              git merge --abort || true
+              echo "::warning::${br} 合并冲突，已放弃本次合并（未修改历史）。请人工处理。"
             fi
           done
 
