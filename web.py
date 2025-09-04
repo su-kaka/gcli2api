@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Import all routers
 from src.openai_router import router as openai_router
@@ -15,6 +16,7 @@ from src.web_routes import router as web_router
 
 # Import managers and utilities
 from src.credential_manager import CredentialManager
+from src.task_manager import shutdown_all_tasks
 from config import get_server_host, get_server_port
 from log import log
 
@@ -39,7 +41,7 @@ async def lifespan(app: FastAPI):
     
     # 自动从环境变量加载凭证
     try:
-        from src.auth_api import auto_load_env_credentials_on_startup
+        from src.auth import auto_load_env_credentials_on_startup
         auto_load_env_credentials_on_startup()
     except Exception as e:
         log.error(f"自动加载环境变量凭证失败: {e}")
@@ -49,8 +51,22 @@ async def lifespan(app: FastAPI):
     yield
     
     # 清理资源
+    log.info("开始关闭 GCLI2API 主服务")
+    
+    # 首先关闭所有异步任务
+    try:
+        await shutdown_all_tasks(timeout=10.0)
+        log.info("所有异步任务已关闭")
+    except Exception as e:
+        log.error(f"关闭异步任务时出错: {e}")
+    
+    # 然后关闭凭证管理器
     if global_credential_manager:
-        await global_credential_manager.close()
+        try:
+            await global_credential_manager.close()
+            log.info("凭证管理器已关闭")
+        except Exception as e:
+            log.error(f"关闭凭证管理器时出错: {e}")
     
     log.info("GCLI2API 主服务已停止")
 
@@ -92,6 +108,9 @@ app.include_router(
     prefix="",
     tags=["Web Interface"]
 )
+
+# 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
+app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 
 # 保活接口（仅响应 HEAD）
 @app.head("/keepalive")

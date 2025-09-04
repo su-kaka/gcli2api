@@ -13,49 +13,36 @@ from asyncio import Queue, Event
 from contextlib import asynccontextmanager
 
 import aiofiles
-import httpx
 import toml
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
 
+from .google_oauth_api import Credentials, fetch_user_email_from_file
+from .httpx_client import http_client
 from config import (
-    CREDENTIALS_DIR, CODE_ASSIST_ENDPOINT,
-    get_proxy_config, get_calls_per_rotation, get_http_timeout, get_max_connections,
+    CREDENTIALS_DIR, get_code_assist_endpoint,
+    get_calls_per_rotation,
     get_auto_ban_enabled,
     get_auto_ban_error_codes
 )
 from log import log
-from .memory_manager import register_cache_for_cleanup
 from .utils import get_user_agent, get_client_metadata
+from .task_manager import task_manager
+from .state_manager import get_state_manager
 
-def _normalize_to_relative_path(filepath: str, base_dir: str = None) -> str:
-    """将文件路径标准化为相对于CREDENTIALS_DIR的相对路径"""
-    if base_dir is None:
-        base_dir = CREDENTIALS_DIR
-    
-    # 如果已经是相对路径且在当前目录内，直接返回
-    if not os.path.isabs(filepath):
-        # 检查相对路径是否安全（不包含..等）
-        if ".." not in filepath and filepath.endswith('.json'):
-            return os.path.basename(filepath)  # 只保留文件名
-    
-    # 绝对路径转相对路径
-    abs_filepath = os.path.abspath(filepath)
-    abs_base_dir = os.path.abspath(base_dir)
-    
-    try:
-        # 如果文件在base_dir内，返回相对路径（只要文件名）
-        if abs_filepath.startswith(abs_base_dir):
-            return os.path.basename(abs_filepath)
-    except Exception:
-        pass
-    
-    # 环境变量路径保持原样
-    if filepath.startswith('<ENV_'):
-        return filepath
-    
-    # 其他情况也只返回文件名
+def _normalize_filename_only(filepath: str) -> str:
+    """提取文件名部分，统一使用文件名作为标识"""
+    if not filepath:
+        return ""
+    # 全部统一只保留文件名，无论输入是什么格式
     return os.path.basename(filepath)
+
+
+def _make_standard_path(filename: str) -> str:
+    """将文件名转换为标准路径：CREDENTIALS_DIR + filename"""
+    if not filename:
+        return ""
+    # 确保只有文件名部分，然后返回标准格式：CREDENTIALS_DIR + filename
+    filename_only = os.path.basename(filename)
+    return os.path.join(CREDENTIALS_DIR, filename_only)
 
 class CredentialManager:
     """High-performance credential manager with call-based rotation and caching."""
@@ -65,8 +52,8 @@ class CredentialManager:
         self._read_lock = asyncio.Lock()  # 保护读操作
         self._state_lock = asyncio.Lock()  # 保护状态修改
         
-        # 写操作队列化机制
-        self._write_queue: Queue = Queue()
+        # 写操作队列化机制 - 限制队列大小防止内存泄漏
+        self._write_queue: Queue = Queue(maxsize=50)  # 限制队列大小
         self._write_worker_running = False
         self._write_worker_task: Optional[asyncio.Task] = None
         self._shutdown_event = Event()
@@ -82,12 +69,11 @@ class CredentialManager:
         self._onboarding_complete = False
         self._onboarding_checked = False
         
-        # HTTP client reuse
-        self._http_client: Optional[httpx.AsyncClient] = None
-        
         # TOML状态文件路径
         self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
-        self._creds_state: Dict[str, Any] = {}
+        self._state_manager = get_state_manager(self._state_file)
+        self._current_cred_state: Dict[str, Any] = {}
+        self._current_cred_file: Optional[str] = None
         self._state_dirty = False  # 状态脏标记，减少不必要的写入
         
         # 当前使用的凭证文件路径
@@ -159,7 +145,10 @@ class CredentialManager:
         """启动写操作工作线程"""
         if not self._write_worker_running:
             self._write_worker_running = True
-            self._write_worker_task = asyncio.create_task(self._write_worker())
+            self._write_worker_task = task_manager.create_task(
+                self._write_worker(), 
+                name="credential_write_worker"
+            )
     
     async def _write_worker(self):
         """写操作工作线程 - 串行化处理所有写操作"""
@@ -226,26 +215,21 @@ class CredentialManager:
             
             await self._discover_credential_files()
             
-            # Initialize HTTP client with connection pooling and proxy support
-            proxy = get_proxy_config()
-            client_kwargs = {
-                "timeout": get_http_timeout(),
-                "limits": httpx.Limits(max_keepalive_connections=20, max_connections=get_max_connections())
-            }
-            if proxy:
-                client_kwargs["proxy"] = proxy
-            self._http_client = httpx.AsyncClient(**client_kwargs)
+            # HTTP client is now managed by httpx_client module
+            # No need to initialize separately as it uses the global http_client manager
             
             self._initialized = True
-            
-            # 注册到内存管理器
-            register_cache_for_cleanup("credential_manager", self)
+            log.debug("Credential manager initialized with strict memory controls")
 
     async def close(self):
         """Clean up resources."""
-        # 关闭写操作工作线程
+        log.debug("Closing credential manager...")
+        
+        # 设置关闭标志
         self._shutdown_event.set()
-        if self._write_worker_task:
+        
+        # 关闭写操作工作线程
+        if self._write_worker_task and not self._write_worker_task.done():
             try:
                 await asyncio.wait_for(self._write_worker_task, timeout=5.0)
             except asyncio.TimeoutError:
@@ -255,62 +239,35 @@ class CredentialManager:
                 except asyncio.CancelledError:
                     pass
         
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
-    
-    def emergency_cleanup(self) -> Dict[str, int]:
-        """紧急内存清理"""
-        log.warning("执行凭证管理器紧急内存清理")
-        cleaned = {
-            'cache_cleared': 0,
-            'states_cleaned': 0
-        }
+        # HTTP client is managed by httpx_client module, no need to close manually
         
-        # 清理过期状态
-        if self._creds_state:
-            original_count = len(self._creds_state)
-            # 只保留最近成功的凭证状态
-            keep_states = {}
-            for filename, state in list(self._creds_state.items()):
-                if state.get("last_success") and not state.get("disabled", False):
-                    keep_states[filename] = state
-                    if len(keep_states) >= 5:  # 最多保留5个状态
-                        break
-            
-            self._creds_state = keep_states
-            self._state_dirty = True
-            cleaned['states_cleaned'] = original_count - len(keep_states)
-        
-        log.info(f"凭证管理器紧急清理完成: {cleaned}")
-        return cleaned
+        log.debug("Credential manager closed successfully")
 
     async def _load_state(self):
-        """从TOML文件加载状态"""
+        """从TOML文件加载状态 - 仅在需要时加载特定文件状态"""
         try:
-            if os.path.exists(self._state_file):
-                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                self._creds_state = toml.loads(content)
-            else:
-                self._creds_state = {}
+            # 初始化时不加载全部状态，等需要时按需加载
+            pass
             
         except Exception as e:
-            log.warning(f"Failed to load state file: {e}")
-            self._creds_state = {}
+            log.warning(f"Failed to initialize state loading: {e}")
 
     async def _save_state_unsafe(self):
         """保存状态到TOML文件（不安全版本，必须在锁内调用）"""
         # 使用脏标记，只在必要时写入
-        if not self._state_dirty:
+        if not self._state_dirty or not self._current_cred_file:
             return
             
         try:
-            os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
-            async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
-                await f.write(toml.dumps(self._creds_state))
+            # 只更新当前文件的状态
+            if self._current_cred_file and self._current_cred_state:
+                await self._state_manager.update_file_state(
+                    self._current_cred_file, 
+                    self._current_cred_state
+                )
+            
             self._state_dirty = False  # 清除脏标记
-            log.debug("状态文件已保存")
+            log.debug(f"状态文件已保存 (仅更新文件: {self._current_cred_file})")
         except Exception as e:
             log.error(f"Failed to save state file: {e}")
     
@@ -318,55 +275,71 @@ class CredentialManager:
         """安全保存状态到TOML文件"""
         await self._queue_write_operation(self._save_state_unsafe)
     
-    def _get_cred_state(self, filename: str) -> Dict[str, Any]:
-        """获取指定凭证文件的状态，使用相对路径作为键"""
-        # 标准化为相对路径
-        relative_filename = _normalize_to_relative_path(filename)
+    async def _get_cred_state(self, filename: str) -> Dict[str, Any]:
+        """获取指定凭证文件的状态，按需从文件加载"""
+        # 标准化为文件名
+        filename_key = _normalize_filename_only(filename)
         
-        # 先检查是否已存在（支持向后兼容）
-        existing_state = None
-        existing_key = None
+        # 如果当前缓存的就是这个文件，直接返回
+        if self._current_cred_file == filename_key and self._current_cred_state:
+            return self._current_cred_state
         
-        # 优先查找相对路径键
-        if relative_filename in self._creds_state:
-            return self._creds_state[relative_filename]
-        
-        # 向后兼容：查找可能的绝对路径键并迁移
-        for key, state in list(self._creds_state.items()):
-            if os.path.isabs(key):
-                # 检查绝对路径是否对应同一个文件
-                if _normalize_to_relative_path(key) == relative_filename:
-                    existing_state = state
-                    existing_key = key
-                    break
-            elif key == relative_filename:
-                # 理论上不会到这里，但为安全起见
-                return state
-        
-        if existing_state is not None:
-            # 迁移绝对路径键到相对路径键
-            self._creds_state[relative_filename] = existing_state
-            del self._creds_state[existing_key]
-            log.info(f"Migrated creds state key from absolute to relative: {existing_key} -> {relative_filename}")
-            return existing_state
-        
-        # 创建新状态（使用相对路径作为键）
-        log.debug(f"Creating new state for {relative_filename}")
-        self._creds_state[relative_filename] = {
-            "error_codes": [],
-            "disabled": False,
-            "last_success": None,
-            "user_email": None
-        }
-        self._state_dirty = True  # 标记状态已修改
-        return self._creds_state[relative_filename]
+        # 需要加载新文件的状态
+        try:
+            # 直接查找文件状态（使用文件名作为key）
+            filename_key = _normalize_filename_only(filename)
+            file_state = await self._state_manager.read_file_state(filename_key)
+            
+            # 如果没有找到状态，创建默认状态
+            if not file_state:
+                log.debug(f"Creating new state for {filename_key}")
+                file_state = {
+                    "error_codes": [],
+                    "disabled": False,
+                    "last_success": time.time(),
+                    "user_email": None,
+                    # 使用统计字段直接集成在文件状态中
+                    "gemini_2_5_pro_calls": 0,
+                    "total_calls": 0,
+                    "next_reset_time": None,
+                    "daily_limit_gemini_2_5_pro": 100,
+                    "daily_limit_total": 1500
+                }
+                # 立即保存新状态
+                await self._state_manager.update_file_state(filename_key, file_state)
+            
+            # 缓存当前状态
+            self._current_cred_file = filename_key
+            self._current_cred_state = file_state
+            self._state_dirty = False  # 刚加载的状态不脏
+            
+            return file_state
+            
+        except Exception as e:
+            log.error(f"Failed to load state for {filename_key}: {e}")
+            # 返回默认状态
+            default_state = {
+                "error_codes": [],
+                "disabled": False,
+                "last_success": time.time(),
+                "user_email": None,
+                # 使用统计字段直接集成在文件状态中
+                "gemini_2_5_pro_calls": 0,
+                "total_calls": 0,
+                "next_reset_time": None,
+                "daily_limit_gemini_2_5_pro": 100,
+                "daily_limit_total": 1500
+            }
+            self._current_cred_file = filename_key
+            self._current_cred_state = default_state
+            self._state_dirty = True  # 需要保存这个默认状态
+            return default_state
 
     async def record_error(self, filename: str, status_code: int, response_content: str = ""):
         """记录API错误码"""
         async with self._write_context():
-            # 使用相对路径进行状态管理
-            relative_filename = _normalize_to_relative_path(filename)
-            cred_state = self._get_cred_state(filename)
+            # 获取文件状态
+            cred_state = await self._get_cred_state(filename)
             
             # 记录错误码
             if "error_codes" not in cred_state:
@@ -399,8 +372,8 @@ class CredentialManager:
     async def record_success(self, filename: str, api_type: str = "other"):
         """记录成功的API调用"""
         async with self._write_context():
-            # 使用相对路径进行状态管理
-            cred_state = self._get_cred_state(filename)
+            # 获取文件状态
+            cred_state = await self._get_cred_state(filename)
             
             # 只有聊天内容生成API成功才清除错误码，其他API不清除
             if api_type == "chat_content":
@@ -414,57 +387,14 @@ class CredentialManager:
 
     async def fetch_user_email(self, filename: str) -> Optional[str]:
         """获取凭证对应的用户邮箱地址"""
-        try:
-            # 加载凭证
-            creds, _ = await self._load_credentials_from_file(filename)
-            if not creds or not creds.token:
-                log.warning(f"无法加载凭证或获取访问令牌: {filename}")
-                return None
-            
-            # 刷新令牌如果需要
-            if creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(GoogleAuthRequest())
-                except Exception as e:
-                    log.warning(f"刷新凭证失败 {filename}: {e}")
-                    return None
-            
-            # 调用Google userinfo API获取邮箱
-            if not self._http_client:
-                log.warning("HTTP客户端未初始化")
-                return None
-                
-            headers = {
-                "Authorization": f"Bearer {creds.token}",
-                "Accept": "application/json"
-            }
-            
-            response = await self._http_client.get(
-                "https://openidconnect.googleapis.com/v1/userinfo",
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                user_info = response.json()
-                email = user_info.get("email")
-                if email:
-                    log.info(f"成功获取邮箱地址: {email} for {os.path.basename(filename)}")
-                    return email
-                else:
-                    log.warning(f"userinfo响应中没有邮箱信息: {user_info}")
-                    return None
-            else:
-                log.warning(f"获取用户信息失败 {filename}: HTTP {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            log.error(f"获取用户邮箱失败 {filename}: {e}")
-            return None
+        # 使用google_oauth_api模块的函数
+        filepath = _make_standard_path(filename)
+        return await fetch_user_email_from_file(filepath)
 
     async def get_or_fetch_user_email(self, filename: str) -> Optional[str]:
         """获取用户邮箱（优先使用缓存，如果没有则从API获取）"""
         async with self._read_context():
-            cred_state = self._get_cred_state(filename)
+            cred_state = await self._get_cred_state(filename)
             
             # 检查是否已经有邮箱信息
             if "user_email" in cred_state and cred_state["user_email"]:
@@ -474,7 +404,7 @@ class CredentialManager:
         email = await self.fetch_user_email(filename)
         if email:
             async with self._write_context():
-                cred_state = self._get_cred_state(filename)
+                cred_state = await self._get_cred_state(filename)
                 cred_state["user_email"] = email
                 self._state_dirty = True  # 标记状态已修改
                 await self._save_state()
@@ -482,21 +412,21 @@ class CredentialManager:
         return email
 
 
-    def is_cred_disabled(self, filename: str) -> bool:
+    async def is_cred_disabled(self, filename: str) -> bool:
         """检查凭证是否被禁用"""
-        cred_state = self._get_cred_state(filename)
+        cred_state = await self._get_cred_state(filename)
         return cred_state.get("disabled", False)
 
     async def set_cred_disabled(self, filename: str, disabled: bool):
         """设置凭证的禁用状态"""
         async with self._write_context():
-            relative_filename = _normalize_to_relative_path(filename)
-            log.info(f"Setting disabled={disabled} for file: {relative_filename}")
-            cred_state = self._get_cred_state(filename)
+            filename_key = _normalize_filename_only(filename)
+            log.info(f"Setting disabled={disabled} for file: {filename_key}")
+            cred_state = await self._get_cred_state(filename)
             old_disabled = cred_state.get("disabled", False)
             cred_state["disabled"] = disabled
             self._state_dirty = True  # 标记状态已修改
-            log.info(f"Updated state for {relative_filename}: {cred_state}")
+            log.info(f"Updated state for {filename_key}: {cred_state}")
             await self._save_state()
             log.info(f"State saved successfully")
             
@@ -508,34 +438,70 @@ class CredentialManager:
                 await self._discover_credential_files()
                 log.info(f"File list refreshed. Available files: {len(self._credential_files)}")
 
-    def get_creds_status(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有凭证的状态信息"""
+    async def get_creds_status(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有凭证的状态信息 - 直接从文件读取以减少内存占用"""
         status = {}
-        # 获取所有文件
-        credentials_dir = CREDENTIALS_DIR
-        patterns = [os.path.join(credentials_dir, "*.json")]
-        all_files = []
-        for pattern in patterns:
-            all_files.extend(glob.glob(pattern))
-        all_files = sorted(list(set(all_files)))
         
-        for filename in all_files:
-            # 使用相对路径作为键，但返回时仍使用绝对路径（兼容前端）
-            absolute_filename = os.path.abspath(filename)
-            cred_state = self._get_cred_state(filename)
-            file_status = {
-                "error_codes": cred_state.get("error_codes", []),
-                "disabled": cred_state.get("disabled", False),
-                "last_success": cred_state.get("last_success"),
-                "user_email": cred_state.get("user_email")
-            }
-            status[absolute_filename] = file_status
+        try:
+            # 加载完整的状态文件
+            existing_state = {}
+            if os.path.exists(self._state_file):
+                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                existing_state = toml.loads(content)
             
-            # 调试：记录特定文件的状态
-            basename = os.path.basename(filename)
-            if "atomic-affinity" in basename:
-                relative_filename = _normalize_to_relative_path(filename)
-                log.info(f"Status for {basename}: disabled={file_status['disabled']} (normalized: {relative_filename})")
+            # 获取所有文件
+            credentials_dir = CREDENTIALS_DIR
+            patterns = [os.path.join(credentials_dir, "*.json")]
+            all_files = []
+            for pattern in patterns:
+                all_files.extend(glob.glob(pattern))
+            all_files = sorted(list(set(all_files)))
+            
+            for filename in all_files:
+                # 统一路径处理：内部使用文件名作为key，返回时使用标准路径
+                standard_path = _make_standard_path(filename)
+                filename_key = _normalize_filename_only(filename)
+                
+                # 直接从状态文件中查找状态
+                file_state = existing_state.get(filename_key)
+                
+                # 如果还是没找到，使用默认状态
+                if not file_state:
+                    file_state = {
+                        "error_codes": [],
+                        "disabled": False,
+                        "last_success": None,
+                        "user_email": None,
+                        # 使用统计字段直接集成在文件状态中
+                        "gemini_2_5_pro_calls": 0,
+                        "total_calls": 0,
+                        "next_reset_time": None,
+                        "daily_limit_gemini_2_5_pro": 100,
+                        "daily_limit_total": 1500
+                    }
+                
+                file_status = {
+                    "error_codes": file_state.get("error_codes", []),
+                    "disabled": file_state.get("disabled", False),
+                    "last_success": file_state.get("last_success"),
+                    "user_email": file_state.get("user_email"),
+                    # 包含使用统计信息
+                    "gemini_2_5_pro_calls": file_state.get("gemini_2_5_pro_calls", 0),
+                    "total_calls": file_state.get("total_calls", 0),
+                    "next_reset_time": file_state.get("next_reset_time"),
+                    "daily_limit_gemini_2_5_pro": file_state.get("daily_limit_gemini_2_5_pro", 100),
+                    "daily_limit_total": file_state.get("daily_limit_total", 1500)
+                }
+                status[standard_path] = file_status
+                
+                # 调试：记录特定文件的状态
+                basename = os.path.basename(filename)
+                if "atomic-affinity" in basename:
+                    log.info(f"Status for {basename}: disabled={file_status['disabled']} (key: {filename_key})")
+                    
+        except Exception as e:
+            log.error(f"Failed to get credentials status: {e}")
                 
         return status
 
@@ -545,19 +511,6 @@ class CredentialManager:
 
     async def _discover_credential_files(self):
         """Discover all credential files with hot reload support."""
-        # 获取状态文件中记录的文件列表（作为基准进行对比）
-        state_files = set()
-        if self._creds_state:
-            for key in self._creds_state.keys():
-                # 跳过usage_stats等非文件名的key
-                if not key.endswith('.usage_stats'):
-                    # 将相对路径转换为绝对路径以便对比
-                    if not os.path.isabs(key):
-                        abs_path = os.path.join(CREDENTIALS_DIR, key)
-                        state_files.add(abs_path)
-                    else:
-                        state_files.add(key)
-        
         all_files = []
         
         # Discover from directory
@@ -571,57 +524,119 @@ class CredentialManager:
         
         all_files = sorted(list(set(all_files)))
         
-        # 过滤掉被禁用的文件（移除CD机制）
+        # 立即同步状态文件，确保状态文件与实际文件系统保持一致
+        await self._sync_state_with_files(all_files)
+        
+        # 重新加载状态文件（现在已经是最新的）
+        existing_state = {}
+        try:
+            if os.path.exists(self._state_file):
+                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                existing_state = toml.loads(content)
+        except Exception as e:
+            log.debug(f"Failed to load state for file filtering: {e}")
+        
+        # 获取状态文件中记录的所有可用文件（转为标准路径格式）
+        state_available_files = set()
+        for filename_key, file_state in existing_state.items():
+            if not file_state.get("disabled", False):
+                standard_path = _make_standard_path(filename_key)
+                state_available_files.add(standard_path)
+        
+        # 过滤掉被禁用的文件（统一使用文件名作为key）
         self._credential_files = []
         for filename in all_files:
-            is_disabled = self.is_cred_disabled(filename)
+            filename_key = _normalize_filename_only(filename)
+            file_state = existing_state.get(filename_key, {})
+            is_disabled = file_state.get("disabled", False)
             
             if not is_disabled:
-                self._credential_files.append(filename)
+                # 使用标准路径格式存储
+                standard_path = _make_standard_path(filename)
+                self._credential_files.append(standard_path)
             else:
                 # 记录被过滤的文件信息供调试
                 log.debug(f"Filtered out {os.path.basename(filename)}: disabled")
         
-        new_files = set(self._credential_files)
+        # 与状态文件中记录的可用文件进行比较
+        new_available_files = set(self._credential_files)
         
-        # 检测文件变化 - 与状态文件中记录的文件对比
-        if state_files != new_files:
-            added_files = new_files - state_files
-            removed_files = state_files - new_files
+        # 检测文件变化
+        if state_available_files != new_available_files:
+            added_files = new_available_files - state_available_files
+            removed_files = state_available_files - new_available_files
             
             if added_files:
                 log.info(f"发现新的可用凭证文件: {[os.path.basename(f) for f in added_files]}")
             
             if removed_files:
-                log.info(f"凭证文件已移除或不可用: {[os.path.basename(f) for f in removed_files]}")
+                log.info(f"移除不可用的文件: {[os.path.basename(f) for f in removed_files]}")
                 # 如果当前使用的文件被移除，切换到下一个文件
                 if self._credential_files and self._current_credential_index >= len(self._credential_files):
                     self._current_credential_index = 0
-        
-        # 同步状态文件，清理不存在的文件状态
-        await self._sync_state_with_files(all_files)
+        else:
+            log.debug(f"文件列表无变化: {len(new_available_files)} 个文件")
         
         if not self._credential_files:
             log.warning("No available credential files found")
 
     async def _sync_state_with_files(self, current_files: List[str]):
-        """同步状态文件与实际文件"""
-        # 标准化当前文件列表为相对路径
-        normalized_current_files = [_normalize_to_relative_path(f) for f in current_files]
+        """同步状态文件与实际文件（删除不存在的，添加新发现的）"""
+        # 统一当前文件列表为文件名格式
+        current_filename_keys = [_normalize_filename_only(f) for f in current_files]
         
-        # 移除不存在文件的状态
-        files_to_remove = []
-        for filename in list(self._creds_state.keys()):
-            # 将状态文件中的键也标准化为相对路径进行比较
-            normalized_state_key = _normalize_to_relative_path(filename) if not filename.startswith('<ENV_') else filename
-            if normalized_state_key not in normalized_current_files:
-                files_to_remove.append(filename)
-        
-        if files_to_remove:
-            for filename in files_to_remove:
-                del self._creds_state[filename]
-            await self._save_state()
-            log.info(f"Removed state for deleted files: {files_to_remove}")
+        try:
+            # 加载现有状态文件
+            existing_state = {}
+            if os.path.exists(self._state_file):
+                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                existing_state = toml.loads(content)
+            
+            # 记录变化
+            files_removed = []
+            files_added = []
+            state_changed = False
+            
+            # 移除不存在文件的状态
+            for filename_key in list(existing_state.keys()):
+                if filename_key not in current_filename_keys:
+                    del existing_state[filename_key]
+                    files_removed.append(filename_key)
+                    state_changed = True
+            
+            # 添加新发现文件的默认状态
+            for filename_key in current_filename_keys:
+                if filename_key not in existing_state:
+                    existing_state[filename_key] = {
+                        "error_codes": [],
+                        "disabled": False,
+                        "last_success": time.time(),
+                        "user_email": None,
+                        # 统计字段直接集成在文件状态中
+                        "gemini_2_5_pro_calls": 0,
+                        "total_calls": 0,
+                        "next_reset_time": None,
+                        "daily_limit_gemini_2_5_pro": 100,
+                        "daily_limit_total": 1500
+                    }
+                    files_added.append(filename_key)
+                    state_changed = True
+            
+            # 如果有变化，写回状态文件
+            if state_changed:
+                os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
+                async with aiofiles.open(self._state_file, "w", encoding="utf-8") as f:
+                    await f.write(toml.dumps(existing_state))
+                
+                if files_removed:
+                    log.debug(f"Removed state for deleted files: {files_removed}")
+                if files_added:
+                    log.debug(f"Added state for new files: {files_added}")
+                
+        except Exception as e:
+            log.error(f"Failed to sync state with files: {e}")
 
     def _should_rotate(self) -> bool:
         """检查是否需要轮换凭证"""
@@ -661,34 +676,61 @@ class CredentialManager:
         
         # 复制当前状态以避免并发修改问题
         try:
+            # 一次性加载状态文件，避免在循环中反复读取
+            existing_state = {}
+            if os.path.exists(self._state_file):
+                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                existing_state = toml.loads(content)
+            
             # 检查文件系统中的凭证
             if os.path.exists(CREDENTIALS_DIR):
                 json_pattern = os.path.join(CREDENTIALS_DIR, "*.json")
                 for filepath in glob.glob(json_pattern):
-                    # 检查禁用状态，使用相对路径保持一致性
-                    if not self.is_cred_disabled(filepath):
-                        # 转换为相对路径格式 ./creds/filename.json
-                        relative_path = os.path.join("./creds", os.path.basename(filepath))
-                        temp_files.append(relative_path)
+                    # 检查禁用状态，使用文件名作为key
+                    filename_key = _normalize_filename_only(filepath)
+                    file_state = existing_state.get(filename_key, {})
+                    is_disabled = file_state.get("disabled", False)
+                    
+                    if not is_disabled:
+                        # 使用标准路径格式
+                        standard_path = _make_standard_path(filepath)
+                        temp_files.append(standard_path)
             
             # 在锁内快速更新文件列表
             async with self._state_lock:
                 if temp_files != self._credential_files:
-                    # 获取状态文件中记录的文件列表（作为基准进行对比）
-                    state_files = set()
-                    if self._creds_state:
-                        for key in self._creds_state.keys():
-                            # 跳过usage_stats等非文件名的key
-                            if not key.endswith('.usage_stats'):
-                                state_files.add(key)
+                    # 先获取所有文件（包括被禁用的）进行状态同步
+                    all_files = []
+                    if os.path.exists(CREDENTIALS_DIR):
+                        json_pattern = os.path.join(CREDENTIALS_DIR, "*.json")
+                        all_files = glob.glob(json_pattern)
                     
+                    # 同步状态文件
+                    await self._sync_state_with_files(all_files)
+                    
+                    # 重新加载状态文件
+                    existing_state = {}
+                    if os.path.exists(self._state_file):
+                        async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
+                            content = await f.read()
+                        existing_state = toml.loads(content)
+                    
+                    # 获取状态文件中记录的所有可用文件
+                    state_available_files = set()
+                    for filename_key, file_state in existing_state.items():
+                        if not file_state.get("disabled", False):
+                            standard_path = _make_standard_path(filename_key)
+                            state_available_files.add(standard_path)
+                    
+                    # 更新文件列表
                     self._credential_files = temp_files
-                    new_files = set(self._credential_files)
+                    new_available_files = set(self._credential_files)
                     
-                    # 日志记录变化 - 与状态文件中记录的文件对比
-                    if state_files != new_files:
-                        added_files = new_files - state_files
-                        removed_files = state_files - new_files
+                    # 与状态文件中记录的可用文件进行比较
+                    if state_available_files != new_available_files:
+                        added_files = new_available_files - state_available_files
+                        removed_files = state_available_files - new_available_files
                         
                         if added_files:
                             log.info(f"发现新的可用凭证文件: {[os.path.basename(f) for f in added_files]}")
@@ -749,8 +791,6 @@ class CredentialManager:
             # 需要加载新凭证
             if self._call_count >= current_calls_per_rotation:
                 log.info(f"Rotating credentials after {self._call_count} calls")
-            else:
-                log.info("Cache miss - loading fresh credentials")
             
             # 轮换凭证
             await self._rotate_credential_if_needed()
@@ -784,15 +824,15 @@ class CredentialManager:
             creds_data = json.loads(content)
             
             # 更新access_token和过期时间（使用标准OAuth2字段名）
-            if creds.token:
-                creds_data["access_token"] = creds.token
-                # 移除旧的token字段（如果存在）避免重复
+            if creds.access_token:
+                creds_data["access_token"] = creds.access_token
+                # 移除token字段避免重复
                 if "token" in creds_data:
                     del creds_data["token"]
             
-            if creds.expiry:
+            if creds.expires_at:
                 # 保存ISO格式的过期时间
-                creds_data["expiry"] = creds.expiry.isoformat()
+                creds_data["expiry"] = creds.expires_at.isoformat()
             
             # 写入队列化处理
             await self._queue_write_operation(
@@ -800,7 +840,7 @@ class CredentialManager:
                 file_path, creds_data
             )
             
-            log.info(f"Token已更新到文件: {os.path.basename(file_path)}")
+            log.debug(f"Token已更新到文件: {os.path.basename(file_path)}")
             
         except Exception as e:
             log.error(f"更新token到文件失败 {file_path}: {e}")
@@ -856,17 +896,17 @@ class CredentialManager:
                     log.warning(f"Could not parse expiry in {file_path}: {e}")
                     del creds_data["expiry"]
             
-            creds = Credentials.from_authorized_user_info(creds_data, creds_data.get("scopes"))
+            creds = Credentials.from_dict(creds_data)
             project_id = creds_data.get("project_id")
             setattr(creds, "project_id", project_id)
             
             # 智能token管理：检查是否需要刷新，如果需要则刷新并写入文件
-            should_refresh = creds.expired and creds.refresh_token
+            should_refresh = creds.is_expired() and creds.refresh_token
             
             # 调试OAuth2库的过期检查
             log.debug(f"OAuth2库过期检查 - 文件: {os.path.basename(file_path)}")
-            log.debug(f"creds.expired: {creds.expired}")
-            log.debug(f"creds.expiry: {creds.expiry}")
+            log.debug(f"creds.is_expired(): {creds.is_expired()}")
+            log.debug(f"creds.expires_at: {creds.expires_at}")
             log.debug(f"should_refresh (初始): {should_refresh}")
 
             # 如果文件中已有有效access_token，先尝试使用它
@@ -900,9 +940,9 @@ class CredentialManager:
                         if time_left > 300:  # 5分钟缓冲
                             # 使用文件中的access_token（优先）或token
                             file_token = creds_data.get("access_token") or creds_data.get("token")
-                            creds._token = file_token
-                            creds._expiry = file_expiry
-                            log.info(f"使用文件中的有效access_token，剩余时间: {int(time_left/60)}分钟")
+                            creds.access_token = file_token
+                            creds.expires_at = file_expiry
+                            log.debug(f"使用文件中的有效access_token，剩余时间: {int(time_left/60)}分钟")
                         else:
                             should_refresh = True
                             log.debug(f"文件中token即将过期（剩余{int(time_left/60)}分钟），需要刷新")
@@ -915,11 +955,12 @@ class CredentialManager:
             if should_refresh:
                 try:
                     log.debug(f"刷新token - 文件: {os.path.basename(file_path)}")
-                    creds.refresh(GoogleAuthRequest())
+                    # 在异步上下文中，直接调用异步刷新
+                    await creds.refresh()
                     
                     # 刷新成功后写入文件
                     await self._update_token_in_file(file_path, creds)
-                    log.info(f"Token刷新并保存成功: {os.path.basename(file_path)}")
+                    log.debug(f"Token刷新并保存成功: {os.path.basename(file_path)}")
                         
                 except Exception as e:
                     log.warning(f"Token刷新失败 {os.path.basename(file_path)}: {e}")
@@ -971,7 +1012,7 @@ class CredentialManager:
             # 记录当前使用的文件名称供调试
             if self._credential_files:
                 current_file = self._credential_files[self._current_credential_index]
-                log.info(f"Now using credential: {os.path.basename(current_file)}")
+                log.debug(f"Now using credential: {os.path.basename(current_file)}")
 
     def get_user_project_id(self, creds: Credentials) -> str:
         """Get user project ID from credentials."""
@@ -995,14 +1036,14 @@ class CredentialManager:
             if self._onboarding_complete:
                 return
             
-            if creds.expired and creds.refresh_token:
+            if creds.is_expired() and creds.refresh_token:
                 try:
-                    creds.refresh(GoogleAuthRequest())
+                    await creds.refresh()
                 except Exception as e:
                     raise Exception(f"Failed to refresh credentials during onboarding: {str(e)}")
             
             headers = {
-                "Authorization": f"Bearer {creds.token}",
+                "Authorization": f"Bearer {creds.access_token}",
                 "Content-Type": "application/json",
                 "User-Agent": get_user_agent(),
             }
@@ -1013,13 +1054,14 @@ class CredentialManager:
             }
             
             try:
-                # Use reusable HTTP client
-                resp = await self._http_client.post(
-                    f"{CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist",
-                    json=load_assist_payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
+                # Use HTTP client from httpx_client module
+                async with http_client.get_client() as client:
+                    resp = await client.post(
+                        f"{get_code_assist_endpoint()}/v1internal:loadCodeAssist",
+                        json=load_assist_payload,
+                        headers=headers,
+                    )
+                    resp.raise_for_status()
                 load_data = resp.json()
                 
                 # Determine tier
@@ -1055,13 +1097,14 @@ class CredentialManager:
                 }
 
                 while True:
-                    onboard_resp = await self._http_client.post(
-                        f"{CODE_ASSIST_ENDPOINT}/v1internal:onboardUser",
-                        json=onboard_req_payload,
-                        headers=headers,
-                    )
-                    onboard_resp.raise_for_status()
-                    lro_data = onboard_resp.json()
+                    async with http_client.get_client() as client:
+                        onboard_resp = await client.post(
+                            f"{get_code_assist_endpoint()}/v1internal:onboardUser",
+                            json=onboard_req_payload,
+                            headers=headers,
+                        )
+                        onboard_resp.raise_for_status()
+                        lro_data = onboard_resp.json()
 
                     if lro_data.get("done"):
                         self._onboarding_complete = True
@@ -1069,7 +1112,7 @@ class CredentialManager:
                     
                     await asyncio.sleep(5)
 
-            except httpx.HTTPStatusError as e:
+            except Exception as e:
                 error_text = e.response.text if hasattr(e, 'response') else str(e)
                 raise Exception(f"User onboarding failed. Please check your Google Cloud project permissions and try again. Error: {error_text}")
             except Exception as e:

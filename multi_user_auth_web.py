@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 # 导入本地模块
 try:
-    from src.auth_api import (
+    from src.auth import (
         create_auth_url, 
         verify_password, 
         generate_auth_token, 

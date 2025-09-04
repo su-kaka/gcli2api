@@ -6,7 +6,6 @@ import json
 import os
 import secrets
 import socket
-import subprocess
 import threading
 import time
 import uuid
@@ -15,14 +14,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
-import httpx
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-
+from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, select_default_project
 from config import CREDENTIALS_DIR, get_config_value
 from log import log
-from .memory_manager import register_memory_cleanup
 
 # OAuth Configuration
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -37,8 +31,9 @@ SCOPES = [
 CALLBACK_HOST = 'localhost'
 DEFAULT_CALLBACK_PORT = int(get_config_value('oauth_callback_port', '8080', 'OAUTH_CALLBACK_PORT'))
 
-# 全局状态管理
+# 全局状态管理 - 严格限制大小
 auth_flows = {}  # 存储进行中的认证流程
+MAX_AUTH_FLOWS = 20  # 严格限制最大认证流程数
 
 def cleanup_auth_flows_for_memory():
     """清理认证流程以释放内存"""
@@ -46,7 +41,6 @@ def cleanup_auth_flows_for_memory():
     cleaned = cleanup_expired_flows()
     # 如果还是太多，强制清理一些旧的流程
     if len(auth_flows) > 10:
-        current_time = time.time()
         # 按创建时间排序，保留最新的10个
         sorted_flows = sorted(auth_flows.items(), key=lambda x: x[1].get('created_at', 0), reverse=True)
         new_auth_flows = dict(sorted_flows[:10])
@@ -68,8 +62,6 @@ def cleanup_auth_flows_for_memory():
     
     return len(auth_flows)
 
-# 注册内存清理函数
-register_memory_cleanup("auth_flows", cleanup_auth_flows_for_memory)
 
 def find_available_port(start_port: int = None) -> int:
     """动态查找可用端口"""
@@ -147,177 +139,6 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-async def enable_required_apis(credentials: Credentials, project_id: str) -> bool:
-    """自动启用必需的API服务"""
-    try:
-        # 确保凭证有效
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(GoogleAuthRequest())
-        
-        headers = {
-            "Authorization": f"Bearer {credentials.token}",
-            "Content-Type": "application/json",
-            "User-Agent": "geminicli-oauth/1.0",
-        }
-        
-        # 需要启用的服务列表
-        required_services = [
-            "geminicloudassist.googleapis.com",  # Gemini Cloud Assist API
-            "cloudaicompanion.googleapis.com"    # Gemini for Google Cloud API
-        ]
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for service in required_services:
-                log.info(f"正在检查并启用服务: {service}")
-                
-                # 检查服务是否已启用
-                check_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}"
-                try:
-                    check_response = await client.get(check_url, headers=headers)
-                    if check_response.status_code == 200:
-                        service_data = check_response.json()
-                        if service_data.get("state") == "ENABLED":
-                            log.info(f"服务 {service} 已启用")
-                            continue
-                except Exception as e:
-                    log.debug(f"检查服务状态失败，将尝试启用: {e}")
-                
-                # 启用服务
-                enable_url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}:enable"
-                try:
-                    enable_response = await client.post(enable_url, headers=headers, json={})
-                    
-                    if enable_response.status_code in [200, 201]:
-                        log.info(f"✅ 成功启用服务: {service}")
-                    elif enable_response.status_code == 400:
-                        error_data = enable_response.json()
-                        if "already enabled" in error_data.get("error", {}).get("message", "").lower():
-                            log.info(f"✅ 服务 {service} 已经启用")
-                        else:
-                            log.warning(f"⚠️ 启用服务 {service} 时出现警告: {error_data}")
-                    else:
-                        log.warning(f"⚠️ 启用服务 {service} 失败: {enable_response.status_code} - {enable_response.text}")
-                        
-                except Exception as e:
-                    log.warning(f"⚠️ 启用服务 {service} 时发生异常: {e}")
-                    
-        return True
-        
-    except Exception as e:
-        log.error(f"启用API服务时发生错误: {e}")
-        return False
-
-
-async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
-    """获取用户可访问的Google Cloud项目列表"""
-    try:
-        # 确保凭证有效
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(GoogleAuthRequest())
-        
-        headers = {
-            "Authorization": f"Bearer {credentials.token}",
-            "User-Agent": "geminicli-oauth/1.0",
-        }
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # 使用v3 API的projects:search端点
-            url = "https://cloudresourcemanager.googleapis.com/v3/projects:search"
-            log.info(f"正在调用API: {url}")
-            response = await client.get(url, headers=headers)
-            
-            log.info(f"API响应状态码: {response.status_code}")
-            if response.status_code != 200:
-                log.error(f"API响应内容: {response.text}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                projects = data.get('projects', [])
-                # 只返回活跃的项目
-                active_projects = [
-                    project for project in projects 
-                    if project.get('state') == 'ACTIVE'
-                ]
-                log.info(f"获取到 {len(active_projects)} 个活跃项目")
-                return active_projects
-            elif response.status_code == 403:
-                log.warning(f"没有权限访问项目列表: {response.text}")
-                # 尝试用户信息API来获取一些线索
-                try:
-                    userinfo_response = await client.get(
-                        "https://www.googleapis.com/oauth2/v2/userinfo",
-                        headers=headers
-                    )
-                    if userinfo_response.status_code == 200:
-                        userinfo = userinfo_response.json()
-                        log.info(f"获取到用户信息: {userinfo.get('email')}")
-                except:
-                    pass
-                return []
-            else:
-                log.warning(f"获取项目列表失败: {response.status_code} - {response.text}")
-                return []
-                
-    except Exception as e:
-        log.error(f"获取用户项目列表失败: {e}")
-        return []
-
-
-async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str]:
-    """从项目列表中选择默认项目"""
-    if not projects:
-        return None
-    
-    # 策略1：查找显示名称或项目ID包含"default"的项目
-    for project in projects:
-        display_name = project.get('displayName', '').lower()
-        project_id = project.get('projectId', '')
-        if 'default' in display_name or 'default' in project_id.lower():
-            log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
-            return project_id
-    
-    # 策略2：选择第一个项目
-    first_project = projects[0]
-    project_id = first_project.get('projectId', '')
-    log.info(f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})")
-    return project_id
-
-
-async def auto_detect_project_id() -> Optional[str]:
-    """尝试从Google Cloud环境自动检测项目ID"""
-    try:
-        # 尝试从Google Cloud Metadata服务获取项目ID
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(
-                "http://metadata.google.internal/computeMetadata/v1/project/project-id",
-                headers={"Metadata-Flavor": "Google"}
-            )
-            if response.status_code == 200:
-                project_id = response.text.strip()
-                log.info(f"从Google Cloud Metadata自动检测到项目ID: {project_id}")
-                return project_id
-    except Exception as e:
-        log.debug(f"无法从Metadata服务获取项目ID: {e}")
-    
-    # 尝试从gcloud配置获取默认项目
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"], 
-            capture_output=True, 
-            text=True, 
-            timeout=5
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            project_id = result.stdout.strip()
-            if project_id != "(unset)":
-                log.info(f"从gcloud配置自动检测到项目ID: {project_id}")
-                return project_id
-    except Exception as e:
-        log.debug(f"无法从gcloud配置获取项目ID: {e}")
-    
-    log.info("无法自动检测项目ID，将需要用户手动输入")
-    return None
-
 
 def create_auth_url(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
@@ -354,13 +175,12 @@ def create_auth_url(project_id: Optional[str] = None, user_session: str = None) 
             }
         }
         
-        flow = Flow.from_client_config(
-            client_config,
+        flow = Flow(
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
             scopes=SCOPES,
             redirect_uri=callback_url
         )
-        
-        flow.oauth2session.scope = SCOPES
         
         # 生成状态标识符，包含用户会话信息
         if user_session:
@@ -369,12 +189,25 @@ def create_auth_url(project_id: Optional[str] = None, user_session: str = None) 
             state = str(uuid.uuid4())
         
         # 生成认证URL
-        auth_url, _ = flow.authorization_url(
-            access_type="offline",
-            prompt="consent",
-            include_granted_scopes='true',
-            state=state
-        )
+        auth_url = flow.get_auth_url(state=state)
+        
+        # 严格控制认证流程数量 - 超过限制时立即清理最旧的
+        if len(auth_flows) >= MAX_AUTH_FLOWS:
+            # 清理最旧的认证流程
+            oldest_state = min(auth_flows.keys(), 
+                             key=lambda k: auth_flows[k].get('created_at', 0))
+            try:
+                # 清理服务器资源
+                old_flow = auth_flows[oldest_state]
+                if old_flow.get('server'):
+                    server = old_flow['server']
+                    port = old_flow.get('callback_port')
+                    async_shutdown_server(server, port)
+            except Exception as e:
+                log.warning(f"Failed to cleanup old auth flow {oldest_state}: {e}")
+            
+            del auth_flows[oldest_state]
+            log.debug(f"Removed oldest auth flow: {oldest_state}")
         
         # 保存流程状态
         auth_flows[state] = {
@@ -484,21 +317,7 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
                 'error': '未找到对应的认证流程，请先点击获取认证链接'
             }
         
-        # 如果需要自动检测项目ID且没有提供项目ID
-        if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("尝试自动检测项目ID...")
-            detected_project_id = await auto_detect_project_id()
-            if detected_project_id:
-                project_id = detected_project_id
-                flow_data['project_id'] = project_id
-                log.info(f"自动检测到项目ID: {project_id}")
-            else:
-                return {
-                    'success': False,
-                    'error': '无法自动检测项目ID，请手动指定项目ID',
-                    'requires_manual_project_id': True
-                }
-        elif not project_id:
+        if not project_id:
             project_id = flow_data.get('project_id')
             if not project_id:
                 return {
@@ -539,14 +358,14 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
+            credentials = await flow.exchange_code(auth_code)
+            # credentials 已经在 exchange_code 中获得
             
             # 如果需要自动检测项目ID且没有提供项目ID
             if flow_data.get('auto_project_detection', False) and not project_id:
                 log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expiry}")
+                log.info(f"使用的token: {credentials.access_token[:20]}...")
+                log.info(f"Token过期时间: {credentials.expires_at}")
                 user_projects = await get_user_projects(credentials)
                 
                 if user_projects:
@@ -600,18 +419,18 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
             creds_data = {
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "token": credentials.token,
+                "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
-                "scopes": credentials.scopes if credentials.scopes else SCOPES,
+                "scopes": SCOPES,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": project_id
             }
             
-            if credentials.expiry:
-                if credentials.expiry.tzinfo is None:
-                    expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
                 else:
-                    expiry_utc = credentials.expiry
+                    expiry_utc = credentials.expires_at
                 creds_data["expiry"] = expiry_utc.isoformat()
             
             # 清理使用过的流程
@@ -714,19 +533,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         # 如果需要自动检测项目ID且没有提供项目ID
         log.info(f"[ASYNC] 检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
         if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("[ASYNC] 进入自动检测项目ID分支")
-            log.info("尝试自动检测项目ID...")
-            try:
-                detected_project_id = await auto_detect_project_id()
-                log.info(f"[ASYNC] auto_detect_project_id返回: {detected_project_id}")
-                if detected_project_id:
-                    project_id = detected_project_id
-                    flow_data['project_id'] = project_id
-                    log.info(f"自动检测到项目ID: {project_id}")
-                else:
-                    log.info("[ASYNC] 环境自动检测失败，跳过OAuth检查，直接进入等待阶段")
-            except Exception as e:
-                log.error(f"[ASYNC] auto_detect_project_id发生异常: {e}")
+            log.info("[ASYNC] 跳过自动检测项目ID，进入等待阶段")
         elif not project_id:
             log.info("[ASYNC] 进入project_id检查分支")
             project_id = flow_data.get('project_id')
@@ -786,18 +593,18 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            log.info(f"[ASYNC] 调用flow.fetch_token...")
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
-            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.token[:20] if credentials.token else 'None'}...")
+            log.info(f"[ASYNC] 调用flow.fetch_token_async...")
+            credentials = await flow.exchange_code(auth_code)
+            # credentials 已经在 exchange_code 中获得
+            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
             
             log.info(f"[ASYNC] 检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
             
             # 如果需要自动检测项目ID且没有提供项目ID
             if flow_data.get('auto_project_detection', False) and not project_id:
                 log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expiry}")
+                log.info(f"使用的token: {credentials.access_token[:20]}...")
+                log.info(f"Token过期时间: {credentials.expires_at}")
                 user_projects = await get_user_projects(credentials)
                 
                 if user_projects:
@@ -861,18 +668,18 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             creds_data = {
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "token": credentials.token,
+                "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
-                "scopes": credentials.scopes if credentials.scopes else SCOPES,
+                "scopes": SCOPES,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "project_id": project_id
             }
             
-            if credentials.expiry:
-                if credentials.expiry.tzinfo is None:
-                    expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
                 else:
-                    expiry_utc = credentials.expiry
+                    expiry_utc = credentials.expires_at
                 creds_data["expiry"] = expiry_utc.isoformat()
             
             # 清理使用过的流程
@@ -928,18 +735,18 @@ def save_credentials(creds: Credentials, project_id: str) -> str:
     creds_data = {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "token": creds.token,
+        "token": creds.access_token,
         "refresh_token": creds.refresh_token,
-        "scopes": creds.scopes if creds.scopes else SCOPES,
+        "scopes": SCOPES,
         "token_uri": "https://oauth2.googleapis.com/token",
         "project_id": project_id
     }
     
-    if creds.expiry:
-        if creds.expiry.tzinfo is None:
-            expiry_utc = creds.expiry.replace(tzinfo=timezone.utc)
+    if creds.expires_at:
+        if creds.expires_at.tzinfo is None:
+            expiry_utc = creds.expires_at.replace(tzinfo=timezone.utc)
         else:
-            expiry_utc = creds.expiry
+            expiry_utc = creds.expires_at
         creds_data["expiry"] = expiry_utc.isoformat()
     
     # 保存到文件
@@ -988,9 +795,7 @@ def async_shutdown_server(server, port):
 def cleanup_expired_flows():
     """清理过期的认证流程"""
     current_time = time.time()
-    
-    # 使用更短的过期时间，减少内存占用
-    EXPIRY_TIME = 600  # 10分钟过期，减少内存占用
+    EXPIRY_TIME = 600  # 10分钟过期
     
     # 直接遍历删除，避免创建额外列表
     states_to_remove = [
@@ -1044,7 +849,7 @@ def get_auth_status(project_id: str) -> Dict[str, Any]:
 
 # 鉴权功能 - 使用更小的数据结构
 auth_tokens = {}  # 存储有效的认证令牌
-TOKEN_EXPIRY = 21600  # 6小时令牌过期时间，减少内存占用
+TOKEN_EXPIRY = 3600  # 1小时令牌过期时间
 
 
 def verify_password(password: str) -> bool:
@@ -1060,7 +865,7 @@ def generate_auth_token() -> str:
     cleanup_expired_tokens()
     
     token = secrets.token_urlsafe(32)
-    # 只存储创建时间，节省内存
+    # 只存储创建时间
     auth_tokens[token] = time.time()
     return token
 

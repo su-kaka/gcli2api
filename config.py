@@ -6,9 +6,6 @@ import os
 import toml
 from typing import Any, Optional
 
-# API Endpoints
-CODE_ASSIST_ENDPOINT = os.getenv("CODE_ASSIST_ENDPOINT", "https://cloudcode-pa.googleapis.com")
-
 # Client Configuration
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
 
@@ -19,14 +16,8 @@ CREDENTIALS_DIR = os.getenv("CREDENTIALS_DIR", "./creds")
 AUTO_BAN_ENABLED = os.getenv("AUTO_BAN", "false").lower() in ("true", "1", "yes", "on")
 
 # 需要自动封禁的错误码 (可通过环境变量 AUTO_BAN_ERROR_CODES 覆盖)
-AUTO_BAN_ERROR_CODES = [400, 403]
+AUTO_BAN_ERROR_CODES = [400, 401, 403]
 
-# 内存管理配置
-MAX_MEMORY_MB = int(os.getenv("MAX_MEMORY_MB", "100"))  # 最大内存限制(MB)
-MEMORY_WARNING_THRESHOLD = float(os.getenv("MEMORY_WARNING_THRESHOLD", "0.90"))  # 警告阈值
-MEMORY_CRITICAL_THRESHOLD = float(os.getenv("MEMORY_CRITICAL_THRESHOLD", "0.95"))  # 临界阈值
-MEMORY_CHECK_INTERVAL = int(os.getenv("MEMORY_CHECK_INTERVAL", "30"))  # 检查间隔(秒)
-AUTO_START_MEMORY_MONITOR = os.getenv("AUTO_START_MEMORY_MONITOR", "false").lower() in ("true", "1", "yes", "on")
 
 # Default Safety Settings for Google API
 DEFAULT_SAFETY_SETTINGS = [
@@ -85,33 +76,19 @@ def should_include_thoughts(model_name):
         # For all other modes, include thoughts
         return True
 
-# Dynamic Configuration System
-_config_cache = {}
-_config_cache_time = 0
-
+# Dynamic Configuration System - Optimized for memory efficiency
 def _load_toml_config() -> dict:
-    """Load configuration from dedicated config.toml file."""
-    global _config_cache, _config_cache_time
-    
+    """Load configuration from dedicated config.toml file directly from disk."""
     try:
         config_file = os.path.join(CREDENTIALS_DIR, "config.toml")
         
-        # Check if file exists and get modification time
+        # Check if file exists
         if not os.path.exists(config_file):
             return {}
         
-        file_time = os.path.getmtime(config_file)
-        
-        # Return cached config if file hasn't changed
-        if file_time <= _config_cache_time and _config_cache:
-            return _config_cache
-        
-        # Load fresh config
+        # Load config directly from disk each time
         with open(config_file, "r", encoding="utf-8") as f:
             toml_data = toml.load(f)
-        
-        _config_cache = toml_data
-        _config_cache_time = file_time
         
         return toml_data
     
@@ -141,19 +118,12 @@ def save_config_to_toml(config_data: dict) -> None:
         with open(config_file, "w", encoding="utf-8") as f:
             toml.dump(config_data, f)
         
-        # Force cache refresh
-        global _config_cache, _config_cache_time
-        _config_cache = config_data
-        _config_cache_time = os.path.getmtime(config_file)
-        
     except Exception as e:
         raise Exception(f"Failed to save config: {e}")
 
 def reload_config_cache() -> None:
-    """Force reload configuration cache."""
-    global _config_cache, _config_cache_time
-    _config_cache = {}
-    _config_cache_time = 0
+    """Reload configuration - now a no-op since we read directly from disk."""
+    pass  # No cache to reload since we read from disk each time
 
 # Proxy Configuration
 def get_proxy_config():
@@ -184,39 +154,6 @@ def get_calls_per_rotation() -> int:
     
     return int(get_config_value("calls_per_rotation", 100))
 
-def get_http_timeout() -> float:
-    """
-    Get HTTP timeout setting.
-    
-    Environment variable: HTTP_TIMEOUT
-    TOML config key: http_timeout
-    Default: 30.0
-    """
-    env_value = os.getenv("HTTP_TIMEOUT")
-    if env_value:
-        try:
-            return float(env_value)
-        except ValueError:
-            pass
-    
-    return float(get_config_value("http_timeout", 30.0))
-
-def get_max_connections() -> int:
-    """
-    Get max connections setting.
-    
-    Environment variable: MAX_CONNECTIONS
-    TOML config key: max_connections
-    Default: 100
-    """
-    env_value = os.getenv("MAX_CONNECTIONS")
-    if env_value:
-        try:
-            return int(env_value)
-        except ValueError:
-            pass
-    
-    return int(get_config_value("max_connections", 100))
 
 def get_auto_ban_enabled() -> bool:
     """Get auto ban enabled setting."""
@@ -466,7 +403,7 @@ def get_code_assist_endpoint() -> str:
     TOML config key: code_assist_endpoint
     Default: https://cloudcode-pa.googleapis.com
     """
-    return str(get_config_value("code_assist_endpoint", CODE_ASSIST_ENDPOINT, "CODE_ASSIST_ENDPOINT"))
+    return str(get_config_value("code_assist_endpoint", "https://cloudcode-pa.googleapis.com", "CODE_ASSIST_ENDPOINT"))
 
 def get_auto_load_env_creds() -> bool:
     """
@@ -498,3 +435,52 @@ def get_compatibility_mode_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
     
     return bool(get_config_value("compatibility_mode_enabled", True))
+
+def get_oauth_proxy_url() -> str:
+    """
+    Get OAuth proxy URL setting.
+    
+    用于Google OAuth2认证的代理URL。
+    
+    Environment variable: OAUTH_PROXY_URL
+    TOML config key: oauth_proxy_url
+    Default: https://oauth2.googleapis.com
+    """
+    return str(get_config_value("oauth_proxy_url", "https://oauth2.googleapis.com", "OAUTH_PROXY_URL"))
+
+def get_googleapis_proxy_url() -> str:
+    """
+    Get Google APIs proxy URL setting.
+    
+    用于Google APIs调用的代理URL。
+    
+    Environment variable: GOOGLEAPIS_PROXY_URL
+    TOML config key: googleapis_proxy_url
+    Default: https://www.googleapis.com
+    """
+    return str(get_config_value("googleapis_proxy_url", "https://www.googleapis.com", "GOOGLEAPIS_PROXY_URL"))
+
+
+def get_resource_manager_api_url() -> str:
+    """
+    Get Google Cloud Resource Manager API URL setting.
+    
+    用于Google Cloud Resource Manager API的URL。
+    
+    Environment variable: RESOURCE_MANAGER_API_URL
+    TOML config key: resource_manager_api_url
+    Default: https://cloudresourcemanager.googleapis.com
+    """
+    return str(get_config_value("resource_manager_api_url", "https://cloudresourcemanager.googleapis.com", "RESOURCE_MANAGER_API_URL"))
+
+def get_service_usage_api_url() -> str:
+    """
+    Get Google Cloud Service Usage API URL setting.
+    
+    用于Google Cloud Service Usage API的URL。
+    
+    Environment variable: SERVICE_USAGE_API_URL
+    TOML config key: service_usage_api_url
+    Default: https://serviceusage.googleapis.com
+    """
+    return str(get_config_value("service_usage_api_url", "https://serviceusage.googleapis.com", "SERVICE_USAGE_API_URL"))

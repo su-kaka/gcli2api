@@ -6,24 +6,23 @@ import asyncio
 import gc
 import json
 
-import httpx
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 
 from config import (
-    CODE_ASSIST_ENDPOINT,
+    get_code_assist_endpoint,
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
     get_thinking_budget,
     should_include_thoughts,
     is_search_model,
-    get_proxy_config,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
     get_retry_429_max_retries,
     get_retry_429_enabled,
     get_retry_429_interval
 )
+from .httpx_client import http_client, create_streaming_client_with_kwargs
 from log import log
 from .credential_manager import CredentialManager
 from .usage_stats import record_successful_call
@@ -63,7 +62,7 @@ async def _handle_api_error(credential_manager: CredentialManager, status_code: 
 async def _prepare_request_headers_and_payload(payload: dict, creds, credential_manager: CredentialManager):
     """Prepare request headers and final payload."""
     headers = {
-        "Authorization": f"Bearer {creds.token}",
+        "Authorization": f"Bearer {creds.access_token}",
         "Content-Type": "application/json",
         "User-Agent": get_user_agent(),
     }
@@ -108,7 +107,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
     
     # 确定API端点
     action = "streamGenerateContent" if is_streaming else "generateContent"
-    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:{action}"
+    target_url = f"{get_code_assist_endpoint()}/v1internal:{action}"
     if is_streaming:
         target_url += "?alt=sse"
 
@@ -119,18 +118,12 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
 
     # 预序列化payload，避免重试时重复序列化
     final_post_data = json.dumps(final_payload)
-    proxy = get_proxy_config()
 
     for attempt in range(max_retries + 1):
         try:
             if is_streaming:
-                # 流式请求处理
-                client_kwargs = {"timeout": None}
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                
-                # 创建客户端和流响应，但使用自定义的生命周期管理
-                client = httpx.AsyncClient(**client_kwargs)
+                # 流式请求处理 - 使用httpx_client模块的统一配置
+                client = create_streaming_client_with_kwargs()
                 
                 try:
                     # 使用stream方法但不在async with块中消费数据
@@ -138,15 +131,13 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     resp = await stream_ctx.__aenter__()
                     
                     if resp.status_code == 429:
-                        # 记录429错误，限制响应内容大小
+                        # 记录429错误
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
                             try:
                                 content_bytes = await resp.aread()
                                 if isinstance(content_bytes, bytes):
-                                    # 限制响应内容最大1KB，减少内存占用
-                                    content_bytes = content_bytes[:1024]
                                     response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
@@ -197,18 +188,14 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                     raise e
 
             else:
-                # 非流式请求处理
-                client_kwargs = {"timeout": None}
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                
-                async with httpx.AsyncClient(**client_kwargs) as client:
+                # 非流式请求处理 - 使用httpx_client模块
+                async with http_client.get_client(timeout=None) as client:
                     resp = await client.post(
                         target_url, content=final_post_data, headers=headers
                     )
                     
                     if resp.status_code == 429:
-                        # 记录429错误，限制响应内容大小
+                        # 记录429错误
                         current_file = credential_manager.get_current_file_path() if credential_manager else None
                         if current_file and credential_manager:
                             response_content = ""
@@ -216,14 +203,10 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
                                 if hasattr(resp, 'content'):
                                     content = resp.content
                                     if isinstance(content, bytes):
-                                        # 限制响应内容最大1KB，减少内存占用
-                                        content = content[:1024]
                                         response_content = content.decode('utf-8', errors='ignore')
                                 else:
                                     content_bytes = await resp.aread()
                                     if isinstance(content_bytes, bytes):
-                                        # 限制响应内容最大1KB，减少内存占用
-                                        content_bytes = content_bytes[:1024]
                                         response_content = content_bytes.decode('utf-8', errors='ignore')
                             except Exception:
                                 pass
@@ -262,7 +245,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, creds =
     return _create_error_response("Max retries exceeded", 429)
 
 
-def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client: httpx.AsyncClient, credential_manager: CredentialManager = None, model_name: str = "") -> StreamingResponse:
+def _handle_streaming_response_managed(resp, stream_ctx, client, credential_manager: CredentialManager = None, model_name: str = "") -> StreamingResponse:
     """Handle streaming response with complete resource lifecycle management."""
     
     # 检查HTTP错误
@@ -282,13 +265,11 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
             current_file = credential_manager.get_current_file_path() if credential_manager else None
             log.debug(f"[STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
             
-            # 尝试获取响应内容用于详细错误显示，限制大小
+            # 获取响应内容用于详细错误显示
             response_content = ""
             try:
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content_bytes = content_bytes[:1024]
                     response_content = content_bytes.decode('utf-8', errors='ignore')
             except Exception as e:
                 log.debug(f"[STREAMING] Failed to read response content for error analysis: {e}")
@@ -390,7 +371,7 @@ def _handle_streaming_response_managed(resp: httpx.Response, stream_ctx, client:
         media_type="text/event-stream"
     )
 
-async def _handle_non_streaming_response(resp: httpx.Response, credential_manager: CredentialManager = None, model_name: str = "") -> Response:
+async def _handle_non_streaming_response(resp, credential_manager: CredentialManager = None, model_name: str = "") -> Response:
     """Handle non-streaming response from Google API."""
     if resp.status_code == 200:
         try:
@@ -409,7 +390,9 @@ async def _handle_non_streaming_response(resp: httpx.Response, credential_manage
             if google_api_response.startswith('data: '):
                 google_api_response = google_api_response[len('data: '):]
             google_api_response = json.loads(google_api_response)
+            log.debug(f"Google API原始响应: {json.dumps(google_api_response, ensure_ascii=False)[:500]}...")
             standard_gemini_response = google_api_response.get("response")
+            log.debug(f"提取的response字段: {json.dumps(standard_gemini_response, ensure_ascii=False)[:500]}...")
             return Response(
                 content=json.dumps(standard_gemini_response),
                 status_code=200,
@@ -427,20 +410,16 @@ async def _handle_non_streaming_response(resp: httpx.Response, credential_manage
         current_file = credential_manager.get_current_file_path() if credential_manager else None
         log.debug(f"[NON-STREAMING] Error handling: status_code={resp.status_code}, current_file={current_file}")
         
-        # 获取响应内容用于详细错误显示，限制大小
+        # 获取响应内容用于详细错误显示
         response_content = ""
         try:
             if hasattr(resp, 'content'):
                 content = resp.content
                 if isinstance(content, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content = content[:1024]
                     response_content = content.decode('utf-8', errors='ignore')
             else:
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
-                    # 限制响应内容最大1KB，减少内存占用
-                    content_bytes = content_bytes[:1024]
                     response_content = content_bytes.decode('utf-8', errors='ignore')
         except Exception as e:
             log.debug(f"[NON-STREAMING] Failed to read response content for error analysis: {e}")

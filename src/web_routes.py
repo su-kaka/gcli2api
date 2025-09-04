@@ -23,7 +23,7 @@ import zipfile
 
 import config
 from log import log
-from .auth_api import (
+from .auth import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
     batch_upload_credentials, asyncio_complete_auth_flow, 
@@ -42,12 +42,12 @@ credential_manager = CredentialManager()
 # WebSocket连接管理
 
 class ConnectionManager:
-    def __init__(self, max_connections: int = 5):  # 降低最大连接数
-        # 使用弱引用和双端队列优化内存使用
+    def __init__(self, max_connections: int = 3):  # 进一步降低最大连接数
+        # 使用双端队列严格限制内存使用
         self.active_connections: deque = deque(maxlen=max_connections)
         self.max_connections = max_connections
         self._last_cleanup = 0
-        self._cleanup_interval = 30  # 30秒清理一次死连接
+        self._cleanup_interval = 120  # 120秒清理一次死连接
 
     async def connect(self, websocket: WebSocket):
         # 自动清理死连接
@@ -110,32 +110,9 @@ class ConnectionManager:
         cleaned = original_count - len(self.active_connections)
         if cleaned > 0:
             log.debug(f"清理了 {cleaned} 个死连接，剩余连接数: {len(self.active_connections)}")
-    
-    def emergency_cleanup(self) -> dict[str, int]:
-        """紧急内存清理"""
-        log.warning("执行WebSocket连接管理器紧急内存清理")
-        cleaned = {'connections_cleared': 0}
-        
-        original_count = len(self.active_connections)
-        # 先尝试正常关闭连接
-        for conn in list(self.active_connections):
-            try:
-                if hasattr(conn, 'close') and conn.client_state != WebSocketState.DISCONNECTED:
-                    asyncio.create_task(conn.close())
-            except Exception:
-                pass
-        
-        self.active_connections.clear()
-        cleaned['connections_cleared'] = original_count
-        
-        log.info(f"WebSocket连接管理器紧急清理完成: {cleaned}")
-        return cleaned
 
 manager = ConnectionManager()
 
-# 注册WebSocket连接管理器到内存管理器
-from .memory_manager import register_cache_for_cleanup
-register_cache_for_cleanup("websocket_manager", manager)
 
 async def ensure_credential_manager_initialized():
     """确保credential manager已初始化"""
@@ -358,9 +335,7 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
         # 读取ZIP文件内容
         zip_content = await zip_file.read()
         
-        # 检查ZIP文件大小
-        if len(zip_content) > 50 * 1024 * 1024:  # 50MB限制
-            raise HTTPException(status_code=400, detail=f"ZIP文件过大，不能超过50MB")
+        # 不限制ZIP文件大小，只在处理时控制文件数量
         
         files_data = []
         
@@ -371,9 +346,6 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
             
             if not json_files:
                 raise HTTPException(status_code=400, detail="ZIP文件中没有找到JSON文件")
-            
-            if len(json_files) > 10000:
-                raise HTTPException(status_code=400, detail=f"ZIP文件中的JSON文件过多，最多支持10000个，当前：{len(json_files)}个")
 
             log.info(f"从ZIP文件 {zip_file.filename} 中找到 {len(json_files)} 个JSON文件")
             
@@ -382,11 +354,6 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
                     # 读取JSON文件内容
                     with zip_ref.open(json_filename) as json_file:
                         content = json_file.read()
-                        
-                        # 检查单个文件大小
-                        if len(content) > 5 * 1024 * 1024:  # 5MB限制
-                            log.warning(f"跳过过大的文件: {json_filename} ({len(content)/1024/1024:.1f}MB)")
-                            continue
                         
                         try:
                             content_str = content.decode('utf-8')
@@ -426,10 +393,6 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
         if len(files) > 100:
             raise HTTPException(status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个")
         
-        # 检查总文件大小限制 (200MB)
-        max_total_size = 200 * 1024 * 1024
-        total_size = 0
-        
         files_data = []
         for file in files:
             # 检查文件类型：支持JSON和ZIP
@@ -441,15 +404,6 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
                 
             elif file.filename.endswith('.json'):
                 # 处理单个JSON文件
-                # 检查单个文件大小 (5MB)
-                file_size = file.size if hasattr(file, 'size') and file.size else 0
-                if file_size > 5 * 1024 * 1024:
-                    raise HTTPException(status_code=400, detail=f"文件 {file.filename} 过大，单个文件不能超过5MB")
-                
-                total_size += file_size
-                if total_size > max_total_size:
-                    raise HTTPException(status_code=400, detail=f"文件总大小超过限制200MB")
-                
                 # 流式读取文件内容
                 content_chunks = []
                 while True:
@@ -516,7 +470,7 @@ async def get_creds_status(token: str = Depends(verify_token)):
         
         # 获取状态时不要调用_discover_credential_files，因为它会过滤被禁用的文件
         # 直接获取所有文件的状态
-        status = credential_manager.get_creds_status()
+        status = await credential_manager.get_creds_status()
         
         # 读取文件内容
         creds_info = {}
@@ -562,28 +516,17 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
         
         log.info(f"Performing action '{action}' on file: {filename}")
         
-        # 验证文件路径安全性
-        log.info(f"Validating file path: {repr(filename)}")
-        log.info(f"Is absolute: {os.path.isabs(filename)}")
-        log.info(f"Ends with .json: {filename.endswith('.json')}")
+        # 统一使用标准路径格式：CREDENTIALS_DIR + filename
+        from .credential_manager import _normalize_filename_only, _make_standard_path
         
-        # 如果不是绝对路径，转换为绝对路径
-        if not os.path.isabs(filename):
-            from config import CREDENTIALS_DIR
-            filename = os.path.abspath(os.path.join(CREDENTIALS_DIR, os.path.basename(filename)))
-            log.info(f"Converted to absolute path: {filename}")
+        filename_only = _normalize_filename_only(filename)
+        if not filename_only.endswith('.json'):
+            log.error(f"Invalid filename: {filename_only} (not a .json file)")
+            raise HTTPException(status_code=400, detail=f"无效的文件名: {filename_only}")
         
-        if not filename.endswith('.json'):
-            log.error(f"Invalid file path: {filename} (not a .json file)")
-            raise HTTPException(status_code=400, detail=f"无效的文件路径: {filename}")
-        
-        # 确保文件在CREDENTIALS_DIR内（安全检查）
-        from config import CREDENTIALS_DIR
-        credentials_dir_abs = os.path.abspath(CREDENTIALS_DIR)
-        filename_abs = os.path.abspath(filename)
-        if not filename_abs.startswith(credentials_dir_abs):
-            log.error(f"Security violation: file outside credentials directory: {filename}")
-            raise HTTPException(status_code=400, detail="文件路径不在允许的目录内")
+        # 使用标准路径格式
+        filename = _make_standard_path(filename)
+        log.info(f"Using standard path: {filename}")
         
         if not os.path.exists(filename):
             log.error(f"File not found: {filename}")
@@ -604,21 +547,7 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
         elif action == "delete":
             try:
                 os.remove(filename)
-                # 从状态中移除（使用相对路径作为键）
-                from .credential_manager import _normalize_to_relative_path
-                relative_filename = _normalize_to_relative_path(filename)
-                
-                # 检查并移除状态（支持新旧两种键格式）
-                state_keys_to_remove = []
-                for key in credential_manager._creds_state.keys():
-                    if key == relative_filename or (os.path.isabs(key) and _normalize_to_relative_path(key) == relative_filename):
-                        state_keys_to_remove.append(key)
-                
-                for key in state_keys_to_remove:
-                    del credential_manager._creds_state[key]
-                
-                if state_keys_to_remove:
-                    await credential_manager._save_state()
+                # 状态会在下次文件发现时自动清理，无需手动删除
                 
                 return JSONResponse(content={"message": f"已删除凭证文件 {os.path.basename(filename)}"})
             except OSError as e:
@@ -651,8 +580,6 @@ async def creds_batch_action(request: CredFileBatchActionRequest, token: str = D
         success_count = 0
         errors = []
         
-        from config import CREDENTIALS_DIR
-        
         for filename in filenames:
             try:
                 # 验证文件路径安全性
@@ -660,50 +587,27 @@ async def creds_batch_action(request: CredFileBatchActionRequest, token: str = D
                     errors.append(f"{filename}: 无效的文件类型")
                     continue
                 
-                # 构建完整路径
-                if os.path.isabs(filename):
-                    fullpath = filename
-                else:
-                    fullpath = os.path.abspath(os.path.join(CREDENTIALS_DIR, filename))
+                # 使用标准路径格式
+                from .credential_manager import _make_standard_path
+                filepath = _make_standard_path(filename)
                 
-                # 确保文件在CREDENTIALS_DIR内（安全检查）
-                credentials_dir_abs = os.path.abspath(CREDENTIALS_DIR)
-                fullpath_abs = os.path.abspath(fullpath)
-                if not fullpath_abs.startswith(credentials_dir_abs):
-                    errors.append(f"{filename}: 文件路径不在允许的目录内")
-                    continue
-                
-                if not os.path.exists(fullpath):
+                if not os.path.exists(filepath):
                     errors.append(f"{filename}: 文件不存在")
                     continue
                 
                 # 执行相应操作
                 if action == "enable":
-                    await credential_manager.set_cred_disabled(fullpath, False)
+                    await credential_manager.set_cred_disabled(filepath, False)
                     success_count += 1
                     
                 elif action == "disable":
-                    await credential_manager.set_cred_disabled(fullpath, True)
+                    await credential_manager.set_cred_disabled(filepath, True)
                     success_count += 1
                     
                 elif action == "delete":
                     try:
-                        os.remove(fullpath)
-                        # 从状态中移除（使用相对路径作为键）
-                        from .credential_manager import _normalize_to_relative_path
-                        relative_filename = _normalize_to_relative_path(fullpath)
-                        
-                        # 检查并移除状态（支持新旧两种键格式）
-                        state_keys_to_remove = []
-                        for key in credential_manager._creds_state.keys():
-                            if key == relative_filename or (os.path.isabs(key) and _normalize_to_relative_path(key) == relative_filename):
-                                state_keys_to_remove.append(key)
-                        
-                        for key in state_keys_to_remove:
-                            del credential_manager._creds_state[key]
-                        
-                        if state_keys_to_remove:
-                            await credential_manager._save_state()
+                        os.remove(filepath)
+                        # 状态会在下次文件发现时自动清理，无需手动删除
                         
                         success_count += 1
                     except OSError as e:
@@ -775,15 +679,15 @@ async def fetch_user_email(filename: str, token: str = Depends(verify_token)):
     try:
         await ensure_credential_manager_initialized()
         
-        # 构建完整路径
-        from config import CREDENTIALS_DIR
-        if not os.path.isabs(filename):
-            filepath = os.path.abspath(os.path.join(CREDENTIALS_DIR, os.path.basename(filename)))
-        else:
-            filepath = filename
+        # 使用标准路径格式
+        from .credential_manager import _normalize_filename_only, _make_standard_path
         
-        # 验证文件路径安全性
-        if not filepath.endswith('.json') or not os.path.exists(filepath):
+        filename_only = _normalize_filename_only(filename)
+        if not filename_only.endswith('.json'):
+            raise HTTPException(status_code=404, detail="无效的文件名")
+        
+        filepath = _make_standard_path(filename)
+        if not os.path.exists(filepath):
             raise HTTPException(status_code=404, detail="文件不存在")
         
         # 获取用户邮箱
@@ -904,6 +808,12 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["credentials_dir"] = config.get_credentials_dir()
         current_config["proxy"] = config.get_proxy_config() or ""
         
+        # 代理端点配置
+        current_config["oauth_proxy_url"] = config.get_oauth_proxy_url()
+        current_config["googleapis_proxy_url"] = config.get_googleapis_proxy_url()
+        current_config["resource_manager_api_url"] = config.get_resource_manager_api_url()
+        current_config["service_usage_api_url"] = config.get_service_usage_api_url()
+        
         # 检查环境变量锁定状态
         if os.getenv("CODE_ASSIST_ENDPOINT"):
             env_locked.append("code_assist_endpoint")
@@ -911,6 +821,14 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("credentials_dir")
         if os.getenv("PROXY"):
             env_locked.append("proxy")
+        if os.getenv("OAUTH_PROXY_URL"):
+            env_locked.append("oauth_proxy_url")
+        if os.getenv("GOOGLEAPIS_PROXY_URL"):
+            env_locked.append("googleapis_proxy_url")
+        if os.getenv("RESOURCE_MANAGER_API_URL"):
+            env_locked.append("resource_manager_api_url")
+        if os.getenv("SERVICE_USAGE_API_URL"):
+            env_locked.append("service_usage_api_url")
         
         # 自动封禁配置
         current_config["auto_ban_enabled"] = config.get_auto_ban_enabled()
@@ -936,8 +854,6 @@ async def get_config(token: str = Depends(verify_token)):
         
         # 性能配置
         current_config["calls_per_rotation"] = config.get_calls_per_rotation()
-        current_config["http_timeout"] = config.get_http_timeout()
-        current_config["max_connections"] = config.get_max_connections()
         
         # 429重试配置
         current_config["retry_429_max_retries"] = config.get_retry_429_max_retries()
@@ -1012,13 +928,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["calls_per_rotation"], int) or new_config["calls_per_rotation"] < 1:
                 raise HTTPException(status_code=400, detail="凭证轮换调用次数必须是大于0的整数")
         
-        if "http_timeout" in new_config:
-            if not isinstance(new_config["http_timeout"], int) or new_config["http_timeout"] < 5:
-                raise HTTPException(status_code=400, detail="HTTP超时时间必须是大于等于5的整数")
-        
-        if "max_connections" in new_config:
-            if not isinstance(new_config["max_connections"], int) or new_config["max_connections"] < 10:
-                raise HTTPException(status_code=400, detail="最大连接数必须是大于等于10的整数")
         
         if "retry_429_max_retries" in new_config:
             if not isinstance(new_config["retry_429_max_retries"], int) or new_config["retry_429_max_retries"] < 0:
@@ -1090,6 +999,10 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("credentials_dir")
         if os.getenv("PROXY"):
             env_locked_keys.add("proxy")
+        if os.getenv("OAUTH_PROXY_URL"):
+            env_locked_keys.add("oauth_proxy_url")
+        if os.getenv("GOOGLEAPIS_PROXY_URL"):
+            env_locked_keys.add("googleapis_proxy_url")
         if os.getenv("AUTO_BAN"):
             env_locked_keys.add("auto_ban_enabled")
         if os.getenv("RETRY_429_MAX_RETRIES"):
@@ -1146,7 +1059,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
         
         # 支持热更新的配置项：
         # - calls_per_rotation: 凭证轮换调用次数
-        # - proxy, http_timeout, max_connections: 网络配置
+        # - proxy: 网络配置
         # - log_level: 日志级别
         # - auto_ban_enabled, auto_ban_error_codes: 自动封禁配置
         # - retry_429_enabled, retry_429_max_retries, retry_429_interval: 429重试配置
@@ -1165,36 +1078,17 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if "calls_per_rotation" in new_config and "calls_per_rotation" not in env_locked_keys:
                 credential_manager._calls_per_rotation = new_config["calls_per_rotation"]
                 hot_updated.append("calls_per_rotation")
+
+            # 2. 代理配置（部分热更新）
+            if "proxy" in new_config and "proxy" not in env_locked_keys:
+                hot_updated.append("proxy")
             
-            # 2. 重新初始化HTTP客户端以应用网络相关配置
-            network_configs_changed = any(key in new_config and key not in env_locked_keys 
-                                        for key in ["proxy", "http_timeout", "max_connections"])
-            
-            if network_configs_changed:
-                # 重新创建HTTP客户端
-                if credential_manager._http_client:
-                    await credential_manager._http_client.aclose()
-                    
-                proxy = config.get_proxy_config()
-                client_kwargs = {
-                    "timeout": config.get_http_timeout(),
-                    "limits": __import__('httpx').Limits(
-                        max_keepalive_connections=20, 
-                        max_connections=config.get_max_connections()
-                    )
-                }
-                if proxy:
-                    client_kwargs["proxy"] = proxy
-                credential_manager._http_client = __import__('httpx').AsyncClient(**client_kwargs)
-                
-                # 记录热更新的网络配置
-                if "proxy" in new_config and "proxy" not in env_locked_keys:
-                    hot_updated.append("proxy")
-                if "http_timeout" in new_config and "http_timeout" not in env_locked_keys:
-                    hot_updated.append("http_timeout")
-                if "max_connections" in new_config and "max_connections" not in env_locked_keys:
-                    hot_updated.append("max_connections")
-            
+            # 代理端点配置（可热更新）
+            proxy_endpoint_configs = ["oauth_proxy_url", "googleapis_proxy_url"]
+            for config_key in proxy_endpoint_configs:
+                if config_key in new_config and config_key not in env_locked_keys:
+                    hot_updated.append(config_key)
+
             # 3. 日志配置（部分热更新）
             # 注意：日志级别可以热更新，但日志文件路径需要重启
             if "log_level" in new_config and "log_level" not in env_locked_keys:
@@ -1202,7 +1096,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             
             if "log_file" in new_config and "log_file" not in env_locked_keys:
                 restart_required.append("log_file")
-            
+
             # 4. 其他可热更新的配置项
             hot_updatable_configs = [
                 "auto_ban_enabled", "auto_ban_error_codes",

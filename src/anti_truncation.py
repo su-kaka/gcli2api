@@ -9,7 +9,6 @@ from typing import Dict, Any, AsyncGenerator, List, Tuple
 from fastapi.responses import StreamingResponse
 
 from log import log
-from .memory_manager import check_memory_limit
 
 # 反截断配置
 DONE_MARKER = "[done]"
@@ -194,11 +193,6 @@ class AntiTruncationStreamProcessor:
         """处理流式响应，检测并处理截断"""
         
         while self.current_attempt < self.max_attempts:
-            # 在每次尝试前检查内存限制
-            if not check_memory_limit():
-                log.warning("内存压力过大，跳过反截断处理")
-                yield b'data: [DONE]\n\n'
-                return
             self.current_attempt += 1
             
             # 构建当前请求payload
@@ -271,15 +265,11 @@ class AntiTruncationStreamProcessor:
                 # 更新收集的内容 - 使用列表避免字符串重复拼接
                 if chunk_content:
                     self.collected_content.append(chunk_content)
-                    
-                    # 内存保护：如果收集的内容过多，强制结束
-                    if len(self.collected_content) > 100:  # 限制最大chunk数
-                        log.warning("反截断收集内容过多，强制结束以保护内存")
-                        yield b'data: [DONE]\n\n'
-                        return
                 
                 # 如果找到了done标记，结束
                 if found_done_marker:
+                    # 立即清理内容释放内存
+                    self.collected_content.clear()
                     yield b'data: [DONE]\n\n'
                     return
                 
@@ -288,6 +278,8 @@ class AntiTruncationStreamProcessor:
                     accumulated_text = ''.join(self.collected_content) if self.collected_content else ""
                     if self._check_done_marker_in_text(accumulated_text):
                         log.info("Anti-truncation: Found [done] marker in accumulated content")
+                        # 立即清理内容释放内存
+                        self.collected_content.clear()
                         yield b'data: [DONE]\n\n'
                         return
                 
@@ -303,6 +295,8 @@ class AntiTruncationStreamProcessor:
                 else:
                     # 最后一次尝试，直接结束
                     log.warning("Anti-truncation: Max attempts reached, ending stream")
+                    # 立即清理内容释放内存
+                    self.collected_content.clear()
                     yield b'data: [DONE]\n\n'
                     return
                 
@@ -324,6 +318,8 @@ class AntiTruncationStreamProcessor:
                 
         # 如果所有尝试都失败了
         log.error("Anti-truncation: All attempts failed")
+        # 确保清理内容释放内存
+        self.collected_content.clear()
         yield b'data: [DONE]\n\n'
     
     def _build_current_payload(self) -> Dict[str, Any]:

@@ -15,9 +15,9 @@ from config import get_available_models, is_fake_streaming_model, is_anti_trunca
 from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_api_client import send_gemini_request, build_gemini_payload_from_openai
-from .memory_manager import check_memory_limit, get_memory_usage
+from .google_chat_api import send_gemini_request, build_gemini_payload_from_openai
 from .models import ChatCompletionRequest, ModelList, Model
+from .task_manager import create_managed_task
 from .openai_transfer import openai_request_to_gemini, gemini_response_to_openai, gemini_stream_chunk_to_openai
 
 # 创建路由器
@@ -57,11 +57,6 @@ async def chat_completions(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """处理OpenAI格式的聊天完成请求"""
-    # 内存检查
-    if not check_memory_limit():
-        memory_info = get_memory_usage()
-        log.error(f"内存使用过高，拒绝请求: {memory_info['rss_mb']:.1f}MB ({memory_info['usage_percent']*100:.1f}%)")
-        raise HTTPException(status_code=503, detail="服务器内存使用过高，请稍后重试")
     
     token = authenticate(credentials)
     
@@ -211,16 +206,35 @@ async def fake_stream_response(api_payload: dict, creds, cred_mgr: CredentialMan
                 return await send_gemini_request(api_payload, False, creds, cred_mgr)
             
             # 创建请求任务
-            response_task = asyncio.create_task(get_response())
+            response_task = create_managed_task(get_response(), name="openai_fake_stream_request")
             
-            # 每3秒发送一次心跳，直到收到响应
-            while not response_task.done():
-                await asyncio.sleep(3.0)
-                if not response_task.done():
-                    yield f"data: {json.dumps(heartbeat)}\n\n".encode()
-            
-            # 获取响应结果
-            response = await response_task
+            try:
+                # 每3秒发送一次心跳，直到收到响应
+                while not response_task.done():
+                    await asyncio.sleep(3.0)
+                    if not response_task.done():
+                        yield f"data: {json.dumps(heartbeat)}\n\n".encode()
+                
+                # 获取响应结果
+                response = await response_task
+                
+            except asyncio.CancelledError:
+                # 取消任务并传播取消
+                response_task.cancel()
+                try:
+                    await response_task
+                except asyncio.CancelledError:
+                    pass
+                raise
+            except Exception as e:
+                # 取消任务并处理其他异常
+                response_task.cancel()
+                try:
+                    await response_task
+                except asyncio.CancelledError:
+                    pass
+                log.error(f"Fake streaming request failed: {e}")
+                raise
             
             # 发送实际请求
             # response 已在上面获取
