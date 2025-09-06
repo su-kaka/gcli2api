@@ -303,7 +303,7 @@ class CredentialManager:
                     "total_calls": 0,
                     "next_reset_time": None,
                     "daily_limit_gemini_2_5_pro": 100,
-                    "daily_limit_total": 1500
+                    "daily_limit_total": 1000
                 }
                 # 立即保存新状态
                 await self._state_manager.update_file_state(filename_key, file_state)
@@ -328,7 +328,7 @@ class CredentialManager:
                 "total_calls": 0,
                 "next_reset_time": None,
                 "daily_limit_gemini_2_5_pro": 100,
-                "daily_limit_total": 1500
+                "daily_limit_total": 1000
             }
             self._current_cred_file = filename_key
             self._current_cred_state = default_state
@@ -478,7 +478,7 @@ class CredentialManager:
                         "total_calls": 0,
                         "next_reset_time": None,
                         "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1500
+                        "daily_limit_total": 1000
                     }
                 
                 file_status = {
@@ -491,7 +491,7 @@ class CredentialManager:
                     "total_calls": file_state.get("total_calls", 0),
                     "next_reset_time": file_state.get("next_reset_time"),
                     "daily_limit_gemini_2_5_pro": file_state.get("daily_limit_gemini_2_5_pro", 100),
-                    "daily_limit_total": file_state.get("daily_limit_total", 1500)
+                    "daily_limit_total": file_state.get("daily_limit_total", 1000)
                 }
                 status[standard_path] = file_status
                 
@@ -619,7 +619,7 @@ class CredentialManager:
                         "total_calls": 0,
                         "next_reset_time": None,
                         "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1500
+                        "daily_limit_total": 1000
                     }
                     files_added.append(filename_key)
                     state_changed = True

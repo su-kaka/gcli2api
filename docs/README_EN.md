@@ -4,6 +4,8 @@
 
 ---
 
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/FIBY1S?referralCode=su-kaka)
+
 ## ⚠️ License Declaration
 
 **This project is licensed under the Cooperative Non-Commercial License (CNC-1.0)**
@@ -146,7 +148,7 @@ This is a strict anti-commercial open source license. Please refer to the [LICEN
 
 ## Supported Models
 
-All models have 1M context window capacity. Each credential file provides 1500 request quota.
+All models have 1M context window capacity. Each credential file provides 1000 request quota.
 
 ### 🤖 Base Models
 - `gemini-2.5-pro`

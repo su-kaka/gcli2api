@@ -1,0 +1,50 @@
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: gcli2api
+spec:
+  description: "将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口"
+  tags:
+    - ai
+    - api
+    - gemini
+    - openai
+  variables:
+    - key: PASSWORD
+      type: STRING
+      name: API密码
+      description: 用于访问API和控制面板的密码
+    - key: DOMAIN
+      type: DOMAIN
+      name: 域名
+      description: 服务访问域名
+  readme: |
+    # GeminiCLI to API
+
+    将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口
+
+    部署后请访问您的域名进行配置。
+  services:
+    - name: gcli2api
+      template: PREBUILT
+      spec:
+        id: gcli2api
+        name: gcli2api
+        source:
+          image: ghcr.io/su-kaka/gcli2api:latest
+        ports:
+          - id: web
+            port: 7861
+            type: HTTP
+        env:
+          PASSWORD:
+            default: ${PASSWORD}
+          PORT:
+            default: "7861"
+          HOST:
+            default: "0.0.0.0"
+          DOMAIN:
+            default: ${DOMAIN}
+        volumes:
+          - id: creds
+            dir: /app/creds

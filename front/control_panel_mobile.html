@@ -844,7 +844,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                         <ul style="margin: 8px 0 4px 0; color: #424242;">
                             <li><strong>Gemini 2.5 Pro 调用次数：</strong>仅统计 gemini-2.5-pro 及其变体模型的成功调用</li>
                             <li><strong>所有模型调用次数：</strong>统计所有模型的成功调用总数</li>
-                            <li><strong>每日配额：</strong>默认每日配额 Gemini 2.5 Pro: 100次，所有模型: 1500次</li>
+                            <li><strong>每日配额：</strong>默认每日配额 Gemini 2.5 Pro: 100次，所有模型: 1000次</li>
                             <li><strong>配额重置：</strong>每天 UTC 07:00 自动重置调用计数</li>
                         </ul>
 
@@ -932,6 +932,22 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
                         <div class="card">
                             <h4 style="margin-top: 0; margin-bottom: 15px;">端点配置</h4>
+
+                            <!-- 快速配置按钮 -->
+                            <div class="form-group">
+                                <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                                    <button type="button" class="btn" onclick="useMirrorUrls()"
+                                        style="background-color: #28a745; font-size: 13px; flex: 1; min-width: 120px;">
+                                        🚀 镜像网址
+                                    </button>
+                                    <button type="button" class="btn" onclick="restoreOfficialUrls()"
+                                        style="background-color: #17a2b8; font-size: 13px; flex: 1; min-width: 120px;">
+                                        🔄 官方端点
+                                    </button>
+                                </div>
+                                <small
+                                    style="display: block; color: #666; font-size: 11px; margin-bottom: 10px;">镜像网址主要解决墙内无法访问官方端点的问题，部分地区可能无法使用</small>
+                            </div>
 
                             <div class="form-group">
                                 <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
@@ -3271,6 +3287,60 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             // 清理选择状态
             selectedCredFiles.clear();
         });
+
+        // =====================================================================
+        // 端点配置快速切换函数 - 移动版
+        // =====================================================================
+
+        // 镜像网址配置
+        const mirrorUrls = {
+            codeAssistEndpoint: 'https://gcli-api.sukaka.top/cloudcode-pa',
+            oauthProxyUrl: 'https://gcli-api.sukaka.top/oauth2',
+            googleapisProxyUrl: 'https://gcli-api.sukaka.top/googleapis',
+            resourceManagerApiUrl: 'https://gcli-api.sukaka.top/cloudresourcemanager',
+            serviceUsageApiUrl: 'https://gcli-api.sukaka.top/serviceusage'
+        };
+
+        // 官方端点配置
+        const officialUrls = {
+            codeAssistEndpoint: 'https://cloudcodeassist-pa.googleapis.com',
+            oauthProxyUrl: 'https://oauth2.googleapis.com',
+            googleapisProxyUrl: 'https://www.googleapis.com',
+            resourceManagerApiUrl: 'https://cloudresourcemanager.googleapis.com',
+            serviceUsageApiUrl: 'https://serviceusage.googleapis.com'
+        };
+
+        // 使用镜像网址
+        function useMirrorUrls() {
+            if (confirm('确定要将所有端点配置为镜像网址吗？\n\n镜像网址：\n• Code Assist: gcli-api.sukaka.top/cloudcode-pa\n• OAuth: gcli-api.sukaka.top/oauth2\n• Google APIs: gcli-api.sukaka.top/googleapis\n• Resource Manager: gcli-api.sukaka.top/cloudresourcemanager\n• Service Usage: gcli-api.sukaka.top/serviceusage')) {
+
+                // 设置所有端点为镜像网址
+                for (const [fieldId, url] of Object.entries(mirrorUrls)) {
+                    const field = document.getElementById(fieldId);
+                    if (field && !field.disabled) {
+                        field.value = url;
+                    }
+                }
+
+                showStatus('✅ 已切换到镜像网址，记得保存配置', 'success');
+            }
+        }
+
+        // 还原官方端点
+        function restoreOfficialUrls() {
+            if (confirm('确定要将所有端点配置为官方地址吗？\n\n官方端点：\n• Code Assist: cloudcodeassist-pa.googleapis.com\n• OAuth: oauth2.googleapis.com\n• Google APIs: www.googleapis.com\n• Resource Manager: cloudresourcemanager.googleapis.com\n• Service Usage: serviceusage.googleapis.com')) {
+
+                // 设置所有端点为官方地址
+                for (const [fieldId, url] of Object.entries(officialUrls)) {
+                    const field = document.getElementById(fieldId);
+                    if (field && !field.disabled) {
+                        field.value = url;
+                    }
+                }
+
+                showStatus('✅ 已切换到官方端点，记得保存配置', 'success');
+            }
+        }
     </script>
 </body>
 

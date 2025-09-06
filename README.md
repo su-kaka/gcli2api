@@ -4,6 +4,9 @@
 
 [English](docs/README_EN.md) | 中文
 
+## 🚀 快速部署
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/2QLQC2?referralCode=su-kaka)
 ---
 
 ## ⚠️ 许可证声明
@@ -148,7 +151,7 @@
 
 ## 支持的模型
 
-所有模型均具备 1M 上下文窗口容量。每个凭证文件提供 1500 次请求额度。
+所有模型均具备 1M 上下文窗口容量。每个凭证文件提供 1000 次请求额度。
 
 ### 🤖 基础模型
 - `gemini-2.5-pro`
