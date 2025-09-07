@@ -4,7 +4,6 @@ OAuth Web 服务器 - 独立的OAuth认证服务
 提供简化的OAuth认证界面，只包含验证功能，不包含上传和管理功能
 """
 
-import sys
 from log import log
 import asyncio
 from contextlib import asynccontextmanager
@@ -13,19 +12,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-# 导入本地模块
-try:
-    from src.auth import (
-        create_auth_url, 
-        verify_password, 
-        generate_auth_token, 
-        verify_auth_token,
-        asyncio_complete_auth_flow,
-        CALLBACK_HOST,
-    )
-except ImportError as e:
-    log.error(f"导入模块失败: {e}")
-    sys.exit(1)
+from src.auth import (
+    create_auth_url, 
+    verify_password, 
+    generate_auth_token, 
+    verify_auth_token,
+    asyncio_complete_auth_flow,
+    CALLBACK_HOST,
+)
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -74,7 +68,7 @@ async def serve_oauth_page():
 async def login(request: LoginRequest):
     """用户登录"""
     try:
-        if verify_password(request.password):
+        if await verify_password(request.password):
             token = generate_auth_token()
             return JSONResponse(content={"token": token, "message": "登录成功"})
         else:
@@ -97,7 +91,7 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
         
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
-        result = create_auth_url(project_id, user_session)
+        result = await create_auth_url(project_id, user_session)
         
         if result['success']:
             # 构建动态回调URL
@@ -185,8 +179,8 @@ async def lifespan(app: FastAPI):
 
     # 从配置获取密码和端口
     from config import get_panel_password, get_server_port
-    password = get_panel_password()
-    port = get_server_port()
+    password = await get_panel_password()
+    port = await get_server_port()
 
     log.info("Web服务已由 ASGI 服务器启动")
     
@@ -212,14 +206,17 @@ if __name__ == "__main__":
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
 
-    # 从配置获取端口
-    from config import get_server_port
-    PORT = get_server_port()
+    async def main():
+        # 从配置获取端口
+        from config import get_server_port
+        PORT = await get_server_port()
+        
+        config = Config()
+        config.bind = [f"0.0.0.0:{PORT}"]
+        config.accesslog = "-"
+        config.errorlog = "-"
+        config.loglevel = "INFO"
+        
+        await serve(app, config)
     
-    config = Config()
-    config.bind = [f"0.0.0.0:{PORT}"]
-    config.accesslog = "-"
-    config.errorlog = "-"
-    config.loglevel = "INFO"
-    
-    asyncio.run(serve(app, config))
+    asyncio.run(main())

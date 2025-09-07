@@ -8,3 +8,4 @@ python-multipart
 toml
 PyJWT
 oauthlib
+motor

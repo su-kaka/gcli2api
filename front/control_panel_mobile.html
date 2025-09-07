@@ -347,7 +347,6 @@
             }
         }
 
-        /* 日志级别样式 */
         .log-entry {
             margin-bottom: 2px;
             padding: 2px 0;
@@ -1047,29 +1046,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                             </div>
                         </div>
 
-                        <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">日志配置</h4>
-
-                            <div class="form-group">
-                                <label for="logLevel">日志级别:</label>
-                                <select id="logLevel">
-                                    <option value="debug">Debug (调试)</option>
-                                    <option value="info">Info (信息)</option>
-                                    <option value="warning">Warning (警告)</option>
-                                    <option value="error">Error (错误)</option>
-                                    <option value="critical">Critical (严重)</option>
-                                </select>
-                                <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">设置日志输出级别，级别越低记录的信息越详细</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="logFile">日志文件路径:</label>
-                                <input type="text" id="logFile" placeholder="例如: log.txt" />
-                                <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">日志文件的保存路径，相对于程序运行目录</small>
-                            </div>
-                        </div>
 
                         <div class="card">
                             <h4 style="margin-top: 0; margin-bottom: 15px;">兼容性配置</h4>
@@ -1122,7 +1098,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                     <li><strong>网络配置：</strong>代理、端点配置、超时、连接数</li>
                                     <li><strong>API配置：</strong>轮换次数、重试设置、自动封禁</li>
                                     <li><strong>密码配置：</strong>API密码、面板密码</li>
-                                    <li><strong>日志级别：</strong>debug、info、warning等</li>
                                     <li><strong>功能配置：</strong>抗截断重试次数</li>
                                 </ul>
                             </div>
@@ -1132,7 +1107,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                 <strong>🔄 需要重启的配置：</strong>
                                 <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
                                     <li><strong>服务器配置：</strong>主机地址、端口号</li>
-                                    <li><strong>文件路径：</strong>日志文件、凭证目录</li>
+                                    <li><strong>文件路径：</strong>凭证目录</li>
                                 </ul>
                             </div>
 
@@ -2850,9 +2825,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             setFieldValue('retry429MaxRetries', config.retry_429_max_retries);
             setFieldValue('retry429Interval', config.retry_429_interval);
 
-            // 日志配置
-            setFieldValue('logLevel', config.log_level);
-            setFieldValue('logFile', config.log_file);
 
             // 兼容性配置
             setCheckboxValue('compatibilityModeEnabled', config.compatibility_mode_enabled);
@@ -2897,8 +2869,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 'retry429Enabled': 'retry_429_enabled',
                 'retry429MaxRetries': 'retry_429_max_retries',
                 'retry429Interval': 'retry_429_interval',
-                'logLevel': 'log_level',
-                'logFile': 'log_file',
                 'antiTruncationMaxAttempts': 'anti_truncation_max_attempts'
             };
 
@@ -2941,8 +2911,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 retry_429_max_retries: parseInt(document.getElementById('retry429MaxRetries').value) || null,
                 retry_429_interval: parseFloat(document.getElementById('retry429Interval').value) || null,
 
-                log_level: document.getElementById('logLevel').value || null,
-                log_file: document.getElementById('logFile').value || null,
 
                 compatibility_mode_enabled: document.getElementById('compatibilityModeEnabled').checked,
                 anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || null
@@ -2976,8 +2944,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 'retry_429_enabled': 'retry429Enabled',
                 'retry_429_max_retries': 'retry429MaxRetries',
                 'retry_429_interval': 'retry429Interval',
-                'log_level': 'logLevel',
-                'log_file': 'logFile',
                 'anti_truncation_max_attempts': 'antiTruncationMaxAttempts'
             };
 

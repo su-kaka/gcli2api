@@ -7,7 +7,6 @@ creds/
 .env
 
 # Python
-tools/
 uv.lock
 __pycache__/
 *.py[cod]

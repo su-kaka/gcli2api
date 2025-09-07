@@ -1,9 +1,8 @@
 """
-认证API模块 - 处理OAuth认证流程和批量上传
+认证API模块 - 使用统一存储中间层，完全摆脱文件操作
 """
 import asyncio
 import json
-import os
 import secrets
 import socket
 import threading
@@ -15,7 +14,8 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
 from .google_oauth_api import Credentials, Flow, enable_required_apis, get_user_projects, select_default_project
-from config import CREDENTIALS_DIR, get_config_value
+from .storage_adapter import get_storage_adapter
+from config import get_config_value
 from log import log
 
 # OAuth Configuration
@@ -29,7 +29,10 @@ SCOPES = [
 
 # 回调服务器配置
 CALLBACK_HOST = 'localhost'
-DEFAULT_CALLBACK_PORT = int(get_config_value('oauth_callback_port', '8080', 'OAUTH_CALLBACK_PORT'))
+
+async def get_callback_port():
+    """获取OAuth回调端口"""
+    return int(await get_config_value('oauth_callback_port', '8080', 'OAUTH_CALLBACK_PORT'))
 
 # 全局状态管理 - 严格限制大小
 auth_flows = {}  # 存储进行中的认证流程
@@ -63,10 +66,10 @@ def cleanup_auth_flows_for_memory():
     return len(auth_flows)
 
 
-def find_available_port(start_port: int = None) -> int:
+async def find_available_port(start_port: int = None) -> int:
     """动态查找可用端口"""
     if start_port is None:
-        start_port = DEFAULT_CALLBACK_PORT
+        start_port = await get_callback_port()
     
     # 首先尝试默认端口
     for port in range(start_port, start_port + 100):  # 尝试100个端口
@@ -139,12 +142,11 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-
-def create_auth_url(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
+async def create_auth_url(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
     try:
         # 动态分配端口
-        callback_port = find_available_port()
+        callback_port = await find_available_port()
         callback_url = f"http://{CALLBACK_HOST}:{callback_port}"
         
         # 立即启动回调服务器
@@ -412,8 +414,8 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
                     'requires_manual_project_id': True
                 }
             
-            # 保存凭证文件
-            file_path = save_credentials(credentials, project_id)
+            # 保存凭证
+            saved_filename = await save_credentials(credentials, project_id)
             
             # 准备返回的凭证数据
             creds_data = {
@@ -451,7 +453,7 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
             return {
                 'success': True,
                 'credentials': creds_data,
-                'file_path': os.path.basename(file_path),
+                'file_path': saved_filename,
                 'auto_detected_project': flow_data.get('auto_project_detection', False)
             }
             
@@ -593,9 +595,8 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            log.info(f"[ASYNC] 调用flow.fetch_token_async...")
+            log.info(f"[ASYNC] 调用flow.exchange_code...")
             credentials = await flow.exchange_code(auth_code)
-            # credentials 已经在 exchange_code 中获得
             log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
             
             log.info(f"[ASYNC] 检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
@@ -661,8 +662,8 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
                     'requires_manual_project_id': True
                 }
             
-            # 保存凭证文件
-            file_path = save_credentials(credentials, project_id)
+            # 保存凭证
+            saved_filename = await save_credentials(credentials, project_id)
             
             # 准备返回的凭证数据
             creds_data = {
@@ -700,7 +701,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             return {
                 'success': True,
                 'credentials': creds_data,
-                'file_path': os.path.basename(file_path),
+                'file_path': saved_filename,
                 'auto_detected_project': flow_data.get('auto_project_detection', False)
             }
             
@@ -721,15 +722,11 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         }
 
 
-def save_credentials(creds: Credentials, project_id: str) -> str:
-    """保存凭证到文件"""
-    # 确保目录存在
-    os.makedirs(CREDENTIALS_DIR, exist_ok=True)
-    
+async def save_credentials(creds: Credentials, project_id: str) -> str:
+    """通过统一存储系统保存凭证"""
     # 生成文件名（使用project_id和时间戳）
     timestamp = int(time.time())
     filename = f"{project_id}-{timestamp}.json"
-    file_path = os.path.join(CREDENTIALS_DIR, filename)
     
     # 准备凭证数据
     creds_data = {
@@ -749,12 +746,32 @@ def save_credentials(creds: Credentials, project_id: str) -> str:
             expiry_utc = creds.expires_at
         creds_data["expiry"] = expiry_utc.isoformat()
     
-    # 保存到文件
-    with open(file_path, "w", encoding='utf-8') as f:
-        json.dump(creds_data, f, indent=2, ensure_ascii=False)
+    # 通过存储适配器保存
+    storage_adapter = await get_storage_adapter()
+    success = await storage_adapter.store_credential(filename, creds_data)
     
-    log.info(f"凭证已保存到: {os.path.basename(file_path)}")
-    return file_path
+    if success:
+        # 创建默认状态记录
+        try:
+            default_state = {
+                "error_codes": [],
+                "disabled": False,
+                "last_success": time.time(),
+                "user_email": None,
+                "gemini_2_5_pro_calls": 0,
+                "total_calls": 0,
+                "next_reset_time": None,
+                "daily_limit_gemini_2_5_pro": 100,
+                "daily_limit_total": 1000
+            }
+            await storage_adapter.update_credential_state(filename, default_state)
+            log.info(f"凭证和状态已保存到: {filename}")
+        except Exception as e:
+            log.warning(f"创建默认状态记录失败 {filename}: {e}")
+        
+        return filename
+    else:
+        raise Exception(f"保存凭证失败: {filename}")
 
 
 def async_shutdown_server(server, port):
@@ -852,10 +869,10 @@ auth_tokens = {}  # 存储有效的认证令牌
 TOKEN_EXPIRY = 3600  # 1小时令牌过期时间
 
 
-def verify_password(password: str) -> bool:
+async def verify_password(password: str) -> bool:
     """验证密码（面板登录使用）"""
     from config import get_panel_password
-    correct_password = get_panel_password()
+    correct_password = await get_panel_password()
     return password == correct_password
 
 
@@ -905,11 +922,11 @@ def invalidate_auth_token(token: str):
         del auth_tokens[token]
 
 
-# 批量上传功能
-def validate_credential_file(file_content: str) -> Dict[str, Any]:
-    """验证认证文件格式"""
+# 文件验证和处理功能 - 使用统一存储系统
+def validate_credential_content(content: str) -> Dict[str, Any]:
+    """验证凭证内容格式"""
     try:
-        creds_data = json.loads(file_content)
+        creds_data = json.loads(content)
         
         # 检查必要字段
         required_fields = ['client_id', 'client_secret', 'refresh_token', 'token_uri']
@@ -942,11 +959,11 @@ def validate_credential_file(file_content: str) -> Dict[str, Any]:
         }
 
 
-def save_uploaded_credential(file_content: str, original_filename: str) -> Dict[str, Any]:
-    """保存上传的认证文件"""
+async def save_uploaded_credential(content: str, original_filename: str) -> Dict[str, Any]:
+    """通过统一存储系统保存上传的凭证"""
     try:
-        # 验证文件格式
-        validation = validate_credential_file(file_content)
+        # 验证内容格式
+        validation = validate_credential_content(content)
         if not validation['valid']:
             return {
                 'success': False,
@@ -955,36 +972,31 @@ def save_uploaded_credential(file_content: str, original_filename: str) -> Dict[
         
         creds_data = validation['data']
         
-        # 确保目录存在
-        os.makedirs(CREDENTIALS_DIR, exist_ok=True)
-        
         # 生成文件名
         project_id = creds_data.get('project_id', 'unknown')
         timestamp = int(time.time())
         
         # 从原文件名中提取有用信息
+        import os
         base_name = os.path.splitext(original_filename)[0]
         filename = f"{base_name}-{timestamp}.json"
-        file_path = os.path.join(CREDENTIALS_DIR, filename)
         
-        # 确保文件名唯一
-        counter = 1
-        while os.path.exists(file_path):
-            filename = f"{base_name}-{timestamp}-{counter}.json"
-            file_path = os.path.join(CREDENTIALS_DIR, filename)
-            counter += 1
+        # 通过存储适配器保存
+        storage_adapter = await get_storage_adapter()
+        success = await storage_adapter.store_credential(filename, creds_data)
         
-        # 保存文件
-        with open(file_path, "w", encoding='utf-8') as f:
-            json.dump(creds_data, f, indent=2, ensure_ascii=False)
-        
-        log.info(f"认证文件已上传保存: {os.path.basename(file_path)}")
-        
-        return {
-            'success': True,
-            'file_path': os.path.basename(file_path),
-            'project_id': project_id
-        }
+        if success:
+            log.info(f"凭证文件已上传保存: {filename}")
+            return {
+                'success': True,
+                'file_path': filename,
+                'project_id': project_id
+            }
+        else:
+            return {
+                'success': False,
+                'error': '保存到存储系统失败'
+            }
         
     except Exception as e:
         log.error(f"保存上传文件失败: {e}")
@@ -994,8 +1006,8 @@ def save_uploaded_credential(file_content: str, original_filename: str) -> Dict[
         }
 
 
-def batch_upload_credentials(files_data: List[Dict[str, str]]) -> Dict[str, Any]:
-    """批量上传认证文件"""
+async def batch_upload_credentials(files_data: List[Dict[str, str]]) -> Dict[str, Any]:
+    """批量上传凭证文件到统一存储系统"""
     results = []
     success_count = 0
     
@@ -1003,7 +1015,7 @@ def batch_upload_credentials(files_data: List[Dict[str, str]]) -> Dict[str, Any]
         filename = file_data.get('filename', 'unknown.json')
         content = file_data.get('content', '')
         
-        result = save_uploaded_credential(content, filename)
+        result = await save_uploaded_credential(content, filename)
         result['filename'] = filename
         results.append(result)
         
@@ -1017,14 +1029,16 @@ def batch_upload_credentials(files_data: List[Dict[str, str]]) -> Dict[str, Any]
     }
 
 
-# 环境变量批量导入功能
-def load_credentials_from_env() -> Dict[str, Any]:
+# 环境变量批量导入功能 - 使用统一存储系统
+async def load_credentials_from_env() -> Dict[str, Any]:
     """
-    从环境变量加载多个凭证文件
+    从环境变量加载多个凭证文件到统一存储系统
     支持两种环境变量格式:
     1. GCLI_CREDS_1, GCLI_CREDS_2, ... (编号格式)
     2. GCLI_CREDS_projectname1, GCLI_CREDS_projectname2, ... (项目名格式)
     """
+    import os
+    
     results = []
     success_count = 0
     
@@ -1045,13 +1059,16 @@ def load_credentials_from_env() -> Dict[str, Any]:
     
     log.info(f"找到 {len(creds_env_vars)} 个凭证环境变量")
     
+    # 获取存储适配器
+    storage_adapter = await get_storage_adapter()
+    
     for env_name, creds_content in creds_env_vars.items():
         # 从环境变量名提取标识符
         identifier = env_name.replace('GCLI_CREDS_', '')
         
         try:
             # 验证JSON格式
-            validation = validate_credential_file(creds_content)
+            validation = validate_credential_content(creds_content)
             if not validation['valid']:
                 result = {
                     'env_name': env_name,
@@ -1075,34 +1092,31 @@ def load_credentials_from_env() -> Dict[str, Any]:
                 # 如果标识符是项目名，直接使用
                 filename = f"env-{identifier}-{timestamp}.json"
             
-            # 确保目录存在
-            os.makedirs(CREDENTIALS_DIR, exist_ok=True)
-            file_path = os.path.join(CREDENTIALS_DIR, filename)
+            # 通过存储适配器保存
+            success = await storage_adapter.store_credential(filename, creds_data)
             
-            # 确保文件名唯一
-            counter = 1
-            original_file_path = file_path
-            while os.path.exists(file_path):
-                name, ext = os.path.splitext(original_file_path)
-                file_path = f"{name}-{counter}{ext}"
-                counter += 1
-            
-            # 保存文件
-            with open(file_path, "w", encoding='utf-8') as f:
-                json.dump(creds_data, f, indent=2, ensure_ascii=False)
-            
-            result = {
-                'env_name': env_name,
-                'identifier': identifier,
-                'success': True,
-                'file_path': os.path.basename(file_path),
-                'project_id': project_id,
-                'filename': os.path.basename(file_path)
-            }
-            results.append(result)
-            success_count += 1
-            
-            log.info(f"成功从环境变量 {env_name} 保存凭证到: {os.path.basename(file_path)}")
+            if success:
+                result = {
+                    'env_name': env_name,
+                    'identifier': identifier,
+                    'success': True,
+                    'file_path': filename,
+                    'project_id': project_id,
+                    'filename': filename
+                }
+                results.append(result)
+                success_count += 1
+                
+                log.info(f"成功从环境变量 {env_name} 保存凭证到: {filename}")
+            else:
+                result = {
+                    'env_name': env_name,
+                    'identifier': identifier,
+                    'success': False,
+                    'error': '保存到存储系统失败'
+                }
+                results.append(result)
+                log.error(f"环境变量 {env_name} 保存失败")
             
         except Exception as e:
             result = {
@@ -1125,13 +1139,13 @@ def load_credentials_from_env() -> Dict[str, Any]:
     }
 
 
-def auto_load_env_credentials_on_startup() -> None:
+async def auto_load_env_credentials_on_startup() -> None:
     """
-    程序启动时自动从环境变量加载凭证
+    程序启动时自动从环境变量加载凭证到统一存储系统
     如果设置了 AUTO_LOAD_ENV_CREDS=true，则会自动执行
     """
     from config import get_auto_load_env_creds
-    auto_load = get_auto_load_env_creds()
+    auto_load = await get_auto_load_env_creds()
     
     if not auto_load:
         log.debug("AUTO_LOAD_ENV_CREDS未启用，跳过自动加载")
@@ -1140,7 +1154,7 @@ def auto_load_env_credentials_on_startup() -> None:
     log.info("AUTO_LOAD_ENV_CREDS已启用，开始自动加载环境变量中的凭证...")
     
     try:
-        result = load_credentials_from_env()
+        result = await load_credentials_from_env()
         if result['loaded_count'] > 0:
             log.info(f"启动时成功自动导入 {result['loaded_count']} 个凭证文件")
         else:
@@ -1149,31 +1163,32 @@ def auto_load_env_credentials_on_startup() -> None:
         log.error(f"启动时自动加载环境变量凭证失败: {e}")
 
 
-def clear_env_credentials() -> Dict[str, Any]:
+async def clear_env_credentials() -> Dict[str, Any]:
     """
     清除所有从环境变量导入的凭证文件
     仅删除文件名包含'env-'前缀的文件
     """
-    if not os.path.exists(CREDENTIALS_DIR):
-        return {
-            'deleted_count': 0,
-            'message': '凭证目录不存在'
-        }
-    
-    deleted_files = []
-    deleted_count = 0
-    
     try:
-        for filename in os.listdir(CREDENTIALS_DIR):
-            if filename.startswith('env-') and filename.endswith('.json'):
-                file_path = os.path.join(CREDENTIALS_DIR, filename)
+        storage_adapter = await get_storage_adapter()
+        
+        # 获取所有凭证
+        all_credentials = await storage_adapter.list_credentials()
+        
+        deleted_files = []
+        deleted_count = 0
+        
+        for credential_name in all_credentials:
+            if credential_name.startswith('env-') and credential_name.endswith('.json'):
                 try:
-                    os.remove(file_path)
-                    deleted_files.append(filename)
-                    deleted_count += 1
-                    log.info(f"删除环境变量凭证文件: {filename}")
+                    success = await storage_adapter.delete_credential(credential_name)
+                    if success:
+                        deleted_files.append(credential_name)
+                        deleted_count += 1
+                        log.info(f"删除环境变量凭证文件: {credential_name}")
+                    else:
+                        log.error(f"删除文件 {credential_name} 失败")
                 except Exception as e:
-                    log.error(f"删除文件 {filename} 失败: {e}")
+                    log.error(f"删除文件 {credential_name} 失败: {e}")
         
         message = f"成功删除 {deleted_count} 个环境变量凭证文件"
         log.info(message)
@@ -1191,5 +1206,3 @@ def clear_env_credentials() -> Dict[str, Any]:
             'deleted_count': 0,
             'error': error_message
         }
-
-

@@ -14,7 +14,7 @@ from log import log
 class HttpxClientManager:
     """通用HTTP客户端管理器"""
     
-    def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
+    async def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
         client_kwargs = {
             "timeout": timeout,
@@ -22,7 +22,7 @@ class HttpxClientManager:
         }
         
         # 动态读取代理配置，支持热更新
-        current_proxy_config = get_proxy_config()
+        current_proxy_config = await get_proxy_config()
         if current_proxy_config:
             client_kwargs["proxy"] = current_proxy_config
         
@@ -31,7 +31,7 @@ class HttpxClientManager:
     @asynccontextmanager
     async def get_client(self, timeout: float = 30.0, **kwargs) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取配置好的异步HTTP客户端"""
-        client_kwargs = self.get_client_kwargs(timeout=timeout, **kwargs)
+        client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
         
         async with httpx.AsyncClient(**client_kwargs) as client:
             yield client
@@ -39,7 +39,7 @@ class HttpxClientManager:
     @asynccontextmanager
     async def get_streaming_client(self, timeout: float = None, **kwargs) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取用于流式请求的HTTP客户端（无超时限制）"""
-        client_kwargs = self.get_client_kwargs(timeout=timeout, **kwargs)
+        client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
         
         # 创建独立的客户端实例用于流式处理
         client = httpx.AsyncClient(**client_kwargs)
@@ -168,7 +168,7 @@ async def get_streaming_post_context(url: str, data: Any = None, json: Any = Non
         yield streaming_context
 
 
-def create_streaming_client_with_kwargs(**kwargs) -> httpx.AsyncClient:
+async def create_streaming_client_with_kwargs(**kwargs) -> httpx.AsyncClient:
     """创建用于流式处理的独立客户端实例（手动管理生命周期）"""
-    client_kwargs = http_client.get_client_kwargs(timeout=None, **kwargs)
+    client_kwargs = await http_client.get_client_kwargs(timeout=None, **kwargs)
     return httpx.AsyncClient(**client_kwargs)

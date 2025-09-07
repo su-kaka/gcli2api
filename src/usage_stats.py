@@ -8,12 +8,10 @@ from datetime import datetime, timezone, timedelta
 from threading import Lock
 from typing import Dict, Any, Optional
 
-import aiofiles
-import toml
-
-from config import CREDENTIALS_DIR
+from config import get_credentials_dir, is_mongodb_mode
 from log import log
 from .state_manager import get_state_manager
+from .storage_adapter import get_storage_adapter
 
 
 def _get_next_utc_7am() -> datetime:
@@ -36,8 +34,10 @@ class UsageStats:
     
     def __init__(self):
         self._lock = Lock()
-        self._state_file = os.path.join(CREDENTIALS_DIR, "creds_state.toml")
-        self._state_manager = get_state_manager(self._state_file)
+        # 状态文件路径将在初始化时异步设置
+        self._state_file = None
+        self._state_manager = None
+        self._storage_adapter = None
         self._stats_cache: Dict[str, Dict[str, Any]] = {}
         self._initialized = False
         self._cache_dirty = False  # 缓存脏标记，减少不必要的写入
@@ -50,9 +50,19 @@ class UsageStats:
         if self._initialized:
             return
         
+        # 初始化存储适配器
+        self._storage_adapter = await get_storage_adapter()
+        
+        # 只在文件模式下创建本地状态文件
+        if not await is_mongodb_mode():
+            credentials_dir = await get_credentials_dir()
+            self._state_file = os.path.join(credentials_dir, "creds_state.toml")
+            self._state_manager = get_state_manager(self._state_file)
+        
         await self._load_stats()
         self._initialized = True
-        log.debug("Usage statistics module initialized")
+        storage_type = "MongoDB" if await is_mongodb_mode() else "File"
+        log.debug(f"Usage statistics module initialized with {storage_type} storage backend")
         
     
     def _normalize_filename(self, filename: str) -> str:
@@ -100,45 +110,59 @@ class UsageStats:
             return clean_model == "gemini-2.5-pro"
     
     async def _load_stats(self):
-        """Load statistics from the state file - 优化为直接读取文件状态中的统计数据"""
+        """Load statistics from unified storage"""
         try:
-            if os.path.exists(self._state_file):
-                async with aiofiles.open(self._state_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
+            # 从统一存储获取所有使用统计，添加超时机制防止卡死
+            import asyncio
+            
+            async def load_stats_with_timeout():
+                all_usage_stats = await self._storage_adapter.get_all_usage_stats()
                 
-                state_data = toml.loads(content)
+                log.debug(f"Processing {len(all_usage_stats)} usage statistics items...")
                 
-                # 直接从文件状态中提取使用统计
-                self._stats_cache = {}
-                for filename, cred_data in state_data.items():
-                    if isinstance(cred_data, dict):
+                # 直接处理统计数据
+                stats_cache = {}
+                processed_count = 0
+                
+                for filename, stats_data in all_usage_stats.items():
+                    if isinstance(stats_data, dict):
                         normalized_filename = self._normalize_filename(filename)
-                        # 直接从文件状态中读取统计字段
+                        
+                        # 提取使用统计字段
                         usage_data = {
-                            "gemini_2_5_pro_calls": cred_data.get("gemini_2_5_pro_calls", 0),
-                            "total_calls": cred_data.get("total_calls", 0),
-                            "next_reset_time": cred_data.get("next_reset_time"),
-                            "daily_limit_gemini_2_5_pro": cred_data.get("daily_limit_gemini_2_5_pro", 100),
-                            "daily_limit_total": cred_data.get("daily_limit_total", 1000)
+                            "gemini_2_5_pro_calls": stats_data.get("gemini_2_5_pro_calls", 0),
+                            "total_calls": stats_data.get("total_calls", 0),
+                            "next_reset_time": stats_data.get("next_reset_time"),
+                            "daily_limit_gemini_2_5_pro": stats_data.get("daily_limit_gemini_2_5_pro", 100),
+                            "daily_limit_total": stats_data.get("daily_limit_total", 1000)
                         }
-                        # 只缓存有实际数据的统计
-                        if any(usage_data[k] for k in ["gemini_2_5_pro_calls", "total_calls", "next_reset_time"]):
-                            self._stats_cache[normalized_filename] = usage_data
+                        
+                        # 只加载有实际使用数据的统计，或者有reset时间的
+                        if (usage_data.get("gemini_2_5_pro_calls", 0) > 0 or 
+                            usage_data.get("total_calls", 0) > 0 or 
+                            usage_data.get("next_reset_time")):
+                            stats_cache[normalized_filename] = usage_data
+                            processed_count += 1
                 
-                log.debug(f"Loaded usage statistics for {len(self._stats_cache)} credential files")
-                
-                # Clean statistics for deleted credential files after loading
-                await self._clean_deleted_credentials_internal()
-                
-            else:
-                log.info("State file not found, starting with empty statistics")
+                return stats_cache, processed_count
+            
+            # 设置15秒超时防止卡死
+            try:
+                self._stats_cache, processed_count = await asyncio.wait_for(
+                    load_stats_with_timeout(), timeout=15.0
+                )
+                log.debug(f"Loaded usage statistics for {processed_count} credential files")
+            except asyncio.TimeoutError:
+                log.error("Loading usage statistics timed out after 30 seconds, using empty cache")
                 self._stats_cache = {}
+                return
+            
         except Exception as e:
             log.error(f"Failed to load usage statistics: {e}")
             self._stats_cache = {}
     
     async def _save_stats(self):
-        """Save statistics to the state file using unified state manager."""
+        """Save statistics to unified storage."""
         current_time = time.time()
         
         # 使用脏标记和时间间隔控制，减少不必要的写入
@@ -146,22 +170,30 @@ class UsageStats:
             return
             
         try:
-            # Use state manager for atomic updates
-            updates = {}
-            for filename, stats in self._stats_cache.items():
-                updates[filename] = {
-                    "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
-                    "total_calls": stats.get("total_calls", 0),
-                    "next_reset_time": stats.get("next_reset_time"),
-                    "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
-                    "daily_limit_total": stats.get("daily_limit_total", 1000)
-                }
+            # 批量更新使用统计到存储适配器
+            log.debug(f"Saving {len(self._stats_cache)} usage statistics items...")
             
-            await self._state_manager.batch_update(updates)
+            saved_count = 0
+            for filename, stats in self._stats_cache.items():
+                try:
+                    stats_data = {
+                        "gemini_2_5_pro_calls": stats.get("gemini_2_5_pro_calls", 0),
+                        "total_calls": stats.get("total_calls", 0),
+                        "next_reset_time": stats.get("next_reset_time"),
+                        "daily_limit_gemini_2_5_pro": stats.get("daily_limit_gemini_2_5_pro", 100),
+                        "daily_limit_total": stats.get("daily_limit_total", 1000)
+                    }
+                    
+                    success = await self._storage_adapter.update_usage_stats(filename, stats_data)
+                    if success:
+                        saved_count += 1
+                except Exception as e:
+                    log.error(f"Failed to save stats for {filename}: {e}")
+                    continue
                 
             self._cache_dirty = False  # 清除脏标记
             self._last_save_time = current_time
-            log.debug("Usage statistics saved successfully via state manager")
+            log.debug(f"Successfully saved {saved_count}/{len(self._stats_cache)} usage statistics to unified storage")
         except Exception as e:
             log.error(f"Failed to save usage statistics: {e}")
     
@@ -352,38 +384,6 @@ class UsageStats:
         
         await self._save_stats()
     
-    async def _clean_deleted_credentials_internal(self):
-        """Internal method to clean deleted credentials without initialization check."""
-        with self._lock:
-            # Get list of existing credential files
-            existing_files = set()
-            if os.path.exists(CREDENTIALS_DIR):
-                for file in os.listdir(CREDENTIALS_DIR):
-                    if file.endswith(".json"):
-                        existing_files.add(file)
-            
-            # Find statistics for deleted files
-            deleted_files = []
-            for filename in list(self._stats_cache.keys()):
-                if filename not in existing_files:
-                    deleted_files.append(filename)
-            
-            # Remove statistics for deleted files (only log if files were actually deleted)
-            if deleted_files:
-                for filename in deleted_files:
-                    del self._stats_cache[filename]
-                    self._cache_dirty = True
-                    log.debug(f"Removed statistics for deleted credential file: {filename}")
-                
-                log.info(f"Cleaned statistics for {len(deleted_files)} deleted credential files")
-    
-    async def clean_deleted_credentials(self):
-        """Clean statistics for deleted credential files."""
-        if not self._initialized:
-            await self.initialize()
-        
-        await self._clean_deleted_credentials_internal()
-    
     async def reset_stats(self, filename: str = None):
         """Reset usage statistics."""
         if not self._initialized:
@@ -442,9 +442,3 @@ async def get_aggregated_stats() -> Dict[str, Any]:
     """Convenience function to get aggregated statistics."""
     stats = await get_usage_stats_instance()
     return await stats.get_aggregated_stats()
-
-
-async def clean_deleted_credentials():
-    """Convenience function to clean statistics for deleted credential files."""
-    stats = await get_usage_stats_instance()
-    await stats.clean_deleted_credentials()
