@@ -2,9 +2,12 @@
 
 **Convert GeminiCLI to OpenAI and GEMINI API interfaces**
 
----
+[中文](../README.md) | English
 
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/FIBY1S?referralCode=su-kaka)
+## 🚀 Quick Deploy
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/2QLQC2?referralCode=su-kaka)
+---
 
 ## ⚠️ License Declaration
 
@@ -287,6 +290,191 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
      - `x-goog-api-key: your_api_password` 
      - URL parameter: `?key=your_api_password`
 
+## 💾 Distributed Storage Mode
+
+### 🌟 Storage Backend Priority
+
+gcli2api supports multiple storage backends, automatically selecting by priority: **Redis > Postgres > MongoDB > Local Files**
+
+### ⚡ Redis Distributed Storage Mode
+
+### ⚙️ Enable Redis Mode
+
+**Step 1: Configure Redis Connection**
+```bash
+# Local Redis
+export REDIS_URI="redis://localhost:6379"
+
+# Redis with password
+export REDIS_URI="redis://:password@localhost:6379"
+
+# SSL connection (recommended for production)
+export REDIS_URI="rediss://default:password@host:6380"
+
+# Upstash Redis (free cloud service)
+export REDIS_URI="rediss://default:token@your-host.upstash.io:6379"
+
+# Optional: Custom database index (default: 0)
+export REDIS_DATABASE="1"
+```
+
+**Step 2: Start Application**
+```bash
+# Application will automatically detect Redis configuration and prioritize Redis storage
+python web.py
+```
+
+### 🐘 Postgres Distributed Storage Mode
+
+If Redis is not configured, or you prefer a relational database, gcli2api also supports Postgres (it is checked after Redis and before MongoDB).
+
+⚙️ Enable Postgres Mode
+
+Step 1: Configure Postgres DSN
+```bash
+# Example DSN:
+export POSTGRES_DSN="postgresql://user:password@localhost:5432/gcli2api"
+```
+
+Step 2: Start Application
+```bash
+# Application will detect POSTGRES_DSN and use Postgres when Redis is not available
+python web.py
+```
+
+### 🍃 MongoDB Distributed Storage Mode
+
+### 🌟 Alternative Storage Solution
+
+If Redis is not configured, gcli2api will attempt to use **MongoDB storage mode**.
+
+### ⚙️ Enable MongoDB Mode
+
+**Step 1: Configure MongoDB Connection**
+```bash
+# Local MongoDB
+export MONGODB_URI="mongodb://localhost:27017"
+
+# MongoDB Atlas cloud service
+export MONGODB_URI="mongodb+srv://username:password@cluster.mongodb.net"
+
+# MongoDB with authentication
+export MONGODB_URI="mongodb://admin:password@localhost:27017/admin"
+
+# Optional: Custom database name (default: gcli2api)
+export MONGODB_DATABASE="my_gcli_db"
+```
+
+**Step 2: Start Application**
+```bash
+# Application will automatically detect MongoDB configuration and use MongoDB storage
+python web.py
+```
+
+**Docker Environment using MongoDB**
+```bash
+# Single MongoDB deployment
+docker run -d --name gcli2api \
+  -e MONGODB_URI="mongodb://mongodb:27017" \
+  -e API_PASSWORD=your_password \
+  --network your_network \
+  ghcr.io/su-kaka/gcli2api:latest
+
+# Using MongoDB Atlas
+docker run -d --name gcli2api \
+  -e MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/gcli2api" \
+  -e API_PASSWORD=your_password \
+  -p 7861:7861 \
+  ghcr.io/su-kaka/gcli2api:latest
+```
+
+**Docker Compose Example**
+```yaml
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: gcli2api-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+
+  gcli2api:
+    image: ghcr.io/su-kaka/gcli2api:latest
+    container_name: gcli2api
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/admin
+      - MONGODB_DATABASE=gcli2api
+      - API_PASSWORD=your_api_password
+      - PORT=7861
+    ports:
+      - "7861:7861"
+
+volumes:
+  mongodb_data:
+```
+
+### 🛠️ Troubleshooting
+
+**Common Issue Solutions**
+
+```bash
+# Check MongoDB connection
+python mongodb_setup.py check
+
+# View detailed status information
+python mongodb_setup.py status
+
+# Verify data migration results
+python -c "
+import asyncio
+from src.storage_adapter import get_storage_adapter
+
+async def test():
+    storage = await get_storage_adapter()
+    info = await storage.get_backend_info()
+    print(f'Current mode: {info[\"backend_type\"]}')
+    if info['backend_type'] == 'mongodb':
+        print(f'Database: {info.get(\"database_name\", \"Unknown\")}')
+
+asyncio.run(test())
+"
+```
+
+**Migration Failure Handling**
+```bash
+# If migration is interrupted, re-run
+python mongodb_setup.py migrate
+
+# To rollback to file mode, remove MONGODB_URI environment variable
+unset MONGODB_URI
+# Then export data from MongoDB
+python mongodb_setup.py export
+```
+
+### 🔧 Advanced Configuration
+
+**MongoDB Connection Optimization**
+```bash
+# Connection pool and timeout configuration
+export MONGODB_URI="mongodb://localhost:27017?maxPoolSize=10&serverSelectionTimeoutMS=5000"
+
+# Replica set configuration
+export MONGODB_URI="mongodb://host1:27017,host2:27017,host3:27017/gcli2api?replicaSet=myReplicaSet"
+
+# Read-write separation configuration
+export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryPreferred"
+```
+
 ## 🏗️ Technical Architecture
 
 ### Core Module Description
@@ -377,6 +565,19 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 **Logging Configuration**
 - `LOG_LEVEL`: Log level (DEBUG/INFO/WARNING/ERROR, default: INFO)
 - `LOG_FILE`: Log file path (default: gcli2api.log)
+
+**Storage Configuration (by priority)**
+
+**Redis Configuration (Highest Priority)**
+- `REDIS_URI`: Redis connection string (enables Redis mode when set)
+  - Local: `redis://localhost:6379`
+  - With password: `redis://:password@host:6379`
+  - SSL: `rediss://default:password@host:6380`
+- `REDIS_DATABASE`: Redis database index (0-15, default: 0)
+
+**MongoDB Configuration (Second Priority)**
+- `MONGODB_URI`: MongoDB connection string (enables MongoDB mode when set)
+- `MONGODB_DATABASE`: MongoDB database name (default: gcli2api)
 
 **Credential Configuration**
 

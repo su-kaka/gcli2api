@@ -40,7 +40,6 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
     
     for message in openai_request.messages:
         role = message.role
-        log.debug(f"Processing message: role={role}, content={getattr(message, 'content', None)}, compatibility_mode={compatibility_mode}")
         
         # 处理系统消息
         if role == "system":
@@ -134,12 +133,12 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
                         except ValueError:
                             continue
             contents.append({"role": role, "parts": parts})
-            log.debug(f"Added message to contents: role={role}, parts={parts}")
+            # log.debug(f"Added message to contents: role={role}, parts={parts}")
         elif message.content:
             # 简单文本内容
             contents.append({"role": role, "parts": [{"text": message.content}]})
-            log.debug(f"Added message to contents: role={role}, content={message.content}")
-    
+            # log.debug(f"Added message to contents: role={role}, content={message.content}")
+
     # 将OpenAI生成参数映射到Gemini格式
     generation_config = {}
     if openai_request.temperature is not None:
@@ -195,18 +194,41 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
 
     # 处理工具定义转换（OpenAI tools -> Gemini tools）
     if openai_request.tools:
-        gemini_tools = []
+        function_declarations = []
         for tool in openai_request.tools:
             if tool.type == "function":
+                # 清理parameters中的additionalProperties字段，Gemini API不支持
+                parameters = tool.function.parameters.copy() if tool.function.parameters else {}
+                if "additionalProperties" in parameters:
+                    del parameters["additionalProperties"]
+                
+                # 递归清理嵌套对象中的additionalProperties
+                def clean_additional_properties(obj):
+                    if isinstance(obj, dict):
+                        # 删除当前层级的additionalProperties
+                        if "additionalProperties" in obj:
+                            del obj["additionalProperties"]
+                        # 递归处理嵌套的对象
+                        for key, value in obj.items():
+                            if isinstance(value, dict):
+                                clean_additional_properties(value)
+                            elif isinstance(value, list):
+                                for item in value:
+                                    if isinstance(item, dict):
+                                        clean_additional_properties(item)
+                
+                clean_additional_properties(parameters)
+                
                 function_def = {
                     "name": tool.function.name,
                     "description": tool.function.description,
-                    "parameters": tool.function.parameters
+                    "parameters": parameters
                 }
-                gemini_tools.append({"functionDeclarations": [function_def]})
+                function_declarations.append(function_def)
         
-        if gemini_tools:
-            request_data["tools"] = gemini_tools
+        # 所有函数声明放在一个工具对象中
+        if function_declarations:
+            request_data["tools"] = [{"functionDeclarations": function_declarations}]
     
     # 处理工具选择转换（OpenAI tool_choice -> Gemini toolConfig）
     if openai_request.tool_choice:
@@ -229,11 +251,17 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
                     }
                 }
     
-    # 为搜索模型添加Google Search工具
+    # 为搜索模型添加Google Search工具（只有在没有functionDeclarations时才添加）
     if is_search_model(openai_request.model):
         if "tools" not in request_data:
             request_data["tools"] = []
-        request_data["tools"].append({"googleSearch": {}})
+            request_data["tools"].append({"googleSearch": {}})
+        elif not any("functionDeclarations" in tool for tool in request_data["tools"]):
+            # 只有在没有函数工具时才添加googleSearch
+            request_data["tools"].append({"googleSearch": {}})
+        else:
+            # 如果已有函数工具，不添加googleSearch（Gemini API不支持混合工具类型）
+            log.debug("Skipping googleSearch tool because functionDeclarations are present")
 
     # 移除None值
     request_data = {k: v for k, v in request_data.items() if v is not None}

@@ -18,6 +18,7 @@ from src.auth import (
     generate_auth_token, 
     verify_auth_token,
     asyncio_complete_auth_flow,
+    complete_auth_flow_from_callback_url,
     CALLBACK_HOST,
 )
 
@@ -39,6 +40,10 @@ class AuthStartRequest(BaseModel):
 
 class AuthCallbackRequest(BaseModel):
     project_id: str = None  # 现在是可选的，支持自动检测
+
+class AuthCallbackUrlRequest(BaseModel):
+    callback_url: str  # OAuth回调完整URL
+    project_id: str = None  # 可选的项目ID
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """验证认证令牌"""
@@ -169,6 +174,54 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
     except Exception as e:
         log.error(f"处理认证回调失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/callback-url")
+async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
+    """从回调URL直接完成认证，无需启动本地服务器"""
+    try:
+        # 验证URL格式
+        if not request.callback_url or not request.callback_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail="请提供有效的回调URL")
+        
+        # 从回调URL完成认证
+        result = await complete_auth_flow_from_callback_url(request.callback_url, request.project_id)
+        
+        if result['success']:
+            return JSONResponse(content={
+                "credentials": result['credentials'],
+                "file_path": result['file_path'],
+                "message": "从回调URL认证成功，凭证已保存",
+                "auto_detected_project": result.get('auto_detected_project', False)
+            })
+        else:
+            # 处理各种错误情况
+            if result.get('requires_manual_project_id'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_manual_project_id": True
+                    }
+                )
+            elif result.get('requires_project_selection'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_project_selection": True,
+                        "available_projects": result['available_projects']
+                    }
+                )
+            else:
+                raise HTTPException(status_code=400, detail=result['error'])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"从回调URL处理认证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

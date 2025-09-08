@@ -328,6 +328,47 @@
                     </div>
                 </div>
                 
+                <!-- 快捷回调URL输入选项 -->
+                <div style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
+                    <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" onclick="toggleCallbackUrlSection()">
+                        <span style="font-weight: 600; color: #0066cc; font-size: 16px;">🚀 无法回源？试试快捷方式</span>
+                        <span id="callbackUrlToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
+                    </div>
+                    <div id="callbackUrlSection" style="display: none;">
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                            <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚 适用场景：</div>
+                            <ul style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
+                                <li>云服务器、VPS等非本地环境</li>
+                                <li>防火墙阻止了回调端口访问</li>
+                                <li>网络环境无法正常回源</li>
+                                <li>Docker容器端口映射问题</li>
+                            </ul>
+                        </div>
+                        <div style="color: #666; font-size: 13px; margin-bottom: 12px; line-height: 1.6;">
+                            <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
+                            完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
+                            <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all; display: block; margin-top: 4px;">
+                                http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
+                            </code>
+                        </div>
+                        <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+                            <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋 使用步骤：</div>
+                            <ol style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
+                                <li>点击上方认证链接，完成Google授权</li>
+                                <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
+                                <li>粘贴到下方输入框，点击获取凭证即可</li>
+                            </ol>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <input type="url" id="callbackUrlInput" placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..." 
+                                   style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                        </div>
+                        <button class="btn" style="background: #28a745; border-color: #28a745;" onclick="processCallbackUrl()">
+                            从回调URL获取凭证
+                        </button>
+                    </div>
+                </div>
+                
                 <button class="btn secondary" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
             </div>
             
@@ -401,7 +442,7 @@
                     authToken = data.token;
                     document.getElementById('loginSection').classList.add('hidden');
                     document.getElementById('mainSection').classList.remove('hidden');
-                    showStatus('登录成功，请输入您的 Google Cloud Project ID', 'success');
+                    showStatus('登录成功', 'success');
                 } else {
                     showStatus(`登录失败: ${data.detail || data.error || '密码错误'}`, 'error');
                 }
@@ -615,6 +656,97 @@
                 section.style.display = 'none';
                 icon.style.transform = 'rotate(0deg)';
                 icon.textContent = '▶';
+            }
+        }
+
+        // 回调URL输入区域折叠切换函数
+        function toggleCallbackUrlSection() {
+            const section = document.getElementById('callbackUrlSection');
+            const icon = document.getElementById('callbackUrlToggleIcon');
+
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                icon.style.transform = 'rotate(180deg)';
+                icon.textContent = '▲';
+            } else {
+                section.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
+                icon.textContent = '▼';
+            }
+        }
+
+        // 处理回调URL的函数
+        async function processCallbackUrl() {
+            const callbackUrlInput = document.getElementById('callbackUrlInput');
+            const callbackUrl = callbackUrlInput.value.trim();
+
+            if (!callbackUrl) {
+                showStatus('请输入回调URL', 'error');
+                return;
+            }
+
+            // 简单验证URL格式
+            if (!callbackUrl.startsWith('http://') && !callbackUrl.startsWith('https://')) {
+                showStatus('请输入有效的URL（以http://或https://开头）', 'error');
+                return;
+            }
+
+            // 检查是否包含必要参数
+            if (!callbackUrl.includes('code=') || !callbackUrl.includes('state=')) {
+                showStatus('❌ 这不是有效的回调URL！请确保：\n1. 已完成Google OAuth授权\n2. 复制的是浏览器地址栏的完整URL\n3. URL包含code和state参数', 'error');
+                return;
+            }
+
+            showStatus('正在从回调URL获取凭证...', 'info');
+
+            try {
+                // 获取当前项目ID设置（如果有的话）
+                const projectIdInput = document.getElementById('projectId');
+                const projectId = projectIdInput ? projectIdInput.value.trim() : null;
+
+                const response = await fetch('/auth/callback-url', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        callback_url: callbackUrl,
+                        project_id: projectId || null
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.credentials) {
+                    // 显示成功信息
+                    showStatus(result.message || '从回调URL获取凭证成功！', 'success');
+                    
+                    // 隐藏认证URL区域，显示凭证内容
+                    document.getElementById('authUrlSection').classList.add('hidden');
+                    document.getElementById('credentialsSection').classList.remove('hidden');
+                    
+                    // 显示凭证内容
+                    document.getElementById('credentialsContent').innerHTML = 
+                        '<pre>' + JSON.stringify(result.credentials, null, 2) + '</pre>';
+                    
+                    // 设置全局变量供下载使用
+                    window.currentCredentials = result.credentials;
+                    
+                    // 清空输入框
+                    callbackUrlInput.value = '';
+                    
+                } else if (result.requires_manual_project_id) {
+                    showStatus('需要手动指定项目ID，请在高级选项中填入Google Cloud项目ID后重试', 'error');
+                } else if (result.requires_project_selection) {
+                    let projectOptions = '\n\n可用项目：\n';
+                    result.available_projects.forEach(project => {
+                        projectOptions += `• ${project.name} (ID: ${project.projectId})\n`;
+                    });
+                    showStatus('检测到多个项目，请在高级选项中指定项目ID：' + projectOptions, 'error');
+                } else {
+                    showStatus(result.error || '从回调URL获取凭证失败', 'error');
+                }
+            } catch (error) {
+                console.error('从回调URL获取凭证时出错:', error);
+                showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
             }
         }
 

@@ -18,6 +18,10 @@ LOG_LEVELS = {
 # 线程锁，用于文件写入同步
 _file_lock = threading.Lock()
 
+# 文件写入状态标志
+_file_writing_disabled = False
+_disable_reason = None
+
 def _get_current_log_level():
     """获取当前日志级别"""
     level = os.getenv('LOG_LEVEL', 'info').lower()
@@ -29,14 +33,26 @@ def _get_log_file_path():
 
 def _write_to_file(message: str):
     """线程安全地写入日志文件"""
+    global _file_writing_disabled, _disable_reason
+    
+    # 如果文件写入已被禁用，直接返回
+    if _file_writing_disabled:
+        return
+    
     try:
         log_file = _get_log_file_path()
         with _file_lock:
             with open(log_file, 'a', encoding='utf-8') as f:
                 f.write(message + '\n')
                 f.flush()  # 强制刷新到磁盘，确保实时写入
+    except (PermissionError, OSError, IOError) as e:
+        # 检测只读文件系统或权限问题，禁用文件写入
+        _file_writing_disabled = True
+        _disable_reason = str(e)
+        print(f"Warning: File system appears to be read-only or permission denied. Disabling log file writing: {e}", file=sys.stderr)
+        print(f"Log messages will continue to display in console only.", file=sys.stderr)
     except Exception as e:
-        # 如果写文件失败，至少输出到控制台
+        # 其他异常仍然输出警告但不禁用写入（可能是临时问题）
         print(f"Warning: Failed to write to log file: {e}", file=sys.stderr)
 
 def _log(level: str, message: str):
@@ -114,6 +130,7 @@ class Logger:
     def get_log_file(self) -> str:
         """获取当前日志文件路径"""
         return _get_log_file_path()
+    
 
 # 导出全局日志实例
 log = Logger()

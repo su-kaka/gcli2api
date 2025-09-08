@@ -10,7 +10,8 @@ import os
 import time
 import zipfile
 from collections import deque
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
@@ -19,13 +20,14 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketState
 import toml
 import zipfile
+import httpx
 
 import config
 from log import log
 from .auth import (
     create_auth_url, get_auth_status,
     verify_password, generate_auth_token, verify_auth_token,
-    batch_upload_credentials, asyncio_complete_auth_flow, 
+    asyncio_complete_auth_flow, complete_auth_flow_from_callback_url,
     load_credentials_from_env, clear_env_credentials
 )
 from .credential_manager import CredentialManager
@@ -141,9 +143,16 @@ class LoginRequest(BaseModel):
 
 class AuthStartRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
+    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
 
 class AuthCallbackRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
+    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
+
+class AuthCallbackUrlRequest(BaseModel):
+    callback_url: str  # OAuth回调完整URL
+    project_id: Optional[str] = None  # 可选的项目ID
+    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
 
 class CredFileActionRequest(BaseModel):
     filename: str
@@ -236,23 +245,29 @@ async def login(request: LoginRequest):
 
 @router.post("/auth/start")
 async def start_auth(request: AuthStartRequest, token: str = Depends(verify_token)):
-    """开始认证流程，支持自动检测项目ID"""
+    """开始认证流程，支持自动检测项目ID和批量获取所有项目"""
     try:
-        # 如果没有提供项目ID，尝试自动检测
-        project_id = request.project_id
-        if not project_id:
-            log.info("用户未提供项目ID，后续将使用自动检测...")
+        # 检查是否为批量项目模式
+        if request.get_all_projects:
+            log.info("用户请求批量获取所有项目的凭证...")
+            project_id = None  # 批量模式下不指定单个项目ID
+        else:
+            # 如果没有提供项目ID，尝试自动检测
+            project_id = request.project_id
+            if not project_id:
+                log.info("用户未提供项目ID，后续将使用自动检测...")
         
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
-        result = await create_auth_url(project_id, user_session)
+        result = await create_auth_url(project_id, user_session, get_all_projects=request.get_all_projects)
         
         if result['success']:
             return JSONResponse(content={
                 "auth_url": result['auth_url'],
                 "state": result['state'],
                 "auto_project_detection": result.get('auto_project_detection', False),
-                "detected_project_id": result.get('detected_project_id')
+                "detected_project_id": result.get('detected_project_id'),
+                "get_all_projects": request.get_all_projects
             })
         else:
             raise HTTPException(status_code=500, detail=result['error'])
@@ -266,23 +281,32 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
 
 @router.post("/auth/callback")
 async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verify_token)):
-    """处理认证回调，支持自动检测项目ID"""
+    """处理认证回调，支持自动检测项目ID和批量获取所有项目"""
     try:
         # 项目ID现在是可选的，在回调处理中进行自动检测
         project_id = request.project_id
+        get_all_projects = request.get_all_projects
         
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         # 异步等待OAuth回调完成
-        result = await asyncio_complete_auth_flow(project_id, user_session)
+        result = await asyncio_complete_auth_flow(project_id, user_session, get_all_projects=get_all_projects)
         
         if result['success']:
-            return JSONResponse(content={
-                "credentials": result['credentials'],
-                "file_path": result['file_path'],
-                "message": "认证成功，凭证已保存",
-                "auto_detected_project": result.get('auto_detected_project', False)
-            })
+            if get_all_projects and result.get('multiple_credentials'):
+                # 批量认证成功，返回多个凭证信息
+                return JSONResponse(content={
+                    "multiple_credentials": result['multiple_credentials'],
+                    "message": "批量认证成功，已为多个项目保存凭证"
+                })
+            else:
+                # 单项目认证成功
+                return JSONResponse(content={
+                    "credentials": result['credentials'],
+                    "file_path": result['file_path'],
+                    "message": "认证成功，凭证已保存",
+                    "auto_detected_project": result.get('auto_detected_project', False)
+                })
         else:
             # 如果需要手动项目ID或项目选择，在响应中标明
             if result.get('requires_manual_project_id'):
@@ -311,6 +335,65 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
         raise
     except Exception as e:
         log.error(f"处理认证回调失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/auth/callback-url")
+async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
+    """从回调URL直接完成认证，支持批量获取所有项目"""
+    try:
+        # 验证URL格式
+        if not request.callback_url or not request.callback_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail="请提供有效的回调URL")
+        
+        # 从回调URL完成认证
+        result = await complete_auth_flow_from_callback_url(
+            request.callback_url, 
+            request.project_id, 
+            get_all_projects=request.get_all_projects
+        )
+        
+        if result['success']:
+            if request.get_all_projects and result.get('multiple_credentials'):
+                # 批量认证成功，返回多个凭证信息
+                return JSONResponse(content={
+                    "multiple_credentials": result['multiple_credentials'],
+                    "message": "从回调URL批量认证成功，已为多个项目保存凭证"
+                })
+            else:
+                # 单项目认证成功
+                return JSONResponse(content={
+                    "credentials": result['credentials'],
+                    "file_path": result['file_path'],
+                    "message": "从回调URL认证成功，凭证已保存",
+                    "auto_detected_project": result.get('auto_detected_project', False)
+                })
+        else:
+            # 处理各种错误情况
+            if result.get('requires_manual_project_id'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_manual_project_id": True
+                    }
+                )
+            elif result.get('requires_project_selection'):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": result['error'],
+                        "requires_project_selection": True,
+                        "available_projects": result['available_projects']
+                    }
+                )
+            else:
+                raise HTTPException(status_code=400, detail=result['error'])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"从回调URL处理认证失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -429,7 +512,7 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
         storage_adapter = await get_storage_adapter()
         
         # 分批处理大量文件以提高稳定性
-        batch_size = 100  # 每批处理100个文件
+        batch_size = 1000  # 每批处理1000个文件
         all_results = []
         total_success = 0
         
@@ -472,7 +555,7 @@ async def upload_credentials(files: List[UploadFile] = File(...), token: str = D
                         except Exception as e:
                             log.warning(f"Failed to create default state for {filename}: {e}")
                         
-                        log.info(f"成功上传凭证文件: {filename}")
+                        log.debug(f"成功上传凭证文件: {filename}")
                         return {
                             "filename": filename,
                             "status": "success",
@@ -638,7 +721,7 @@ async def get_creds_status(token: str = Depends(verify_token)):
                 }
         
         # 并发处理所有凭证数据获取
-        log.info(f"开始并发获取 {len(all_credentials)} 个凭证数据...")
+        log.debug(f"开始并发获取 {len(all_credentials)} 个凭证数据...")
         concurrent_tasks = [process_credential_data(filename) for filename in all_credentials]
         results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
         

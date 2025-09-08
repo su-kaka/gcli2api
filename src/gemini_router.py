@@ -320,7 +320,6 @@ async def stream_generate_content(
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
-    model: str = Path(..., description="Model name"),
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible)
 ):

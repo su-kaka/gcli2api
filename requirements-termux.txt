@@ -9,3 +9,5 @@ toml
 PyJWT
 oauthlib
 motor
+redis
+asyncpg

@@ -142,7 +142,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-async def create_auth_url(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
+async def create_auth_url(project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
     try:
         # 动态分配端口
@@ -223,7 +223,8 @@ async def create_auth_url(project_id: Optional[str] = None, user_session: str = 
             'code': None,
             'completed': False,
             'created_at': time.time(),
-            'auto_project_detection': project_id is None  # 标记是否需要自动检测项目ID
+            'auto_project_detection': project_id is None,  # 标记是否需要自动检测项目ID
+            'get_all_projects': get_all_projects  # 是否为所有项目获取凭证
         }
         
         # 清理过期的流程（30分钟）
@@ -474,91 +475,91 @@ async def complete_auth_flow(project_id: Optional[str] = None, user_session: str
         }
 
 
-async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_session: str = None) -> Dict[str, Any]:
+async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
     try:
-        log.info(f"[ASYNC] asyncio_complete_auth_flow开始执行: project_id={project_id}, user_session={user_session}")
+        log.info(f"asyncio_complete_auth_flow开始执行: project_id={project_id}, user_session={user_session}")
         
         # 查找对应的认证流程
         state = None
         flow_data = None
         
-        log.debug(f"[ASYNC] 当前所有auth_flows: {list(auth_flows.keys())}")
+        log.debug(f"当前所有auth_flows: {list(auth_flows.keys())}")
         
         # 如果指定了project_id，先尝试匹配指定的项目
         if project_id:
-            log.info(f"[ASYNC] 尝试匹配指定的项目ID: {project_id}")
+            log.info(f"尝试匹配指定的项目ID: {project_id}")
             for s, data in auth_flows.items():
                 if data['project_id'] == project_id:
                     # 如果指定了用户会话，优先匹配相同会话的流程
                     if user_session and data.get('user_session') == user_session:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配的用户会话: {s}")
+                        log.info(f"找到匹配的用户会话: {s}")
                         break
                     # 如果没有指定会话，或没找到匹配会话的流程，使用第一个匹配项目ID的
                     elif not state:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配的项目ID: {s}")
+                        log.info(f"找到匹配的项目ID: {s}")
         
         # 如果没有指定项目ID或没找到匹配的，查找需要自动检测项目ID的流程
         if not state:
-            log.info(f"[ASYNC] 没有找到指定项目的流程，查找自动检测流程")
+            log.info(f"没有找到指定项目的流程，查找自动检测流程")
             for s, data in auth_flows.items():
-                log.debug(f"[ASYNC] 检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}")
+                log.debug(f"检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}")
                 if data.get('auto_project_detection', False):
                     # 如果指定了用户会话，优先匹配相同会话的流程
                     if user_session and data.get('user_session') == user_session:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到匹配用户会话的自动检测流程: {s}")
+                        log.info(f"找到匹配用户会话的自动检测流程: {s}")
                         break
                     # 使用第一个找到的需要自动检测的流程
                     elif not state:
                         state = s
                         flow_data = data
-                        log.info(f"[ASYNC] 找到自动检测流程: {s}")
+                        log.info(f"找到自动检测流程: {s}")
         
         if not state or not flow_data:
-            log.error(f"[ASYNC] 未找到认证流程: state={state}, flow_data存在={bool(flow_data)}")
-            log.debug(f"[ASYNC] 当前所有flow_data: {list(auth_flows.keys())}")
+            log.error(f"未找到认证流程: state={state}, flow_data存在={bool(flow_data)}")
+            log.debug(f"当前所有flow_data: {list(auth_flows.keys())}")
             return {
                 'success': False,
                 'error': '未找到对应的认证流程，请先点击获取认证链接'
             }
         
-        log.info(f"[ASYNC] 找到认证流程: state={state}")
-        log.info(f"[ASYNC] flow_data内容: project_id={flow_data.get('project_id')}, auto_project_detection={flow_data.get('auto_project_detection')}")
-        log.info(f"[ASYNC] 传入的project_id参数: {project_id}")
+        log.info(f"找到认证流程: state={state}")
+        log.info(f"flow_data内容: project_id={flow_data.get('project_id')}, auto_project_detection={flow_data.get('auto_project_detection')}")
+        log.info(f"传入的project_id参数: {project_id}")
         
         # 如果需要自动检测项目ID且没有提供项目ID
-        log.info(f"[ASYNC] 检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
+        log.info(f"检查auto_project_detection条件: auto_project_detection={flow_data.get('auto_project_detection', False)}, not project_id={not project_id}")
         if flow_data.get('auto_project_detection', False) and not project_id:
-            log.info("[ASYNC] 跳过自动检测项目ID，进入等待阶段")
+            log.info("跳过自动检测项目ID，进入等待阶段")
         elif not project_id:
-            log.info("[ASYNC] 进入project_id检查分支")
+            log.info("进入project_id检查分支")
             project_id = flow_data.get('project_id')
             if not project_id:
-                log.error("[ASYNC] 缺少项目ID，返回错误")
+                log.error("缺少项目ID，返回错误")
                 return {
                     'success': False,
                     'error': '缺少项目ID，请指定项目ID',
                     'requires_manual_project_id': True
                 }
         else:
-            log.info(f"[ASYNC] 使用提供的项目ID: {project_id}")
+            log.info(f"使用提供的项目ID: {project_id}")
         
         # 检查是否已经有授权码
-        log.info(f"[ASYNC] 开始检查OAuth授权码...")
+        log.info(f"开始检查OAuth授权码...")
         max_wait_time = 60  # 最多等待60秒
         wait_interval = 1   # 每秒检查一次
         waited = 0
         
         while waited < max_wait_time:
-            log.debug(f"[ASYNC] 等待OAuth授权码... ({waited}/{max_wait_time}秒)")
+            log.debug(f"等待OAuth授权码... ({waited}/{max_wait_time}秒)")
             if flow_data.get('code'):
-                log.info(f"[ASYNC] 检测到OAuth授权码，开始处理凭证 (等待时间: {waited}秒)")
+                log.info(f"检测到OAuth授权码，开始处理凭证 (等待时间: {waited}秒)")
                 break
             
             # 异步等待
@@ -568,10 +569,10 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             # 刷新flow_data引用，因为可能被回调更新了
             if state in auth_flows:
                 flow_data = auth_flows[state]
-                log.debug(f"[ASYNC] 刷新flow_data: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}")
+                log.debug(f"刷新flow_data: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}")
         
         if not flow_data.get('code'):
-            log.error(f"[ASYNC] 等待OAuth回调超时，等待了{waited}秒")
+            log.error(f"等待OAuth回调超时，等待了{waited}秒")
             return {
                 'success': False,
                 'error': '等待OAuth回调超时，请确保完成了浏览器中的认证并看到成功页面'
@@ -580,7 +581,7 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         flow = flow_data['flow']
         auth_code = flow_data['code']
         
-        log.info(f"[ASYNC] 开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
+        log.info(f"开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
         
         # 使用认证代码获取凭证
         import oauthlib.oauth2.rfc6749.parameters
@@ -595,14 +596,100 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
         oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
         
         try:
-            log.info(f"[ASYNC] 调用flow.exchange_code...")
+            log.info(f"调用flow.exchange_code...")
             credentials = await flow.exchange_code(auth_code)
-            log.info(f"[ASYNC] 成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
+            log.info(f"成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}...")
             
-            log.info(f"[ASYNC] 检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
+            log.info(f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}")
             
-            # 如果需要自动检测项目ID且没有提供项目ID
-            if flow_data.get('auto_project_detection', False) and not project_id:
+            # 检查是否为批量获取所有项目模式
+            if flow_data.get('get_all_projects', False) or get_all_projects:
+                log.info("批量模式：为所有项目并发获取凭证...")
+                user_projects = await get_user_projects(credentials)
+                
+                if user_projects:
+                    async def process_single_project(project_info):
+                        """并发处理单个项目的凭证获取"""
+                        project_id_current = project_info.get('projectId')
+                        project_name = project_info.get('displayName') or project_id_current
+                        
+                        try:
+                            log.info(f"为项目 {project_name} ({project_id_current}) 启用API服务...")
+                            await enable_required_apis(credentials, project_id_current)
+                            
+                            # 保存凭证
+                            saved_filename = await save_credentials(credentials, project_id_current)
+                            
+                            log.info(f"成功为项目 {project_name} 保存凭证")
+                            return {
+                                'status': 'success',
+                                'project_id': project_id_current,
+                                'project_name': project_name,
+                                'file_path': saved_filename
+                            }
+                            
+                        except Exception as e:
+                            log.error(f"为项目 {project_name} ({project_id_current}) 处理凭证失败: {e}")
+                            return {
+                                'status': 'failed',
+                                'project_id': project_id_current,
+                                'project_name': project_name,
+                                'error': str(e)
+                            }
+                    
+                    # 并发处理所有项目
+                    log.info(f"开始并发处理 {len(user_projects)} 个项目...")
+                    tasks = [process_single_project(project_info) for project_info in user_projects]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # 整理结果
+                    multiple_results = {'success': [], 'failed': []}
+                    for result in results:
+                        if isinstance(result, Exception):
+                            log.error(f"并发处理项目时发生异常: {result}")
+                            multiple_results['failed'].append({
+                                'project_id': 'unknown',
+                                'project_name': 'unknown',
+                                'error': f'处理异常: {str(result)}'
+                            })
+                        elif result['status'] == 'success':
+                            multiple_results['success'].append({
+                                'project_id': result['project_id'],
+                                'project_name': result['project_name'],
+                                'file_path': result['file_path']
+                            })
+                        else:  # failed
+                            multiple_results['failed'].append({
+                                'project_id': result['project_id'],
+                                'project_name': result['project_name'],
+                                'error': result['error']
+                            })
+                    
+                    # 清理使用过的流程
+                    if state in auth_flows:
+                        flow_data_to_clean = auth_flows[state]
+                        try:
+                            if flow_data_to_clean.get('server'):
+                                server = flow_data_to_clean['server']
+                                port = flow_data_to_clean.get('callback_port')
+                                async_shutdown_server(server, port)
+                        except Exception as e:
+                            log.debug(f"启动异步关闭服务器时出错: {e}")
+                        del auth_flows[state]
+                    
+                    log.info(f"批量并发认证完成：成功 {len(multiple_results['success'])} 个，失败 {len(multiple_results['failed'])} 个")
+                    return {
+                        'success': True,
+                        'multiple_credentials': multiple_results
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': '无法获取您的项目列表，批量认证失败'
+                    }
+                        
+            # 如果需要自动检测项目ID且没有提供项目ID（单项目模式）
+            elif flow_data.get('auto_project_detection', False) and not project_id:
                 log.info("尝试通过API获取用户项目列表...")
                 log.info(f"使用的token: {credentials.access_token[:20]}...")
                 log.info(f"Token过期时间: {credentials.expires_at}")
@@ -716,6 +803,241 @@ async def asyncio_complete_auth_flow(project_id: Optional[str] = None, user_sess
             
     except Exception as e:
         log.error(f"异步完成认证流程失败: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+async def complete_auth_flow_from_callback_url(callback_url: str, project_id: Optional[str] = None, get_all_projects: bool = False) -> Dict[str, Any]:
+    """从回调URL直接完成认证流程，无需启动本地服务器"""
+    try:
+        log.info(f"开始从回调URL完成认证: {callback_url}")
+        
+        # 解析回调URL
+        parsed_url = urlparse(callback_url)
+        query_params = parse_qs(parsed_url.query)
+        
+        # 验证必要参数
+        if 'state' not in query_params or 'code' not in query_params:
+            return {
+                'success': False,
+                'error': '回调URL缺少必要参数 (state 或 code)'
+            }
+        
+        state = query_params['state'][0]
+        code = query_params['code'][0]
+        
+        log.info(f"从URL解析到: state={state}, code=xxx...")
+        
+        # 检查是否有对应的认证流程
+        if state not in auth_flows:
+            return {
+                'success': False,
+                'error': f'未找到对应的认证流程，请先启动认证 (state: {state})'
+            }
+        
+        flow_data = auth_flows[state]
+        flow = flow_data['flow']
+        
+        # 构造回调URL（使用flow中存储的redirect_uri）
+        redirect_uri = flow.redirect_uri
+        log.info(f"使用redirect_uri: {redirect_uri}")
+        
+        try:
+            # 使用authorization code获取token
+            credentials = await flow.exchange_code(code)
+            log.info("成功获取访问令牌")
+            
+            # 检查是否为批量获取所有项目模式
+            if get_all_projects:
+                log.info("批量模式：从回调URL为所有项目并发获取凭证...")
+                try:
+                    projects = await get_user_projects(credentials)
+                    if projects:
+                        async def process_single_project(project_info):
+                            """并发处理单个项目的凭证获取"""
+                            project_id_current = project_info.get('projectId')
+                            project_name = project_info.get('displayName') or project_id_current
+                            
+                            try:
+                                log.info(f"为项目 {project_name} ({project_id_current}) 启用API服务...")
+                                await enable_required_apis(credentials, project_id_current)
+                                
+                                # 保存凭证
+                                saved_filename = await save_credentials(credentials, project_id_current)
+                                
+                                log.info(f"成功为项目 {project_name} 保存凭证")
+                                return {
+                                    'status': 'success',
+                                    'project_id': project_id_current,
+                                    'project_name': project_name,
+                                    'file_path': saved_filename
+                                }
+                                
+                            except Exception as e:
+                                log.error(f"为项目 {project_name} ({project_id_current}) 处理凭证失败: {e}")
+                                return {
+                                    'status': 'failed',
+                                    'project_id': project_id_current,
+                                    'project_name': project_name,
+                                    'error': str(e)
+                                }
+                        
+                        # 并发处理所有项目
+                        log.info(f"开始并发处理 {len(projects)} 个项目...")
+                        tasks = [process_single_project(project_info) for project_info in projects]
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        # 整理结果
+                        multiple_results = {'success': [], 'failed': []}
+                        for result in results:
+                            if isinstance(result, Exception):
+                                log.error(f"并发处理项目时发生异常: {result}")
+                                multiple_results['failed'].append({
+                                    'project_id': 'unknown',
+                                    'project_name': 'unknown',
+                                    'error': f'处理异常: {str(result)}'
+                                })
+                            elif result['status'] == 'success':
+                                multiple_results['success'].append({
+                                    'project_id': result['project_id'],
+                                    'project_name': result['project_name'],
+                                    'file_path': result['file_path']
+                                })
+                            else:  # failed
+                                multiple_results['failed'].append({
+                                    'project_id': result['project_id'],
+                                    'project_name': result['project_name'],
+                                    'error': result['error']
+                                })
+                        
+                        # 清理使用过的流程
+                        if state in auth_flows:
+                            flow_data_to_clean = auth_flows[state]
+                            try:
+                                if flow_data_to_clean.get('server'):
+                                    server = flow_data_to_clean['server']
+                                    port = flow_data_to_clean.get('callback_port')
+                                    async_shutdown_server(server, port)
+                            except Exception as e:
+                                log.debug(f"关闭服务器时出错: {e}")
+                            del auth_flows[state]
+                        
+                        log.info(f"从回调URL批量并发认证完成：成功 {len(multiple_results['success'])} 个，失败 {len(multiple_results['failed'])} 个")
+                        return {
+                            'success': True,
+                            'multiple_credentials': multiple_results
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': '无法获取您的项目列表，批量认证失败'
+                        }
+                except Exception as e:
+                    log.error(f"批量获取项目列表失败: {e}")
+                    return {
+                        'success': False,
+                        'error': f'批量获取项目列表失败: {str(e)}'
+                    }
+            
+            # 单项目模式的项目ID处理逻辑
+            detected_project_id = None
+            auto_detected = False
+            
+            if not project_id:
+                # 尝试自动检测项目ID
+                try:
+                    projects = await get_user_projects(credentials)
+                    if projects:
+                        if len(projects) == 1:
+                            # 只有一个项目，自动使用
+                            detected_project_id = projects[0]['projectId']
+                            auto_detected = True
+                            log.info(f"自动检测到唯一项目ID: {detected_project_id}")
+                        else:
+                            # 多个项目，自动选择第一个
+                            detected_project_id = projects[0]['projectId']
+                            auto_detected = True
+                            log.info(f"检测到{len(projects)}个项目，自动选择第一个: {detected_project_id}")
+                            log.debug(f"其他可用项目: {[p['projectId'] for p in projects[1:]]}")
+                    else:
+                        # 没有项目访问权限
+                        return {
+                            'success': False,
+                            'error': '未检测到可访问的项目，请检查权限或手动指定项目ID',
+                            'requires_manual_project_id': True
+                        }
+                except Exception as e:
+                    log.warning(f"自动检测项目ID失败: {e}")
+                    return {
+                        'success': False,
+                        'error': f'自动检测项目ID失败: {str(e)}，请手动指定项目ID',
+                        'requires_manual_project_id': True
+                    }
+            else:
+                detected_project_id = project_id
+            
+            # 启用必需的API服务
+            if detected_project_id:
+                try:
+                    log.info(f"正在为项目 {detected_project_id} 启用必需的API服务...")
+                    await enable_required_apis(credentials, detected_project_id)
+                except Exception as e:
+                    log.warning(f"启用API服务失败: {e}")
+            
+            # 保存凭证
+            saved_filename = await save_credentials(credentials, detected_project_id)
+            
+            # 准备返回的凭证数据
+            creds_data = {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "token": credentials.access_token,
+                "refresh_token": credentials.refresh_token,
+                "scopes": SCOPES,
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "project_id": detected_project_id
+            }
+            
+            if credentials.expires_at:
+                if credentials.expires_at.tzinfo is None:
+                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
+                else:
+                    expiry_utc = credentials.expires_at
+                creds_data["expiry"] = expiry_utc.isoformat()
+            
+            # 清理使用过的流程
+            if state in auth_flows:
+                flow_data_to_clean = auth_flows[state]
+                # 快速关闭服务器（如果有）
+                try:
+                    if flow_data_to_clean.get('server'):
+                        server = flow_data_to_clean['server']
+                        port = flow_data_to_clean.get('callback_port')
+                        async_shutdown_server(server, port)
+                except Exception as e:
+                    log.debug(f"关闭服务器时出错: {e}")
+                
+                del auth_flows[state]
+            
+            log.info("从回调URL完成OAuth认证成功，凭证已保存")
+            return {
+                'success': True,
+                'credentials': creds_data,
+                'file_path': saved_filename,
+                'auto_detected_project': auto_detected
+            }
+            
+        except Exception as e:
+            log.error(f"从回调URL获取凭证失败: {e}")
+            return {
+                'success': False,
+                'error': f'获取凭证失败: {str(e)}'
+            }
+        
+    except Exception as e:
+        log.error(f"从回调URL完成认证流程失败: {e}")
         return {
             'success': False,
             'error': str(e)
