@@ -96,10 +96,17 @@ class Credentials:
                 
             except Exception as e:
                 last_exception = e
+                error_msg = str(e)
+                
+                # 检查是否是不可恢复的错误，如果是则不重试
+                if self._is_non_retryable_error(error_msg):
+                    log.error(f"Token刷新遇到不可恢复错误: {error_msg}")
+                    break
+                
                 if attempt < max_retries:
                     # 计算退避延迟时间（指数退避）
                     delay = base_delay * (2 ** attempt)
-                    log.warning(f"Token刷新失败（第{attempt + 1}次尝试）: {str(e)}，{delay}秒后重试...")
+                    log.warning(f"Token刷新失败（第{attempt + 1}次尝试）: {error_msg}，{delay}秒后重试...")
                     await asyncio.sleep(delay)
                 else:
                     break
@@ -108,6 +115,25 @@ class Credentials:
         error_msg = f"Token刷新失败（已重试{max_retries}次）: {str(last_exception)}"
         log.error(error_msg)
         raise TokenError(error_msg)
+    
+    def _is_non_retryable_error(self, error_msg: str) -> bool:
+        """判断是否是不需要重试的错误"""
+        non_retryable_patterns = [
+            "400 Bad Request",
+            "invalid_grant",
+            "refresh_token_expired",
+            "invalid_refresh_token", 
+            "unauthorized_client",
+            "access_denied",
+            "401 Unauthorized"
+        ]
+        
+        error_msg_lower = error_msg.lower()
+        for pattern in non_retryable_patterns:
+            if pattern.lower() in error_msg_lower:
+                return True
+                
+        return False
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Credentials':

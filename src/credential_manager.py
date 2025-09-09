@@ -246,7 +246,7 @@ class CredentialManager:
             return None
     
     async def get_valid_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """获取有效的凭证，自动处理轮换"""
+        """获取有效的凭证，自动处理轮换和失效凭证切换"""
         async with self._operation_lock:
             if not self._credential_files:
                 await self._discover_credentials()
@@ -257,8 +257,44 @@ class CredentialManager:
             if await self._should_rotate():
                 await self._rotate_credential()
             
-            # 加载当前凭证
-            return await self._load_current_credential()
+            # 尝试获取有效凭证，如果失败则自动切换
+            max_attempts = len(self._credential_files)  # 最多尝试所有凭证
+            
+            for attempt in range(max_attempts):
+                try:
+                    # 加载当前凭证
+                    result = await self._load_current_credential()
+                    if result:
+                        return result
+                    
+                    # 当前凭证加载失败，标记为失效并切换到下一个
+                    current_file = self._credential_files[self._current_credential_index] if self._credential_files else None
+                    if current_file:
+                        log.warning(f"凭证失效，自动禁用并切换: {current_file}")
+                        await self.set_cred_disabled(current_file, True)
+                        
+                        # 重新发现可用凭证（排除刚禁用的）
+                        await self._discover_credentials()
+                        if not self._credential_files:
+                            log.error("没有可用的凭证")
+                            return None
+                        
+                        # 重置索引到第一个可用凭证
+                        self._current_credential_index = 0
+                        log.info(f"切换到下一个可用凭证 (索引: {self._current_credential_index})")
+                    else:
+                        log.error("无法获取当前凭证文件名")
+                        break
+                        
+                except Exception as e:
+                    log.error(f"获取凭证时发生异常 (尝试 {attempt + 1}/{max_attempts}): {e}")
+                    if attempt < max_attempts - 1:
+                        # 切换到下一个凭证继续尝试
+                        await self._rotate_credential()
+                    continue
+            
+            log.error(f"所有 {max_attempts} 个凭证都尝试失败")
+            return None
     
     async def _should_rotate(self) -> bool:
         """检查是否需要轮换凭证"""
@@ -500,8 +536,37 @@ class CredentialManager:
             return credential_data
             
         except Exception as e:
-            log.error(f"Token刷新失败 {filename}: {e}")
+            error_msg = str(e)
+            log.error(f"Token刷新失败 {filename}: {error_msg}")
+            
+            # 检查是否是凭证永久失效的错误
+            is_permanent_failure = self._is_permanent_refresh_failure(error_msg)
+            
+            if is_permanent_failure:
+                log.warning(f"检测到凭证永久失效: {filename}")
+                # 记录失效状态，但不在这里禁用凭证，让上层调用者处理
+                await self.record_api_call_result(filename, False, 400)
+            
             return None
+    
+    def _is_permanent_refresh_failure(self, error_msg: str) -> bool:
+        """判断是否是凭证永久失效的错误"""
+        # 常见的永久失效错误模式
+        permanent_error_patterns = [
+            "400 Bad Request",
+            "invalid_grant",
+            "refresh_token_expired", 
+            "invalid_refresh_token",
+            "unauthorized_client",
+            "access_denied"
+        ]
+        
+        error_msg_lower = error_msg.lower()
+        for pattern in permanent_error_patterns:
+            if pattern.lower() in error_msg_lower:
+                return True
+                
+        return False
 
     # 兼容性方法 - 保持与现有代码的接口兼容
     async def _update_token_in_file(self, file_path: str, new_token: str, expires_at=None):

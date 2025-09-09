@@ -2,7 +2,6 @@
 OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API formats
 被openai-router调用，负责OpenAI格式与Gemini格式的双向转换
 """
-import json
 import time
 import uuid
 from typing import Dict, Any
@@ -67,51 +66,8 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
         if role == "assistant":
             role = "model"
         
-        # 处理工具调用响应消息（role为tool）
-        if role == "tool" and message.tool_call_id and message.content:
-            # 工具调用结果消息转换为Gemini格式
-            # 注意：这里我们需要从message.name中获取函数名，如果没有则跳过
-            function_name = getattr(message, 'name', None)
-            if not function_name:
-                log.error(f"Tool response message missing function name for tool_call_id: {message.tool_call_id}")
-                log.error("This will cause a 400 error from Gemini API: 'please ensure that the number of function response parts is equal to the number of function call parts'")
-                log.error("Solution: Include 'name' field in tool messages matching the original function name")
-                continue
-            
-            parts = [{
-                "functionResponse": {
-                    "name": function_name,
-                    "response": {"result": message.content}
-                }
-            }]
-            contents.append({"role": "function", "parts": parts})
-            log.debug(f"Added tool response to contents: function={function_name}, tool_call_id={message.tool_call_id}")
-            continue
-        
-        # 处理工具调用（从assistant消息中的tool_calls）
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            # 如果有工具调用，优先处理工具调用，忽略文本内容
-            tool_parts = []
-            for tool_call in message.tool_calls:
-                if tool_call.type == "function":
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        args = {}
-                    
-                    tool_parts.append({
-                        "functionCall": {
-                            "name": tool_call.function.name,
-                            "args": args
-                        }
-                    })
-            
-            if tool_parts:
-                contents.append({"role": role, "parts": tool_parts})
-                log.debug(f"Added tool calls to contents: {[tc.function.name for tc in message.tool_calls]}")
-        
-        # 处理普通内容（只有在没有工具调用的情况下）
-        elif isinstance(message.content, list):
+        # 处理普通内容
+        if isinstance(message.content, list):
             parts = []
             for part in message.content:
                 if part.get("type") == "text":
@@ -191,77 +147,10 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
             "thinkingBudget": thinking_budget,
             "includeThoughts": should_include_thoughts(openai_request.model)
         }
-
-    # 处理工具定义转换（OpenAI tools -> Gemini tools）
-    if openai_request.tools:
-        function_declarations = []
-        for tool in openai_request.tools:
-            if tool.type == "function":
-                # 清理parameters中的additionalProperties字段，Gemini API不支持
-                parameters = tool.function.parameters.copy() if tool.function.parameters else {}
-                if "additionalProperties" in parameters:
-                    del parameters["additionalProperties"]
-                
-                # 递归清理嵌套对象中的additionalProperties
-                def clean_additional_properties(obj):
-                    if isinstance(obj, dict):
-                        # 删除当前层级的additionalProperties
-                        if "additionalProperties" in obj:
-                            del obj["additionalProperties"]
-                        # 递归处理嵌套的对象
-                        for key, value in obj.items():
-                            if isinstance(value, dict):
-                                clean_additional_properties(value)
-                            elif isinstance(value, list):
-                                for item in value:
-                                    if isinstance(item, dict):
-                                        clean_additional_properties(item)
-                
-                clean_additional_properties(parameters)
-                
-                function_def = {
-                    "name": tool.function.name,
-                    "description": tool.function.description,
-                    "parameters": parameters
-                }
-                function_declarations.append(function_def)
-        
-        # 所有函数声明放在一个工具对象中
-        if function_declarations:
-            request_data["tools"] = [{"functionDeclarations": function_declarations}]
     
-    # 处理工具选择转换（OpenAI tool_choice -> Gemini toolConfig）
-    if openai_request.tool_choice:
-        if isinstance(openai_request.tool_choice, str):
-            if openai_request.tool_choice == "auto":
-                # Gemini默认就是auto模式，无需特殊设置
-                pass
-            elif openai_request.tool_choice == "required":
-                request_data["toolConfig"] = {"functionCallingConfig": {"mode": "ANY"}}
-            elif openai_request.tool_choice == "none":
-                request_data["toolConfig"] = {"functionCallingConfig": {"mode": "NONE"}}
-        elif isinstance(openai_request.tool_choice, dict) and openai_request.tool_choice.get("type") == "function":
-            # 强制调用特定函数
-            function_name = openai_request.tool_choice.get("function", {}).get("name")
-            if function_name:
-                request_data["toolConfig"] = {
-                    "functionCallingConfig": {
-                        "mode": "ANY",
-                        "allowedFunctionNames": [function_name]
-                    }
-                }
-    
-    # 为搜索模型添加Google Search工具（只有在没有functionDeclarations时才添加）
+    # 为搜索模型添加Google Search工具
     if is_search_model(openai_request.model):
-        if "tools" not in request_data:
-            request_data["tools"] = []
-            request_data["tools"].append({"googleSearch": {}})
-        elif not any("functionDeclarations" in tool for tool in request_data["tools"]):
-            # 只有在没有函数工具时才添加googleSearch
-            request_data["tools"].append({"googleSearch": {}})
-        else:
-            # 如果已有函数工具，不添加googleSearch（Gemini API不支持混合工具类型）
-            log.debug("Skipping googleSearch tool because functionDeclarations are present")
+        request_data["tools"] = [{"googleSearch": {}}]
 
     # 移除None值
     request_data = {k: v for k, v in request_data.items() if v is not None}
@@ -273,10 +162,9 @@ async def openai_request_to_gemini_payload(openai_request: ChatCompletionRequest
     }
 
 def _extract_content_and_reasoning(parts: list) -> tuple:
-    """从Gemini响应部件中提取内容、推理内容和函数调用"""
+    """从Gemini响应部件中提取内容和推理内容"""
     content = ""
     reasoning_content = ""
-    tool_calls = []
     
     for part in parts:
         # 处理文本内容
@@ -286,34 +174,15 @@ def _extract_content_and_reasoning(parts: list) -> tuple:
                 reasoning_content += part.get("text", "")
             else:
                 content += part.get("text", "")
-        
-        # 处理函数调用
-        elif part.get("functionCall"):
-            function_call = part["functionCall"]
-            tool_call = {
-                "id": f"call_{uuid.uuid4().hex[:8]}",
-                "type": "function",
-                "function": {
-                    "name": function_call.get("name", ""),
-                    "arguments": json.dumps(function_call.get("args", {}))
-                }
-            }
-            tool_calls.append(tool_call)
     
-    return content, reasoning_content, tool_calls
+    return content, reasoning_content
 
-def _build_message_with_reasoning(role: str, content: str, reasoning_content: str, tool_calls: list = None) -> dict:
-    """构建包含可选推理内容和工具调用的消息对象"""
+def _build_message_with_reasoning(role: str, content: str, reasoning_content: str) -> dict:
+    """构建包含可选推理内容的消息对象"""
     message = {
         "role": role,
+        "content": content
     }
-    
-    # 如果有工具调用，设置content为None，否则设置文本内容
-    if tool_calls:
-        message["tool_calls"] = tool_calls
-        message["content"] = None if not content.strip() else content
-    else:
-        message["content"] = content
     
     # 如果有thinking tokens，添加reasoning_content
     if reasoning_content:
@@ -341,12 +210,12 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         if role == "model":
             role = "assistant"
         
-        # 提取并分离thinking tokens、常规内容和工具调用
+        # 提取并分离thinking tokens和常规内容
         parts = candidate.get("content", {}).get("parts", [])
-        content, reasoning_content, tool_calls = _extract_content_and_reasoning(parts)
+        content, reasoning_content = _extract_content_and_reasoning(parts)
         
         # 构建消息对象
-        message = _build_message_with_reasoning(role, content, reasoning_content, tool_calls)
+        message = _build_message_with_reasoning(role, content, reasoning_content)
         
         choices.append({
             "index": candidate.get("index", 0),
@@ -383,9 +252,9 @@ def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, resp
         if role == "model":
             role = "assistant"
         
-        # 提取并分离thinking tokens、常规内容和工具调用
+        # 提取并分离thinking tokens和常规内容
         parts = candidate.get("content", {}).get("parts", [])
-        content, reasoning_content, tool_calls = _extract_content_and_reasoning(parts)
+        content, reasoning_content = _extract_content_and_reasoning(parts)
         
         # 构建delta对象
         delta = {}
@@ -393,8 +262,6 @@ def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, resp
             delta["content"] = content
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
-        if tool_calls:
-            delta["tool_calls"] = tool_calls
         
         choices.append({
             "index": candidate.get("index", 0),

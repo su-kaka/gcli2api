@@ -466,6 +466,11 @@ class AntiTruncationStreamProcessor:
     def _remove_done_marker_from_chunk(self, chunk: bytes, data: Dict[str, Any]) -> bytes:
         """使用正则表达式从chunk中移除[done]标记"""
         try:
+            # 首先检查是否真的包含[done]标记，如果没有则直接返回原始chunk
+            chunk_text = chunk.decode('utf-8', errors='ignore') if isinstance(chunk, bytes) else str(chunk)
+            if '[done]' not in chunk_text.lower():
+                return chunk  # 没有[done]标记，直接返回原始chunk
+            
             # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
             done_pattern = re.compile(r'\s*\[done\]\s*', re.IGNORECASE)
             
@@ -474,17 +479,21 @@ class AntiTruncationStreamProcessor:
                 modified_data = data.copy()
                 modified_data["candidates"] = []
                 
-                for candidate in data["candidates"]:
+                for i, candidate in enumerate(data["candidates"]):
                     modified_candidate = candidate.copy()
+                    # 只在最后一个candidate中清理[done]标记
+                    is_last_candidate = (i == len(data["candidates"]) - 1)
+                    
                     if "content" in candidate:
                         modified_content = candidate["content"].copy()
                         if "parts" in modified_content:
                             modified_parts = []
                             for part in modified_content["parts"]:
-                                if "text" in part:
+                                if "text" in part and isinstance(part["text"], str):
                                     modified_part = part.copy()
-                                    # 使用正则表达式移除[done]标记
-                                    modified_part["text"] = done_pattern.sub('', part["text"])
+                                    # 只在最后一个candidate中清理[done]标记
+                                    if is_last_candidate:
+                                        modified_part["text"] = done_pattern.sub('', part["text"])
                                     modified_parts.append(modified_part)
                                 else:
                                     modified_parts.append(part)
@@ -492,12 +501,14 @@ class AntiTruncationStreamProcessor:
                         modified_candidate["content"] = modified_content
                     modified_data["candidates"].append(modified_candidate)
                 
-                # 重新编码为chunk格式
+                # 重新编码为chunk格式，保持原始的换行符
                 if isinstance(chunk, bytes):
                     prefix = b'data: '
-                    return prefix + json.dumps(modified_data, ensure_ascii=False).encode()
+                    suffix = b'\n\n'  # 确保有正确的换行符
+                    json_data = json.dumps(modified_data, separators=(',',':'), ensure_ascii=False).encode('utf-8')
+                    return prefix + json_data + suffix
                 else:
-                    return f"data: {json.dumps(modified_data, ensure_ascii=False)}"
+                    return f"data: {json.dumps(modified_data, separators=(',',':'), ensure_ascii=False)}\n\n"
             
             # 处理OpenAI格式
             elif "choices" in data:
@@ -516,12 +527,14 @@ class AntiTruncationStreamProcessor:
                         modified_choice["message"] = modified_message
                     modified_data["choices"].append(modified_choice)
                 
-                # 重新编码为chunk格式
+                # 重新编码为chunk格式，保持原始的换行符
                 if isinstance(chunk, bytes):
                     prefix = b'data: '
-                    return prefix + json.dumps(modified_data, ensure_ascii=False).encode()
+                    suffix = b'\n\n'  # 确保有正确的换行符
+                    json_data = json.dumps(modified_data, separators=(',',':'), ensure_ascii=False).encode('utf-8')
+                    return prefix + json_data + suffix
                 else:
-                    return f"data: {json.dumps(modified_data, ensure_ascii=False)}"
+                    return f"data: {json.dumps(modified_data, separators=(',',':'), ensure_ascii=False)}\n\n"
             
             # 如果没有找到支持的格式，返回原始chunk
             return chunk

@@ -13,34 +13,12 @@ class ModelList(BaseModel):
     object: str = "list"
     data: List[Model]
 
-# OpenAI Function Calling Models
-class OpenAIFunctionCall(BaseModel):
-    name: str
-    arguments: str
-
-class OpenAIToolCall(BaseModel):
-    id: str
-    type: str = "function"
-    function: OpenAIFunctionCall
-
-class OpenAIFunction(BaseModel):
-    name: str
-    description: str
-    parameters: Dict[str, Any]
-    strict: Optional[bool] = None
-
-class OpenAITool(BaseModel):
-    type: str = "function"
-    function: OpenAIFunction
-
 # OpenAI Models
 class OpenAIChatMessage(BaseModel):
     role: str
     content: Union[str, List[Dict[str, Any]], None] = None
     reasoning_content: Optional[str] = None
     name: Optional[str] = None
-    tool_calls: Optional[List[OpenAIToolCall]] = None
-    tool_call_id: Optional[str] = None
 
 class OpenAIChatCompletionRequest(BaseModel):
     model: str
@@ -57,8 +35,6 @@ class OpenAIChatCompletionRequest(BaseModel):
     response_format: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, ge=1)
     enable_anti_truncation: Optional[bool] = False
-    tools: Optional[List[OpenAITool]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     
     class Config:
         extra = "allow"  # Allow additional fields not explicitly defined
@@ -162,38 +138,6 @@ class GeminiResponse(BaseModel):
     candidates: List[GeminiCandidate]
     usageMetadata: Optional[GeminiUsageMetadata] = None
     modelVersion: Optional[str] = None
-
-# Universal Request Model (auto-detects format)
-class UniversalChatRequest(BaseModel):
-    """通用聊天请求模型，可以自动检测和处理不同格式"""
-    model: str
-    # OpenAI 风格字段
-    messages: Optional[List[OpenAIChatMessage]] = None
-    stream: Optional[bool] = False
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    max_tokens: Optional[int] = None
-    stop: Optional[Union[str, List[str]]] = None
-    frequency_penalty: Optional[float] = None
-    presence_penalty: Optional[float] = None
-    n: Optional[int] = None
-    seed: Optional[int] = None
-    response_format: Optional[Dict[str, Any]] = None
-    top_k: Optional[int] = None
-    
-    # Gemini 风格字段
-    contents: Optional[List[GeminiContent]] = None
-    systemInstruction: Optional[GeminiSystemInstruction] = None
-    generationConfig: Optional[GeminiGenerationConfig] = None
-    safetySettings: Optional[List[GeminiSafetySetting]] = None
-    tools: Optional[List[Dict[str, Any]]] = None
-    toolConfig: Optional[Dict[str, Any]] = None
-    
-    # 通用字段
-    enable_anti_truncation: Optional[bool] = False
-    
-    class Config:
-        extra = "allow"
 
 # Error Models
 class APIError(BaseModel):

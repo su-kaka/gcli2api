@@ -6,7 +6,6 @@ import os
 from typing import Any, Optional
 
 # Client Configuration
-CLI_VERSION = "0.1.5"  # Match current gemini-cli version
 
 # 需要自动封禁的错误码 (默认值，可通过环境变量或配置覆盖)
 AUTO_BAN_ERROR_CODES = [401, 403]
