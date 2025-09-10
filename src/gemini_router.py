@@ -504,7 +504,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
-                        content, reasoning_content, _ = _extract_content_and_reasoning(parts)
+                        content, reasoning_content = _extract_content_and_reasoning(parts)
                         log.debug(f"Gemini extracted content: {content}")
                         log.debug(f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
                         
