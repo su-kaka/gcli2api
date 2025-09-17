@@ -968,14 +968,16 @@
                     <div style="padding: 15px; border: 2px solid #28a745; border-radius: 8px; background: #f8fff9;">
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <input type="checkbox" id="getAllProjectsCreds" style="transform: scale(1.3);">
-                            <label for="getAllProjectsCreds" style="font-weight: bold; color: #28a745; margin: 0; cursor: pointer;">
+                            <label for="getAllProjectsCreds"
+                                style="font-weight: bold; color: #28a745; margin: 0; cursor: pointer;">
                                 🌐 为当前账号所有项目获取凭证
                             </label>
                         </div>
                         <div style="margin-top: 10px; color: #155724; font-size: 14px; line-height: 1.5;">
                             <strong>说明：</strong>勾选此选项后，系统会自动检测当前Google账号下的所有项目，<strong>并发处理</strong>为每个项目生成独立的认证文件。
                         </div>
-                        <div id="allProjectsNote" style="margin-top: 8px; padding: 8px; background: #d4edda; border-radius: 5px; font-size: 13px; color: #155724; display: none;">
+                        <div id="allProjectsNote"
+                            style="margin-top: 8px; padding: 8px; background: #d4edda; border-radius: 5px; font-size: 13px; color: #155724; display: none;">
                             ✨ <strong>批量并发认证模式已启用</strong> - 认证完成后将并发为所有可访问的项目生成凭证文件
                         </div>
                     </div>
@@ -998,17 +1000,23 @@
                             <li>点击下方"获取认证文件"按钮完成流程</li>
                         </ol>
                     </div>
-                    
+
                     <!-- 快捷回调URL输入选项 -->
-                    <div class="form-group" style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
-                        <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" onclick="toggleCallbackUrlSection()">
+                    <div class="form-group"
+                        style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
+                        <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;"
+                            onclick="toggleCallbackUrlSection()">
                             <span style="font-weight: bold; color: #0066cc;">🚀 无法回源？试试快捷方式</span>
-                            <span id="callbackUrlToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
+                            <span id="callbackUrlToggleIcon"
+                                style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
                         </div>
                         <div id="callbackUrlSection" style="display: none;">
-                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
-                                <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚 适用场景：</div>
-                                <ul style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
+                            <div
+                                style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                                <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚
+                                    适用场景：</div>
+                                <ul
+                                    style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
                                     <li>云服务器、VPS等非本地环境</li>
                                     <li>防火墙阻止了8080端口访问</li>
                                     <li>网络环境无法正常回源到localhost</li>
@@ -1018,28 +1026,34 @@
                             <div style="color: #666; font-size: 13px; margin-bottom: 12px; line-height: 1.6;">
                                 <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
                                 完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
-                                <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
+                                <code
+                                    style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
                                     http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
                                 </code>
                             </div>
-                            <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
-                                <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋 使用步骤：</div>
-                                <ol style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
+                            <div
+                                style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+                                <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋
+                                    使用步骤：</div>
+                                <ol
+                                    style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
                                     <li>点击上方认证链接，完成Google授权</li>
                                     <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
                                     <li>粘贴到下方输入框，点击获取凭证即可</li>
                                 </ol>
                             </div>
                             <div class="input-group">
-                                <input type="url" id="callbackUrlInput" placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..." 
-                                       style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
+                                <input type="url" id="callbackUrlInput"
+                                    placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..."
+                                    style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
                             </div>
-                            <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;" onclick="processCallbackUrl()">
+                            <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
+                                onclick="processCallbackUrl()">
                                 从回调URL获取凭证
                             </button>
                         </div>
                     </div>
-                    
+
                     <button class="btn" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
                 </div>
 
@@ -1905,12 +1919,12 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 if (response.ok) {
                     const credentialsSection = document.getElementById('credentialsSection');
                     const credentialsContent = document.getElementById('credentialsContent');
-                    
+
                     if (getAllProjects && data.multiple_credentials) {
                         // 处理多项目认证结果
                         const results = data.multiple_credentials;
                         let resultText = `批量并发认证完成！成功为 ${results.success.length} 个项目生成凭证：\n\n`;
-                        
+
                         // 显示成功的项目
                         results.success.forEach((item, index) => {
                             resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
@@ -1931,14 +1945,14 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     } else {
                         // 处理单项目认证结果
                         credentialsContent.textContent = JSON.stringify(data.credentials, null, 2);
-                        
+
                         if (data.auto_detected_project) {
                             showStatus(`✅ 认证成功！项目ID已自动检测为: ${data.credentials.project_id}，文件已保存到: ${data.file_path}`, 'success');
                         } else {
                             showStatus(`✅ 认证成功！文件已保存到: ${data.file_path}`, 'success');
                         }
                     }
-                    
+
                     credentialsSection.classList.remove('hidden');
                     authInProgress = false;
                 } else {
@@ -3372,7 +3386,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     // 处理多项目认证结果
                     const results = result.multiple_credentials;
                     let resultText = `批量并发认证完成！成功为 ${results.success.length} 个项目生成凭证：\n\n`;
-                    
+
                     // 显示成功的项目
                     results.success.forEach((item, index) => {
                         resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
@@ -3392,16 +3406,16 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     document.getElementById('credentialsContent').textContent = resultText;
                     document.getElementById('credentialsSection').classList.remove('hidden');
                     showStatus(`✅ 批量并发认证完成！成功生成 ${results.success.length} 个项目的凭证文件${results.failed.length > 0 ? `，${results.failed.length} 个项目失败` : ''}`, 'success');
-                    
+
                 } else if (result.credentials) {
                     // 处理单项目认证结果
                     showStatus(result.message || '从回调URL获取凭证成功！', 'success');
-                    
+
                     // 显示凭证内容
-                    document.getElementById('credentialsContent').innerHTML = 
+                    document.getElementById('credentialsContent').innerHTML =
                         '<pre>' + JSON.stringify(result.credentials, null, 2) + '</pre>';
                     document.getElementById('credentialsSection').classList.remove('hidden');
-                    
+
                 } else if (result.requires_manual_project_id) {
                     showStatus('需要手动指定项目ID，请在高级选项中填入Google Cloud项目ID后重试', 'error');
                 } else if (result.requires_project_selection) {
@@ -3413,17 +3427,17 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 } else {
                     showStatus(result.error || '从回调URL获取凭证失败', 'error');
                 }
-                
+
                 // 清空输入框
                 callbackUrlInput.value = '';
-                
+
                 // 刷新凭证列表（如果有）
                 setTimeout(() => {
                     if (typeof refreshCredsStatus === 'function') {
                         refreshCredsStatus();
                     }
                 }, 1000);
-                
+
             } catch (error) {
                 console.error('从回调URL获取凭证时出错:', error);
                 showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
@@ -3436,7 +3450,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             const note = document.getElementById('allProjectsNote');
             const projectIdSection = document.getElementById('projectIdSection');
             const projectIdToggle = document.querySelector('[onclick="toggleProjectIdSection()"]');
-            
+
             if (checkbox.checked) {
                 // 显示批量认证提示
                 note.style.display = 'block';
@@ -3463,13 +3477,13 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             console.log('Login section exists:', !!document.getElementById('loginSection'));
             console.log('Main section exists:', !!document.getElementById('mainSection'));
             console.log('Status section exists:', !!document.getElementById('statusSection'));
-            
+
             // 添加勾选框事件监听器
             const checkbox = document.getElementById('getAllProjectsCreds');
             if (checkbox) {
                 checkbox.addEventListener('change', handleGetAllProjectsChange);
             }
-            
+
             showStatus('请输入密码登录', 'info');
         };
 
@@ -3757,7 +3771,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
         // 官方端点配置
         const officialUrls = {
-            codeAssistEndpoint: 'https://cloudcodeassist-pa.googleapis.com',
+            codeAssistEndpoint: 'https://cloudcode-pa.googleapis.com',
             oauthProxyUrl: 'https://oauth2.googleapis.com',
             googleapisProxyUrl: 'https://www.googleapis.com',
             resourceManagerApiUrl: 'https://cloudresourcemanager.googleapis.com',
@@ -3782,7 +3796,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
         // 还原官方端点
         function restoreOfficialUrls() {
-            if (confirm('确定要将所有端点配置为官方地址吗？\n\n官方端点：\n• Code Assist: https://cloudcodeassist-pa.googleapis.com\n• OAuth: https://oauth2.googleapis.com\n• Google APIs: https://www.googleapis.com\n• Resource Manager: https://cloudresourcemanager.googleapis.com\n• Service Usage: https://serviceusage.googleapis.com')) {
+            if (confirm('确定要将所有端点配置为官方地址吗？\n\n官方端点：\n• Code Assist: https://cloudcode-pa.googleapis.com\n• OAuth: https://oauth2.googleapis.com\n• Google APIs: https://www.googleapis.com\n• Resource Manager: https://cloudresourcemanager.googleapis.com\n• Service Usage: https://serviceusage.googleapis.com')) {
 
                 // 设置所有端点为官方地址
                 for (const [fieldId, url] of Object.entries(officialUrls)) {

@@ -120,7 +120,7 @@ async def list_gemini_models():
 async def generate_content(
     model: str = Path(..., description="Model name"),
     request: Request = None,
-    # api_key: str = Depends(authenticate_gemini_flexible)  # Unused parameter removed
+    api_key: str = Depends(authenticate_gemini_flexible)
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
     
