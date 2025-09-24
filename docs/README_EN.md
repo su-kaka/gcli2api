@@ -804,19 +804,6 @@ In this mode, all `system` messages are converted to `user` messages, improving 
 
 ---
 
-## Troubleshooting
-
-**400 Error Solutions**
-```bash
-npx https://github.com/google-gemini/gemini-cli
-```
-1. Select option 1
-2. Press Enter to confirm
-3. Complete Google account authentication in browser
-4. System will automatically complete authorization
-
----
-
 ## Support the Project
 
 If this project has been helpful to you, we welcome your support for the project's continued development!

@@ -771,19 +771,6 @@ export COMPATIBILITY_MODE=true
 
 ---
 
-## 故障排除
-
-**400 错误解决方案**
-```bash
-npx https://github.com/google-gemini/gemini-cli
-```
-1. 选择选项 1
-2. 按回车确认
-3. 完成浏览器中的 Google 账户认证
-4. 系统将自动完成授权
-
----
-
 ## 支持项目
 
 如果这个项目对您有帮助，欢迎支持项目的持续发展！
