@@ -19,7 +19,7 @@ from .credential_manager import CredentialManager
 from .google_chat_api import send_gemini_request
 from .models import ChatCompletionRequest, ModelList, Model
 from .task_manager import create_managed_task
-from .openai_transfer import openai_request_to_gemini_payload, gemini_response_to_openai, gemini_stream_chunk_to_openai
+from .openai_transfer import openai_request_to_gemini_payload, gemini_response_to_openai, gemini_stream_chunk_to_openai, _convert_usage_metadata
 
 # 创建路由器
 router = APIRouter()
@@ -175,15 +175,12 @@ async def chat_completions(
     
     # 转换非流式响应
     try:
-        log.debug(f"Processing response: type={type(response)}")
         if hasattr(response, 'body'):
             response_data = json.loads(response.body.decode() if isinstance(response.body, bytes) else response.body)
         else:
             response_data = json.loads(response.content.decode() if isinstance(response.content, bytes) else response.content)
-        
-        log.debug(f"Response data keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+
         openai_response = gemini_response_to_openai(response_data, model)
-        log.debug(f"Converted OpenAI response keys: {list(openai_response.keys()) if isinstance(openai_response, dict) else 'Not a dict'}")
         return JSONResponse(content=openai_response)
         
     except Exception as e:
@@ -253,8 +250,7 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
             
             try:
                 response_data = json.loads(body_str)
-                log.debug(f"Fake stream response data: {response_data}")
-                
+
                 # 从Gemini响应中提取内容，使用思维链分离逻辑
                 content = ""
                 reasoning_content = ""
@@ -268,13 +264,10 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                 elif "choices" in response_data and response_data["choices"]:
                     # OpenAI格式响应
                     content = response_data["choices"][0].get("message", {}).get("content", "")
-                
-                log.debug(f"Extracted content: {content}")
-                log.debug(f"Extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
-                
+  
                 # 如果没有正常内容但有思维内容，给出警告
                 if not content and reasoning_content:
-                    log.warning(f"Fake stream response contains only thinking content: {reasoning_content[:100]}...")
+                    log.warning("Fake stream response contains only thinking content")
                     content = "[模型正在思考中，请稍后再试或重新提问]"
                 
                 if content:
@@ -282,19 +275,36 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                     delta = {"role": "assistant", "content": content}
                     if reasoning_content:
                         delta["reasoning_content"] = reasoning_content
-                    
+
+                    # 转换usageMetadata为OpenAI格式
+                    usage = _convert_usage_metadata(response_data.get("usageMetadata"))
+
+                    # 构建完整的OpenAI格式的流式响应块
                     content_chunk = {
+                        "id": str(uuid.uuid4()),
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "gcli2api-streaming",
                         "choices": [{
                             "index": 0,
                             "delta": delta,
                             "finish_reason": "stop"
                         }]
                     }
+
+                    # 只有在有usage数据时才添加usage字段（确保在最后一个chunk中）
+                    if usage:
+                        content_chunk["usage"] = usage
+
                     yield f"data: {json.dumps(content_chunk)}\n\n".encode()
                 else:
                     log.warning(f"No content found in response: {response_data}")
                     # 如果完全没有内容，提供默认回复
                     error_chunk = {
+                        "id": str(uuid.uuid4()),
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "gcli2api-streaming",
                         "choices": [{
                             "index": 0,
                             "delta": {"role": "assistant", "content": "[响应为空，请重新尝试]"},
@@ -304,6 +314,10 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                     yield f"data: {json.dumps(error_chunk)}\n\n".encode()
             except json.JSONDecodeError:
                 error_chunk = {
+                    "id": str(uuid.uuid4()),
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "gcli2api-streaming",
                     "choices": [{
                         "index": 0,
                         "delta": {"role": "assistant", "content": body_str},
@@ -317,6 +331,10 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
         except Exception as e:
             log.error(f"Fake streaming error: {e}")
             error_chunk = {
+                "id": str(uuid.uuid4()),
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "gcli2api-streaming",
                 "choices": [{
                     "index": 0,
                     "delta": {"role": "assistant", "content": f"Error: {str(e)}"},

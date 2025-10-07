@@ -222,6 +222,19 @@ cd gcli2api
 bash start.sh
 ```
 
+### macOS 环境
+
+**初始安装**
+```bash
+curl -o darwin-install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/darwin-install.sh" && chmod +x darwin-install.sh && ./darwin-install.sh
+```
+
+**重启服务**
+```bash
+cd gcli2api
+bash start.sh
+```
+
 ### Docker 环境
 
 **Docker 运行命令**
