@@ -54,7 +54,7 @@ def get_thinking_budget(model_name):
         return 32768
     else:
         # Default thinking budget for regular models
-        return -1  # Default for all models
+        return None  # Default for all models
 
 # Helper function to check if thinking should be included in output
 def should_include_thoughts(model_name):
@@ -62,7 +62,7 @@ def should_include_thoughts(model_name):
     if is_nothinking_model(model_name):
         # For nothinking mode, still include thoughts if it's a pro model
         base_model = get_base_model_name(model_name)
-        return "gemini-2.5-pro" in base_model
+        return "pro" in base_model
     else:
         # For all other modes, include thoughts
         return True
@@ -172,6 +172,15 @@ BASE_MODELS = [
     "gemini-2.5-pro", 
     "gemini-2.5-pro-preview-05-06",
     "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-image-preview",
+    "gemini-2.5-flash-preview-09-2025"
+]
+
+PUBLIC_API_MODELS = [
+    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-image-preview"
 ]
 
 def get_available_models(router_type="openai"):
@@ -189,6 +198,9 @@ def get_available_models(router_type="openai"):
     for base_model in BASE_MODELS:
         # 基础模型
         models.append(base_model)
+        
+        if(base_model in PUBLIC_API_MODELS):
+            return models
         
         # 假流式模型 (前缀格式)
         models.append(f"假流式/{base_model}")

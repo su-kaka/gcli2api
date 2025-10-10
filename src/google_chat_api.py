@@ -20,7 +20,8 @@ from config import (
     get_auto_ban_error_codes,
     get_retry_429_max_retries,
     get_retry_429_enabled,
-    get_retry_429_interval
+    get_retry_429_interval,
+    PUBLIC_API_MODELS
 )
 from .httpx_client import http_client, create_streaming_client_with_kwargs
 from log import log
@@ -59,32 +60,34 @@ async def _handle_api_error(credential_manager: CredentialManager, status_code: 
             log.warning(f"Google API returned status {status_code} - auto ban triggered, rotating credentials")
         await credential_manager.force_rotate_credential()
 
-async def _prepare_request_headers_and_payload(payload: dict, credential_data: dict):
+async def _prepare_request_headers_and_payload(payload: dict, credential_data: dict, use_public_api: bool, target_url: str):
     """Prepare request headers and final payload from credential data."""
-    # 尝试获取token，支持多种字段名
     token = credential_data.get('token') or credential_data.get('access_token', '')
-    
     if not token:
         raise Exception("凭证中没有找到有效的访问令牌（token或access_token字段）")
+
+
+    source_request=payload.get("request", {})
+    if use_public_api:
+         if "generationConfig" in source_request:
+             source_request["generationConfig"] = {}
     
+    # 内部API使用Bearer Token和项目ID
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "User-Agent": get_user_agent(),
     }
-
-    # 直接使用凭证数据中的项目ID
     project_id = credential_data.get("project_id", "")
     if not project_id:
         raise Exception("项目ID不存在于凭证数据中")
-
     final_payload = {
         "model": payload.get("model"),
         "project": project_id,
-        "request": payload.get("request", {})
+        "request": source_request
     }
     
-    return headers, final_payload
+    return headers, final_payload, target_url
 
 async def send_gemini_request(payload: dict, is_streaming: bool = False, credential_manager: CredentialManager = None) -> Response:
     """
@@ -103,7 +106,10 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, credent
     retry_429_enabled = await get_retry_429_enabled()
     retry_interval = await get_retry_429_interval()
     
-    # 确定API端点
+    # 动态确定API端点和payload格式
+    model_name = payload.get("model", "")
+    base_model_name = get_base_model_name(model_name)
+    use_public_api = base_model_name in PUBLIC_API_MODELS
     action = "streamGenerateContent" if is_streaming else "generateContent"
     target_url = f"{await get_code_assist_endpoint()}/v1internal:{action}"
     if is_streaming:
@@ -120,15 +126,13 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, credent
             return _create_error_response("No valid credentials available", 500)
         
         current_file, credential_data = credential_result
-        headers, final_payload = await _prepare_request_headers_and_payload(payload, credential_data)
+        headers, final_payload, target_url = await _prepare_request_headers_and_payload(payload, credential_data, use_public_api, target_url)
     except Exception as e:
         return _create_error_response(str(e), 500)
 
     # 预序列化payload，避免重试时重复序列化
     final_post_data = json.dumps(final_payload)
     
-    # Debug日志：打印请求体结构
-    log.debug(f"Final request payload structure: {json.dumps(final_payload, ensure_ascii=False, indent=2)}")
 
     for attempt in range(max_retries + 1):
         try:
@@ -177,7 +181,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, credent
                                 new_credential_result = await credential_manager.get_valid_credential()
                                 if new_credential_result:
                                     current_file, credential_data = new_credential_result
-                                    headers, updated_payload = await _prepare_request_headers_and_payload(payload, credential_data)
+                                    headers, updated_payload, target_url = await _prepare_request_headers_and_payload(payload, credential_data, use_public_api, target_url)
                                     final_post_data = json.dumps(updated_payload)
                             await asyncio.sleep(retry_interval)
                             continue  # 跳出内层处理，继续外层循环重试
@@ -268,7 +272,7 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, credent
                                 new_credential_result = await credential_manager.get_valid_credential()
                                 if new_credential_result:
                                     current_file, credential_data = new_credential_result
-                                    headers, updated_payload = await _prepare_request_headers_and_payload(payload, credential_data)
+                                    headers, updated_payload, target_url = await _prepare_request_headers_and_payload(payload, credential_data, use_public_api, target_url)
                                     final_post_data = json.dumps(updated_payload)
                             await asyncio.sleep(retry_interval)
                             continue
