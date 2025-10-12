@@ -5,6 +5,17 @@ Main Web Integration - Integrates all routers and modules
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file at the very beginning
+# 在最开始从.env文件加载环境变量
+load_dotenv()
+
+# 显式配置日志系统
+from log import setup_logging
+
+setup_logging()
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -154,7 +165,7 @@ async def main():
     config.bind = [f"{host}:{port}"]
     config.accesslog = None
     config.errorlog = None
-    config.loglevel = "INFO"
+    # config.loglevel = "INFO" # Let our log.py control the logging level
     # config.use_colors = True
 
     # 设置请求体大小限制为100MB

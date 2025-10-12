@@ -31,16 +31,58 @@ _disable_reason = None
 
 # 获取根 logger
 _logger = logging.getLogger()
-_logger.setLevel(logging.DEBUG)  # 设置最低级别，由 handler 控制
 
-# 移除所有现有的 handlers，避免重复输出
-for handler in _logger.handlers[:]:
-    _logger.removeHandler(handler)
+
+def setup_logging():
+    """
+    配置日志系统。此函数应在加载环境变量后显式调用。
+    """
+    # 确保只配置一次
+    if _logger.handlers:
+        return
+
+    _logger.setLevel(logging.DEBUG)  # 设置最低级别，由 handler 控制
+
+    # --- 控制台 Handler ---
+    console_handler = None
+    if colorlog:
+        console_formatter = colorlog.ColoredFormatter(
+            "%(log_color)s[%(asctime)s] [%(levelname)s]%(reset)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+            },
+        )
+        console_handler = colorlog.StreamHandler(sys.stdout)
+        console_handler.setFormatter(console_formatter)
+    else:
+        console_formatter = logging.Formatter(
+            "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(console_formatter)
+
+    # 设置控制台 handler 的级别
+    console_handler.setLevel(_get_current_log_level())
+    _logger.addHandler(console_handler)
+
+    # --- 文件 Handler ---
+    if os.getenv("LOG_FILE"):
+        file_handler = SafeFileHandler()
+        _logger.addHandler(file_handler)
+
+    _logger.info(
+        f"Logging configured. Level set to '{_get_current_log_level_name().upper()}' from environment."
+    )
 
 
 def _get_current_log_level_name():
     """获取当前日志级别名称"""
-    return os.getenv("LOG_LEVEL", "info").lower()
+    return os.getenv("LOG_LEVEL", "info").lower().strip()
 
 
 def _get_current_log_level():
@@ -54,37 +96,14 @@ def _get_log_file_path():
     return os.getenv("LOG_FILE", "log.txt")
 
 
-# --- 控制台 Handler ---
-console_handler = None
-if colorlog:
-    # 使用 colorlog 创建带颜色的 formatter
-    console_formatter = colorlog.ColoredFormatter(
-        "%(log_color)s[%(asctime)s] [%(levelname)s]%(reset)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        log_colors={
-            "DEBUG": "cyan",
-            "INFO": "green",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "CRITICAL": "bold_red",
-        },
-    )
-    console_handler = colorlog.StreamHandler(sys.stdout)
-    console_handler.setFormatter(console_formatter)
-else:
-    # 创建不带颜色的 formatter
-    console_formatter = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(console_formatter)
-
-# 设置控制台 handler 的级别
-console_handler.setLevel(_get_current_log_level())
-_logger.addHandler(console_handler)
-
-
 # --- 文件 Handler ---
+def _truncate_message(message, max_length=1000, head=200, tail=200):
+    """如果消息过长，则截断消息"""
+    if len(message) > max_length:
+        return f"{message[:head]}...[truncated]...{message[-tail:]}"
+    return message
+
+
 class SafeFileHandler(logging.Handler):
     """线程安全且能处理文件系统只读错误的 FileHandler"""
 
@@ -103,9 +122,11 @@ class SafeFileHandler(logging.Handler):
         try:
             log_file = _get_log_file_path()
             msg = self.format(record)
+            # 截断过长的消息
+            truncated_msg = _truncate_message(msg)
             with _file_lock:
                 with open(log_file, "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
+                    f.write(truncated_msg + "\n")
                     f.flush()
         except (PermissionError, OSError, IOError) as e:
             _file_writing_disabled = True
@@ -119,12 +140,6 @@ class SafeFileHandler(logging.Handler):
             _logger.warning(f"Failed to write to log file: {e}")
 
 
-# 只有在 LOG_FILE 环境变量被设置时才添加文件 handler
-if os.getenv("LOG_FILE"):
-    file_handler = SafeFileHandler()
-    _logger.addHandler(file_handler)
-
-
 def _log(level: str, message: str):
     """内部日志函数，现在代理到 logging"""
     level = level.lower()
@@ -136,17 +151,21 @@ def _log(level: str, message: str):
 
 
 def set_log_level(level: str):
-    """设置日志级别提示"""
+    """动态设置所有处理器的日志级别"""
     level = level.lower()
-    if level not in LOG_LEVELS:
-        print(
-            f"Warning: Unknown log level '{level}'. Valid levels: {', '.join(LOG_LEVELS.keys())}"
+    log_level = LOG_LEVELS.get(level)
+
+    if log_level is None:
+        _logger.warning(
+            f"Attempted to set an unknown log level: '{level}'. Valid levels are: {', '.join(LOG_LEVELS.keys())}"
         )
         return False
 
-    print(
-        f"Note: To set log level '{level}', please set LOG_LEVEL environment variable"
-    )
+    # 更新所有处理器的级别
+    for handler in _logger.handlers:
+        handler.setLevel(log_level)
+
+    _logger.info(f"Log level dynamically set to '{level.upper()}'")
     return True
 
 
@@ -192,7 +211,7 @@ class Logger:
 log = Logger()
 
 # 导出的公共接口
-__all__ = ["log", "set_log_level", "LOG_LEVELS"]
+__all__ = ["log", "set_log_level", "setup_logging", "LOG_LEVELS"]
 
 # 使用说明:
 # 1. 设置日志级别: export LOG_LEVEL=debug (或在.env文件中设置)
