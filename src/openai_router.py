@@ -435,23 +435,43 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
                     if not chunk:
                         continue
 
-                    # 处理不同数据类型的startswith问题
-                    if isinstance(chunk, bytes):
-                        if not chunk.startswith(b"data: "):
-                            continue
-                        payload = chunk[len(b"data: ") :]
-                    else:
-                        chunk_str = str(chunk)
-                        if not chunk_str.startswith("data: "):
-                            continue
-                        payload = chunk_str[len("data: ") :].encode()
+                    # 更具容错性地处理数据块
                     try:
-                        gemini_chunk = json.loads(payload.decode())
+                        payload_str = (
+                            chunk.decode("utf-8")
+                            if isinstance(chunk, bytes)
+                            else str(chunk)
+                        )
+
+                        # 移除 SSE 的 "data: " 前缀（如果存在）
+                        if payload_str.startswith("data: "):
+                            payload_str = payload_str[len("data: ") :]
+
+                        # 忽略空的或只有空格的 payload
+                        payload_str = payload_str.strip()
+                        if not payload_str:
+                            continue
+
+                        # 忽略 SSE 的结束标记
+                        if payload_str == "[DONE]":
+                            continue
+
+                        gemini_chunk = json.loads(payload_str)
                         openai_chunk = gemini_stream_chunk_to_openai(
                             gemini_chunk, model, response_id
                         )
-                        yield f"data: {json.dumps(openai_chunk, separators=(',',':'))}\n\n".encode()
-                    except json.JSONDecodeError:
+
+                        # 确保转换后的 chunk 有内容再发送
+                        if openai_chunk and openai_chunk.get("choices"):
+                            # 确保 choices[0].delta 有内容或 finish_reason
+                            first_choice = openai_chunk["choices"][0]
+                            if first_choice.get("delta") or first_choice.get(
+                                "finish_reason"
+                            ):
+                                yield f"data: {json.dumps(openai_chunk, separators=(',',':'))}\n\n".encode()
+
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        log.debug(f"无法解析流式数据块，已跳过: {chunk}. 错误: {e}")
                         continue
             else:
                 # 其他类型的响应，尝试直接处理
