@@ -28,6 +28,9 @@ from config import (
     get_base_model_from_feature_model,
     get_anti_truncation_max_attempts,
     get_base_model_name,
+    is_image_model,
+    get_gemini_retry_if_no_image_enabled,
+    get_gemini_retry_if_no_image_max_attempts,
 )
 from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
@@ -236,33 +239,103 @@ async def generate_content(
         log.error(f"Gemini payload build failed: {e}")
         raise HTTPException(status_code=500, detail="Request processing failed")
 
-    # 发送请求（429重试已在google_api_client中处理）
-    response = await send_gemini_request(api_payload, False, cred_mgr)
+    # 获取重试配置
+    retry_enabled = await get_gemini_retry_if_no_image_enabled()
+    max_attempts = await get_gemini_retry_if_no_image_max_attempts()
+    is_img_model = is_image_model(real_model)
 
-    # 处理响应
-    try:
-        body_to_decode = getattr(response, "body", None)
-        if body_to_decode is None:
-            body_to_decode = getattr(response, "content", None)
+    response = None
+    response_data = None
+    attempts = 0
 
-        if body_to_decode is None:
-            response_data = json.loads(str(response))
-        else:
-            response_data = json.loads(
-                body_to_decode.decode()
-                if isinstance(body_to_decode, bytes)
-                else body_to_decode
+    # 仅在启用重试、是图片模型且非流式时执行重试逻辑
+    if retry_enabled and is_img_model:
+        while attempts < max_attempts:
+            attempts += 1
+            log.info(
+                f"Attempt {attempts}/{max_attempts} for image model '{real_model}'"
+            )
+
+            # 发送请求
+            response = await send_gemini_request(api_payload, False, cred_mgr)
+
+            # 解析响应
+            try:
+                body_to_decode = getattr(
+                    response, "body", getattr(response, "content", None)
+                )
+                if body_to_decode:
+                    response_data = json.loads(
+                        body_to_decode.decode()
+                        if isinstance(body_to_decode, bytes)
+                        else body_to_decode
+                    )
+                else:
+                    response_data = json.loads(str(response))
+
+                # 检查响应中是否包含图片
+                if "candidates" in response_data and response_data["candidates"]:
+                    candidate = response_data["candidates"][0]
+                    if "content" in candidate and "parts" in candidate["content"]:
+                        parts = candidate["content"]["parts"]
+                        has_image = any(
+                            "inlineData" in part or "fileData" in part for part in parts
+                        )
+                        if has_image:
+                            log.info(
+                                f"Image found in response on attempt {attempts}. Success."
+                            )
+                            break  # 成功获取图片，跳出循环
+                        else:
+                            log.warning(
+                                f"No image found in response on attempt {attempts}. Retrying..."
+                            )
+                else:
+                    log.warning(
+                        f"Invalid response structure on attempt {attempts}: {response_data}"
+                    )
+
+            except Exception as e:
+                log.error(f"Error processing response on attempt {attempts}: {e}")
+
+            # 如果不是最后一次尝试，则等待一段时间
+            if attempts < max_attempts:
+                await asyncio.sleep(1)  # 简单的延迟
+
+        if not response_data:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get a valid response after multiple attempts.",
             )
 
         return JSONResponse(content=response_data)
 
-    except Exception as e:
-        log.error(f"Response processing failed: {e}")
-        # 返回原始响应
-        if hasattr(response, "content"):
-            return JSONResponse(content=json.loads(getattr(response, "content")))
-        else:
-            raise HTTPException(status_code=500, detail="Response processing failed")
+    else:
+        # 对于非图片模型或禁用重试的情况，执行原始逻辑
+        response = await send_gemini_request(api_payload, False, cred_mgr)
+        try:
+            body_to_decode = getattr(
+                response, "body", getattr(response, "content", None)
+            )
+            if body_to_decode:
+                response_data = json.loads(
+                    body_to_decode.decode()
+                    if isinstance(body_to_decode, bytes)
+                    else body_to_decode
+                )
+            else:
+                response_data = json.loads(str(response))
+
+            return JSONResponse(content=response_data)
+
+        except Exception as e:
+            log.error(f"Response processing failed: {e}")
+            if hasattr(response, "content"):
+                return JSONResponse(content=json.loads(getattr(response, "content")))
+            else:
+                raise HTTPException(
+                    status_code=500, detail="Response processing failed"
+                )
 
 
 @router.post("/v1/v1beta/models/{model:path}:streamGenerateContent")

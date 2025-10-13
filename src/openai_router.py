@@ -19,6 +19,9 @@ from config import (
     is_anti_truncation_model,
     get_base_model_from_feature_model,
     get_anti_truncation_max_attempts,
+    is_image_model,
+    get_gemini_retry_if_no_image_enabled,
+    get_gemini_retry_if_no_image_max_attempts,
 )
 from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
@@ -198,39 +201,106 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
     elif use_anti_truncation and not is_streaming:
         log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
 
-    # 发送请求（429重试已在google_api_client中处理）
+    # 发送请求
     is_streaming = getattr(request_data, "stream", False)
     log.debug(f"Sending request: streaming={is_streaming}, model={real_model}")
-    response = await send_gemini_request(api_payload, is_streaming, cred_mgr)
 
-    # 如果是流式响应，直接返回
+    # 如果是流式响应，直接发送并返回
     if is_streaming:
+        response = await send_gemini_request(api_payload, True, cred_mgr)
         return await convert_streaming_response(response, model)
 
-    # 转换非流式响应
-    try:
-        # Try to get body or content, prioritize body
-        body_to_decode = getattr(response, "body", None)
-        if body_to_decode is None:
-            body_to_decode = getattr(response, "content", None)
+    # --- 非流式响应处理，增加“无图重试”逻辑 ---
+    retry_enabled = await get_gemini_retry_if_no_image_enabled()
+    max_attempts = await get_gemini_retry_if_no_image_max_attempts()
+    is_img_model = is_image_model(real_model)
 
-        if body_to_decode is None:
-            raise Exception(
-                "Response object has neither 'body' nor 'content' attribute"
+    response = None
+    response_data = None
+    attempts = 0
+
+    if retry_enabled and is_img_model and not is_streaming:
+        while attempts < max_attempts:
+            attempts += 1
+            log.info(
+                f"Attempt {attempts}/{max_attempts} for image model '{real_model}' (OpenAI format)"
             )
 
-        response_data = json.loads(
-            body_to_decode.decode()
-            if isinstance(body_to_decode, bytes)
-            else body_to_decode
+            # 发送请求
+            response = await send_gemini_request(api_payload, False, cred_mgr)
+
+            # 解析响应
+            try:
+                body_to_decode = getattr(
+                    response, "body", getattr(response, "content", None)
+                )
+                if body_to_decode:
+                    response_data = json.loads(
+                        body_to_decode.decode()
+                        if isinstance(body_to_decode, bytes)
+                        else body_to_decode
+                    )
+                else:
+                    response_data = json.loads(str(response))
+
+                # 检查原始Gemini响应中是否包含图片
+                if "candidates" in response_data and response_data["candidates"]:
+                    candidate = response_data["candidates"][0]
+                    if "content" in candidate and "parts" in candidate["content"]:
+                        parts = candidate["content"]["parts"]
+                        has_image = any(
+                            "inlineData" in part or "fileData" in part for part in parts
+                        )
+                        if has_image:
+                            log.info(
+                                f"Image found in Gemini response on attempt {attempts}. Success."
+                            )
+                            break  # 成功获取图片，跳出循环
+                        else:
+                            log.warning(
+                                f"No image found in Gemini response on attempt {attempts}. Retrying..."
+                            )
+                else:
+                    log.warning(
+                        f"Invalid Gemini response structure on attempt {attempts}: {response_data}"
+                    )
+
+            except Exception as e:
+                log.error(f"Error processing response on attempt {attempts}: {e}")
+
+            if attempts < max_attempts:
+                await asyncio.sleep(1)
+    else:
+        # 原始逻辑：发送一次请求
+        response = await send_gemini_request(api_payload, False, cred_mgr)
+        try:
+            body_to_decode = getattr(
+                response, "body", getattr(response, "content", None)
+            )
+            if body_to_decode:
+                response_data = json.loads(
+                    body_to_decode.decode()
+                    if isinstance(body_to_decode, bytes)
+                    else body_to_decode
+                )
+            else:
+                response_data = json.loads(str(response))
+        except Exception as e:
+            log.error(f"Response decoding failed: {e}")
+            log.error(f"Response object: {response}")
+            raise HTTPException(status_code=500, detail="Response decoding failed")
+
+    # 转换并返回最终的响应
+    if not response_data:
+        raise HTTPException(
+            status_code=500, detail="Failed to get a valid response after all attempts."
         )
 
+    try:
         openai_response = gemini_response_to_openai(response_data, model)
         return JSONResponse(content=openai_response)
-
     except Exception as e:
-        log.error(f"Response conversion failed: {e}")
-        log.error(f"Response object: {response}")
+        log.error(f"Final response conversion to OpenAI format failed: {e}")
         raise HTTPException(status_code=500, detail="Response conversion failed")
 
 
