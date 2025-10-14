@@ -640,6 +640,46 @@ docker run -d --name gcli2api \
 }
 ```
 
+**Gemini 原生banana：**
+```python
+from io import BytesIO
+
+from PIL import Image
+from google.genai import Client
+from google.genai.types import HttpOptions
+from google.genai import types
+
+# The client gets the API key from the environment variable `GEMINI_API_KEY`.
+
+client = Client(
+            api_key="pwd",
+            http_options=HttpOptions(base_url="http://127.0.0.1:7861"),
+        )
+
+prompt = (
+    """
+    画一只猫
+    """
+)
+
+response = client.models.generate_content(
+    model="gemini-2.5-flash-image",
+    contents=[prompt],
+    config=types.GenerateContentConfig(
+        image_config=types.ImageConfig(
+            aspect_ratio="16:9",
+        )
+    )
+)
+for part in response.candidates[0].content.parts:
+    if part.text is not None:
+        print(part.text)
+    elif part.inline_data is not None:
+        image = Image.open(BytesIO(part.inline_data.data))
+        image.save("generated_image.png")
+
+```
+
 #### 2. Gemini 原生端点
 
 **非流式端点：** `/v1/models/{model}:generateContent`  
