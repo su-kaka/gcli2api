@@ -147,7 +147,9 @@ async def openai_request_to_gemini_payload(
             "parts": [{"text": combined_system_instruction}]
         }
 
-    log.debug(f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}")
+    log.debug(
+        f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}"
+    )
 
     # 为thinking模型添加thinking配置
     thinking_budget = get_thinking_budget(openai_request.model)
@@ -168,21 +170,34 @@ async def openai_request_to_gemini_payload(
     return {"model": get_base_model_name(openai_request.model), "request": request_data}
 
 
-def _extract_content_and_reasoning(parts: list) -> tuple:
-    """从Gemini响应部件中提取内容和推理内容"""
-    content = ""
+def _extract_content_and_reasoning(parts: list) -> tuple[list, str]:
+    """从Gemini响应部件中提取内容和推理内容，并转换为OpenAI格式的parts"""
+    openai_parts = []
     reasoning_content = ""
 
     for part in parts:
-        # 处理文本内容
-        if part.get("text"):
-            # 检查这个部件是否包含thinking tokens
+        if "text" in part:
             if part.get("thought", False):
-                reasoning_content += part.get("text", "")
+                reasoning_content += part["text"]
             else:
-                content += part.get("text", "")
+                openai_parts.append({"type": "text", "text": part["text"]})
+        elif "inlineData" in part:
+            mime_type = part["inlineData"].get("mimeType")
+            data = part["inlineData"].get("data")
+            if mime_type and data:
+                image_url = f"data:{mime_type};base64,{data}"
+                openai_parts.append(
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                )
 
-    return content, reasoning_content
+    # 如果有推理内容，将其作为单独的文本部分添加（或根据需要处理）
+    # 当前，我们将其附加到文本内容中或作为单独的元数据
+    # 为了简化，我们暂时不直接将其插入parts，而是在上层函数处理
+    # 但如果需要，可以这样添加:
+    # if reasoning_content:
+    #     openai_parts.append({"type": "text", "text": f"\n[Reasoning]: {reasoning_content}"})
+
+    return openai_parts, reasoning_content
 
 
 def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
@@ -201,12 +216,15 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
     return {
         "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
         "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-        "total_tokens": usage_metadata.get("totalTokenCount", 0)
+        "total_tokens": usage_metadata.get("totalTokenCount", 0),
     }
 
 
+from typing import Union
+
+
 def _build_message_with_reasoning(
-    role: str, content: str, reasoning_content: str
+    role: str, content: Union[str, list], reasoning_content: str
 ) -> dict:
     """构建包含可选推理内容的消息对象"""
     message = {"role": role, "content": content}
@@ -232,30 +250,49 @@ def gemini_response_to_openai(
         OpenAI聊天完成格式的字典
     """
 
-  
-    choices = []
+    all_openai_parts = []
+    all_reasoning_content = ""
+    finish_reason = None
+    role = "assistant"
 
+    # 遍历所有 candidate，将它们的 parts 合并
     for candidate in gemini_response.get("candidates", []):
-        role = candidate.get("content", {}).get("role", "assistant")
+        # 提取内容
+        gemini_parts = candidate.get("content", {}).get("parts", [])
+        openai_parts, reasoning_content = _extract_content_and_reasoning(gemini_parts)
 
-        # 将Gemini角色映射回OpenAI角色
-        if role == "model":
+        all_openai_parts.extend(openai_parts)
+        if reasoning_content:
+            all_reasoning_content += reasoning_content
+
+        # 获取 role 和 finish_reason（通常最后一个 candidate 的有效）
+        if candidate.get("content", {}).get("role") == "model":
             role = "assistant"
+        if candidate.get("finishReason"):
+            finish_reason = _map_finish_reason(candidate.get("finishReason"))
 
-        # 提取并分离thinking tokens和常规内容
-        parts = candidate.get("content", {}).get("parts", [])
-        content, reasoning_content = _extract_content_and_reasoning(parts)
+    # 为了兼容不支持 content 数组的客户端，将所有 parts 强制合并为单个字符串
+    final_text_parts = []
+    for part in all_openai_parts:
+        if part["type"] == "text":
+            final_text_parts.append(part["text"])
+        elif part["type"] == "image_url":
+            # 将 image_url 转换为 Markdown 格式的字符串
+            url = part["image_url"]["url"]
+            final_text_parts.append(f"![image]({url})")
 
-        # 构建消息对象
-        message = _build_message_with_reasoning(role, content, reasoning_content)
+    final_content = "\n\n".join(final_text_parts)
 
-        choices.append(
-            {
-                "index": candidate.get("index", 0),
-                "message": message,
-                "finish_reason": _map_finish_reason(candidate.get("finishReason")),
-            }
-        )
+    # 构建单一的 message 和 choice
+    message = _build_message_with_reasoning(role, final_content, all_reasoning_content)
+
+    choices = [
+        {
+            "index": 0,
+            "message": message,
+            "finish_reason": finish_reason,
+        }
+    ]
 
     # 转换usageMetadata为OpenAI格式
     usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
@@ -292,6 +329,11 @@ def gemini_stream_chunk_to_openai(
     choices = []
 
     for candidate in gemini_chunk.get("candidates", []):
+        import json
+
+        log.debug(
+            f"---------- Gemini Stream Candidate Received ----------\n{json.dumps(candidate, indent=2, ensure_ascii=False)}"
+        )
         role = candidate.get("content", {}).get("role", "assistant")
 
         # 将Gemini角色映射回OpenAI角色
@@ -299,13 +341,23 @@ def gemini_stream_chunk_to_openai(
             role = "assistant"
 
         # 提取并分离thinking tokens和常规内容
-        parts = candidate.get("content", {}).get("parts", [])
-        content, reasoning_content = _extract_content_and_reasoning(parts)
+        gemini_parts = candidate.get("content", {}).get("parts", [])
+        openai_parts, reasoning_content = _extract_content_and_reasoning(gemini_parts)
 
         # 构建delta对象
         delta = {}
-        if content:
-            delta["content"] = content
+        # 为了兼容性，将所有 part 转换为字符串
+        stream_content_parts = []
+        for part in openai_parts:
+            if part.get("type") == "text":
+                stream_content_parts.append(part.get("text", ""))
+            elif part.get("type") == "image_url":
+                url = part["image_url"]["url"]
+                stream_content_parts.append(f"![image]({url})")
+
+        if stream_content_parts:
+            delta["content"] = "".join(stream_content_parts)
+
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
 
