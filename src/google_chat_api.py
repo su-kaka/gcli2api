@@ -296,6 +296,90 @@ async def send_gemini_request(payload: dict, is_streaming: bool = False, credent
     return _create_error_response("Max retries exceeded", 429)
 
 
+async def send_count_tokens_request(payload: dict, credential_manager: CredentialManager = None) -> Response:
+    """
+    Send a countTokens request to Google's Gemini API.
+    
+    Args:
+        payload: The request payload in Gemini format
+        credential_manager: CredentialManager instance
+        
+    Returns:
+        FastAPI Response object
+    """
+    # Dynamically determine API endpoint
+    model_name = payload.get("model", "")
+    base_model_name = get_base_model_name(model_name)
+    use_public_api = base_model_name in PUBLIC_API_MODELS
+    action = "countTokens"
+    target_url = f"{await get_code_assist_endpoint()}/v1internal:{action}"
+
+    # Ensure there is a credential_manager
+    if not credential_manager:
+        return _create_error_response("Credential manager not provided", 500)
+    
+    # Get current credential
+    try:
+        credential_result = await credential_manager.get_valid_credential()
+        if not credential_result:
+            return _create_error_response("No valid credentials available", 500)
+        
+        current_file, credential_data = credential_result
+        headers, final_payload, target_url = await _prepare_request_headers_and_payload(payload, credential_data, use_public_api, target_url)
+    except Exception as e:
+        return _create_error_response(str(e), 500)
+
+    final_post_data = json.dumps(final_payload)
+
+    try:
+        # Use the non-streaming http client
+        async with http_client.get_client(timeout=None) as client:
+            resp = await client.post(
+                target_url, content=final_post_data, headers=headers
+            )
+        
+        # Handle the response
+        if resp.status_code == 200:
+            try:
+                raw = await resp.aread()
+                google_api_response = raw.decode('utf-8')
+                if google_api_response.startswith('data: '):
+                    google_api_response = google_api_response[len('data: '):]
+                google_api_response = json.loads(google_api_response)
+                
+                # The countTokens response is nested under a "response" key
+                standard_gemini_response = google_api_response.get("response")
+                
+                return Response(
+                    content=json.dumps(standard_gemini_response),
+                    status_code=200,
+                    media_type="application/json; charset=utf-8"
+                )
+            except Exception as e:
+                log.error(f"Failed to parse Google API countTokens response: {str(e)}")
+                return Response(
+                    content=resp.content,
+                    status_code=resp.status_code,
+                    media_type=resp.headers.get("Content-Type")
+                )
+        else:
+            # Handle API errors
+            response_content = ""
+            try:
+                content_bytes = await resp.aread()
+                if isinstance(content_bytes, bytes):
+                    response_content = content_bytes.decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+            log.error(f"Google API countTokens returned status {resp.status_code}. Response: {response_content[:500]}")
+            await _handle_api_error(credential_manager, resp.status_code, response_content)
+            return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
+
+    except Exception as e:
+        log.error(f"Request to Google API countTokens failed: {str(e)}")
+        return _create_error_response(f"Request failed: {str(e)}")
+
+
 def _handle_streaming_response_managed(resp, stream_ctx, client, credential_manager: CredentialManager = None, model_name: str = "", current_file: str = None) -> StreamingResponse:
     """Handle streaming response with complete resource lifecycle management."""
     

@@ -15,24 +15,12 @@ from config import get_available_models, is_fake_streaming_model, is_anti_trunca
 from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_chat_api import send_gemini_request, build_gemini_payload_from_native
+from .google_chat_api import send_gemini_request, build_gemini_payload_from_native, send_count_tokens_request
 from .openai_transfer import _extract_content_and_reasoning
 from .task_manager import create_managed_task
 # 创建路由器
 router = APIRouter()
 security = HTTPBearer()
-
-# 全局凭证管理器实例
-credential_manager = None
-
-@asynccontextmanager
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    yield credential_manager
 
 async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """验证用户密码（Bearer Token方式）"""
@@ -145,11 +133,6 @@ async def generate_content(
             if generation_config["maxOutputTokens"] > 65535:
                 generation_config["maxOutputTokens"] = 65535
                 
-        # 覆写 top_k 为 64 (在Gemini中叫topK)
-        generation_config["topK"] = 64
-    else:
-        # 如果没有generationConfig，创建一个并设置topK
-        request_data["generationConfig"] = {"topK": 64}
     
     # 处理模型名称和功能检测
     use_anti_truncation = is_anti_truncation_model(model)
@@ -261,11 +244,6 @@ async def stream_generate_content(
             if generation_config["maxOutputTokens"] > 65535:
                 generation_config["maxOutputTokens"] = 65535
                 
-        # 覆写 top_k 为 64 (在Gemini中叫topK)
-        generation_config["topK"] = 64
-    else:
-        # 如果没有generationConfig，创建一个并设置topK
-        request_data["generationConfig"] = {"topK": 64}
     
     # 处理模型名称和功能检测
     use_fake_streaming = is_fake_streaming_model(model)
@@ -320,10 +298,11 @@ async def stream_generate_content(
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
+    model: str = Path(..., description="Model name"),
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible)
 ):
-    """模拟Gemini格式的token计数"""
+    """精确计算Gemini格式的token计数"""
     
     try:
         request_data = await request.json()
@@ -331,34 +310,22 @@ async def count_tokens(
         log.error(f"Failed to parse JSON request: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     
-    # 简单的token计数模拟 - 基于文本长度估算
-    total_tokens = 0
+    # 获取凭证管理器
+    from src.credential_manager import get_credential_manager
+    cred_mgr = await get_credential_manager()
     
-    # 如果有contents字段
-    if "contents" in request_data:
-        for content in request_data["contents"]:
-            if "parts" in content:
-                for part in content["parts"]:
-                    if "text" in part:
-                        # 简单估算：大约4字符=1token
-                        text_length = len(part["text"])
-                        total_tokens += max(1, text_length // 4)
+    # 构建Google API payload
+    try:
+        api_payload = build_gemini_payload_from_native(request_data, model)
+    except Exception as e:
+        log.error(f"Gemini payload build for countTokens failed: {e}")
+        raise HTTPException(status_code=500, detail="Request processing failed")
+        
+    # 发送请求到真实的countTokens端点
+    response = await send_count_tokens_request(api_payload, cred_mgr)
     
-    # 如果有generateContentRequest字段
-    elif "generateContentRequest" in request_data:
-        gen_request = request_data["generateContentRequest"]
-        if "contents" in gen_request:
-            for content in gen_request["contents"]:
-                if "parts" in content:
-                    for part in content["parts"]:
-                        if "text" in part:
-                            text_length = len(part["text"])
-                            total_tokens += max(1, text_length // 4)
-    
-    # 返回Gemini格式的响应
-    return JSONResponse(content={
-        "totalTokens": total_tokens
-    })
+    # 直接返回从Google API收到的响应
+    return response
 
 @router.get("/v1/v1beta/models/{model:path}")
 @router.get("/v1/v1/models/{model:path}")
