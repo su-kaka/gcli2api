@@ -70,7 +70,8 @@ async def _prepare_request_headers_and_payload(payload: dict, credential_data: d
     source_request=payload.get("request", {})
     if use_public_api:
          if "generationConfig" in source_request:
-             source_request["generationConfig"] = {}
+            imageConfig = source_request["generationConfig"].get('imageConfig')
+            source_request["generationConfig"] = {'imageConfig': imageConfig} if imageConfig else {}
     
     # 内部API使用Bearer Token和项目ID
     headers = {
