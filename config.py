@@ -174,7 +174,7 @@ BASE_MODELS = [
     "gemini-2.5-pro", 
     "gemini-2.5-flash",
     "gemini-flash-latest",
-    "gemini-2.5-flash-preview-09-2025"
+    "gemini-2.5-flash-preview-09-2025",
     "gemini-2.5-flash-image",
     "gemini-2.5-flash-image-preview",
 ]
@@ -201,7 +201,7 @@ def get_available_models(router_type="openai"):
         models.append(base_model)
         
         if(base_model in PUBLIC_API_MODELS):
-            return models
+            continue
         
         # 假流式模型 (前缀格式)
         models.append(f"假流式/{base_model}")
