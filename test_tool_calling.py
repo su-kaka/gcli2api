@@ -332,9 +332,77 @@ def test_tool_message_without_name():
         print(f"   错误消息: {e}\n")
 
 
+async def test_tool_message_name_inference():
+    """测试从历史消息中推断 tool 消息的 name 字段"""
+    print("测试 8: tool 消息 name 字段自动推断")
+
+    # 创建一个完整的对话，包括 assistant 的 tool_call 和 user 的 tool 响应
+    request_data = {
+        "model": "gemini-2.0-flash-exp",
+        "messages": [
+            {
+                "role": "user",
+                "content": "What's the weather?"
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_abc123",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": '{"location": "Tokyo"}'
+                        }
+                    }
+                ]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_abc123",
+                # 故意不设置 name 字段，测试推断功能
+                "content": '{"temperature": 20, "condition": "sunny"}'
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }
+        ]
+    }
+
+    openai_request = ChatCompletionRequest(**request_data)
+    gemini_payload = await openai_request_to_gemini_payload(openai_request)
+
+    contents = gemini_payload["request"]["contents"]
+
+    # 应该有 3 条消息
+    assert len(contents) == 3, f"应该有 3 条消息，实际有 {len(contents)}"
+
+    # 检查第三条消息（工具结果）- name 应该被正确推断
+    assert contents[2]["role"] == "user"
+    assert "functionResponse" in contents[2]["parts"][0]
+    function_response = contents[2]["parts"][0]["functionResponse"]
+
+    # 验证 name 被正确推断为 get_weather
+    assert function_response["name"] == "get_weather", \
+        f"应该推断出 name='get_weather'，实际是 '{function_response['name']}'"
+    assert "temperature" in function_response["response"]
+
+    print("✅ 成功从历史消息中推断出函数名")
+    print(f"   tool_call_id='call_abc123' -> name='get_weather'")
+    print(f"   工具响应已正确转换\n")
+
+
 async def test_invalid_tool_call_arguments():
     """测试无效的 tool_call arguments 处理"""
-    print("测试 8: 无效的 tool_call arguments")
+    print("测试 9: 无效的 tool_call arguments")
 
     request_data = {
         "model": "gemini-2.0-flash-exp",
@@ -385,7 +453,7 @@ async def test_invalid_tool_call_arguments():
 
 async def test_partial_tool_call_failure():
     """测试部分 tool_calls 失败的处理"""
-    print("测试 9: 部分 tool_calls 失败")
+    print("测试 10: 部分 tool_calls 失败")
 
     request_data = {
         "model": "gemini-2.0-flash-exp",
@@ -451,7 +519,7 @@ async def test_partial_tool_call_failure():
 
 def test_streaming_tool_calls_with_index():
     """测试流式响应中的 tool_calls 包含 index 字段"""
-    print("测试 10: 流式响应 tool_calls index 字段")
+    print("测试 11: 流式响应 tool_calls index 字段")
 
     # 模拟 Gemini 流式响应块，包含工具调用
     gemini_chunk = {
@@ -517,7 +585,7 @@ def test_streaming_tool_calls_with_index():
 
 def test_function_name_normalization():
     """测试函数名规范化转换"""
-    print("测试 11: 函数名规范化转换")
+    print("测试 12: 函数名规范化转换")
 
     from src.openai_transfer import convert_openai_tools_to_gemini
 
@@ -624,6 +692,7 @@ async def run_all_tests():
 
         # 错误处理测试
         test_tool_message_without_name()
+        await test_tool_message_name_inference()
         await test_invalid_tool_call_arguments()
         await test_partial_tool_call_failure()
 
