@@ -88,6 +88,7 @@ async def openai_request_to_gemini_payload(
         if has_tool_calls:
             # 构建包含 functionCall 的 parts
             parts = []
+            parsed_count = 0
 
             # 如果有文本内容，先添加文本
             if message.content:
@@ -104,9 +105,17 @@ async def openai_request_to_gemini_payload(
                             "args": args
                         }
                     })
+                    parsed_count += 1
                 except (json.JSONDecodeError, AttributeError) as e:
-                    log.warning(f"Failed to parse tool call arguments: {e}")
+                    log.error(f"Failed to parse tool call '{getattr(tool_call.function, 'name', 'unknown')}': {e}")
                     continue
+
+            # 检查是否至少解析了一个工具调用
+            if parsed_count == 0 and message.tool_calls:
+                log.error(f"All {len(message.tool_calls)} tool calls failed to parse")
+                # 如果没有文本内容且所有工具调用都失败，这是一个严重错误
+                if not message.content:
+                    raise ValueError(f"All {len(message.tool_calls)} tool calls failed to parse and no content available")
 
             if parts:
                 contents.append({"role": role, "parts": parts})
@@ -690,7 +699,14 @@ def convert_tool_message_to_function_response(message) -> Dict[str, Any]:
 
     Returns:
         Gemini 格式的 functionResponse part
+
+    Raises:
+        ValueError: 如果 tool 消息缺少必需的 name 字段
     """
+    # 验证必需字段
+    if not hasattr(message, 'name') or not message.name:
+        raise ValueError("Tool message must have a 'name' field")
+
     try:
         # 尝试将 content 解析为 JSON
         response_data = json.loads(message.content) if isinstance(message.content, str) else message.content

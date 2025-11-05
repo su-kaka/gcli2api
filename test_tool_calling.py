@@ -306,6 +306,148 @@ async def test_multi_turn_with_tool_result():
     print(f"   工具结果已正确转换为 functionResponse\n")
 
 
+def test_tool_message_without_name():
+    """测试 tool 消息缺少 name 字段的错误处理"""
+    print("测试 7: tool 消息缺少 name 字段")
+
+    from src.openai_transfer import convert_tool_message_to_function_response
+
+    # 创建一个没有 name 的 tool 消息（使用普通对象模拟）
+    class MockMessage:
+        def __init__(self):
+            self.role = "tool"
+            self.tool_call_id = "call_123"
+            self.content = '{"result": "success"}'
+            self.name = None  # 缺少 name
+
+    message = MockMessage()
+
+    try:
+        convert_tool_message_to_function_response(message)
+        assert False, "应该抛出 ValueError"
+    except ValueError as e:
+        assert "name" in str(e).lower(), "错误消息应该提到 'name'"
+        print("✅ 正确捕获缺少 name 的错误")
+        print(f"   错误消息: {e}\n")
+
+
+async def test_invalid_tool_call_arguments():
+    """测试无效的 tool_call arguments 处理"""
+    print("测试 8: 无效的 tool_call arguments")
+
+    request_data = {
+        "model": "gemini-2.0-flash-exp",
+        "messages": [
+            {
+                "role": "user",
+                "content": "测试"
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "test_function",
+                            "arguments": "这不是有效的JSON{{"  # 无效的 JSON
+                        }
+                    }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "test_function",
+                    "description": "测试函数",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }
+        ]
+    }
+
+    openai_request = ChatCompletionRequest(**request_data)
+
+    try:
+        gemini_payload = await openai_request_to_gemini_payload(openai_request)
+        # 如果没有抛出异常，检查是否正确跳过了无效的 tool_call
+        # 因为没有 content，应该抛出 ValueError
+        assert False, "应该抛出 ValueError，因为所有 tool_calls 都失败且没有 content"
+    except ValueError as e:
+        assert "tool calls failed" in str(e).lower()
+        print("✅ 正确处理所有 tool_calls 解析失败的情况")
+        print(f"   错误消息: {e}\n")
+
+
+async def test_partial_tool_call_failure():
+    """测试部分 tool_calls 失败的处理"""
+    print("测试 9: 部分 tool_calls 失败")
+
+    request_data = {
+        "model": "gemini-2.0-flash-exp",
+        "messages": [
+            {
+                "role": "user",
+                "content": "测试"
+            },
+            {
+                "role": "assistant",
+                "content": "正在处理",
+                "tool_calls": [
+                    {
+                        "id": "call_good",
+                        "type": "function",
+                        "function": {
+                            "name": "good_function",
+                            "arguments": '{"param": "value"}'  # 有效的 JSON
+                        }
+                    },
+                    {
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {
+                            "name": "bad_function",
+                            "arguments": "无效JSON{{"  # 无效的 JSON
+                        }
+                    }
+                ]
+            }
+        ],
+        "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}]
+    }
+
+    openai_request = ChatCompletionRequest(**request_data)
+    gemini_payload = await openai_request_to_gemini_payload(openai_request)
+
+    # 检查结果
+    contents = gemini_payload["request"]["contents"]
+    assert len(contents) == 2  # user 和 assistant 消息
+
+    # 检查 assistant 消息
+    assistant_msg = contents[1]
+    assert assistant_msg["role"] == "model"
+
+    # 应该有 1 个有效的 functionCall 和 1 个文本 part
+    parts = assistant_msg["parts"]
+    has_text = any("text" in part for part in parts)
+    has_function_call = any("functionCall" in part for part in parts)
+
+    assert has_text, "应该有文本内容"
+    assert has_function_call, "应该有至少一个成功的 functionCall"
+
+    # 统计成功解析的 functionCall
+    function_calls = [p for p in parts if "functionCall" in p]
+    assert len(function_calls) == 1, f"应该有 1 个成功的 functionCall，实际有 {len(function_calls)}"
+    assert function_calls[0]["functionCall"]["name"] == "good_function"
+
+    print("✅ 正确处理部分 tool_calls 失败的情况")
+    print(f"   成功解析: 1/2 tool_calls")
+    print(f"   保留了文本内容和有效的工具调用\n")
+
+
 async def run_all_tests():
     """运行所有测试"""
     print("=" * 60)
@@ -313,12 +455,18 @@ async def run_all_tests():
     print("=" * 60 + "\n")
 
     try:
+        # 基础功能测试
         test_convert_openai_tools_to_gemini()
         test_convert_tool_choice()
         test_extract_tool_calls()
         await test_full_request_conversion()
         test_response_conversion_with_tool_calls()
         await test_multi_turn_with_tool_result()
+
+        # 错误处理测试
+        test_tool_message_without_name()
+        await test_invalid_tool_call_arguments()
+        await test_partial_tool_call_failure()
 
         print("=" * 60)
         print("✅ 所有测试通过！")
