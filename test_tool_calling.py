@@ -467,7 +467,9 @@ def test_function_name_normalization():
         ("a" * 65, "a" * 64, "超过 64 字符 -> 截断"),
         ("", "_unnamed_function", "空字符串 -> 使用默认名称"),
         ("_leading", "_leading", "下划线开头 -> 保持不变"),
-        ("中文函数名", "_unnamed_function", "中文字符 -> 全部非法转为默认名称"),
+        ("中文函数名", "zhongwenhanshuming", "中文字符 -> 转换为拼音"),
+        ("获取天气", "huoqutianqi", "中文函数 -> 拼音转换"),
+        ("get用户info", "getyonghuinfo", "中英混合 -> 中文转拼音保留英文"),
     ]
 
     failed_count = 0

@@ -599,6 +599,7 @@ def _normalize_function_name(name: str) -> str:
     - 最大长度 64 个字符
 
     转换策略：
+    - 中文字符转换为拼音
     - 如果以非字母/下划线开头，添加 "_" 前缀
     - 将非法字符（空格、@、#等）替换为下划线
     - 连续的下划线合并为一个
@@ -615,9 +616,31 @@ def _normalize_function_name(name: str) -> str:
     if not name:
         return "_unnamed_function"
 
+    # 第零步：检测并转换中文字符为拼音
+    # 检查是否包含中文字符
+    if re.search(r'[\u4e00-\u9fff]', name):
+        try:
+            from pypinyin import lazy_pinyin, Style
+            # 将中文转换为拼音，用下划线连接多音字
+            parts = []
+            for char in name:
+                if '\u4e00' <= char <= '\u9fff':
+                    # 中文字符，转换为拼音
+                    pinyin = lazy_pinyin(char, style=Style.NORMAL)
+                    parts.append(''.join(pinyin))
+                else:
+                    # 非中文字符，保持不变
+                    parts.append(char)
+            normalized = ''.join(parts)
+        except ImportError:
+            log.warning("pypinyin not installed, cannot convert Chinese characters to pinyin")
+            normalized = name
+    else:
+        normalized = name
+
     # 第一步：将非法字符替换为下划线
     # 保留：a-z, A-Z, 0-9, 下划线, 点, 短横线
-    normalized = re.sub(r'[^a-zA-Z0-9_.\-]', '_', name)
+    normalized = re.sub(r'[^a-zA-Z0-9_.\-]', '_', normalized)
 
     # 第二步：如果以非字母/下划线开头，处理首字符
     prefix_added = False

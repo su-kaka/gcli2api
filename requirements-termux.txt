@@ -11,3 +11,4 @@ oauthlib
 motor
 redis
 asyncpg
+pypinyin
