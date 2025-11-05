@@ -589,6 +589,35 @@ def extract_model_settings(model: str) -> Dict[str, Any]:
 
 # ==================== Tool Conversion Functions ====================
 
+def _validate_function_name(name: str) -> bool:
+    """
+    验证函数名是否符合 Gemini API 规范
+
+    规则：
+    - 必须以字母或下划线开头
+    - 只能包含 a-z, A-Z, 0-9, 下划线, 点, 短横线
+    - 最大长度 64 个字符
+
+    Args:
+        name: 函数名
+
+    Returns:
+        是否有效
+    """
+    import re
+
+    if not name or len(name) > 64:
+        return False
+
+    # 检查首字符必须是字母或下划线
+    if not (name[0].isalpha() or name[0] == '_'):
+        return False
+
+    # 检查其他字符只能是字母、数字、下划线、点、短横线
+    pattern = r'^[a-zA-Z_][a-zA-Z0-9_.\-]*$'
+    return bool(re.match(pattern, name))
+
+
 def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
     """
     将 OpenAI tools 格式转换为 Gemini functionDeclarations 格式
@@ -598,6 +627,9 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
 
     Returns:
         Gemini 格式的工具列表
+
+    Raises:
+        ValueError: 如果函数名不符合 Gemini API 规范
     """
     if not openai_tools:
         return []
@@ -622,9 +654,22 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
             log.warning("Tool missing 'function' field")
             continue
 
+        # 验证函数名
+        function_name = function.get("name")
+        if not function_name:
+            raise ValueError("Function name is required")
+
+        if not _validate_function_name(function_name):
+            raise ValueError(
+                f"Invalid function name '{function_name}'. "
+                f"Function name must start with a letter or underscore, "
+                f"contain only a-z, A-Z, 0-9, underscores, dots and dashes, "
+                f"and be at most 64 characters long."
+            )
+
         # 构建 Gemini function declaration
         declaration = {
-            "name": function.get("name"),
+            "name": function_name,
             "description": function.get("description", ""),
         }
 
