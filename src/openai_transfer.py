@@ -589,33 +589,68 @@ def extract_model_settings(model: str) -> Dict[str, Any]:
 
 # ==================== Tool Conversion Functions ====================
 
-def _validate_function_name(name: str) -> bool:
+def _normalize_function_name(name: str) -> str:
     """
-    验证函数名是否符合 Gemini API 规范
+    规范化函数名以符合 Gemini API 要求
 
     规则：
     - 必须以字母或下划线开头
     - 只能包含 a-z, A-Z, 0-9, 下划线, 点, 短横线
     - 最大长度 64 个字符
 
+    转换策略：
+    - 如果以非字母/下划线开头，添加 "_" 前缀
+    - 将非法字符（空格、@、#等）替换为下划线
+    - 连续的下划线合并为一个
+    - 如果超过 64 个字符，截断
+
     Args:
-        name: 函数名
+        name: 原始函数名
 
     Returns:
-        是否有效
+        规范化后的函数名
     """
     import re
 
-    if not name or len(name) > 64:
-        return False
+    if not name:
+        return "_unnamed_function"
 
-    # 检查首字符必须是字母或下划线
-    if not (name[0].isalpha() or name[0] == '_'):
-        return False
+    # 第一步：将非法字符替换为下划线
+    # 保留：a-z, A-Z, 0-9, 下划线, 点, 短横线
+    normalized = re.sub(r'[^a-zA-Z0-9_.\-]', '_', name)
 
-    # 检查其他字符只能是字母、数字、下划线、点、短横线
-    pattern = r'^[a-zA-Z_][a-zA-Z0-9_.\-]*$'
-    return bool(re.match(pattern, name))
+    # 第二步：如果以非字母/下划线开头，处理首字符
+    prefix_added = False
+    if normalized and not (normalized[0].isalpha() or normalized[0] == '_'):
+        if normalized[0] in '.-':
+            # 点和短横线在开头位置替换为下划线（它们在中间是合法的）
+            normalized = '_' + normalized[1:]
+        else:
+            # 其他字符（如数字）添加下划线前缀
+            normalized = '_' + normalized
+        prefix_added = True
+
+    # 第三步：合并连续的下划线
+    normalized = re.sub(r'_+', '_', normalized)
+
+    # 第四步：移除首尾的下划线
+    # 如果原本就是下划线开头，或者我们添加了前缀，则保留开头的下划线
+    if name.startswith('_') or prefix_added:
+        # 只移除尾部的下划线
+        normalized = normalized.rstrip('_')
+    else:
+        # 移除首尾的下划线
+        normalized = normalized.strip('_')
+
+    # 第五步：确保不为空
+    if not normalized:
+        normalized = '_unnamed_function'
+
+    # 第六步：截断到 64 个字符
+    if len(normalized) > 64:
+        normalized = normalized[:64]
+
+    return normalized
 
 
 def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
@@ -627,9 +662,6 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
 
     Returns:
         Gemini 格式的工具列表
-
-    Raises:
-        ValueError: 如果函数名不符合 Gemini API 规范
     """
     if not openai_tools:
         return []
@@ -654,22 +686,21 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
             log.warning("Tool missing 'function' field")
             continue
 
-        # 验证函数名
-        function_name = function.get("name")
-        if not function_name:
-            raise ValueError("Function name is required")
+        # 获取并规范化函数名
+        original_name = function.get("name")
+        if not original_name:
+            log.warning("Tool missing 'name' field, using default")
+            original_name = "_unnamed_function"
 
-        if not _validate_function_name(function_name):
-            raise ValueError(
-                f"Invalid function name '{function_name}'. "
-                f"Function name must start with a letter or underscore, "
-                f"contain only a-z, A-Z, 0-9, underscores, dots and dashes, "
-                f"and be at most 64 characters long."
-            )
+        normalized_name = _normalize_function_name(original_name)
+
+        # 如果名称被修改了，记录日志
+        if normalized_name != original_name:
+            log.info(f"Function name normalized: '{original_name}' -> '{normalized_name}'")
 
         # 构建 Gemini function declaration
         declaration = {
-            "name": function_name,
+            "name": normalized_name,
             "description": function.get("description", ""),
         }
 

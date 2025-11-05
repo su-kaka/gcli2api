@@ -448,60 +448,70 @@ async def test_partial_tool_call_failure():
     print(f"   保留了文本内容和有效的工具调用\n")
 
 
-def test_invalid_function_names():
-    """测试无效的函数名验证"""
-    print("测试 10: 无效的函数名验证")
+def test_function_name_normalization():
+    """测试函数名规范化转换"""
+    print("测试 10: 函数名规范化转换")
 
     from src.openai_transfer import convert_openai_tools_to_gemini
 
-    # 测试用例：无效的函数名
-    invalid_names = [
-        ("123start", "以数字开头"),
-        ("-start", "以短横线开头"),
-        (".start", "以点开头"),
-        ("has space", "包含空格"),
-        ("has@symbol", "包含非法字符 @"),
-        ("has#hash", "包含非法字符 #"),
-        ("a" * 65, "超过 64 个字符"),
-        ("", "空字符串"),
+    # 测试用例：需要转换的函数名
+    normalization_cases = [
+        ("123start", "_123start", "以数字开头 -> 添加下划线前缀"),
+        ("-start", "_start", "以短横线开头 -> 添加下划线前缀"),
+        (".start", "_start", "以点开头 -> 添加下划线前缀"),
+        ("has space", "has_space", "包含空格 -> 替换为下划线"),
+        ("has@symbol", "has_symbol", "包含 @ -> 替换为下划线"),
+        ("has#hash", "has_hash", "包含 # -> 替换为下划线"),
+        ("multiple   spaces", "multiple_spaces", "多个空格 -> 合并为单个下划线"),
+        ("has__double", "has_double", "连续下划线 -> 合并为单个"),
+        ("a" * 65, "a" * 64, "超过 64 字符 -> 截断"),
+        ("", "_unnamed_function", "空字符串 -> 使用默认名称"),
+        ("_leading", "_leading", "下划线开头 -> 保持不变"),
+        ("中文函数名", "_unnamed_function", "中文字符 -> 全部非法转为默认名称"),
     ]
 
     failed_count = 0
-    for invalid_name, reason in invalid_names:
+    for original_name, expected_name, description in normalization_cases:
         tools = [{
             "type": "function",
             "function": {
-                "name": invalid_name,
+                "name": original_name,
                 "description": "Test function",
                 "parameters": {"type": "object"}
             }
         }]
 
         try:
-            convert_openai_tools_to_gemini(tools)
-            print(f"   ❌ 应该拒绝: {reason} - '{invalid_name}'")
-            failed_count += 1
-        except ValueError as e:
-            error_msg = str(e)
-            # 接受两种错误消息：函数名无效 或 函数名是必需的
-            if "Invalid function name" in error_msg or "Function name is required" in error_msg:
-                print(f"   ✅ 正确拒绝: {reason}")
-            else:
-                print(f"   ⚠️  错误消息不匹配: {e}")
-                failed_count += 1
+            result = convert_openai_tools_to_gemini(tools)
+            assert len(result) == 1, f"应该返回 1 个工具，实际返回 {len(result)}"
 
-    # 测试用例：有效的函数名
+            actual_name = result[0]["functionDeclarations"][0]["name"]
+
+            if actual_name == expected_name:
+                print(f"   ✅ {description}")
+                print(f"      '{original_name}' -> '{actual_name}'")
+            else:
+                print(f"   ❌ {description}")
+                print(f"      期望: '{expected_name}'")
+                print(f"      实际: '{actual_name}'")
+                failed_count += 1
+        except Exception as e:
+            print(f"   ❌ 转换失败: {description}")
+            print(f"      错误: {e}")
+            failed_count += 1
+
+    # 测试用例：不需要转换的有效函数名
     valid_names = [
-        "get_weather",
-        "GetWeather",
-        "_private_function",
-        "function_123",
-        "function.with.dots",
-        "function-with-dashes",
-        "a" * 64,  # 正好 64 个字符
+        ("get_weather", "标准命名"),
+        ("GetWeather", "驼峰命名"),
+        ("_private_function", "下划线开头"),
+        ("function_123", "包含数字"),
+        ("function.with.dots", "包含点"),
+        ("function-with-dashes", "包含短横线"),
+        ("a" * 64, "正好 64 字符"),
     ]
 
-    for valid_name in valid_names:
+    for valid_name, description in valid_names:
         tools = [{
             "type": "function",
             "function": {
@@ -514,16 +524,18 @@ def test_invalid_function_names():
         try:
             result = convert_openai_tools_to_gemini(tools)
             assert len(result) == 1
-            assert result[0]["functionDeclarations"][0]["name"] == valid_name
+            actual_name = result[0]["functionDeclarations"][0]["name"]
+            assert actual_name == valid_name, f"有效名称不应被修改: {valid_name} -> {actual_name}"
         except Exception as e:
-            print(f"   ❌ 应该接受: '{valid_name}' - {e}")
+            print(f"   ❌ 有效名称处理失败: {description} - '{valid_name}'")
+            print(f"      错误: {e}")
             failed_count += 1
 
     if failed_count == 0:
-        print(f"✅ 函数名验证测试通过（测试了 {len(invalid_names)} 个无效名称和 {len(valid_names)} 个有效名称）\n")
+        print(f"✅ 函数名规范化测试通过（测试了 {len(normalization_cases)} 个转换用例和 {len(valid_names)} 个有效名称）\n")
     else:
-        print(f"❌ 函数名验证测试失败：{failed_count} 个测试未通过\n")
-        raise AssertionError(f"{failed_count} validation tests failed")
+        print(f"❌ 函数名规范化测试失败：{failed_count} 个测试未通过\n")
+        raise AssertionError(f"{failed_count} normalization tests failed")
 
 
 async def run_all_tests():
@@ -546,8 +558,8 @@ async def run_all_tests():
         await test_invalid_tool_call_arguments()
         await test_partial_tool_call_failure()
 
-        # 函数名验证测试
-        test_invalid_function_names()
+        # 函数名规范化测试
+        test_function_name_normalization()
 
         print("=" * 60)
         print("✅ 所有测试通过！")
