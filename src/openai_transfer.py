@@ -394,8 +394,8 @@ def gemini_stream_chunk_to_openai(
         # 提取并分离thinking tokens和常规内容
         parts = candidate.get("content", {}).get("parts", [])
 
-        # 提取工具调用和文本内容
-        tool_calls, text_content = extract_tool_calls_from_parts(parts)
+        # 提取工具调用和文本内容（流式响应需要 index 字段）
+        tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
 
         # 提取 reasoning content
         reasoning_content = ""
@@ -821,12 +821,13 @@ def convert_tool_message_to_function_response(message) -> Dict[str, Any]:
     }
 
 
-def extract_tool_calls_from_parts(parts: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
+def extract_tool_calls_from_parts(parts: List[Dict[str, Any]], is_streaming: bool = False) -> Tuple[List[Dict[str, Any]], str]:
     """
     从 Gemini response parts 中提取工具调用和文本内容
 
     Args:
         parts: Gemini response 的 parts 数组
+        is_streaming: 是否为流式响应（流式响应需要添加 index 字段）
 
     Returns:
         (tool_calls, text_content) 元组
@@ -834,7 +835,7 @@ def extract_tool_calls_from_parts(parts: List[Dict[str, Any]]) -> Tuple[List[Dic
     tool_calls = []
     text_content = ""
 
-    for part in parts:
+    for idx, part in enumerate(parts):
         # 检查是否是函数调用
         if "functionCall" in part:
             function_call = part["functionCall"]
@@ -846,6 +847,9 @@ def extract_tool_calls_from_parts(parts: List[Dict[str, Any]]) -> Tuple[List[Dic
                     "arguments": json.dumps(function_call.get("args", {}))
                 }
             }
+            # 流式响应需要 index 字段
+            if is_streaming:
+                tool_call["index"] = idx
             tool_calls.append(tool_call)
 
         # 提取文本内容（排除 thinking tokens）

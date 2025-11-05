@@ -11,6 +11,7 @@ from src.openai_transfer import (
     extract_tool_calls_from_parts,
     openai_request_to_gemini_payload,
     gemini_response_to_openai,
+    gemini_stream_chunk_to_openai,
 )
 from src.models import ChatCompletionRequest, OpenAIChatMessage
 
@@ -448,9 +449,75 @@ async def test_partial_tool_call_failure():
     print(f"   保留了文本内容和有效的工具调用\n")
 
 
+def test_streaming_tool_calls_with_index():
+    """测试流式响应中的 tool_calls 包含 index 字段"""
+    print("测试 10: 流式响应 tool_calls index 字段")
+
+    # 模拟 Gemini 流式响应块，包含工具调用
+    gemini_chunk = {
+        "candidates": [
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "get_weather",
+                                "args": {"location": "Tokyo"}
+                            }
+                        },
+                        {
+                            "functionCall": {
+                                "name": "get_time",
+                                "args": {"timezone": "Asia/Tokyo"}
+                            }
+                        }
+                    ]
+                },
+                "finishReason": "STOP"
+            }
+        ]
+    }
+
+    # 转换为 OpenAI 流式格式
+    result = gemini_stream_chunk_to_openai(gemini_chunk, "gemini-pro", "test-id-123")
+
+    # 验证结果
+    assert "choices" in result
+    assert len(result["choices"]) > 0
+
+    choice = result["choices"][0]
+    assert "delta" in choice
+    assert "tool_calls" in choice["delta"]
+
+    tool_calls = choice["delta"]["tool_calls"]
+    assert len(tool_calls) == 2, f"应该有 2 个 tool_calls，实际有 {len(tool_calls)}"
+
+    # 验证每个 tool_call 都有 index 字段
+    for i, tool_call in enumerate(tool_calls):
+        assert "index" in tool_call, f"tool_call {i} 缺少 index 字段"
+        assert "id" in tool_call, f"tool_call {i} 缺少 id 字段"
+        assert "type" in tool_call, f"tool_call {i} 缺少 type 字段"
+        assert tool_call["type"] == "function"
+        assert "function" in tool_call
+        assert "name" in tool_call["function"]
+        assert "arguments" in tool_call["function"]
+
+    # 验证 index 值正确
+    assert tool_calls[0]["index"] == 0, f"第一个 tool_call 的 index 应该是 0，实际是 {tool_calls[0]['index']}"
+    assert tool_calls[1]["index"] == 1, f"第二个 tool_call 的 index 应该是 1，实际是 {tool_calls[1]['index']}"
+
+    # 验证 finish_reason 是 tool_calls
+    assert choice["finish_reason"] == "tool_calls"
+
+    print("✅ 流式响应 tool_calls 正确包含 index 字段")
+    print(f"   验证了 {len(tool_calls)} 个 tool_calls 的格式")
+    print(f"   每个 tool_call 都有必需的 index 字段\n")
+
+
 def test_function_name_normalization():
     """测试函数名规范化转换"""
-    print("测试 10: 函数名规范化转换")
+    print("测试 11: 函数名规范化转换")
 
     from src.openai_transfer import convert_openai_tools_to_gemini
 
@@ -559,6 +626,9 @@ async def run_all_tests():
         test_tool_message_without_name()
         await test_invalid_tool_call_arguments()
         await test_partial_tool_call_failure()
+
+        # 流式响应测试
+        test_streaming_tool_calls_with_index()
 
         # 函数名规范化测试
         test_function_name_normalization()
