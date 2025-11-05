@@ -87,7 +87,10 @@ class CredentialManager:
                 log.warning("Write worker task did not finish within timeout")
                 if not self._write_worker_task.done():
                     self._write_worker_task.cancel()
-        
+            except asyncio.CancelledError:
+                # 任务被取消是正常的关闭流程
+                log.debug("Background worker task was cancelled during shutdown")
+
         self._initialized = False
         log.debug("Credential manager closed")
     
@@ -102,22 +105,33 @@ class CredentialManager:
     
     async def _background_worker(self):
         """后台工作线程，处理定期任务"""
-        while not self._shutdown_event.is_set():
-            try:
-                # 每60秒检查一次凭证更新
-                await asyncio.wait_for(self._shutdown_event.wait(), timeout=60.0)
-                if self._shutdown_event.is_set():
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # 每60秒检查一次凭证更新
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=60.0)
+                    if self._shutdown_event.is_set():
+                        break
+
+                    # 重新发现凭证（热更新）
+                    await self._discover_credentials()
+
+                except asyncio.TimeoutError:
+                    # 超时是正常的，继续下一轮
+                    continue
+                except asyncio.CancelledError:
+                    # 任务被取消，正常退出
+                    log.debug("Background worker cancelled, exiting gracefully")
                     break
-                
-                # 重新发现凭证（热更新）
-                await self._discover_credentials()
-                
-            except asyncio.TimeoutError:
-                # 超时是正常的，继续下一轮
-                continue
-            except Exception as e:
-                log.error(f"Background worker error: {e}")
-                await asyncio.sleep(5)  # 错误后等待5秒再继续
+                except Exception as e:
+                    log.error(f"Background worker error: {e}")
+                    await asyncio.sleep(5)  # 错误后等待5秒再继续
+        except asyncio.CancelledError:
+            # 外层捕获取消，确保干净退出
+            log.debug("Background worker received cancellation")
+        finally:
+            log.debug("Background worker exited")
+            self._write_worker_running = False
     
     async def _discover_credentials(self):
         """发现和加载所有可用凭证"""
