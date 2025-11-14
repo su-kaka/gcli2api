@@ -2,7 +2,7 @@
 *.json
 *.toml
 creds/
-
+CLAUDE.md
 # Environment configuration
 .env
 
