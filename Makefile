@@ -1,25 +1,29 @@
-.PHONY: help install install-dev test lint format clean run docker-build docker-run
+.PHONY: help install install-dev test lint format clean run docker-build docker-run docker-compose-up docker-compose-down
 
 help:
 	@echo "gcli2api - Development Commands"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make install       - Install production dependencies"
-	@echo "  make install-dev   - Install development dependencies"
-	@echo "  make test          - Run tests"
-	@echo "  make lint          - Run linters (flake8, mypy)"
-	@echo "  make format        - Format code with black"
-	@echo "  make format-check  - Check code formatting without making changes"
-	@echo "  make clean         - Clean build artifacts and cache"
-	@echo "  make run           - Run the application"
-	@echo "  make docker-build  - Build Docker image"
-	@echo "  make docker-run    - Run Docker container"
+	@echo "  make install            - Install production dependencies"
+	@echo "  make install-dev        - Install development dependencies"
+	@echo "  make test               - Run tests"
+	@echo "  make test-cov           - Run tests with coverage report"
+	@echo "  make lint               - Run linters (flake8, mypy)"
+	@echo "  make format             - Format code with black"
+	@echo "  make format-check       - Check code formatting without making changes"
+	@echo "  make clean              - Clean build artifacts and cache"
+	@echo "  make run                - Run the application"
+	@echo "  make docker-build       - Build Docker image"
+	@echo "  make docker-run         - Run Docker container"
+	@echo "  make docker-compose-up  - Start services with docker-compose"
+	@echo "  make docker-compose-down - Stop services with docker-compose"
 
 install:
 	pip install -r requirements.txt
 
 install-dev:
 	pip install -e ".[dev]"
+	pip install -r requirements-dev.txt
 
 test:
 	python -m pytest -v
@@ -52,3 +56,9 @@ docker-build:
 
 docker-run:
 	docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $$(pwd)/data/creds:/app/creds gcli2api:latest
+
+docker-compose-up:
+	docker-compose up -d
+
+docker-compose-down:
+	docker-compose down
