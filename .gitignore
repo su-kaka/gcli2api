@@ -1,8 +1,13 @@
 # Credential files - should never be committed
 *.json
+!package.json
+!package-lock.json
+!tsconfig.json
 *.toml
+!pyproject.toml
 creds/
 CLAUDE.md
+
 # Environment configuration
 .env
 
@@ -83,4 +88,8 @@ Thumbs.db
 # Logs
 *.log
 log.txt
-*.txt
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
