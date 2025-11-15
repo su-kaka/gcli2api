@@ -11,7 +11,7 @@
 
 ## 🚀 Quick Deploy
 
-[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/2QLQC2?referralCode=su-kaka)
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/97VMEF?referralCode=su-kaka)
 ---
 
 ## ⚠️ License Declaration
