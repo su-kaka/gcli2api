@@ -32,7 +32,6 @@ Thumbs.db
 # Documentation
 *.md
 !README.md
-docs/
 CONTRIBUTING.md
 CHANGELOG.md
 SECURITY.md
