@@ -168,8 +168,6 @@ async def get_retry_429_interval() -> float:
 
 # Model name lists for different features
 BASE_MODELS = [
-    "gemini-2.5-pro-preview-03-25",
-    "gemini-2.5-pro-preview-05-06",
     "gemini-2.5-pro-preview-06-05",
     "gemini-2.5-pro", 
     "gemini-2.5-flash",
