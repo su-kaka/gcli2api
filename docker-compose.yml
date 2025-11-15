@@ -2,14 +2,41 @@ version: '3.8'
 
 services:
   gcli2api:
-    image: ghcr.io/cetaceang/gcli2api:latest
+    image: ghcr.io/su-kaka/gcli2api:latest
     container_name: gcli2api
     restart: unless-stopped
     network_mode: host
     environment:
-      - PASSWORD=pwd
-      - PORT=7861
-      # - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}  # 可选：从环境变量传入凭证
+      # Password configuration (choose one)
+      # Option 1: Use common password
+      - PASSWORD=${PASSWORD:-pwd}
+      # Option 2: Use separate passwords (uncomment if needed)
+      # - API_PASSWORD=${API_PASSWORD:-your_api_password}
+      # - PANEL_PASSWORD=${PANEL_PASSWORD:-your_panel_password}
+
+      # Server configuration
+      - PORT=${PORT:-7861}
+      - HOST=${HOST:-0.0.0.0}
+
+      # Optional: Google credentials from environment
+      # - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}
+
+      # Optional: Logging configuration
+      # - LOG_LEVEL=${LOG_LEVEL:-info}
+
+      # Optional: Redis configuration (for distributed storage)
+      # - REDIS_URI=${REDIS_URI}
+      # - REDIS_DATABASE=${REDIS_DATABASE:-0}
+
+      # Optional: MongoDB configuration (for distributed storage)
+      # - MONGODB_URI=${MONGODB_URI}
+      # - MONGODB_DATABASE=${MONGODB_DATABASE:-gcli2api}
+
+      # Optional: PostgreSQL configuration (for distributed storage)
+      # - POSTGRES_DSN=${POSTGRES_DSN}
+
+      # Optional: Proxy configuration
+      # - PROXY=${PROXY}
     volumes:
       - ./data/creds:/app/creds
     healthcheck:
@@ -18,3 +45,41 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+# Example with Redis for distributed storage
+#  redis:
+#    image: redis:7-alpine
+#    container_name: gcli2api-redis
+#    restart: unless-stopped
+#    ports:
+#      - "6379:6379"
+#    volumes:
+#      - redis_data:/data
+#    command: redis-server --appendonly yes
+#    healthcheck:
+#      test: ["CMD", "redis-cli", "ping"]
+#      interval: 10s
+#      timeout: 3s
+#      retries: 3
+
+# Example with MongoDB for distributed storage
+#  mongodb:
+#    image: mongo:7
+#    container_name: gcli2api-mongodb
+#    restart: unless-stopped
+#    environment:
+#      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+#      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+#    ports:
+#      - "27017:27017"
+#    volumes:
+#      - mongodb_data:/data/db
+#    healthcheck:
+#      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 3
+
+#volumes:
+#  redis_data:
+#  mongodb_data:
