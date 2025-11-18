@@ -176,6 +176,7 @@ BASE_MODELS = [
     "gemini-2.5-flash-image",
     "gemini-2.5-flash-image-preview",
     "gemini-3-pro-preview-11-2025",
+    'gemini-3-pro-preview',
 ]
 
 PUBLIC_API_MODELS = [
