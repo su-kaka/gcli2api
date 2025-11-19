@@ -830,6 +830,48 @@ export COMPATIBILITY_MODE=true
 
 ---
 
+## 故障排除
+
+### Docker 部署问题
+
+**容器启动后自动关闭**
+- **原因**：端口冲突、网络模式问题或递归错误
+- **解决方案**：
+  1. 检查端口占用：`lsof -i :8080`
+  2. 修改端口映射：将 `8080:8080` 改为 `8081:8080`
+  3. 移除过时的 `version` 字段
+  4. 确保健康检查配置正确
+
+**健康检查失败**
+- **原因**：健康检查命令或URL配置错误
+- **解决方案**：
+  ```yaml
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request; req = urllib.request.Request('http://localhost:8080/v1/models', headers={'Authorization': 'Bearer pwd'}); exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+  ```
+
+**递归深度错误**
+- **原因**：代码中的循环依赖导致递归调用
+- **解决方案**：检查 `usage_stats.py` 和配置加载逻辑，确保没有循环依赖
+
+### API 认证问题
+
+**400 错误解决方案**
+```bash
+npx https://github.com/google-gemini/gemini-cli
+```
+1. 选择选项 1
+2. 按回车确认
+3. 完成浏览器中的 Google 账户认证
+4. 系统将自动完成授权
+```
+
+---
+
 ## 许可证与免责声明
 
 本项目仅供学习和研究用途。使用本项目表示您同意：

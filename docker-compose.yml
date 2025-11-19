@@ -1,19 +1,21 @@
-version: '3.8'
-
 services:
   gcli2api:
-    image: ghcr.io/cetaceang/gcli2api:latest
+    image: ghcr.io/su-kaka/gcli2api:latest
     container_name: gcli2api
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8081:8080"
     environment:
+      # 使用通用密码（推荐用于简单部署）
       - PASSWORD=pwd
-      - PORT=7861
-      # - GOOGLE_CREDENTIALS=${GOOGLE_CREDENTIALS}  # 可选：从环境变量传入凭证
+      - PORT=8080
+      # 或使用分离密码（推荐用于生产环境）
+      # - API_PASSWORD=your_api_password
+      # - PANEL_PASSWORD=your_panel_password
     volumes:
       - ./data/creds:/app/creds
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; req = urllib.request.Request('http://localhost:8080/v1/models', headers={'Authorization': 'Bearer pwd'}); exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
