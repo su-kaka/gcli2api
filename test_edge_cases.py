@@ -308,7 +308,7 @@ async def main():
     else:
         print("❌ 部分测试失败")
     print("=" * 60)
-    
+
     return all(results)
 
 
