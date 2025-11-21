@@ -934,7 +934,7 @@ async def creds_batch_action(
         # 构建返回消息
         result_message = f"批量操作完成：成功处理 {success_count}/{len(filenames)} 个文件"
         if errors:
-            result_message += f"\n错误详情：\n" + "\n".join(errors)
+            result_message += "\n错误详情:\n" + "\n".join(errors)
 
         response_data = {
             "success_count": success_count,
