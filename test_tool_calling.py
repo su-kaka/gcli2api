@@ -467,8 +467,8 @@ async def test_partial_tool_call_failure():
     assert function_calls[0]["functionCall"]["name"] == "good_function"
 
     print("✅ 正确处理部分 tool_calls 失败的情况")
-    print(f"   成功解析: 1/2 tool_calls")
-    print(f"   保留了文本内容和有效的工具调用\n")
+    print("   成功解析: 1/2 tool_calls")
+    print("   保留了文本内容和有效的工具调用\n")
 
 
 def test_streaming_tool_calls_with_index():
