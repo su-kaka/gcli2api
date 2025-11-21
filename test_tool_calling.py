@@ -398,7 +398,7 @@ async def test_invalid_tool_call_arguments():
     openai_request = ChatCompletionRequest(**request_data)
 
     try:
-        gemini_payload = await openai_request_to_gemini_payload(openai_request)
+        await openai_request_to_gemini_payload(openai_request)
         # 如果没有抛出异常，检查是否正确跳过了无效的 tool_call
         # 因为没有 content，应该抛出 ValueError
         assert False, "应该抛出 ValueError，因为所有 tool_calls 都失败且没有 content"
