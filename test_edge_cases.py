@@ -308,7 +308,10 @@ async def main():
     else:
         print("❌ 部分测试失败")
     print("=" * 60)
+    
+    return all(results)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    success = asyncio.run(main())
+    exit(0 if success else 1)
