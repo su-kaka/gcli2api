@@ -113,7 +113,8 @@ async def test_continuous_tool_calls():
                 elif "functionResponse" in part:
                     fr = part["functionResponse"]
                     print(
-                        f"  part {j+1}: functionResponse(name={fr['name']}, response={fr['response']})"
+                        f"  part {j+1}: functionResponse(name={fr['name']}, "
+                        f"response={fr['response']})"
                     )
 
         # 验证关键点
@@ -233,13 +234,13 @@ async def test_interleaved_tool_calls():
         assert (
             function_responses[0]["name"] == "get_weather"
         ), f"第一个应该是 'get_weather'，实际是 '{function_responses[0]['name']}'"
-        print(f"✅ functionResponse 1: name='get_weather'")
+        print("✅ functionResponse 1: name='get_weather'")
 
         # 验证第二个是 set_reminder
         assert (
             function_responses[1]["name"] == "set_reminder"
         ), f"第二个应该是 'set_reminder'，实际是 '{function_responses[1]['name']}'"
-        print(f"✅ functionResponse 2: name='set_reminder'")
+        print("✅ functionResponse 2: name='set_reminder'")
 
         print("\n" + "=" * 60)
         print("✅ 交错工具调用测试通过")

@@ -6,7 +6,7 @@ Tool Calling Implementation Tests
 import asyncio
 import json
 
-from src.models import ChatCompletionRequest, OpenAIChatMessage
+from src.models import ChatCompletionRequest
 from src.openai_transfer import (
     convert_openai_tools_to_gemini,
     convert_tool_choice_to_tool_config,
@@ -269,7 +269,7 @@ async def test_multi_turn_with_tool_result():
 
     print("✅ 多轮对话测试通过")
     print(f"   消息数量: {len(contents)}")
-    print(f"   工具结果已正确转换为 functionResponse\n")
+    print("   工具结果已正确转换为 functionResponse\n")
 
 
 def test_tool_message_without_name():

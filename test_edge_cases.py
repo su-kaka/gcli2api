@@ -89,7 +89,7 @@ async def test_tool_response_order_mismatch():
                     function_responses.append(part["functionResponse"])
 
         print(f"\n找到 {len(function_responses)} 个 functionResponse")
-        assert len(function_responses) == 3, f"应该有 3 个 functionResponse"
+        assert len(function_responses) == 3, "应该有 3 个 functionResponse"
 
         # 验证名称是否正确（按响应顺序：tool_c, tool_a, tool_b）
         expected_names = ["tool_c", "tool_a", "tool_b"]
@@ -180,7 +180,7 @@ async def test_multiple_assistant_messages_with_tools():
                     function_responses.append(part["functionResponse"])
 
         print(f"\n找到 {len(function_responses)} 个 functionResponse")
-        assert len(function_responses) == 2, f"应该有 2 个 functionResponse"
+        assert len(function_responses) == 2, "应该有 2 个 functionResponse"
 
         # 两个响应都应该正确推断为 first_tool
         for i, fr in enumerate(function_responses):
@@ -279,9 +279,9 @@ async def test_tool_with_both_name_and_inference():
 
         # 验证两个都正确
         assert function_responses[0]["name"] == "tool_a"
-        print(f"  响应 1: name='tool_a' (使用提供的 name)")
+        print("  响应 1: name='tool_a' (使用提供的 name)")
         assert function_responses[1]["name"] == "tool_b"
-        print(f"  响应 2: name='tool_b' (从历史推断)")
+        print("  响应 2: name='tool_b' (从历史推断)")
 
         print("\n✅ 混合 name 字段测试通过")
         return True
