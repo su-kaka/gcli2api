@@ -407,7 +407,7 @@ def _handle_streaming_response_managed(
                         f"Google API returned status 429 (STREAMING). Response details: {response_content[:500]}"
                     )
                 else:
-                    log.error(f"Google API returned status 429 (STREAMING)")
+                    log.error("Google API returned status 429 (STREAMING)")
             else:
                 if response_content:
                     log.error(
