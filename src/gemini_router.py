@@ -69,7 +69,7 @@ async def authenticate_gemini_flexible(
 
     # 尝试从URL参数key获取（Google官方标准方式）
     if key:
-        log.debug(f"Using URL parameter key authentication")
+        log.debug("Using URL parameter key authentication")
         if key == password:
             return key
 
@@ -77,13 +77,13 @@ async def authenticate_gemini_flexible(
     auth_header = request.headers.get("authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug(f"Using Bearer token authentication")
+        log.debug("Using Bearer token authentication")
         if token == password:
             return token
 
     # 尝试从x-goog-api-key头获取（新标准方式）
     if x_goog_api_key:
-        log.debug(f"Using x-goog-api-key authentication")
+        log.debug("Using x-goog-api-key authentication")
         if x_goog_api_key == password:
             return x_goog_api_key
 
