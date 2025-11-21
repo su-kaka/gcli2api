@@ -2,20 +2,22 @@
 Google OAuth2 认证模块
 """
 
-import time
-import jwt
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
+import jwt
+
 from config import (
-    get_oauth_proxy_url,
     get_googleapis_proxy_url,
+    get_oauth_proxy_url,
     get_resource_manager_api_url,
     get_service_usage_api_url,
 )
 from log import log
+
 from .httpx_client import get_async, post_async
 
 

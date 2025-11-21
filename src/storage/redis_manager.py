@@ -7,12 +7,14 @@ import asyncio
 import json
 import os
 import time
-from typing import Dict, Any, List, Optional
 from collections import deque
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
+
 from log import log
-from .cache_manager import UnifiedCacheManager, CacheBackend
+
+from .cache_manager import CacheBackend, UnifiedCacheManager
 
 
 class RedisCacheBackend(CacheBackend):

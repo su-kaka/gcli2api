@@ -5,16 +5,18 @@ Postgres数据库管理器，采用单行设计并兼容 UnifiedCacheManager。
 """
 
 import asyncio
+import json
 import os
 import time
-import json
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
 from collections import deque
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import asyncpg
+
 from log import log
-from .cache_manager import UnifiedCacheManager, CacheBackend
+
+from .cache_manager import CacheBackend, UnifiedCacheManager
 
 
 class PostgresCacheBackend(CacheBackend):

@@ -5,7 +5,7 @@ Anti-Truncation Module - Ensures complete streaming output
 
 import json
 import re
-from typing import Dict, Any, AsyncGenerator, List, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Tuple
 
 from fastapi.responses import StreamingResponse
 

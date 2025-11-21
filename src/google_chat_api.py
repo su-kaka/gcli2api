@@ -11,22 +11,23 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 
 from config import (
-    get_code_assist_endpoint,
     DEFAULT_SAFETY_SETTINGS,
-    get_base_model_name,
-    get_thinking_budget,
-    should_include_thoughts,
-    is_search_model,
+    PUBLIC_API_MODELS,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
-    get_retry_429_max_retries,
+    get_base_model_name,
+    get_code_assist_endpoint,
     get_retry_429_enabled,
     get_retry_429_interval,
-    PUBLIC_API_MODELS,
+    get_retry_429_max_retries,
+    get_thinking_budget,
+    is_search_model,
+    should_include_thoughts,
 )
-from .httpx_client import http_client, create_streaming_client_with_kwargs
 from log import log
+
 from .credential_manager import CredentialManager
+from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .usage_stats import record_successful_call
 from .utils import get_user_agent
 

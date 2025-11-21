@@ -5,7 +5,8 @@ Global task lifecycle management module
 
 import asyncio
 import weakref
-from typing import Set, Dict, Any
+from typing import Any, Dict, Set
+
 from log import log
 
 

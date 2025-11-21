@@ -3,8 +3,9 @@
 """
 
 import asyncio
-from src.openai_transfer import openai_request_to_gemini_payload
+
 from src.models import ChatCompletionRequest
+from src.openai_transfer import openai_request_to_gemini_payload
 
 
 async def test_tool_response_order_mismatch():

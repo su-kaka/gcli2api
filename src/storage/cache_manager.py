@@ -5,9 +5,9 @@
 
 import asyncio
 import time
-from typing import Dict, Any, Optional
-from collections import deque
 from abc import ABC, abstractmethod
+from collections import deque
+from typing import Any, Dict, Optional
 
 from log import log
 

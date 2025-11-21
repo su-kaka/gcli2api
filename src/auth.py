@@ -11,8 +11,11 @@ import time
 import uuid
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse, parse_qs
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlparse
+
+from config import get_config_value
+from log import log
 
 from .google_oauth_api import (
     Credentials,
@@ -22,8 +25,6 @@ from .google_oauth_api import (
     select_default_project,
 )
 from .storage_adapter import get_storage_adapter
-from config import get_config_value
-from log import log
 
 # OAuth Configuration
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"

@@ -13,38 +13,39 @@ import zipfile
 from collections import deque
 from typing import List, Optional
 
+import toml
 from fastapi import (
     APIRouter,
-    HTTPException,
     Depends,
     File,
+    HTTPException,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
-    Request,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from starlette.websockets import WebSocketState
-import toml
 
 import config
 from log import log
+
 from .auth import (
-    create_auth_url,
-    get_auth_status,
-    verify_password,
-    generate_auth_token,
-    verify_auth_token,
     asyncio_complete_auth_flow,
-    complete_auth_flow_from_callback_url,
-    load_credentials_from_env,
     clear_env_credentials,
+    complete_auth_flow_from_callback_url,
+    create_auth_url,
+    generate_auth_token,
+    get_auth_status,
+    load_credentials_from_env,
+    verify_auth_token,
+    verify_password,
 )
 from .credential_manager import CredentialManager
-from .usage_stats import get_usage_stats, get_aggregated_stats, get_usage_stats_instance
 from .storage_adapter import get_storage_adapter
+from .usage_stats import get_aggregated_stats, get_usage_stats, get_usage_stats_instance
 
 # 创建路由器
 router = APIRouter()

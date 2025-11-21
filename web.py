@@ -10,16 +10,17 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Import all routers
-from src.openai_router import router as openai_router
-from src.gemini_router import router as gemini_router
-from src.web_routes import router as web_router
+from config import get_server_host, get_server_port
+from log import log
 
 # Import managers and utilities
 from src.credential_manager import CredentialManager
+from src.gemini_router import router as gemini_router
+
+# Import all routers
+from src.openai_router import router as openai_router
 from src.task_manager import shutdown_all_tasks
-from config import get_server_host, get_server_port
-from log import log
+from src.web_routes import router as web_router
 
 # 全局凭证管理器
 global_credential_manager = None
@@ -43,8 +44,9 @@ async def lifespan(app: FastAPI):
 
     # 自动从环境变量加载凭证（异步执行）
     try:
-        from src.auth import auto_load_env_credentials_on_startup
         import asyncio
+
+        from src.auth import auto_load_env_credentials_on_startup
 
         # 在后台任务中执行异步加载
         async def load_env_creds():
@@ -135,7 +137,6 @@ async def main():
     from hypercorn.config import Config
 
     # 日志系统现在直接使用环境变量，无需初始化
-
     # 从环境变量或配置获取端口和主机
     port = await get_server_port()
     host = await get_server_host()

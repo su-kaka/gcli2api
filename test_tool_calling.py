@@ -3,17 +3,18 @@ Tool Calling Implementation Tests
 测试工具调用功能的实现
 """
 
-import json
 import asyncio
+import json
+
+from src.models import ChatCompletionRequest, OpenAIChatMessage
 from src.openai_transfer import (
     convert_openai_tools_to_gemini,
     convert_tool_choice_to_tool_config,
     extract_tool_calls_from_parts,
-    openai_request_to_gemini_payload,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
+    openai_request_to_gemini_payload,
 )
-from src.models import ChatCompletionRequest, OpenAIChatMessage
 
 
 def test_convert_openai_tools_to_gemini():

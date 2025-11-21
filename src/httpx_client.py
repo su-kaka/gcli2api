@@ -4,9 +4,10 @@
 保持通用性，不与特定业务逻辑耦合
 """
 
-import httpx
-from typing import Optional, Dict, Any, AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, Dict, Optional
+
+import httpx
 
 from config import get_proxy_config
 from log import log

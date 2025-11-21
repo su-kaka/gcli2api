@@ -5,12 +5,13 @@ Uses the simpler logic: compare current time with next_reset_time.
 
 import os
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from config import get_credentials_dir, is_mongodb_mode
 from log import log
+
 from .state_manager import get_state_manager
 from .storage_adapter import get_storage_adapter
 
@@ -83,7 +84,7 @@ class UsageStats:
             return False
 
         try:
-            from config import get_base_model_name, get_base_model_from_feature_model
+            from config import get_base_model_from_feature_model, get_base_model_name
 
             # Remove feature prefixes (流式抗截断/, 假流式/)
             base_with_suffix = get_base_model_from_feature_model(model_name)

@@ -4,9 +4,9 @@
 """
 
 import asyncio
-import os
 import json
-from typing import Dict, Any, List, Optional, Protocol
+import os
+from typing import Any, Dict, List, Optional, Protocol
 
 from log import log
 

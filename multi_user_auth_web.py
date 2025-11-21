@@ -4,22 +4,23 @@ OAuth Web 服务器 - 独立的OAuth认证服务
 提供简化的OAuth认证界面，只包含验证功能，不包含上传和管理功能
 """
 
-from log import log
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from log import log
 from src.auth import (
-    create_auth_url,
-    verify_password,
-    generate_auth_token,
-    verify_auth_token,
+    CALLBACK_HOST,
     asyncio_complete_auth_flow,
     complete_auth_flow_from_callback_url,
-    CALLBACK_HOST,
+    create_auth_url,
+    generate_auth_token,
+    verify_auth_token,
+    verify_password,
 )
 
 # 创建FastAPI应用

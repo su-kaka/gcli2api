@@ -8,22 +8,23 @@ import json
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Path, Query, status, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
-    get_available_models,
-    is_fake_streaming_model,
-    is_anti_truncation_model,
-    get_base_model_from_feature_model,
     get_anti_truncation_max_attempts,
+    get_available_models,
+    get_base_model_from_feature_model,
     get_base_model_name,
+    is_anti_truncation_model,
+    is_fake_streaming_model,
 )
 from log import log
+
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_chat_api import send_gemini_request, build_gemini_payload_from_native
+from .google_chat_api import build_gemini_payload_from_native, send_gemini_request
 from .openai_transfer import _extract_content_and_reasoning
 from .task_manager import create_managed_task
 

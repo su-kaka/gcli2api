@@ -2,7 +2,7 @@
 Format detection utilities for supporting both OpenAI and Gemini request formats
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from log import log
 

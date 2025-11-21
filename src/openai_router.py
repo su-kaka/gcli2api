@@ -3,35 +3,36 @@ OpenAI Router - Handles OpenAI format API requests
 处理OpenAI格式请求的路由模块
 """
 
+import asyncio
 import json
 import time
 import uuid
-import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, HTTPException, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
-    get_available_models,
-    is_fake_streaming_model,
-    is_anti_truncation_model,
-    get_base_model_from_feature_model,
     get_anti_truncation_max_attempts,
+    get_available_models,
+    get_base_model_from_feature_model,
+    is_anti_truncation_model,
+    is_fake_streaming_model,
 )
 from log import log
+
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
 from .google_chat_api import send_gemini_request
-from .models import ChatCompletionRequest, ModelList, Model
-from .task_manager import create_managed_task
+from .models import ChatCompletionRequest, Model, ModelList
 from .openai_transfer import (
-    openai_request_to_gemini_payload,
+    _convert_usage_metadata,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
-    _convert_usage_metadata,
+    openai_request_to_gemini_payload,
 )
+from .task_manager import create_managed_task
 
 # 创建路由器
 router = APIRouter()

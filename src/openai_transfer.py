@@ -3,20 +3,21 @@ OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API format
 被openai-router调用，负责OpenAI格式与Gemini格式的双向转换
 """
 
+import json
 import time
 import uuid
-import json
-from typing import Dict, Any, List, Union, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
+    get_compatibility_mode_enabled,
     get_thinking_budget,
     is_search_model,
     should_include_thoughts,
-    get_compatibility_mode_enabled,
 )
 from log import log
+
 from .models import ChatCompletionRequest
 
 
@@ -613,7 +614,7 @@ def _normalize_function_name(name: str) -> str:
     # 检查是否包含中文字符
     if re.search(r"[\u4e00-\u9fff]", name):
         try:
-            from pypinyin import lazy_pinyin, Style
+            from pypinyin import Style, lazy_pinyin
 
             # 将中文转换为拼音，用下划线连接多音字
             parts = []
