@@ -463,7 +463,7 @@ def _handle_streaming_response_managed(
                     obj = json.loads(payload)
                     if "response" in obj:
                         data = obj["response"]
-                        yield f"data: {json.dumps(data, separators=(',',':'))}\n\n".encode()
+                        yield f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
                         await asyncio.sleep(0)  # 让其他协程有机会运行
 
                         # 定期释放内存（每100个chunk）
@@ -472,7 +472,7 @@ def _handle_streaming_response_managed(
                             if managed_stream_generator._chunk_count % 100 == 0:
                                 gc.collect()
                     else:
-                        yield f"data: {json.dumps(obj, separators=(',',':'))}\n\n".encode()
+                        yield f"data: {json.dumps(obj, separators=(',', ':'))}\n\n".encode()
                 except json.JSONDecodeError:
                     continue
 
