@@ -194,7 +194,7 @@ async def send_gemini_request(
                         # 清理资源
                         try:
                             await stream_ctx.__aexit__(None, None, None)
-                        except:
+                        except Exception:
                             pass
                         await client.aclose()
 
