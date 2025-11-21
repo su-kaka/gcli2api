@@ -512,7 +512,7 @@ async def asyncio_complete_auth_flow(
 
         # 如果没有指定项目ID或没找到匹配的，查找需要自动检测项目ID的流程
         if not state:
-            log.info(f"没有找到指定项目的流程，查找自动检测流程")
+            log.info("没有找到指定项目的流程，查找自动检测流程")
             for s, data in auth_flows.items():
                 log.debug(
                     f"检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}"
