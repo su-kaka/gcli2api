@@ -342,7 +342,7 @@ async def send_gemini_request(
                             await asyncio.sleep(retry_interval)
                             continue
                         else:
-                            log.error(f"[RETRY] Max retries exceeded for 429 error")
+                            log.error("[RETRY] Max retries exceeded for 429 error")
                             return _create_error_response(
                                 "429 rate limit exceeded, max retries reached", 429
                             )
