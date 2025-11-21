@@ -304,7 +304,7 @@ async def send_gemini_request(
                     # 清理资源
                     try:
                         await client.aclose()
-                    except:
+                    except Exception:
                         pass
                     raise e
 
