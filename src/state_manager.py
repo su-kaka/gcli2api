@@ -1,6 +1,7 @@
 """
 统一状态管理器
 """
+
 import asyncio
 import os
 from typing import Dict, Any
@@ -15,20 +16,20 @@ class StateManager:
     """
     统一状态管理器
     """
-    
+
     def __init__(self, state_file_path: str):
         self.state_file_path = state_file_path
         self._lock = asyncio.Lock()
         self._storage_adapter = None
         self._initialized = False
-        
+
         # 从文件路径推断存储用途
         self._storage_purpose = self._infer_storage_purpose(state_file_path)
-    
+
     def _infer_storage_purpose(self, file_path: str) -> str:
         """根据文件路径推断存储用途"""
         filename = os.path.basename(file_path)
-        
+
         if "creds_state" in filename:
             return "credential_state"
         elif "config" in filename:
@@ -37,22 +38,26 @@ class StateManager:
             return "usage_stats"
         else:
             return "general"
-    
+
     async def _ensure_initialized(self):
         """确保状态管理器已初始化"""
         if not self._initialized:
             self._storage_adapter = await get_storage_adapter()
             self._initialized = True
-            
+
             if await is_mongodb_mode():
-                log.debug(f"Unified state manager initialized with MongoDB backend for: {self._storage_purpose}")
+                log.debug(
+                    f"Unified state manager initialized with MongoDB backend for: {self._storage_purpose}"
+                )
             else:
-                log.debug(f"Unified state manager initialized with file backend for: {self._storage_purpose}")
-    
+                log.debug(
+                    f"Unified state manager initialized with file backend for: {self._storage_purpose}"
+                )
+
     async def _load_state(self) -> Dict[str, Any]:
         """加载状态数据"""
         await self._ensure_initialized()
-        
+
         if self._storage_purpose == "credential_state":
             return await self._storage_adapter.get_all_credential_states()
         elif self._storage_purpose == "config":
@@ -62,11 +67,11 @@ class StateManager:
         else:
             # 对于通用存储，尝试获取配置数据
             return await self._storage_adapter.get_all_config()
-    
+
     async def _save_state(self, state: Dict[str, Any]):
         """保存状态数据"""
         await self._ensure_initialized()
-        
+
         # 根据存储用途批量更新数据
         if self._storage_purpose == "credential_state":
             # 批量更新凭证状态
@@ -84,7 +89,7 @@ class StateManager:
             # 通用存储，作为配置处理
             for key, value in state.items():
                 await self._storage_adapter.set_config(key, value)
-    
+
     @asynccontextmanager
     async def transaction(self):
         """
@@ -102,11 +107,11 @@ class StateManager:
             except Exception:
                 # Don't save if there was an error
                 raise
-    
+
     async def read_file_state(self, filename: str) -> Dict[str, Any]:
         """读取特定文件的状态，兼容原有接口"""
         await self._ensure_initialized()
-        
+
         if self._storage_purpose == "credential_state":
             return await self._storage_adapter.get_credential_state(filename)
         elif self._storage_purpose == "usage_stats":
@@ -115,11 +120,11 @@ class StateManager:
             # 对于配置和通用存储，filename作为配置键
             value = await self._storage_adapter.get_config(filename)
             return value if isinstance(value, dict) else {}
-    
+
     async def update_file_state(self, filename: str, updates: Dict[str, Any]):
         """更新特定文件的状态，兼容原有接口"""
         await self._ensure_initialized()
-        
+
         if self._storage_purpose == "credential_state":
             await self._storage_adapter.update_credential_state(filename, updates)
         elif self._storage_purpose == "usage_stats":
@@ -133,11 +138,11 @@ class StateManager:
             else:
                 # 否则将整个updates作为配置值
                 await self._storage_adapter.set_config(filename, updates)
-    
+
     async def batch_update(self, updates: Dict[str, Dict[str, Any]]):
         """批量更新多个文件，兼容原有接口"""
         await self._ensure_initialized()
-        
+
         for filename, file_updates in updates.items():
             await self.update_file_state(filename, file_updates)
 
@@ -156,11 +161,12 @@ def get_state_manager(state_file_path: str) -> StateManager:
 async def close_all_state_managers():
     """关闭所有状态管理器（用于优雅关闭）"""
     global _state_managers
-    
+
     # 关闭存储适配器（这会自动处理所有状态管理器）
     from .storage_adapter import close_storage_adapter
+
     await close_storage_adapter()
-    
+
     # 清空缓存
     _state_managers.clear()
     log.debug("All state managers closed")

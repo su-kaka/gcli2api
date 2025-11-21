@@ -18,10 +18,7 @@ async def test_tool_response_order_mismatch():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "测试"
-            },
+            {"role": "user", "content": "测试"},
             # 调用三个工具
             {
                 "role": "assistant",
@@ -30,51 +27,51 @@ async def test_tool_response_order_mismatch():
                     {
                         "id": "call_001",
                         "type": "function",
-                        "function": {
-                            "name": "tool_a",
-                            "arguments": '{}'
-                        }
+                        "function": {"name": "tool_a", "arguments": "{}"},
                     },
                     {
                         "id": "call_002",
                         "type": "function",
-                        "function": {
-                            "name": "tool_b",
-                            "arguments": '{}'
-                        }
+                        "function": {"name": "tool_b", "arguments": "{}"},
                     },
                     {
                         "id": "call_003",
                         "type": "function",
-                        "function": {
-                            "name": "tool_c",
-                            "arguments": '{}'
-                        }
-                    }
-                ]
+                        "function": {"name": "tool_c", "arguments": "{}"},
+                    },
+                ],
             },
             # 工具响应的顺序：3, 1, 2（乱序）- 都缺少 name
-            {
-                "role": "tool",
-                "tool_call_id": "call_003",  # 第3个
-                "content": '{"result": "c"}'
-            },
-            {
-                "role": "tool",
-                "tool_call_id": "call_001",  # 第1个
-                "content": '{"result": "a"}'
-            },
-            {
-                "role": "tool",
-                "tool_call_id": "call_002",  # 第2个
-                "content": '{"result": "b"}'
-            }
+            {"role": "tool", "tool_call_id": "call_003", "content": '{"result": "c"}'},  # 第3个
+            {"role": "tool", "tool_call_id": "call_001", "content": '{"result": "a"}'},  # 第1个
+            {"role": "tool", "tool_call_id": "call_002", "content": '{"result": "b"}'},  # 第2个
         ],
         "tools": [
-            {"type": "function", "function": {"name": "tool_a", "description": "A", "parameters": {"type": "object"}}},
-            {"type": "function", "function": {"name": "tool_b", "description": "B", "parameters": {"type": "object"}}},
-            {"type": "function", "function": {"name": "tool_c", "description": "C", "parameters": {"type": "object"}}}
-        ]
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_a",
+                    "description": "A",
+                    "parameters": {"type": "object"},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_b",
+                    "description": "B",
+                    "parameters": {"type": "object"},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_c",
+                    "description": "C",
+                    "parameters": {"type": "object"},
+                },
+            },
+        ],
     }
 
     try:
@@ -98,8 +95,9 @@ async def test_tool_response_order_mismatch():
         for i, (fr, expected_name) in enumerate(zip(function_responses, expected_names)):
             actual_name = fr["name"]
             print(f"  响应 {i+1}: name='{actual_name}', response={fr['response']}")
-            assert actual_name == expected_name, \
-                f"响应 {i+1} 应该是 '{expected_name}'，实际是 '{actual_name}'"
+            assert (
+                actual_name == expected_name
+            ), f"响应 {i+1} 应该是 '{expected_name}'，实际是 '{actual_name}'"
 
         print("\n✅ 工具响应顺序不匹配测试通过")
         return True
@@ -107,6 +105,7 @@ async def test_tool_response_order_mismatch():
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -120,10 +119,7 @@ async def test_multiple_assistant_messages_with_tools():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "第一个请求"
-            },
+            {"role": "user", "content": "第一个请求"},
             # 第一个 assistant 有 tool_calls
             {
                 "role": "assistant",
@@ -132,29 +128,16 @@ async def test_multiple_assistant_messages_with_tools():
                     {
                         "id": "first_call",
                         "type": "function",
-                        "function": {
-                            "name": "first_tool",
-                            "arguments": '{}'
-                        }
+                        "function": {"name": "first_tool", "arguments": "{}"},
                     }
-                ]
+                ],
             },
             # 第一个工具响应 - 缺少 name
-            {
-                "role": "tool",
-                "tool_call_id": "first_call",
-                "content": '{"result": "first"}'
-            },
+            {"role": "tool", "tool_call_id": "first_call", "content": '{"result": "first"}'},
             # assistant 回复
-            {
-                "role": "assistant",
-                "content": "第一个完成"
-            },
+            {"role": "assistant", "content": "第一个完成"},
             # 用户继续
-            {
-                "role": "user",
-                "content": "第二个请求"
-            },
+            {"role": "user", "content": "第二个请求"},
             # 第二个 assistant 也有 tool_calls（使用相同的工具名）
             {
                 "role": "assistant",
@@ -163,23 +146,23 @@ async def test_multiple_assistant_messages_with_tools():
                     {
                         "id": "second_call",
                         "type": "function",
-                        "function": {
-                            "name": "first_tool",  # 相同的工具名
-                            "arguments": '{}'
-                        }
+                        "function": {"name": "first_tool", "arguments": "{}"},  # 相同的工具名
                     }
-                ]
+                ],
             },
             # 第二个工具响应 - 缺少 name
-            {
-                "role": "tool",
-                "tool_call_id": "second_call",
-                "content": '{"result": "second"}'
-            }
+            {"role": "tool", "tool_call_id": "second_call", "content": '{"result": "second"}'},
         ],
         "tools": [
-            {"type": "function", "function": {"name": "first_tool", "description": "Test", "parameters": {"type": "object"}}}
-        ]
+            {
+                "type": "function",
+                "function": {
+                    "name": "first_tool",
+                    "description": "Test",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ],
     }
 
     try:
@@ -201,8 +184,9 @@ async def test_multiple_assistant_messages_with_tools():
         # 两个响应都应该正确推断为 first_tool
         for i, fr in enumerate(function_responses):
             print(f"  响应 {i+1}: name='{fr['name']}', response={fr['response']}")
-            assert fr["name"] == "first_tool", \
-                f"响应 {i+1} 应该是 'first_tool'，实际是 '{fr['name']}'"
+            assert (
+                fr["name"] == "first_tool"
+            ), f"响应 {i+1} 应该是 'first_tool'，实际是 '{fr['name']}'"
 
         print("\n✅ 多个 assistant 消息测试通过")
         return True
@@ -210,6 +194,7 @@ async def test_multiple_assistant_messages_with_tools():
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -223,10 +208,7 @@ async def test_tool_with_both_name_and_inference():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "测试"
-            },
+            {"role": "user", "content": "测试"},
             {
                 "role": "assistant",
                 "content": None,
@@ -234,40 +216,48 @@ async def test_tool_with_both_name_and_inference():
                     {
                         "id": "call_001",
                         "type": "function",
-                        "function": {
-                            "name": "tool_a",
-                            "arguments": '{}'
-                        }
+                        "function": {"name": "tool_a", "arguments": "{}"},
                     },
                     {
                         "id": "call_002",
                         "type": "function",
-                        "function": {
-                            "name": "tool_b",
-                            "arguments": '{}'
-                        }
-                    }
-                ]
+                        "function": {"name": "tool_b", "arguments": "{}"},
+                    },
+                ],
             },
             # 第一个有 name
             {
                 "role": "tool",
                 "tool_call_id": "call_001",
                 "name": "tool_a",  # 有 name 字段
-                "content": '{"result": "a"}'
+                "content": '{"result": "a"}',
             },
             # 第二个缺少 name，需要推断
             {
                 "role": "tool",
                 "tool_call_id": "call_002",
                 # 没有 name 字段
-                "content": '{"result": "b"}'
-            }
+                "content": '{"result": "b"}',
+            },
         ],
         "tools": [
-            {"type": "function", "function": {"name": "tool_a", "description": "A", "parameters": {"type": "object"}}},
-            {"type": "function", "function": {"name": "tool_b", "description": "B", "parameters": {"type": "object"}}}
-        ]
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_a",
+                    "description": "A",
+                    "parameters": {"type": "object"},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_b",
+                    "description": "B",
+                    "parameters": {"type": "object"},
+                },
+            },
+        ],
     }
 
     try:
@@ -298,6 +288,7 @@ async def test_tool_with_both_name_and_inference():
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

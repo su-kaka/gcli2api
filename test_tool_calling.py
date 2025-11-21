@@ -29,18 +29,12 @@ def test_convert_openai_tools_to_gemini():
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "location": {
-                            "type": "string",
-                            "description": "City name"
-                        },
-                        "unit": {
-                            "type": "string",
-                            "enum": ["celsius", "fahrenheit"]
-                        }
+                        "location": {"type": "string", "description": "City name"},
+                        "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
                     },
-                    "required": ["location"]
-                }
-            }
+                    "required": ["location"],
+                },
+            },
         }
     ]
 
@@ -76,10 +70,9 @@ def test_convert_tool_choice():
     print("✅ tool_choice='none' 转换正确")
 
     # 测试指定函数
-    result_specific = convert_tool_choice_to_tool_config({
-        "type": "function",
-        "function": {"name": "my_func"}
-    })
+    result_specific = convert_tool_choice_to_tool_config(
+        {"type": "function", "function": {"name": "my_func"}}
+    )
     assert result_specific["functionCallingConfig"]["mode"] == "ANY"
     assert "my_func" in result_specific["functionCallingConfig"]["allowedFunctionNames"]
     print("✅ tool_choice 指定函数转换正确\n")
@@ -90,18 +83,13 @@ def test_extract_tool_calls():
     print("测试 3: 提取工具调用")
 
     parts = [
-        {
-            "text": "让我为您查询天气。"
-        },
+        {"text": "让我为您查询天气。"},
         {
             "functionCall": {
                 "name": "get_weather",
-                "args": {
-                    "location": "Boston",
-                    "unit": "celsius"
-                }
+                "args": {"location": "Boston", "unit": "celsius"},
             }
-        }
+        },
     ]
 
     tool_calls, text = extract_tool_calls_from_parts(parts)
@@ -124,12 +112,7 @@ async def test_full_request_conversion():
     # 构造 OpenAI 请求
     request_data = {
         "model": "gemini-2.0-flash-exp",
-        "messages": [
-            {
-                "role": "user",
-                "content": "What's the weather in Tokyo?"
-            }
-        ],
+        "messages": [{"role": "user", "content": "What's the weather in Tokyo?"}],
         "tools": [
             {
                 "type": "function",
@@ -138,15 +121,13 @@ async def test_full_request_conversion():
                     "description": "Get weather information",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "location": {"type": "string", "description": "City name"}
-                        },
-                        "required": ["location"]
-                    }
-                }
+                        "properties": {"location": {"type": "string", "description": "City name"}},
+                        "required": ["location"],
+                    },
+                },
             }
         ],
-        "tool_choice": "auto"
+        "tool_choice": "auto",
     }
 
     openai_request = ChatCompletionRequest(**request_data)
@@ -181,28 +162,19 @@ def test_response_conversion_with_tool_calls():
                 "content": {
                     "role": "model",
                     "parts": [
-                        {
-                            "text": "我将为您查询东京的天气。"
-                        },
-                        {
-                            "functionCall": {
-                                "name": "get_weather",
-                                "args": {
-                                    "location": "Tokyo"
-                                }
-                            }
-                        }
-                    ]
+                        {"text": "我将为您查询东京的天气。"},
+                        {"functionCall": {"name": "get_weather", "args": {"location": "Tokyo"}}},
+                    ],
                 },
                 "finishReason": "STOP",
-                "index": 0
+                "index": 0,
             }
         ],
         "usageMetadata": {
             "promptTokenCount": 20,
             "candidatesTokenCount": 15,
-            "totalTokenCount": 35
-        }
+            "totalTokenCount": 35,
+        },
     }
 
     openai_response = gemini_response_to_openai(gemini_response, "gemini-2.0-flash-exp")
@@ -237,10 +209,7 @@ async def test_multi_turn_with_tool_result():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "What's the weather in Tokyo?"
-            },
+            {"role": "user", "content": "What's the weather in Tokyo?"},
             {
                 "role": "assistant",
                 "content": None,
@@ -248,19 +217,16 @@ async def test_multi_turn_with_tool_result():
                     {
                         "id": "call_abc123",
                         "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": '{"location": "Tokyo"}'
-                        }
+                        "function": {"name": "get_weather", "arguments": '{"location": "Tokyo"}'},
                     }
-                ]
+                ],
             },
             {
                 "role": "tool",
                 "tool_call_id": "call_abc123",
                 "name": "get_weather",
-                "content": '{"temperature": 18, "condition": "Cloudy", "humidity": 65}'
-            }
+                "content": '{"temperature": 18, "condition": "Cloudy", "humidity": 65}',
+            },
         ],
         "tools": [
             {
@@ -270,13 +236,11 @@ async def test_multi_turn_with_tool_result():
                     "description": "Get weather",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "location": {"type": "string"}
-                        }
-                    }
-                }
+                        "properties": {"location": {"type": "string"}},
+                    },
+                },
             }
-        ]
+        ],
     }
 
     openai_request = ChatCompletionRequest(**request_data)
@@ -340,10 +304,7 @@ async def test_tool_message_name_inference():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "What's the weather?"
-            },
+            {"role": "user", "content": "What's the weather?"},
             {
                 "role": "assistant",
                 "content": None,
@@ -351,19 +312,16 @@ async def test_tool_message_name_inference():
                     {
                         "id": "call_abc123",
                         "type": "function",
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": '{"location": "Tokyo"}'
-                        }
+                        "function": {"name": "get_weather", "arguments": '{"location": "Tokyo"}'},
                     }
-                ]
+                ],
             },
             {
                 "role": "tool",
                 "tool_call_id": "call_abc123",
                 # 故意不设置 name 字段，测试推断功能
-                "content": '{"temperature": 20, "condition": "sunny"}'
-            }
+                "content": '{"temperature": 20, "condition": "sunny"}',
+            },
         ],
         "tools": [
             {
@@ -371,10 +329,10 @@ async def test_tool_message_name_inference():
                 "function": {
                     "name": "get_weather",
                     "description": "Get weather",
-                    "parameters": {"type": "object", "properties": {}}
-                }
+                    "parameters": {"type": "object", "properties": {}},
+                },
             }
-        ]
+        ],
     }
 
     openai_request = ChatCompletionRequest(**request_data)
@@ -391,8 +349,9 @@ async def test_tool_message_name_inference():
     function_response = contents[2]["parts"][0]["functionResponse"]
 
     # 验证 name 被正确推断为 get_weather
-    assert function_response["name"] == "get_weather", \
-        f"应该推断出 name='get_weather'，实际是 '{function_response['name']}'"
+    assert (
+        function_response["name"] == "get_weather"
+    ), f"应该推断出 name='get_weather'，实际是 '{function_response['name']}'"
     assert "temperature" in function_response["response"]
 
     print("✅ 成功从历史消息中推断出函数名")
@@ -407,10 +366,7 @@ async def test_invalid_tool_call_arguments():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "测试"
-            },
+            {"role": "user", "content": "测试"},
             {
                 "role": "assistant",
                 "content": None,
@@ -420,11 +376,11 @@ async def test_invalid_tool_call_arguments():
                         "type": "function",
                         "function": {
                             "name": "test_function",
-                            "arguments": "这不是有效的JSON{{"  # 无效的 JSON
-                        }
+                            "arguments": "这不是有效的JSON{{",  # 无效的 JSON
+                        },
                     }
-                ]
-            }
+                ],
+            },
         ],
         "tools": [
             {
@@ -432,10 +388,10 @@ async def test_invalid_tool_call_arguments():
                 "function": {
                     "name": "test_function",
                     "description": "测试函数",
-                    "parameters": {"type": "object", "properties": {}}
-                }
+                    "parameters": {"type": "object", "properties": {}},
+                },
             }
-        ]
+        ],
     }
 
     openai_request = ChatCompletionRequest(**request_data)
@@ -458,10 +414,7 @@ async def test_partial_tool_call_failure():
     request_data = {
         "model": "gemini-2.0-flash-exp",
         "messages": [
-            {
-                "role": "user",
-                "content": "测试"
-            },
+            {"role": "user", "content": "测试"},
             {
                 "role": "assistant",
                 "content": "正在处理",
@@ -471,21 +424,21 @@ async def test_partial_tool_call_failure():
                         "type": "function",
                         "function": {
                             "name": "good_function",
-                            "arguments": '{"param": "value"}'  # 有效的 JSON
-                        }
+                            "arguments": '{"param": "value"}',  # 有效的 JSON
+                        },
                     },
                     {
                         "id": "call_bad",
                         "type": "function",
                         "function": {
                             "name": "bad_function",
-                            "arguments": "无效JSON{{"  # 无效的 JSON
-                        }
-                    }
-                ]
-            }
+                            "arguments": "无效JSON{{",  # 无效的 JSON
+                        },
+                    },
+                ],
+            },
         ],
-        "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}]
+        "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}],
     }
 
     openai_request = ChatCompletionRequest(**request_data)
@@ -528,21 +481,11 @@ def test_streaming_tool_calls_with_index():
                 "content": {
                     "role": "model",
                     "parts": [
-                        {
-                            "functionCall": {
-                                "name": "get_weather",
-                                "args": {"location": "Tokyo"}
-                            }
-                        },
-                        {
-                            "functionCall": {
-                                "name": "get_time",
-                                "args": {"timezone": "Asia/Tokyo"}
-                            }
-                        }
-                    ]
+                        {"functionCall": {"name": "get_weather", "args": {"location": "Tokyo"}}},
+                        {"functionCall": {"name": "get_time", "args": {"timezone": "Asia/Tokyo"}}},
+                    ],
                 },
-                "finishReason": "STOP"
+                "finishReason": "STOP",
             }
         ]
     }
@@ -572,8 +515,12 @@ def test_streaming_tool_calls_with_index():
         assert "arguments" in tool_call["function"]
 
     # 验证 index 值正确
-    assert tool_calls[0]["index"] == 0, f"第一个 tool_call 的 index 应该是 0，实际是 {tool_calls[0]['index']}"
-    assert tool_calls[1]["index"] == 1, f"第二个 tool_call 的 index 应该是 1，实际是 {tool_calls[1]['index']}"
+    assert (
+        tool_calls[0]["index"] == 0
+    ), f"第一个 tool_call 的 index 应该是 0，实际是 {tool_calls[0]['index']}"
+    assert (
+        tool_calls[1]["index"] == 1
+    ), f"第二个 tool_call 的 index 应该是 1，实际是 {tool_calls[1]['index']}"
 
     # 验证 finish_reason 是 tool_calls
     assert choice["finish_reason"] == "tool_calls"
@@ -609,14 +556,16 @@ def test_function_name_normalization():
 
     failed_count = 0
     for original_name, expected_name, description in normalization_cases:
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": original_name,
-                "description": "Test function",
-                "parameters": {"type": "object"}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": original_name,
+                    "description": "Test function",
+                    "parameters": {"type": "object"},
+                },
             }
-        }]
+        ]
 
         try:
             result = convert_openai_tools_to_gemini(tools)
@@ -649,14 +598,16 @@ def test_function_name_normalization():
     ]
 
     for valid_name, description in valid_names:
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": valid_name,
-                "description": "Test function",
-                "parameters": {"type": "object"}
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": valid_name,
+                    "description": "Test function",
+                    "parameters": {"type": "object"},
+                },
             }
-        }]
+        ]
 
         try:
             result = convert_openai_tools_to_gemini(tools)
@@ -669,7 +620,9 @@ def test_function_name_normalization():
             failed_count += 1
 
     if failed_count == 0:
-        print(f"✅ 函数名规范化测试通过（测试了 {len(normalization_cases)} 个转换用例和 {len(valid_names)} 个有效名称）\n")
+        print(
+            f"✅ 函数名规范化测试通过（测试了 {len(normalization_cases)} 个转换用例和 {len(valid_names)} 个有效名称）\n"
+        )
     else:
         print(f"❌ 函数名规范化测试失败：{failed_count} 个测试未通过\n")
         raise AssertionError(f"{failed_count} normalization tests failed")
@@ -709,11 +662,13 @@ async def run_all_tests():
     except AssertionError as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     except Exception as e:
         print(f"\n❌ 测试出错: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

@@ -3,6 +3,7 @@ Postgres数据库管理器，采用单行设计并兼容 UnifiedCacheManager。
 实现与 mongodb_manager.py 风格一致的接口（异步）。
 需要环境变量: POSTGRES_DSN (例如: postgresql://user:pass@host:port/dbname)
 """
+
 import asyncio
 import os
 import time
@@ -30,11 +31,10 @@ class PostgresCacheBackend(CacheBackend):
         try:
             async with self._pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    f"SELECT data FROM {self._table_name} WHERE key = $1",
-                    self._row_key
+                    f"SELECT data FROM {self._table_name} WHERE key = $1", self._row_key
                 )
-                if row and row.get('data') is not None:
-                    data = row['data']
+                if row and row.get("data") is not None:
+                    data = row["data"]
                     # JSONB字段返回JSON字符串，需要解析为字典
                     if isinstance(data, str):
                         return json.loads(data)
@@ -54,7 +54,9 @@ class PostgresCacheBackend(CacheBackend):
                 await conn.execute(
                     f"INSERT INTO {self._table_name}(key, data, updated_at) VALUES($1, $2::jsonb, $3)"
                     " ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at",
-                    self._row_key, json.dumps(data, default=str), datetime.now(timezone.utc)
+                    self._row_key,
+                    json.dumps(data, default=str),
+                    datetime.now(timezone.utc),
                 )
                 return True
         except Exception as e:
@@ -73,7 +75,7 @@ class PostgresManager:
         self._lock = asyncio.Lock()
 
         self._dsn = None
-        self._table_name = 'unified_storage'
+        self._table_name = "unified_storage"
 
         self._operation_count = 0
 
@@ -82,8 +84,8 @@ class PostgresManager:
         self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
         self._config_cache_manager: Optional[UnifiedCacheManager] = None
 
-        self._credentials_row_key = 'all_credentials'
-        self._config_row_key = 'config_data'
+        self._credentials_row_key = "all_credentials"
+        self._config_row_key = "config_data"
 
         self._write_delay = 1.0
         self._cache_ttl = 300
@@ -93,9 +95,9 @@ class PostgresManager:
             if self._initialized:
                 return
             try:
-                self._dsn = os.getenv('POSTGRES_DSN')
+                self._dsn = os.getenv("POSTGRES_DSN")
                 if not self._dsn:
-                    raise ValueError('POSTGRES_DSN environment variable is required')
+                    raise ValueError("POSTGRES_DSN environment variable is required")
 
                 self._pool = await asyncpg.create_pool(dsn=self._dsn, max_size=20, min_size=1)
 
@@ -103,23 +105,33 @@ class PostgresManager:
                 await self._ensure_table()
 
                 # 创建缓存管理器后端
-                credentials_backend = PostgresCacheBackend(self._pool, self._table_name, self._credentials_row_key)
-                config_backend = PostgresCacheBackend(self._pool, self._table_name, self._config_row_key)
+                credentials_backend = PostgresCacheBackend(
+                    self._pool, self._table_name, self._credentials_row_key
+                )
+                config_backend = PostgresCacheBackend(
+                    self._pool, self._table_name, self._config_row_key
+                )
 
                 self._credentials_cache_manager = UnifiedCacheManager(
-                    credentials_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name='credentials'
+                    credentials_backend,
+                    cache_ttl=self._cache_ttl,
+                    write_delay=self._write_delay,
+                    name="credentials",
                 )
                 self._config_cache_manager = UnifiedCacheManager(
-                    config_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name='config'
+                    config_backend,
+                    cache_ttl=self._cache_ttl,
+                    write_delay=self._write_delay,
+                    name="config",
                 )
 
                 await self._credentials_cache_manager.start()
                 await self._config_cache_manager.start()
 
                 self._initialized = True
-                log.info('Postgres connection established with unified cache')
+                log.info("Postgres connection established with unified cache")
             except Exception as e:
-                log.error(f'Error initializing Postgres: {e}')
+                log.error(f"Error initializing Postgres: {e}")
                 raise
 
     async def _ensure_table(self):
@@ -129,7 +141,7 @@ class PostgresManager:
                     f"CREATE TABLE IF NOT EXISTS {self._table_name}(\n                        key TEXT PRIMARY KEY,\n                        data JSONB,\n                        updated_at TIMESTAMPTZ\n                    )"
                 )
         except Exception as e:
-            log.error(f'Error ensuring Postgres table: {e}')
+            log.error(f"Error ensuring Postgres table: {e}")
             raise
 
     async def close(self):
@@ -140,27 +152,27 @@ class PostgresManager:
         if self._pool:
             await self._pool.close()
             self._initialized = False
-            log.info('Postgres connection closed with unified cache flushed')
+            log.info("Postgres connection closed with unified cache flushed")
 
     def _ensure_initialized(self):
         if not self._initialized:
-            raise RuntimeError('Postgres manager not initialized')
+            raise RuntimeError("Postgres manager not initialized")
 
     def _get_default_state(self) -> Dict[str, Any]:
         return {
-            'error_codes': [],
-            'disabled': False,
-            'last_success': time.time(),
-            'user_email': None,
+            "error_codes": [],
+            "disabled": False,
+            "last_success": time.time(),
+            "user_email": None,
         }
 
     def _get_default_stats(self) -> Dict[str, Any]:
         return {
-            'gemini_2_5_pro_calls': 0,
-            'total_calls': 0,
-            'next_reset_time': None,
-            'daily_limit_gemini_2_5_pro': 100,
-            'daily_limit_total': 1000
+            "gemini_2_5_pro_calls": 0,
+            "total_calls": 0,
+            "next_reset_time": None,
+            "daily_limit_gemini_2_5_pro": 100,
+            "daily_limit_total": 1000,
         }
 
     # 以下方法委托给 UnifiedCacheManager
@@ -170,17 +182,17 @@ class PostgresManager:
         try:
             existing_data = await self._credentials_cache_manager.get(filename, {})
             credential_entry = {
-                'credential': credential_data,
-                'state': existing_data.get('state', self._get_default_state()),
-                'stats': existing_data.get('stats', self._get_default_stats())
+                "credential": credential_data,
+                "state": existing_data.get("state", self._get_default_state()),
+                "stats": existing_data.get("stats", self._get_default_stats()),
             }
             success = await self._credentials_cache_manager.set(filename, credential_entry)
             self._operation_count += 1
             self._operation_times.append(time.time() - start_time)
-            log.debug(f'Stored credential to unified cache (postgres): {filename}')
+            log.debug(f"Stored credential to unified cache (postgres): {filename}")
             return success
         except Exception as e:
-            log.error(f'Error storing credential {filename} in Postgres: {e}')
+            log.error(f"Error storing credential {filename} in Postgres: {e}")
             return False
 
     async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
@@ -188,11 +200,11 @@ class PostgresManager:
         try:
             credential_entry = await self._credentials_cache_manager.get(filename)
             self._operation_count += 1
-            if credential_entry and 'credential' in credential_entry:
-                return credential_entry['credential']
+            if credential_entry and "credential" in credential_entry:
+                return credential_entry["credential"]
             return None
         except Exception as e:
-            log.error(f'Error retrieving credential {filename} from Postgres: {e}')
+            log.error(f"Error retrieving credential {filename} from Postgres: {e}")
             return None
 
     async def list_credentials(self) -> List[str]:
@@ -201,7 +213,7 @@ class PostgresManager:
             all_data = await self._credentials_cache_manager.get_all()
             return list(all_data.keys())
         except Exception as e:
-            log.error(f'Error listing credentials from Postgres: {e}')
+            log.error(f"Error listing credentials from Postgres: {e}")
             return []
 
     async def delete_credential(self, filename: str) -> bool:
@@ -209,7 +221,7 @@ class PostgresManager:
         try:
             return await self._credentials_cache_manager.delete(filename)
         except Exception as e:
-            log.error(f'Error deleting credential {filename} from Postgres: {e}')
+            log.error(f"Error deleting credential {filename} from Postgres: {e}")
             return False
 
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
@@ -217,32 +229,38 @@ class PostgresManager:
         try:
             existing_data = await self._credentials_cache_manager.get(filename, {})
             if not existing_data:
-                existing_data = {'credential': {}, 'state': self._get_default_state(), 'stats': self._get_default_stats()}
-            existing_data['state'].update(state_updates)
+                existing_data = {
+                    "credential": {},
+                    "state": self._get_default_state(),
+                    "stats": self._get_default_stats(),
+                }
+            existing_data["state"].update(state_updates)
             return await self._credentials_cache_manager.set(filename, existing_data)
         except Exception as e:
-            log.error(f'Error updating credential state {filename} in Postgres: {e}')
+            log.error(f"Error updating credential state {filename} in Postgres: {e}")
             return False
 
     async def get_credential_state(self, filename: str) -> Dict[str, Any]:
         self._ensure_initialized()
         try:
             credential_entry = await self._credentials_cache_manager.get(filename)
-            if credential_entry and 'state' in credential_entry:
-                return credential_entry['state']
+            if credential_entry and "state" in credential_entry:
+                return credential_entry["state"]
             return self._get_default_state()
         except Exception as e:
-            log.error(f'Error getting credential state {filename} from Postgres: {e}')
+            log.error(f"Error getting credential state {filename} from Postgres: {e}")
             return self._get_default_state()
 
     async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
         self._ensure_initialized()
         try:
             all_data = await self._credentials_cache_manager.get_all()
-            states = {fn: data.get('state', self._get_default_state()) for fn, data in all_data.items()}
+            states = {
+                fn: data.get("state", self._get_default_state()) for fn, data in all_data.items()
+            }
             return states
         except Exception as e:
-            log.error(f'Error getting all credential states from Postgres: {e}')
+            log.error(f"Error getting all credential states from Postgres: {e}")
             return {}
 
     async def set_config(self, key: str, value: Any) -> bool:
@@ -266,31 +284,36 @@ class PostgresManager:
         try:
             existing_data = await self._credentials_cache_manager.get(filename, {})
             if not existing_data:
-                existing_data = {'credential': {}, 'state': self._get_default_state(), 'stats': self._get_default_stats()}
-            existing_data['stats'].update(stats_updates)
+                existing_data = {
+                    "credential": {},
+                    "state": self._get_default_state(),
+                    "stats": self._get_default_stats(),
+                }
+            existing_data["stats"].update(stats_updates)
             return await self._credentials_cache_manager.set(filename, existing_data)
         except Exception as e:
-            log.error(f'Error updating usage stats for {filename} in Postgres: {e}')
+            log.error(f"Error updating usage stats for {filename} in Postgres: {e}")
             return False
 
     async def get_usage_stats(self, filename: str) -> Dict[str, Any]:
         self._ensure_initialized()
         try:
             credential_entry = await self._credentials_cache_manager.get(filename)
-            if credential_entry and 'stats' in credential_entry:
-                return credential_entry['stats']
+            if credential_entry and "stats" in credential_entry:
+                return credential_entry["stats"]
             return self._get_default_stats()
         except Exception as e:
-            log.error(f'Error getting usage stats for {filename} from Postgres: {e}')
+            log.error(f"Error getting usage stats for {filename} from Postgres: {e}")
             return self._get_default_stats()
 
     async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
         self._ensure_initialized()
         try:
             all_data = await self._credentials_cache_manager.get_all()
-            stats = {fn: data.get('stats', self._get_default_stats()) for fn, data in all_data.items()}
+            stats = {
+                fn: data.get("stats", self._get_default_stats()) for fn, data in all_data.items()
+            }
             return stats
         except Exception as e:
-            log.error(f'Error getting all usage stats from Postgres: {e}')
+            log.error(f"Error getting all usage stats from Postgres: {e}")
             return {}
-

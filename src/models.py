@@ -2,6 +2,7 @@ from typing import List, Optional, Union, Dict, Any
 
 from pydantic import BaseModel, Field
 
+
 # Common Models
 class Model(BaseModel):
     id: str
@@ -9,23 +10,28 @@ class Model(BaseModel):
     created: Optional[int] = None
     owned_by: Optional[str] = "google"
 
+
 class ModelList(BaseModel):
     object: str = "list"
     data: List[Model]
+
 
 # OpenAI Models
 class OpenAIToolFunction(BaseModel):
     name: str
     arguments: str  # JSON string
 
+
 class OpenAIToolCall(BaseModel):
     id: str
     type: str = "function"
     function: OpenAIToolFunction
 
+
 class OpenAITool(BaseModel):
     type: str = "function"
     function: Dict[str, Any]
+
 
 class OpenAIChatMessage(BaseModel):
     role: str
@@ -34,6 +40,7 @@ class OpenAIChatMessage(BaseModel):
     name: Optional[str] = None
     tool_calls: Optional[List[OpenAIToolCall]] = None
     tool_call_id: Optional[str] = None  # for role="tool"
+
 
 class OpenAIChatCompletionRequest(BaseModel):
     model: str
@@ -56,14 +63,17 @@ class OpenAIChatCompletionRequest(BaseModel):
     class Config:
         extra = "allow"  # Allow additional fields not explicitly defined
 
+
 # 通用的聊天完成请求模型（兼容OpenAI和其他格式）
 ChatCompletionRequest = OpenAIChatCompletionRequest
+
 
 class OpenAIChatCompletionChoice(BaseModel):
     index: int
     message: OpenAIChatMessage
     finish_reason: Optional[str] = None
     logprobs: Optional[Dict[str, Any]] = None
+
 
 class OpenAIChatCompletionResponse(BaseModel):
     id: str
@@ -74,16 +84,19 @@ class OpenAIChatCompletionResponse(BaseModel):
     usage: Optional[Dict[str, int]] = None
     system_fingerprint: Optional[str] = None
 
+
 class OpenAIDelta(BaseModel):
     role: Optional[str] = None
     content: Optional[str] = None
     reasoning_content: Optional[str] = None
+
 
 class OpenAIChatCompletionStreamChoice(BaseModel):
     index: int
     delta: OpenAIDelta
     finish_reason: Optional[str] = None
     logprobs: Optional[Dict[str, Any]] = None
+
 
 class OpenAIChatCompletionStreamResponse(BaseModel):
     id: str
@@ -93,6 +106,7 @@ class OpenAIChatCompletionStreamResponse(BaseModel):
     choices: List[OpenAIChatCompletionStreamChoice]
     system_fingerprint: Optional[str] = None
 
+
 # Gemini Models
 class GeminiPart(BaseModel):
     text: Optional[str] = None
@@ -100,12 +114,15 @@ class GeminiPart(BaseModel):
     fileData: Optional[Dict[str, Any]] = None
     thought: Optional[bool] = False
 
+
 class GeminiContent(BaseModel):
     role: str
     parts: List[GeminiPart]
 
+
 class GeminiSystemInstruction(BaseModel):
     parts: List[GeminiPart]
+
 
 class GeminiGenerationConfig(BaseModel):
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
@@ -121,9 +138,11 @@ class GeminiGenerationConfig(BaseModel):
     presencePenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     thinkingConfig: Optional[Dict[str, Any]] = None
 
+
 class GeminiSafetySetting(BaseModel):
     category: str
     threshold: str
+
 
 class GeminiRequest(BaseModel):
     contents: List[GeminiContent]
@@ -134,9 +153,10 @@ class GeminiRequest(BaseModel):
     toolConfig: Optional[Dict[str, Any]] = None
     cachedContent: Optional[str] = None
     enable_anti_truncation: Optional[bool] = False
-    
+
     class Config:
         extra = "allow"  # 允许透传未定义的字段
+
 
 class GeminiCandidate(BaseModel):
     content: GeminiContent
@@ -146,15 +166,18 @@ class GeminiCandidate(BaseModel):
     citationMetadata: Optional[Dict[str, Any]] = None
     tokenCount: Optional[int] = None
 
+
 class GeminiUsageMetadata(BaseModel):
     promptTokenCount: Optional[int] = None
     candidatesTokenCount: Optional[int] = None
     totalTokenCount: Optional[int] = None
 
+
 class GeminiResponse(BaseModel):
     candidates: List[GeminiCandidate]
     usageMetadata: Optional[GeminiUsageMetadata] = None
     modelVersion: Optional[str] = None
+
 
 # Error Models
 class APIError(BaseModel):
@@ -162,8 +185,10 @@ class APIError(BaseModel):
     type: str = "api_error"
     code: Optional[int] = None
 
+
 class ErrorResponse(BaseModel):
     error: APIError
+
 
 # Control Panel Models
 class SystemStatus(BaseModel):
@@ -173,6 +198,7 @@ class SystemStatus(BaseModel):
     config: Dict[str, Any]
     current_credential: str
 
+
 class CredentialInfo(BaseModel):
     filename: str
     project_id: Optional[str] = None
@@ -181,11 +207,13 @@ class CredentialInfo(BaseModel):
     modified_time: Optional[str] = None
     error: Optional[str] = None
 
+
 class LogEntry(BaseModel):
     timestamp: str
     level: str
     message: str
     module: Optional[str] = None
+
 
 class ConfigValue(BaseModel):
     key: str
@@ -193,10 +221,12 @@ class ConfigValue(BaseModel):
     env_locked: bool = False
     description: Optional[str] = None
 
+
 # Authentication Models
 class AuthRequest(BaseModel):
     project_id: Optional[str] = None
     user_session: Optional[str] = None
+
 
 class AuthResponse(BaseModel):
     success: bool
@@ -208,6 +238,7 @@ class AuthResponse(BaseModel):
     requires_manual_project_id: Optional[bool] = None
     requires_project_selection: Optional[bool] = None
     available_projects: Optional[List[Dict[str, str]]] = None
+
 
 class CredentialStatus(BaseModel):
     disabled: bool = False
