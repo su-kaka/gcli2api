@@ -558,7 +558,7 @@ async def _handle_non_streaming_response(
                     f"Google API returned status 429 (NON-STREAMING). Response details: {response_content[:500]}"
                 )
             else:
-                log.error(f"Google API returned status 429 (NON-STREAMING)")
+                log.error("Google API returned status 429 (NON-STREAMING)")
         else:
             if response_content:
                 log.error(

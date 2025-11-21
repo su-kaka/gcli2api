@@ -406,7 +406,7 @@ async def fetch_user_email_from_file(cred_data: Dict[str, Any]) -> Optional[str]
         # 直接从凭证数据创建凭证对象
         credentials = Credentials.from_dict(cred_data)
         if not credentials or not credentials.access_token:
-            log.warning(f"无法从凭证数据创建凭证对象或获取访问令牌")
+            log.warning("无法从凭证数据创建凭证对象或获取访问令牌")
             return None
 
         # 获取邮箱
