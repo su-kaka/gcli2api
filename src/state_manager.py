@@ -159,9 +159,7 @@ def get_state_manager(state_file_path: str) -> StateManager:
 
 
 async def close_all_state_managers():
-    """关闭所有状态管理器（用于优雅关闭）"""
-    global _state_managers
-
+    \"\"\"关闭所有状态管理器（用于优雅关闭）\"\"\"
     # 关闭存储适配器（这会自动处理所有状态管理器）
     from .storage_adapter import close_storage_adapter
 
