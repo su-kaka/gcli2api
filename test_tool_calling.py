@@ -528,7 +528,7 @@ def test_streaming_tool_calls_with_index():
 
     print("✅ 流式响应 tool_calls 正确包含 index 字段")
     print(f"   验证了 {len(tool_calls)} 个 tool_calls 的格式")
-    print(f"   每个 tool_call 都有必需的 index 字段\n")
+    print("   每个 tool_call 都有必需的 index 字段\n")
 
 
 def test_function_name_normalization():
