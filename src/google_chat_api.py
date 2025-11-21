@@ -384,11 +384,11 @@ def _handle_streaming_response_managed(
         async def cleanup_and_error():
             try:
                 await stream_ctx.__aexit__(None, None, None)
-            except:
+            except Exception:
                 pass
             try:
                 await client.aclose()
-            except:
+            except Exception:
                 pass
 
             # 获取响应内容用于详细错误显示
