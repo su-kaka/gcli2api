@@ -531,7 +531,7 @@ class AntiTruncationStreamProcessor:
                     ).encode("utf-8")
                     return prefix + json_data + suffix
                 else:
-                    return f"data: {json.dumps(modified_data, separators=(',',':'), ensure_ascii=False)}\n\n"
+                    return f"data: {json.dumps(modified_data, separators=(',', ':'), ensure_ascii=False)}\n\n"
 
             # 处理OpenAI格式
             elif "choices" in data:
