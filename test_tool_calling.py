@@ -356,8 +356,8 @@ async def test_tool_message_name_inference():
     assert "temperature" in function_response["response"]
 
     print("✅ 成功从历史消息中推断出函数名")
-    print(f"   tool_call_id='call_abc123' -> name='get_weather'")
-    print(f"   工具响应已正确转换\n")
+    print("   tool_call_id='call_abc123' -> name='get_weather'")
+    print("   工具响应已正确转换\n")
 
 
 async def test_invalid_tool_call_arguments():
