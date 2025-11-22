@@ -3,21 +3,21 @@ OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API format
 被openai-router调用，负责OpenAI格式与Gemini格式的双向转换
 """
 
-from logging import INFO, info
+import json
 import time
 import uuid
-import json
-from typing import Dict, Any, List, Union, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
+    get_compatibility_mode_enabled,
     get_thinking_budget,
     is_search_model,
     should_include_thoughts,
-    get_compatibility_mode_enabled,
 )
 from log import log
+
 from .models import ChatCompletionRequest
 
 
@@ -51,13 +51,11 @@ async def openai_request_to_gemini_payload(
             # 转换工具结果消息为 functionResponse
             # 传递所有消息以便在需要时查找 function name
             function_response = convert_tool_message_to_function_response(
-                message,
-                all_messages=openai_request.messages
+                message, all_messages=openai_request.messages
             )
-            contents.append({
-                "role": "user",  # Gemini 中工具响应作为 user 消息
-                "parts": [function_response]
-            })
+            contents.append(
+                {"role": "user", "parts": [function_response]}  # Gemini 中工具响应作为 user 消息
+            )
             continue
 
         # 处理系统消息
@@ -87,7 +85,7 @@ async def openai_request_to_gemini_payload(
             role = "model"
 
         # 检查是否有 tool_calls（assistant 消息中的工具调用）
-        has_tool_calls = hasattr(message, 'tool_calls') and message.tool_calls
+        has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
 
         if has_tool_calls:
             # 构建包含 functionCall 的 parts
@@ -102,16 +100,17 @@ async def openai_request_to_gemini_payload(
             for tool_call in message.tool_calls:
                 try:
                     # 解析 arguments（OpenAI 格式是 JSON 字符串）
-                    args = json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else tool_call.function.arguments
-                    parts.append({
-                        "functionCall": {
-                            "name": tool_call.function.name,
-                            "args": args
-                        }
-                    })
+                    args = (
+                        json.loads(tool_call.function.arguments)
+                        if isinstance(tool_call.function.arguments, str)
+                        else tool_call.function.arguments
+                    )
+                    parts.append({"functionCall": {"name": tool_call.function.name, "args": args}})
                     parsed_count += 1
                 except (json.JSONDecodeError, AttributeError) as e:
-                    log.error(f"Failed to parse tool call '{getattr(tool_call.function, 'name', 'unknown')}': {e}")
+                    log.error(
+                        f"Failed to parse tool call '{getattr(tool_call.function, 'name', 'unknown')}': {e}"
+                    )
                     continue
 
             # 检查是否至少解析了一个工具调用
@@ -119,7 +118,9 @@ async def openai_request_to_gemini_payload(
                 log.error(f"All {len(message.tool_calls)} tool calls failed to parse")
                 # 如果没有文本内容且所有工具调用都失败，这是一个严重错误
                 if not message.content:
-                    raise ValueError(f"All {len(message.tool_calls)} tool calls failed to parse and no content available")
+                    raise ValueError(
+                        f"All {len(message.tool_calls)} tool calls failed to parse and no content available"
+                    )
 
             if parts:
                 contents.append({"role": role, "parts": parts})
@@ -197,11 +198,11 @@ async def openai_request_to_gemini_payload(
     # 如果有系统消息且未启用兼容性模式，添加systemInstruction
     if system_instructions and not compatibility_mode:
         combined_system_instruction = "\n\n".join(system_instructions)
-        request_data["systemInstruction"] = {
-            "parts": [{"text": combined_system_instruction}]
-        }
+        request_data["systemInstruction"] = {"parts": [{"text": combined_system_instruction}]}
 
-    log.debug(f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}")
+    log.debug(
+        f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}"
+    )
 
     # 为thinking模型添加thinking配置
     thinking_budget = get_thinking_budget(openai_request.model)
@@ -213,7 +214,7 @@ async def openai_request_to_gemini_payload(
 
     # 处理工具定义和配置
     # 首先检查是否有自定义工具
-    if hasattr(openai_request, 'tools') and openai_request.tools:
+    if hasattr(openai_request, "tools") and openai_request.tools:
         gemini_tools = convert_openai_tools_to_gemini(openai_request.tools)
         if gemini_tools:
             request_data["tools"] = gemini_tools
@@ -231,10 +232,8 @@ async def openai_request_to_gemini_payload(
                 request_data["tools"].append({"googleSearch": {}})
 
     # 处理 tool_choice
-    if hasattr(openai_request, 'tool_choice') and openai_request.tool_choice:
-        request_data["toolConfig"] = convert_tool_choice_to_tool_config(
-            openai_request.tool_choice
-        )
+    if hasattr(openai_request, "tool_choice") and openai_request.tool_choice:
+        request_data["toolConfig"] = convert_tool_choice_to_tool_config(openai_request.tool_choice)
 
     # 移除None值
     request_data = {k: v for k, v in request_data.items() if v is not None}
@@ -276,13 +275,11 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
     return {
         "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
         "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-        "total_tokens": usage_metadata.get("totalTokenCount", 0)
+        "total_tokens": usage_metadata.get("totalTokenCount", 0),
     }
 
 
-def _build_message_with_reasoning(
-    role: str, content: str, reasoning_content: str
-) -> dict:
+def _build_message_with_reasoning(role: str, content: str, reasoning_content: str) -> dict:
     """构建包含可选推理内容的消息对象"""
     message = {"role": role, "content": content}
 
@@ -293,9 +290,7 @@ def _build_message_with_reasoning(
     return message
 
 
-def gemini_response_to_openai(
-    gemini_response: Dict[str, Any], model: str
-) -> Dict[str, Any]:
+def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Dict[str, Any]:
     """
     将Gemini API响应转换为OpenAI聊天完成格式
 
@@ -306,7 +301,6 @@ def gemini_response_to_openai(
     Returns:
         OpenAI聊天完成格式的字典
     """
-
 
     choices = []
 
@@ -508,10 +502,7 @@ def normalize_openai_request(
         标准化后的请求对象
     """
     # 限制max_tokens
-    if (
-        getattr(request_data, "max_tokens", None) is not None
-        and request_data.max_tokens > 65535
-    ):
+    if getattr(request_data, "max_tokens", None) is not None and request_data.max_tokens > 65535:
         request_data.max_tokens = 65535
 
     # 覆写 top_k 为 64
@@ -531,9 +522,9 @@ def normalize_openai_request(
                         if part.get("type") == "text" and part.get("text", "").strip():
                             has_valid_content = True
                             break
-                        elif part.get("type") == "image_url" and part.get(
-                            "image_url", {}
-                        ).get("url"):
+                        elif part.get("type") == "image_url" and part.get("image_url", {}).get(
+                            "url"
+                        ):
                             has_valid_content = True
                             break
                 if has_valid_content:
@@ -568,9 +559,7 @@ def create_health_check_response() -> Dict[str, Any]:
     Returns:
         健康检查响应字典
     """
-    return {
-        "choices": [{"message": {"role": "assistant", "content": "gcli2api正常工作中"}}]
-    }
+    return {"choices": [{"message": {"role": "assistant", "content": "gcli2api正常工作中"}}]}
 
 
 def extract_model_settings(model: str) -> Dict[str, Any]:
@@ -592,6 +581,7 @@ def extract_model_settings(model: str) -> Dict[str, Any]:
 
 
 # ==================== Tool Conversion Functions ====================
+
 
 def _normalize_function_name(name: str) -> str:
     """
@@ -622,20 +612,21 @@ def _normalize_function_name(name: str) -> str:
 
     # 第零步：检测并转换中文字符为拼音
     # 检查是否包含中文字符
-    if re.search(r'[\u4e00-\u9fff]', name):
+    if re.search(r"[\u4e00-\u9fff]", name):
         try:
-            from pypinyin import lazy_pinyin, Style
+            from pypinyin import Style, lazy_pinyin
+
             # 将中文转换为拼音，用下划线连接多音字
             parts = []
             for char in name:
-                if '\u4e00' <= char <= '\u9fff':
+                if "\u4e00" <= char <= "\u9fff":
                     # 中文字符，转换为拼音
                     pinyin = lazy_pinyin(char, style=Style.NORMAL)
-                    parts.append(''.join(pinyin))
+                    parts.append("".join(pinyin))
                 else:
                     # 非中文字符，保持不变
                     parts.append(char)
-            normalized = ''.join(parts)
+            normalized = "".join(parts)
         except ImportError:
             log.warning("pypinyin not installed, cannot convert Chinese characters to pinyin")
             normalized = name
@@ -644,34 +635,34 @@ def _normalize_function_name(name: str) -> str:
 
     # 第一步：将非法字符替换为下划线
     # 保留：a-z, A-Z, 0-9, 下划线, 点, 短横线
-    normalized = re.sub(r'[^a-zA-Z0-9_.\-]', '_', normalized)
+    normalized = re.sub(r"[^a-zA-Z0-9_.\-]", "_", normalized)
 
     # 第二步：如果以非字母/下划线开头，处理首字符
     prefix_added = False
-    if normalized and not (normalized[0].isalpha() or normalized[0] == '_'):
-        if normalized[0] in '.-':
+    if normalized and not (normalized[0].isalpha() or normalized[0] == "_"):
+        if normalized[0] in ".-":
             # 点和短横线在开头位置替换为下划线（它们在中间是合法的）
-            normalized = '_' + normalized[1:]
+            normalized = "_" + normalized[1:]
         else:
             # 其他字符（如数字）添加下划线前缀
-            normalized = '_' + normalized
+            normalized = "_" + normalized
         prefix_added = True
 
     # 第三步：合并连续的下划线
-    normalized = re.sub(r'_+', '_', normalized)
+    normalized = re.sub(r"_+", "_", normalized)
 
     # 第四步：移除首尾的下划线
     # 如果原本就是下划线开头，或者我们添加了前缀，则保留开头的下划线
-    if name.startswith('_') or prefix_added:
+    if name.startswith("_") or prefix_added:
         # 只移除尾部的下划线
-        normalized = normalized.rstrip('_')
+        normalized = normalized.rstrip("_")
     else:
         # 移除首尾的下划线
-        normalized = normalized.strip('_')
+        normalized = normalized.strip("_")
 
     # 第五步：确保不为空
     if not normalized:
-        normalized = '_unnamed_function'
+        normalized = "_unnamed_function"
 
     # 第六步：截断到 64 个字符
     if len(normalized) > 64:
@@ -697,9 +688,9 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
 
     for tool in openai_tools:
         # 处理 Pydantic 模型
-        if hasattr(tool, 'model_dump'):
+        if hasattr(tool, "model_dump"):
             tool_dict = tool.model_dump()
-        elif hasattr(tool, 'dict'):
+        elif hasattr(tool, "dict"):
             tool_dict = tool.dict()
         else:
             tool_dict = tool
@@ -756,23 +747,11 @@ def convert_tool_choice_to_tool_config(tool_choice: Union[str, Dict[str, Any]]) 
     """
     if isinstance(tool_choice, str):
         if tool_choice == "auto":
-            return {
-                "functionCallingConfig": {
-                    "mode": "AUTO"
-                }
-            }
+            return {"functionCallingConfig": {"mode": "AUTO"}}
         elif tool_choice == "none":
-            return {
-                "functionCallingConfig": {
-                    "mode": "NONE"
-                }
-            }
+            return {"functionCallingConfig": {"mode": "NONE"}}
         elif tool_choice == "required":
-            return {
-                "functionCallingConfig": {
-                    "mode": "ANY"
-                }
-            }
+            return {"functionCallingConfig": {"mode": "ANY"}}
     elif isinstance(tool_choice, dict):
         # {"type": "function", "function": {"name": "my_function"}}
         if tool_choice.get("type") == "function":
@@ -781,22 +760,15 @@ def convert_tool_choice_to_tool_config(tool_choice: Union[str, Dict[str, Any]]) 
                 return {
                     "functionCallingConfig": {
                         "mode": "ANY",
-                        "allowedFunctionNames": [function_name]
+                        "allowedFunctionNames": [function_name],
                     }
                 }
 
     # 默认返回 AUTO 模式
-    return {
-        "functionCallingConfig": {
-            "mode": "AUTO"
-        }
-    }
+    return {"functionCallingConfig": {"mode": "AUTO"}}
 
 
-def convert_tool_message_to_function_response(
-    message,
-    all_messages: List = None
-) -> Dict[str, Any]:
+def convert_tool_message_to_function_response(message, all_messages: List = None) -> Dict[str, Any]:
     """
     将 OpenAI 的 tool role 消息转换为 Gemini functionResponse
 
@@ -812,16 +784,20 @@ def convert_tool_message_to_function_response(
     """
     # 获取 name 字段
     name = None
-    if hasattr(message, 'name') and message.name:
+    if hasattr(message, "name") and message.name:
         name = message.name
     else:
         # 尝试从历史消息中查找对应的 tool_call
-        tool_call_id = getattr(message, 'tool_call_id', None)
+        tool_call_id = getattr(message, "tool_call_id", None)
         if tool_call_id and all_messages:
             # 遍历历史消息，查找包含此 tool_call_id 的 assistant 消息
             for hist_msg in all_messages:
-                if (hasattr(hist_msg, 'role') and hist_msg.role == 'assistant' and
-                    hasattr(hist_msg, 'tool_calls') and hist_msg.tool_calls):
+                if (
+                    hasattr(hist_msg, "role")
+                    and hist_msg.role == "assistant"
+                    and hasattr(hist_msg, "tool_calls")
+                    and hist_msg.tool_calls
+                ):
                     # 在 tool_calls 中查找匹配的 id
                     for tool_call in hist_msg.tool_calls:
                         if tool_call.id == tool_call_id:
@@ -836,7 +812,9 @@ def convert_tool_message_to_function_response(
 
         # 如果仍然没有找到 name
         if not name:
-            content_preview = str(message.content)[:100] if hasattr(message, 'content') else 'no content'
+            content_preview = (
+                str(message.content)[:100] if hasattr(message, "content") else "no content"
+            )
             error_msg = (
                 f"Tool message must have a 'name' field. "
                 f"The 'name' field is required to match the tool call with its response in Gemini API. "
@@ -848,20 +826,19 @@ def convert_tool_message_to_function_response(
 
     try:
         # 尝试将 content 解析为 JSON
-        response_data = json.loads(message.content) if isinstance(message.content, str) else message.content
+        response_data = (
+            json.loads(message.content) if isinstance(message.content, str) else message.content
+        )
     except (json.JSONDecodeError, TypeError):
         # 如果不是有效的 JSON，包装为对象
         response_data = {"result": str(message.content)}
 
-    return {
-        "functionResponse": {
-            "name": name,
-            "response": response_data
-        }
-    }
+    return {"functionResponse": {"name": name, "response": response_data}}
 
 
-def extract_tool_calls_from_parts(parts: List[Dict[str, Any]], is_streaming: bool = False) -> Tuple[List[Dict[str, Any]], str]:
+def extract_tool_calls_from_parts(
+    parts: List[Dict[str, Any]], is_streaming: bool = False
+) -> Tuple[List[Dict[str, Any]], str]:
     """
     从 Gemini response parts 中提取工具调用和文本内容
 
@@ -884,8 +861,8 @@ def extract_tool_calls_from_parts(parts: List[Dict[str, Any]], is_streaming: boo
                 "type": "function",
                 "function": {
                     "name": function_call.get("name"),
-                    "arguments": json.dumps(function_call.get("args", {}))
-                }
+                    "arguments": json.dumps(function_call.get("args", {})),
+                },
             }
             # 流式响应需要 index 字段
             if is_streaming:
