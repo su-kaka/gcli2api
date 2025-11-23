@@ -57,6 +57,9 @@ def get_thinking_budget(model_name):
     if is_nothinking_model(model_name):
         return 128  # Limited thinking for pro
     elif is_maxthinking_model(model_name):
+        base_model = get_base_model_name(get_base_model_from_feature_model(model_name))
+        if "flash" in base_model:
+            return 24576
         return 32768
     else:
         # Default thinking budget for regular models
