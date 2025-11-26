@@ -8,6 +8,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Tuple, Union
 
+from pypinyin import Style, lazy_pinyin
+
 from config import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
@@ -614,7 +616,6 @@ def _normalize_function_name(name: str) -> str:
     # 检查是否包含中文字符
     if re.search(r"[\u4e00-\u9fff]", name):
         try:
-            from pypinyin import Style, lazy_pinyin
 
             # 将中文转换为拼音，用下划线连接多音字
             parts = []
