@@ -823,11 +823,14 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
         # 获取存储适配器
         storage_adapter = await get_storage_adapter()
 
-        # 检查凭证是否存在
-        credential_data = await storage_adapter.get_credential(filename)
-        if not credential_data:
-            log.error(f"Credential not found: {filename}")
-            raise HTTPException(status_code=404, detail="凭证文件不存在")
+        # 对于删除操作，不需要检查凭证数据是否完整，只需检查条目是否存在
+        # 对于其他操作，需要确保凭证数据存在且完整
+        if action != "delete":
+            # 检查凭证数据是否存在
+            credential_data = await storage_adapter.get_credential(filename)
+            if not credential_data:
+                log.error(f"Credential not found: {filename}")
+                raise HTTPException(status_code=404, detail="凭证文件不存在")
 
         if action == "enable":
             log.info(f"Web request: ENABLING file {filename}")
@@ -895,11 +898,13 @@ async def creds_batch_action(
                     errors.append(f"{filename}: 无效的文件类型")
                     continue
 
-                # 检查凭证是否存在
-                credential_data = await storage_adapter.get_credential(filename)
-                if not credential_data:
-                    errors.append(f"{filename}: 凭证不存在")
-                    continue
+                # 对于删除操作，不需要检查凭证数据完整性
+                # 对于其他操作，需要确保凭证数据存在
+                if action != "delete":
+                    credential_data = await storage_adapter.get_credential(filename)
+                    if not credential_data:
+                        errors.append(f"{filename}: 凭证不存在")
+                        continue
 
                 # 执行相应操作
                 if action == "enable":
