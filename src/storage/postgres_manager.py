@@ -169,13 +169,7 @@ class PostgresManager:
         }
 
     def _get_default_stats(self) -> Dict[str, Any]:
-        return {
-            "gemini_2_5_pro_calls": 0,
-            "total_calls": 0,
-            "next_reset_time": None,
-            "daily_limit_gemini_2_5_pro": 100,
-            "daily_limit_total": 1000,
-        }
+        return {"call_timestamps": []}
 
     # 以下方法委托给 UnifiedCacheManager
     async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:

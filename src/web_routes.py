@@ -240,35 +240,31 @@ def is_mobile_user_agent(user_agent: str) -> bool:
 @router.get("/v1", response_class=HTMLResponse)
 @router.get("/auth", response_class=HTMLResponse)
 async def serve_control_panel(request: Request):
-    """提供统一控制面板（包含认证、文件管理、配置等功能）"""
+    """提供统一控制面板（现代化响应式版本）"""
     try:
-        # 获取用户代理并判断是否为移动设备
-        user_agent = request.headers.get("user-agent", "")
-        is_mobile = is_mobile_user_agent(user_agent)
+        # 优先使用新的现代化控制面板
+        html_file_path = "front/control_panel_new.html"
 
-        # 根据设备类型选择相应的HTML文件
-        if is_mobile:
-            html_file_path = "front/control_panel_mobile.html"
-            log.info(f"Serving mobile control panel to user-agent: {user_agent}")
-        else:
-            html_file_path = "front/control_panel.html"
-            log.info(f"Serving desktop control panel to user-agent: {user_agent}")
+        try:
+            with open(html_file_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            log.info(f"Serving modern control panel")
+            return HTMLResponse(content=html_content)
+        except FileNotFoundError:
+            # 回退到旧版本
+            log.warning(f"Modern control panel not found, falling back to legacy version")
+            user_agent = request.headers.get("user-agent", "")
+            is_mobile = is_mobile_user_agent(user_agent)
 
-        with open(html_file_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        return HTMLResponse(content=html_content)
-    except FileNotFoundError:
-        log.error(f"控制面板页面文件不存在: {html_file_path}")
-        # 如果移动端文件不存在，回退到桌面版
-        if is_mobile:
-            try:
-                with open("front/control_panel.html", "r", encoding="utf-8") as f:
-                    html_content = f.read()
-                return HTMLResponse(content=html_content)
-            except FileNotFoundError:
-                raise HTTPException(status_code=404, detail="控制面板页面不存在")
-        else:
-            raise HTTPException(status_code=404, detail="控制面板页面不存在")
+            if is_mobile:
+                html_file_path = "front/control_panel_mobile.html"
+            else:
+                html_file_path = "front/control_panel.html"
+
+            with open(html_file_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            return HTMLResponse(content=html_content)
+
     except Exception as e:
         log.error(f"加载控制面板页面失败: {e}")
         raise HTTPException(status_code=500, detail="服务器内部错误")
@@ -598,11 +594,6 @@ async def upload_credentials(
                                 "disabled": False,
                                 "last_success": time.time(),
                                 "user_email": None,
-                                "gemini_2_5_pro_calls": 0,
-                                "total_calls": 0,
-                                "next_reset_time": None,
-                                "daily_limit_gemini_2_5_pro": 100,
-                                "daily_limit_total": 1000,
                             }
                             # 只在状态不存在时创建，避免覆盖现有状态
                             # 检查数据库中是否真正存在状态记录
@@ -718,11 +709,6 @@ async def get_creds_status(token: str = Depends(verify_token)):
                         "disabled": False,
                         "last_success": time.time(),
                         "user_email": None,
-                        "gemini_2_5_pro_calls": 0,
-                        "total_calls": 0,
-                        "next_reset_time": None,
-                        "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1000,
                     }
                     await storage_adapter.update_credential_state(filename, default_state)
                     file_status = default_state
@@ -735,11 +721,6 @@ async def get_creds_status(token: str = Depends(verify_token)):
                         "disabled": False,
                         "last_success": time.time(),
                         "user_email": None,
-                        "gemini_2_5_pro_calls": 0,
-                        "total_calls": 0,
-                        "next_reset_time": None,
-                        "daily_limit_gemini_2_5_pro": 100,
-                        "daily_limit_total": 1000,
                     }
 
             try:
@@ -1796,30 +1777,18 @@ async def update_usage_limits(
     request: UsageLimitsUpdateRequest, token: str = Depends(verify_token)
 ):
     """
-    更新指定凭证文件的每日使用限制
-
-    Args:
-        request: 包含文件名和新限制值的请求
+    更新指定凭证文件的每日使用限制 (已废弃 - 不再需要限制功能)
 
     Returns:
-        Success message
+        Deprecated notice
     """
-    try:
-        stats_instance = await get_usage_stats_instance()
-
-        await stats_instance.update_daily_limits(
-            filename=request.filename,
-            gemini_2_5_pro_limit=request.gemini_2_5_pro_limit,
-            total_limit=request.total_limit,
-        )
-
-        return JSONResponse(
-            content={"success": True, "message": f"已更新 {request.filename} 的使用限制"}
-        )
-
-    except Exception as e:
-        log.error(f"更新使用限制失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(
+        content={
+            "success": False,
+            "message": "此功能已废弃，新版本只统计24小时调用次数，不再需要限制设置"
+        },
+        status_code=410  # Gone
+    )
 
 
 class UsageResetRequest(BaseModel):

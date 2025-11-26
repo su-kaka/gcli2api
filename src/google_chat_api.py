@@ -44,7 +44,7 @@ def _create_error_response(message: str, status_code: int = 500) -> Response:
 
 
 async def _handle_api_error(
-    credential_manager: CredentialManager, status_code: int, response_content: str = ""
+    credential_manager: CredentialManager, status_code: int, response_content: str = "", credential_name: str = None
 ):
     """Handle API errors by rotating credentials when needed. Error recording should be done before calling this function."""
     if status_code == 429 and credential_manager:
@@ -70,6 +70,7 @@ async def _handle_api_error(
             log.warning(
                 f"Google API returned status {status_code} - auto ban triggered, rotating credentials"
             )
+        await credential_manager.set_cred_disabled(credential_name, True)
         await credential_manager.force_rotate_credential()
 
 
@@ -270,7 +271,7 @@ async def send_gemini_request(
 
                         # 处理凭证轮换
                         await _handle_api_error(
-                            credential_manager, resp.status_code, response_content
+                            credential_manager, resp.status_code, response_content, current_file
                         )
 
                         # 返回错误流
@@ -423,7 +424,7 @@ def _handle_streaming_response_managed(
                     current_file, False, resp.status_code
                 )
 
-            await _handle_api_error(credential_manager, resp.status_code, response_content)
+            await _handle_api_error(credential_manager, resp.status_code, response_content, current_file)
 
             error_response = {
                 "error": {
@@ -572,7 +573,7 @@ async def _handle_non_streaming_response(
         if credential_manager and current_file:
             await credential_manager.record_api_call_result(current_file, False, resp.status_code)
 
-        await _handle_api_error(credential_manager, resp.status_code, response_content)
+        await _handle_api_error(credential_manager, resp.status_code, response_content, current_file)
 
         return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
 

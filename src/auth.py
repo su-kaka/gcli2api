@@ -1097,11 +1097,6 @@ async def save_credentials(creds: Credentials, project_id: str) -> str:
                 "disabled": False,
                 "last_success": time.time(),
                 "user_email": None,
-                "gemini_2_5_pro_calls": 0,
-                "total_calls": 0,
-                "next_reset_time": None,
-                "daily_limit_gemini_2_5_pro": 100,
-                "daily_limit_total": 1000,
             }
             await storage_adapter.update_credential_state(filename, default_state)
             log.info(f"凭证和状态已保存到: {filename}")

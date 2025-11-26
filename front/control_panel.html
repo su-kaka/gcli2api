@@ -1268,22 +1268,22 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 <div class="stats-container" id="usageStatsContainer">
                     <div class="stat-item total">
                         <span class="stat-number" id="totalApiCalls">0</span>
-                        <span class="stat-label">总调用数</span>
-                    </div>
-                    <div class="stat-item normal" style="border-left: 4px solid #ff6b35;">
-                        <span class="stat-number" id="geminiProCalls">0</span>
-                        <span class="stat-label">Gemini 2.5 Pro</span>
+                        <span class="stat-label">24小时调用</span>
                     </div>
                     <div class="stat-item disabled">
                         <span class="stat-number" id="totalFiles">0</span>
                         <span class="stat-label">活跃文件数</span>
+                    </div>
+                    <div class="stat-item normal" style="border-left: 4px solid #28a745;">
+                        <span class="stat-number" id="avgCallsPerFile">0</span>
+                        <span class="stat-label">平均调用/文件</span>
                     </div>
                 </div>
 
                 <div class="manage-actions">
                     <button class="refresh-btn" onclick="refreshUsageStats()">刷新统计</button>
                     <button class="btn" style="background-color: #dc3545;"
-                        onclick="resetAllUsageStats()">重置所有统计</button>
+                        onclick="resetAllUsageStats()">重置统计</button>
                 </div>
 
                 <!-- 文件使用统计列表 -->
@@ -1298,17 +1298,16 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     <div class="config-info">
                         <strong>统计范围：</strong>
                         <ul>
-                            <li><strong>Gemini 2.5 Pro 调用次数：</strong>仅统计 gemini-2.5-pro 及其变体模型的成功调用</li>
-                            <li><strong>所有模型调用次数：</strong>统计所有模型的成功调用总数</li>
-                            <li><strong>每日配额：</strong>默认每日配额 Gemini 2.5 Pro: 100次，所有模型: 1000次</li>
-                            <li><strong>配额重置：</strong>每天 UTC 07:00 自动重置调用计数</li>
+                            <li><strong>24小时调用统计：</strong>统计最近24小时内的所有成功API调用</li>
+                            <li><strong>自动清理：</strong>超过24小时的调用记录会自动清除</li>
+                            <li><strong>实时更新：</strong>每次API调用成功后立即更新统计数据</li>
                         </ul>
 
                         <strong>注意：</strong>
                         <ul>
                             <li>只统计返回正常响应的API调用，报错的调用不计入统计</li>
-                            <li>统计数据持久化保存在 creds_state.toml 文件中</li>
-                            <li>支持每个凭证文件独立统计和配额管理</li>
+                            <li>统计数据持久化保存，重启服务不会丢失</li>
+                            <li>支持每个凭证文件独立统计</li>
                         </ul>
                     </div>
                 </div>
@@ -1673,36 +1672,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                         style="color: #007bff; text-decoration: none;">https://github.com/su-kaka/gcli2api</a></p>
                 <p style="margin: 5px 0; font-size: 14px; color: #dc3545; font-weight: 500;">⚠️ 禁止商业用途和倒卖 - 仅供学习使用 ⚠️
                 </p>
-            </div>
-        </div>
-    </div>
-
-    <!-- 限制设置弹窗 -->
-    <div id="limitsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">设置使用限制</h3>
-                <button class="modal-close" onclick="closeLimitsModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="modalFilename">文件名:</label>
-                    <input type="text" id="modalFilename" class="config-input" readonly />
-                </div>
-                <div class="form-group">
-                    <label for="modalGeminiLimit">Gemini 2.5 Pro 每日限制:</label>
-                    <input type="number" id="modalGeminiLimit" class="config-input" min="1" max="10000" />
-                    <small class="config-note">每日Gemini 2.5 Pro模型调用次数限制</small>
-                </div>
-                <div class="form-group">
-                    <label for="modalTotalLimit">所有模型每日限制:</label>
-                    <input type="number" id="modalTotalLimit" class="config-input" min="1" max="50000" />
-                    <small class="config-note">每日所有模型调用次数总限制</small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="closeLimitsModal()" style="background-color: #6c757d;">取消</button>
-                <button class="btn" onclick="saveLimits()">保存</button>
             </div>
         </div>
     </div>
@@ -3515,23 +3484,36 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     })
                 ]);
 
+                // 检查认证错误
+                if (statsResponse.status === 401 || aggregatedResponse.status === 401) {
+                    showStatus('认证失败，请重新登录', 'error');
+                    // 重定向到登录页
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1500);
+                    return;
+                }
+
                 const statsData = await statsResponse.json();
                 const aggregatedData = await aggregatedResponse.json();
 
                 if (statsResponse.ok && aggregatedResponse.ok) {
-                    usageStatsData = statsData.data;
+                    // API返回格式: { "success": true, "data": {...} }
+                    usageStatsData = statsData.success ? statsData.data : statsData;
 
                     // 更新概览统计
-                    document.getElementById('totalApiCalls').textContent = aggregatedData.data.total_all_model_calls || 0;
-                    document.getElementById('geminiProCalls').textContent = aggregatedData.data.total_gemini_2_5_pro_calls || 0;
-                    document.getElementById('totalFiles').textContent = aggregatedData.data.total_files || 0;
+                    const aggData = aggregatedData.success ? aggregatedData.data : aggregatedData;
+                    document.getElementById('totalApiCalls').textContent = aggData.total_calls_24h || 0;
+                    document.getElementById('totalFiles').textContent = aggData.total_files || 0;
+                    document.getElementById('avgCallsPerFile').textContent = (aggData.avg_calls_per_file || 0).toFixed(1);
 
                     // 渲染使用统计列表
                     renderUsageList();
 
-                    showStatus(`已加载 ${aggregatedData.data.total_files} 个文件的使用统计`, 'success');
+                    showStatus(`已加载 ${aggData.total_files || Object.keys(usageStatsData).length} 个文件的使用统计`, 'success');
                 } else {
-                    showStatus('加载使用统计失败', 'error');
+                    const errorMsg = statsData.detail || aggregatedData.detail || '加载使用统计失败';
+                    showStatus(`错误: ${errorMsg}`, 'error');
                 }
             } catch (error) {
                 console.error('refreshUsageStats error:', error);
@@ -3562,136 +3544,26 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             const div = document.createElement('div');
             div.className = 'usage-card';
 
-            // 计算使用百分比
-            const geminiPercent = Math.min((stats.gemini_2_5_pro_calls / stats.daily_limit_gemini_2_5_pro) * 100, 100);
-            const totalPercent = Math.min((stats.total_calls / stats.daily_limit_total) * 100, 100);
-
-            // 确定进度条颜色
-            function getProgressClass(percent) {
-                if (percent >= 90) return 'danger';
-                if (percent >= 70) return 'warning';
-                return 'gemini';
-            }
-
-            function getTotalProgressClass(percent) {
-                if (percent >= 90) return 'danger';
-                if (percent >= 70) return 'warning';
-                return 'total';
-            }
-
-            // 格式化时间
-            function formatTime(isoString) {
-                if (!isoString) return '未知';
-                try {
-                    const date = new Date(isoString);
-                    return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                } catch (e) {
-                    return '格式错误';
-                }
-            }
+            const calls24h = stats.calls_24h || 0;
 
             div.innerHTML = `
                 <div class="usage-header">
                     <div class="usage-filename">${filename}</div>
                 </div>
-                
-                <div class="usage-progress">
-                    <div class="usage-progress-label">
-                        <span>Gemini 2.5 Pro</span>
-                        <span>${stats.gemini_2_5_pro_calls}/${stats.daily_limit_gemini_2_5_pro} (${geminiPercent.toFixed(1)}%)</span>
-                    </div>
-                    <div class="usage-progress-bar">
-                        <div class="usage-progress-fill ${getProgressClass(geminiPercent)}" style="width: ${geminiPercent}%"></div>
-                    </div>
-                </div>
-                
-                <div class="usage-progress">
-                    <div class="usage-progress-label">
-                        <span>所有模型</span>
-                        <span>${stats.total_calls}/${stats.daily_limit_total} (${totalPercent.toFixed(1)}%)</span>
-                    </div>
-                    <div class="usage-progress-bar">
-                        <div class="usage-progress-fill ${getTotalProgressClass(totalPercent)}" style="width: ${totalPercent}%"></div>
-                    </div>
-                </div>
-                
+
                 <div class="usage-info">
                     <div class="usage-info-item" style="grid-column: 1 / -1;">
-                        <span class="usage-info-label">下次重置时间</span>
-                        <span class="usage-info-value">${formatTime(stats.next_reset_time)}</span>
+                        <span class="usage-info-label">24小时内调用次数</span>
+                        <span class="usage-info-value" style="font-size: 24px; font-weight: bold; color: #007bff;">${calls24h}</span>
                     </div>
                 </div>
-                
+
                 <div class="usage-actions">
-                    <button class="usage-btn limits" onclick="openLimitsModal('${filename}')">设置限制</button>
                     <button class="usage-btn reset" onclick="resetSingleUsageStats('${filename}')">重置统计</button>
                 </div>
             `;
 
             return div;
-        }
-
-        // 打开限制设置弹窗
-        function openLimitsModal(filename) {
-            const stats = usageStatsData[filename];
-            if (!stats) {
-                showStatus('找不到文件统计数据', 'error');
-                return;
-            }
-
-            currentEditingFile = filename;
-            document.getElementById('modalFilename').value = filename;
-            document.getElementById('modalGeminiLimit').value = stats.daily_limit_gemini_2_5_pro;
-            document.getElementById('modalTotalLimit').value = stats.daily_limit_total;
-            document.getElementById('limitsModal').style.display = 'block';
-        }
-
-        // 关闭限制设置弹窗
-        function closeLimitsModal() {
-            document.getElementById('limitsModal').style.display = 'none';
-            currentEditingFile = '';
-        }
-
-        // 保存限制设置
-        async function saveLimits() {
-            const geminiLimit = parseInt(document.getElementById('modalGeminiLimit').value);
-            const totalLimit = parseInt(document.getElementById('modalTotalLimit').value);
-
-            if (isNaN(geminiLimit) || geminiLimit < 1) {
-                showStatus('Gemini 2.5 Pro 限制必须是大于0的数字', 'error');
-                return;
-            }
-
-            if (isNaN(totalLimit) || totalLimit < 1) {
-                showStatus('总调用限制必须是大于0的数字', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/usage/update-limits', {
-                    method: 'POST',
-                    headers: getAuthHeaders(),
-                    body: JSON.stringify({
-                        filename: currentEditingFile,
-                        gemini_2_5_pro_limit: geminiLimit,
-                        total_limit: totalLimit
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showStatus(data.message, 'success');
-                    closeLimitsModal();
-                    // 刷新统计数据
-                    await refreshUsageStats();
-                } else {
-                    showStatus(`设置失败: ${data.detail || data.error || '未知错误'}`, 'error');
-                }
-            } catch (error) {
-                console.error('saveLimits error:', error);
-                showStatus(`网络错误: ${error.message}`, 'error');
-            }
         }
 
         // 重置单个文件的使用统计
@@ -3709,11 +3581,11 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
                 const data = await response.json();
 
-                if (response.ok) {
+                if (response.ok && data.success) {
                     showStatus(data.message, 'success');
                     await refreshUsageStats();
                 } else {
-                    showStatus(`重置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                    showStatus(`重置失败: ${data.message || data.detail || data.error || '未知错误'}`, 'error');
                 }
             } catch (error) {
                 console.error('resetSingleUsageStats error:', error);
@@ -3736,23 +3608,15 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
                 const data = await response.json();
 
-                if (response.ok) {
+                if (response.ok && data.success) {
                     showStatus(data.message, 'success');
                     await refreshUsageStats();
                 } else {
-                    showStatus(`重置失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                    showStatus(`重置失败: ${data.message || data.detail || data.error || '未知错误'}`, 'error');
                 }
             } catch (error) {
                 console.error('resetAllUsageStats error:', error);
                 showStatus(`网络错误: ${error.message}`, 'error');
-            }
-        }
-
-        // 关闭弹窗当点击弹窗外部时
-        window.onclick = function (event) {
-            const modal = document.getElementById('limitsModal');
-            if (event.target == modal) {
-                closeLimitsModal();
             }
         }
 

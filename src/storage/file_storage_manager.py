@@ -68,11 +68,6 @@ class FileStorageManager:
         "disabled",
         "last_success",
         "user_email",
-        "gemini_2_5_pro_calls",
-        "total_calls",
-        "next_reset_time",
-        "daily_limit_gemini_2_5_pro",
-        "daily_limit_total",
     }
 
     # 默认状态数据模板（不包含动态值）
@@ -80,11 +75,6 @@ class FileStorageManager:
         "error_codes": [],
         "disabled": False,
         "user_email": None,
-        "gemini_2_5_pro_calls": 0,
-        "total_calls": 0,
-        "next_reset_time": None,
-        "daily_limit_gemini_2_5_pro": 100,
-        "daily_limit_total": 1000,
     }
 
     @classmethod
@@ -507,44 +497,24 @@ class FileStorageManager:
             all_data = await self._credentials_cache_manager.get_all()
 
             if filename not in all_data:
-                # 返回基本的统计字段
-                default_state = self.get_default_state()
-                return {
-                    k: v
-                    for k, v in default_state.items()
-                    if k
-                    in {
-                        "gemini_2_5_pro_calls",
-                        "total_calls",
-                        "next_reset_time",
-                        "daily_limit_gemini_2_5_pro",
-                        "daily_limit_total",
-                    }
-                }
+                # 返回空的统计字段
+                return {"call_timestamps": []}
 
             section_data = all_data[filename]
 
             # 提取统计字段
-            stats_fields = {
-                "gemini_2_5_pro_calls",
-                "total_calls",
-                "next_reset_time",
-                "daily_limit_gemini_2_5_pro",
-                "daily_limit_total",
-            }
+            stats_fields = {"call_timestamps"}
             stats_data = {k: v for k, v in section_data.items() if k in stats_fields}
 
             # 确保必要字段存在
-            default_state = self.get_default_state()
-            for field in stats_fields:
-                if field not in stats_data:
-                    stats_data[field] = default_state[field]
+            if "call_timestamps" not in stats_data:
+                stats_data["call_timestamps"] = []
 
             return stats_data
 
         except Exception as e:
             log.error(f"Error getting usage stats {filename}: {e}")
-            return self.get_default_state()
+            return {"call_timestamps": []}
 
     async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
         """从统一缓存获取所有使用统计"""
@@ -554,23 +524,15 @@ class FileStorageManager:
             all_data = await self._credentials_cache_manager.get_all()
 
             stats = {}
-            stats_fields = {
-                "gemini_2_5_pro_calls",
-                "total_calls",
-                "next_reset_time",
-                "daily_limit_gemini_2_5_pro",
-                "daily_limit_total",
-            }
+            stats_fields = {"call_timestamps"}
 
             for filename, section_data in all_data.items():
                 # 提取统计字段
                 stats_data = {k: v for k, v in section_data.items() if k in stats_fields}
 
                 # 确保必要字段存在
-                default_state = self.get_default_state()
-                for field in stats_fields:
-                    if field not in stats_data:
-                        stats_data[field] = default_state[field]
+                if "call_timestamps" not in stats_data:
+                    stats_data["call_timestamps"] = []
 
                 stats[filename] = stats_data
 
