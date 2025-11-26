@@ -27,6 +27,9 @@ else {
     git clone https://github.com/su-kaka/gcli2api.git
     Set-Location ./gcli2api
 }
+# Create relocatable virtual environment to ensure portability
+$env:UV_VENV_CLEAR = "1"
+uv venv --relocatable
 uv sync
 .venv/Scripts/activate.ps1
 python web.py

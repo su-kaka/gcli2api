@@ -261,6 +261,14 @@ else
     log_warn "Not a git repository, skipping update"
 fi
 
+# Create relocatable virtual environment to ensure portability
+log_info "Creating relocatable virtual environment..."
+export UV_VENV_CLEAR=1
+if ! uv venv --relocatable; then
+    log_error "Failed to create virtual environment"
+    exit 1
+fi
+
 # Sync dependencies
 log_info "Syncing dependencies with uv..."
 if ! uv sync; then
