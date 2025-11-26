@@ -9,12 +9,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy only requirements first for better caching
 COPY requirements.txt .
 
@@ -26,10 +20,6 @@ COPY . .
 
 # Expose port
 EXPOSE 7861
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request, os; port = os.environ.get('PORT', '7861'); pwd = os.environ.get('PASSWORD', 'pwd'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': f'Bearer {pwd}'}); urllib.request.urlopen(req, timeout=5)"
 
 # Default command
 CMD ["python", "web.py"]
