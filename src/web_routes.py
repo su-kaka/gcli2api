@@ -240,30 +240,19 @@ def is_mobile_user_agent(user_agent: str) -> bool:
 @router.get("/v1", response_class=HTMLResponse)
 @router.get("/auth", response_class=HTMLResponse)
 async def serve_control_panel(request: Request):
-    """提供统一控制面板（现代化响应式版本）"""
+    """提供统一控制面板"""
     try:
-        # 优先使用新的现代化控制面板
-        html_file_path = "front/control_panel_new.html"
+        user_agent = request.headers.get("user-agent", "")
+        is_mobile = is_mobile_user_agent(user_agent)
 
-        try:
-            with open(html_file_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            log.info(f"Serving modern control panel")
-            return HTMLResponse(content=html_content)
-        except FileNotFoundError:
-            # 回退到旧版本
-            log.warning(f"Modern control panel not found, falling back to legacy version")
-            user_agent = request.headers.get("user-agent", "")
-            is_mobile = is_mobile_user_agent(user_agent)
+        if is_mobile:
+            html_file_path = "front/control_panel_mobile.html"
+        else:
+            html_file_path = "front/control_panel.html"
 
-            if is_mobile:
-                html_file_path = "front/control_panel_mobile.html"
-            else:
-                html_file_path = "front/control_panel.html"
-
-            with open(html_file_path, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            return HTMLResponse(content=html_content)
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
 
     except Exception as e:
         log.error(f"加载控制面板页面失败: {e}")
