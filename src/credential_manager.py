@@ -135,7 +135,7 @@ class CredentialManager:
             self._write_worker_running = False
 
     async def _discover_credentials(self):
-        """发现和加载所有可用凭证"""
+        """发现和加载所有可用凭证（优化版 - 支持轮换顺序持久化）"""
         try:
             # 从存储适配器获取所有凭证
             all_credentials = await self._storage_adapter.list_credentials()
@@ -176,7 +176,7 @@ class CredentialManager:
                                 f"Failed to check state for credential {credential_name}: {e2}"
                             )
 
-            # 更新凭证列表
+            # 更新凭证列表 - 使用循环队列优化
             old_credentials = set(self._credential_files)
             new_credentials = set(available_credentials)
 
@@ -186,21 +186,42 @@ class CredentialManager:
                 added = new_credentials - old_credentials
                 removed = old_credentials - new_credentials
 
-                self._credential_files = available_credentials
+                # 优化：维护轮换顺序
+                if is_initial_load:
+                    # 初始加载：尝试从存储中恢复保存的顺序
+                    try:
+                        saved_order = await self._storage_adapter.get_credential_order()
+                        if saved_order:
+                            # 过滤出仍然可用的凭证，保持顺序
+                            valid_saved = [c for c in saved_order if c in new_credentials]
+                            # 添加新发现但不在保存顺序中的凭证到末尾
+                            new_unsaved = [c for c in available_credentials if c not in saved_order]
+                            self._credential_files = valid_saved + new_unsaved
+                            log.debug(f"初始加载：恢复保存的凭证顺序，共 {len(self._credential_files)} 个凭证")
+                        else:
+                            # 没有保存的顺序，使用默认顺序
+                            self._credential_files = available_credentials
+                            log.debug(f"初始加载发现 {len(available_credentials)} 个可用凭证")
+                    except Exception as e:
+                        log.warning(f"无法恢复保存的凭证顺序: {e}，使用默认顺序")
+                        self._credential_files = available_credentials
+                else:
+                    # 运行时更新：保留现有顺序，新凭证添加到末尾
+                    # 1. 保留现有列表中仍然可用的凭证（保持顺序）
+                    existing = [c for c in self._credential_files if c in new_credentials]
+                    # 2. 新发现的凭证添加到末尾
+                    new_only = [c for c in available_credentials if c not in old_credentials]
+                    # 3. 合并：已有的保持顺序 + 新的加到末尾
+                    self._credential_files = existing + new_only
 
-                # 初始加载时只记录调试信息，运行时变化才记录INFO
-                if not is_initial_load:
+                    # 记录变化
                     if added:
-                        log.info(f"发现新的可用凭证: {list(added)}")
+                        log.info(f"发现新的可用凭证（已添加到队列末尾）: {list(added)}")
                     if removed:
                         log.info(f"移除不可用凭证: {list(removed)}")
-                else:
-                    # 初始加载时只记录调试信息
-                    if available_credentials:
-                        log.debug(f"初始加载发现 {len(available_credentials)} 个可用凭证")
 
-                # 重置当前索引如果需要
-                if self._current_credential_index >= len(self._credential_files):
+                # 索引始终保持在 0（如果有可用凭证）
+                if self._credential_files:
                     self._current_credential_index = 0
 
             if not self._credential_files:
@@ -212,12 +233,13 @@ class CredentialManager:
             log.error(f"Failed to discover credentials: {e}")
 
     async def _load_current_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """加载当前选中的凭证数据，包含token过期检测和自动刷新"""
+        """加载当前凭证数据 - 始终使用第一个（索引 0）"""
         if not self._credential_files:
             return None
 
         try:
-            current_file = self._credential_files[self._current_credential_index]
+            # 始终使用第一个凭证（循环队列头部）
+            current_file = self._credential_files[0]
 
             # 从存储适配器加载凭证数据
             credential_data = await self._storage_adapter.get_credential(current_file)
@@ -294,7 +316,7 @@ class CredentialManager:
 
                     # 当前凭证加载失败，标记为失效并切换到下一个
                     current_file = (
-                        self._credential_files[self._current_credential_index]
+                        self._credential_files[0]  # 始终是第一个
                         if self._credential_files
                         else None
                     )
@@ -308,9 +330,9 @@ class CredentialManager:
                             log.error("没有可用的凭证")
                             return None
 
-                        # 重置索引到第一个可用凭证
+                        # 索引始终保持为 0
                         self._current_credential_index = 0
-                        log.info(f"切换到下一个可用凭证 (索引: {self._current_credential_index})")
+                        log.info(f"切换到下一个可用凭证: {self._credential_files[0]}")
                     else:
                         log.error("无法获取当前凭证文件名")
                         break
@@ -334,16 +356,25 @@ class CredentialManager:
         return self._call_count >= current_calls_per_rotation
 
     async def _rotate_credential(self):
-        """轮换到下一个凭证"""
+        """轮换到下一个凭证 - 将当前凭证移到末尾（循环队列）"""
         if len(self._credential_files) <= 1:
             return
 
-        self._current_credential_index = (self._current_credential_index + 1) % len(
-            self._credential_files
-        )
+        # 将第一个凭证移到末尾，实现循环队列
+        current = self._credential_files.pop(0)
+        self._credential_files.append(current)
+
+        # 索引始终保持在 0
+        self._current_credential_index = 0
         self._call_count = 0
 
-        log.info(f"Rotated to credential index {self._current_credential_index}")
+        # 持久化新的顺序
+        try:
+            await self._storage_adapter.set_credential_order(self._credential_files)
+            log.info(f"轮换凭证: {current} -> 队列末尾，当前使用: {self._credential_files[0]}")
+        except Exception as e:
+            log.warning(f"无法保存凭证顺序: {e}")
+            log.info(f"轮换凭证: {current} -> 队列末尾，当前使用: {self._credential_files[0]}")
 
     async def force_rotate_credential(self):
         """强制轮换到下一个凭证（用于429错误处理）"""

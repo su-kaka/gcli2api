@@ -499,3 +499,49 @@ class MongoDBManager:
             operation_time = time.time() - start_time
             log.error(f"Error getting all usage stats in {operation_time:.3f}s: {e}")
             return {}
+
+    # ============ 凭证顺序管理 ============
+
+    async def get_credential_order(self) -> List[str]:
+        """获取凭证轮换顺序"""
+        self._ensure_initialized()
+
+        try:
+            # 从配置缓存中获取顺序
+            order = await self._config_cache_manager.get("_credential_order", None)
+
+            if order is None or not isinstance(order, list):
+                # 如果没有保存的顺序，返回当前凭证列表作为默认顺序
+                all_creds = await self.list_credentials()
+                log.debug(f"No saved credential order, using default: {all_creds}")
+                return all_creds
+
+            log.debug(f"Loaded credential order: {order}")
+            return order
+
+        except Exception as e:
+            log.error(f"Error getting credential order: {e}")
+            return []
+
+    async def set_credential_order(self, order: List[str]) -> bool:
+        """设置凭证轮换顺序"""
+        self._ensure_initialized()
+
+        try:
+            if not isinstance(order, list):
+                log.error(f"Invalid credential order type: {type(order)}")
+                return False
+
+            # 保存顺序到配置缓存
+            success = await self._config_cache_manager.set("_credential_order", order)
+
+            if success:
+                log.debug(f"Saved credential order: {order}")
+            else:
+                log.error("Failed to save credential order")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error setting credential order: {e}")
+            return False

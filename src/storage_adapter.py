@@ -82,6 +82,15 @@ class StorageBackend(Protocol):
         """获取所有使用统计"""
         ...
 
+    # 凭证顺序管理
+    async def get_credential_order(self) -> List[str]:
+        """获取凭证轮换顺序"""
+        ...
+
+    async def set_credential_order(self, order: List[str]) -> bool:
+        """设置凭证轮换顺序"""
+        ...
+
 
 class StorageAdapter:
     """存储适配器，根据配置选择存储后端"""
@@ -246,6 +255,18 @@ class StorageAdapter:
         """获取所有使用统计"""
         self._ensure_initialized()
         return await self._backend.get_all_usage_stats()
+
+    # ============ 凭证顺序管理 ============
+
+    async def get_credential_order(self) -> List[str]:
+        """获取凭证轮换顺序"""
+        self._ensure_initialized()
+        return await self._backend.get_credential_order()
+
+    async def set_credential_order(self, order: List[str]) -> bool:
+        """设置凭证轮换顺序"""
+        self._ensure_initialized()
+        return await self._backend.set_credential_order(order)
 
     # ============ 工具方法 ============
 
