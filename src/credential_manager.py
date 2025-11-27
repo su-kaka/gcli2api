@@ -13,7 +13,6 @@ from log import log
 
 from .google_oauth_api import Credentials, fetch_user_email_from_file
 from .storage_adapter import get_storage_adapter
-from .task_manager import task_manager
 
 
 class CredentialManager:
@@ -29,10 +28,7 @@ class CredentialManager:
 
         # 凭证轮换相关
         self._credential_files: List[str] = []  # 存储凭证文件名列表
-        self._current_credential_index = 0
         self._call_count = 0
-        self._last_scan_time = 0
-
         # 当前使用的凭证信息
         self._current_credential_file: Optional[str] = None
         self._current_credential_data: Optional[Dict[str, Any]] = None
@@ -42,18 +38,9 @@ class CredentialManager:
         self._state_lock = asyncio.Lock()
         self._operation_lock = asyncio.Lock()
 
-        # 工作线程控制
-        self._shutdown_event = asyncio.Event()
-        self._write_worker_running = False
-        self._write_worker_task = None
-
         # 原子操作计数器
         self._atomic_counter = 0
         self._atomic_lock = asyncio.Lock()
-
-        # Onboarding state
-        self._onboarding_complete = False
-        self._onboarding_checked = False
 
     async def initialize(self):
         """初始化凭证管理器"""
@@ -63,9 +50,6 @@ class CredentialManager:
 
             # 初始化统一存储适配器
             self._storage_adapter = await get_storage_adapter()
-
-            # 启动后台工作线程
-            await self._start_background_workers()
 
             # 发现并加载凭证
             await self._discover_credentials()
@@ -78,64 +62,11 @@ class CredentialManager:
         """清理资源"""
         log.debug("Closing credential manager...")
 
-        # 设置关闭标志
-        self._shutdown_event.set()
-
-        # 等待后台任务结束
-        if self._write_worker_task:
-            try:
-                await asyncio.wait_for(self._write_worker_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                log.warning("Write worker task did not finish within timeout")
-                if not self._write_worker_task.done():
-                    self._write_worker_task.cancel()
-            except asyncio.CancelledError:
-                # 任务被取消是正常的关闭流程
-                log.debug("Background worker task was cancelled during shutdown")
-
         self._initialized = False
         log.debug("Credential manager closed")
 
-    async def _start_background_workers(self):
-        """启动后台工作线程"""
-        if not self._write_worker_running:
-            self._write_worker_running = True
-            self._write_worker_task = task_manager.create_task(
-                self._background_worker(), name="credential_background_worker"
-            )
-
-    async def _background_worker(self):
-        """后台工作线程，处理定期任务"""
-        try:
-            while not self._shutdown_event.is_set():
-                try:
-                    # 每60秒检查一次凭证更新
-                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=60.0)
-                    if self._shutdown_event.is_set():
-                        break
-
-                    # 重新发现凭证（热更新）
-                    await self._discover_credentials()
-
-                except asyncio.TimeoutError:
-                    # 超时是正常的，继续下一轮
-                    continue
-                except asyncio.CancelledError:
-                    # 任务被取消，正常退出
-                    log.debug("Background worker cancelled, exiting gracefully")
-                    break
-                except Exception as e:
-                    log.error(f"Background worker error: {e}")
-                    await asyncio.sleep(5)  # 错误后等待5秒再继续
-        except asyncio.CancelledError:
-            # 外层捕获取消，确保干净退出
-            log.debug("Background worker received cancellation")
-        finally:
-            log.debug("Background worker exited")
-            self._write_worker_running = False
-
     async def _discover_credentials(self):
-        """发现和加载所有可用凭证（优化版 - 支持轮换顺序持久化）"""
+        """发现和加载所有可用凭证（轮换顺序持久化）"""
         try:
             # 从存储适配器获取所有凭证
             all_credentials = await self._storage_adapter.list_credentials()
@@ -220,10 +151,6 @@ class CredentialManager:
                     if removed:
                         log.info(f"移除不可用凭证: {list(removed)}")
 
-                # 索引始终保持在 0（如果有可用凭证）
-                if self._credential_files:
-                    self._current_credential_index = 0
-
             if not self._credential_files:
                 log.warning("No available credential files found")
             else:
@@ -292,6 +219,95 @@ class CredentialManager:
             log.error(f"Error loading current credential: {e}")
             return None
 
+    async def add_credential(self, credential_name: str, credential_data: Dict[str, Any]):
+        """
+        新增或更新一个凭证，并确保它进入轮换队列（如果未被禁用）。
+
+        使用场景：
+        - 业务侧只需调用此 API，而不直接操作 storage_adapter。
+        - 新凭证会立即参与轮换，无需等待后台轮询。
+        """
+        async with self._operation_lock:
+            # 1. 写入凭证内容
+            await self._storage_adapter.store_credential(credential_name, credential_data)
+
+            # 2. 读取状态，判断是否禁用
+            state = await self._storage_adapter.get_credential_state(credential_name)
+            disabled = state.get("disabled", False)
+
+            # 3. 如果未禁用，确保在队列中出现一次（若已存在则保持原先顺序）
+            if not disabled:
+                if credential_name not in self._credential_files:
+                    self._credential_files.append(credential_name)
+                    # 顺序持久化
+                    try:
+                        await self._storage_adapter.set_credential_order(self._credential_files)
+                    except Exception as e:
+                        log.warning(f"无法保存凭证顺序（add_credential）: {e}")
+                # 如果已经在队列里，则不动它的位置，保持既有轮换顺序
+
+            log.info(
+                f"Credential added/updated via manager: {credential_name}, "
+                f"disabled={disabled}"
+            )
+
+    async def remove_credential(self, credential_name: str) -> bool:
+        """
+        删除一个凭证：
+        - 从存储中移除凭证（以及其状态，如果 storage_adapter 支持）
+        - 从内存轮换队列中移除
+        - 如有必要，切换当前凭证到下一个可用项
+        """
+        async with self._operation_lock:
+            try:
+                # 1. 从存储中删除凭证主体
+                try:
+                    await self._storage_adapter.delete_credential(credential_name)
+                except AttributeError:
+                    log.warning(
+                        "storage_adapter 未实现 delete_credential，"
+                        "仅从队列中移除，不删除底层文件/文档"
+                    )
+
+                # 2. 尝试删除对应状态（如果适配器支持）
+                try:
+                    if hasattr(self._storage_adapter, "delete_credential_state"):
+                        await self._storage_adapter.delete_credential_state(credential_name)
+                except Exception as e:
+                    log.warning(f"删除凭证状态失败 {credential_name}: {e}")
+
+                # 3. 从队列中移除
+                if credential_name in self._credential_files:
+                    self._credential_files = [
+                        c for c in self._credential_files if c != credential_name
+                    ]
+                    # 持久化新的顺序
+                    try:
+                        await self._storage_adapter.set_credential_order(self._credential_files)
+                    except Exception as e:
+                        log.warning(f"无法保存凭证顺序（remove_credential）: {e}")
+
+                # 4. 如果这是当前凭证，清空缓存并尝试切换到下一个
+                if credential_name == self._current_credential_file:
+                    self._current_credential_file = None
+                    self._current_credential_data = None
+                    self._current_credential_state = {}
+
+                    # 自动切换到下一个可用凭证（如果存在）
+                    if self._credential_files:
+                        log.info(
+                            f"当前凭证已被删除，切换到下一个可用凭证: {self._credential_files[0]}"
+                        )
+                    else:
+                        log.warning("删除当前凭证后，已无可用凭证")
+
+                log.info(f"Credential removed via manager: {credential_name}")
+                return True
+
+            except Exception as e:
+                log.error(f"Error removing credential {credential_name}: {e}")
+                return False
+
     async def get_valid_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
         """获取有效的凭证，自动处理轮换和失效凭证切换"""
         async with self._operation_lock:
@@ -322,16 +338,13 @@ class CredentialManager:
                     )
                     if current_file:
                         log.warning(f"凭证失效，自动禁用并切换: {current_file}")
+                        # set_cred_disabled 内部负责刷新可用凭证
                         await self.set_cred_disabled(current_file, True)
 
-                        # 重新发现可用凭证（排除刚禁用的）
-                        await self._discover_credentials()
                         if not self._credential_files:
                             log.error("没有可用的凭证")
                             return None
 
-                        # 索引始终保持为 0
-                        self._current_credential_index = 0
                         log.info(f"切换到下一个可用凭证: {self._credential_files[0]}")
                     else:
                         log.error("无法获取当前凭证文件名")
@@ -364,8 +377,8 @@ class CredentialManager:
         current = self._credential_files.pop(0)
         self._credential_files.append(current)
 
-        # 索引始终保持在 0
-        self._current_credential_index = 0
+        # 当前凭证始终为队列头部，不再使用索引字段
+        # self._current_credential_index = 0
         self._call_count = 0
 
         # 持久化新的顺序
@@ -420,11 +433,9 @@ class CredentialManager:
             success = await self.update_credential_state(credential_name, state_updates)
 
             if success:
-                # 如果禁用了当前正在使用的凭证，需要重新发现可用凭证
+                # 如果禁用了当前正在使用的凭证，重新发现可用凭证
                 if disabled and credential_name == self._current_credential_file:
                     await self._discover_credentials()
-                    if self._credential_files:
-                        await self._rotate_credential()
 
                 action = "disabled" if disabled else "enabled"
                 log.info(f"Credential {action}: {credential_name}")
@@ -635,37 +646,6 @@ class CredentialManager:
                 return True
 
         return False
-
-    # 兼容性方法 - 保持与现有代码的接口兼容
-    async def _update_token_in_file(self, file_path: str, new_token: str, expires_at=None):
-        """更新凭证令牌（兼容性方法）"""
-        try:
-            credential_data = await self._storage_adapter.get_credential(file_path)
-            if not credential_data:
-                log.error(f"Credential not found for token update: {file_path}")
-                return False
-
-            # 更新令牌数据
-            credential_data["token"] = new_token
-            if expires_at:
-                credential_data["expiry"] = (
-                    expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at
-                )
-
-            # 保存更新后的凭证
-            success = await self._storage_adapter.store_credential(file_path, credential_data)
-
-            if success:
-                log.debug(f"Token updated for credential: {file_path}")
-            else:
-                log.error(f"Failed to update token for credential: {file_path}")
-
-            return success
-
-        except Exception as e:
-            log.error(f"Error updating token for {file_path}: {e}")
-            return False
-
 
 # 全局实例管理（保持兼容性）
 _credential_manager: Optional[CredentialManager] = None

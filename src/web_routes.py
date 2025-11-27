@@ -550,55 +550,29 @@ async def upload_credentials(
                     status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
                 )
 
-        # 获取存储适配器
-        storage_adapter = await get_storage_adapter()
+        # 读取完 files_data 后，改为通过 CredentialManager 写入
+        await ensure_credential_manager_initialized()
 
-        # 分批处理大量文件以提高稳定性
-        batch_size = 1000  # 每批处理1000个文件
+        batch_size = 1000
         all_results = []
         total_success = 0
 
         for i in range(0, len(files_data), batch_size):
             batch_files = files_data[i : i + batch_size]
 
-            # 使用并发处理提升文件上传性能
             async def process_single_file(file_data):
                 """处理单个文件的并发函数"""
                 try:
                     filename = file_data["filename"]
                     content_str = file_data["content"]
 
-                    # 解析JSON内容
                     credential_data = json.loads(content_str)
 
-                    # 存储到统一存储系统
-                    success = await storage_adapter.store_credential(filename, credential_data)
-                    if success:
-                        # 创建默认状态记录（如果不存在）
-                        try:
-                            import time
+                    # 使用 CredentialManager 统一新增/更新凭证
+                    await credential_manager.add_credential(filename, credential_data)
 
-                            default_state = {
-                                "error_codes": [],
-                                "disabled": False,
-                                "last_success": time.time(),
-                                "user_email": None,
-                            }
-                            # 只在状态不存在时创建，避免覆盖现有状态
-                            # 检查数据库中是否真正存在状态记录
-                            all_states = await storage_adapter.get_all_credential_states()
-                            if filename not in all_states:
-                                await storage_adapter.update_credential_state(
-                                    filename, default_state
-                                )
-                                log.debug(f"Created default state for new credential: {filename}")
-                        except Exception as e:
-                            log.warning(f"Failed to create default state for {filename}: {e}")
-
-                        log.debug(f"成功上传凭证文件: {filename}")
-                        return {"filename": filename, "status": "success", "message": "上传成功"}
-                    else:
-                        return {"filename": filename, "status": "error", "message": "存储失败"}
+                    log.debug(f"成功上传凭证文件: {filename}")
+                    return {"filename": filename, "status": "success", "message": "上传成功"}
 
                 except json.JSONDecodeError as e:
                     return {
@@ -613,12 +587,10 @@ async def upload_credentials(
                         "message": f"处理失败: {str(e)}",
                     }
 
-            # 并发处理这一批文件
             log.info(f"开始并发处理 {len(batch_files)} 个文件...")
             concurrent_tasks = [process_single_file(file_data) for file_data in batch_files]
             batch_results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
 
-            # 处理异常结果
             processed_results = []
             batch_uploaded_count = 0
             for result in batch_results:
@@ -635,16 +607,14 @@ async def upload_credentials(
                     if result["status"] == "success":
                         batch_uploaded_count += 1
 
-            batch_results = processed_results
-
-            all_results.extend(batch_results)
+            all_results.extend(processed_results)
             total_success += batch_uploaded_count
 
-            # 记录批次进度
             batch_num = (i // batch_size) + 1
             total_batches = (len(files_data) + batch_size - 1) // batch_size
             log.info(
-                f"批次 {batch_num}/{total_batches} 完成: 成功 {batch_uploaded_count}/{len(batch_files)} 个文件"
+                f"批次 {batch_num}/{total_batches} 完成: 成功 "
+                f"{batch_uploaded_count}/{len(batch_files)} 个文件"
             )
 
         if total_success > 0:
@@ -672,23 +642,19 @@ async def get_creds_status(token: str = Depends(verify_token)):
     try:
         await ensure_credential_manager_initialized()
 
-        # 获取存储适配器
         storage_adapter = await get_storage_adapter()
 
-        # 获取所有凭证和状态
+        # 获取所有凭证和状态（状态通过 CredentialManager）
         all_credentials = await storage_adapter.list_credentials()
         all_states = await credential_manager.get_creds_status()
 
-        # 获取后端信息（一次性获取，避免重复查询）
         backend_info = await storage_adapter.get_backend_info()
         backend_type = backend_info.get("backend_type", "unknown")
 
-        # 并发处理所有凭证的数据获取（状态已获取，无需重复处理）
         async def process_credential_data(filename):
             """并发处理单个凭证的数据获取"""
             file_status = all_states.get(filename)
 
-            # 如果没有状态记录，创建默认状态
             if not file_status:
                 try:
                     import time
@@ -704,7 +670,6 @@ async def get_creds_status(token: str = Depends(verify_token)):
                     log.debug(f"为凭证 {filename} 创建了默认状态记录")
                 except Exception as e:
                     log.warning(f"无法为凭证 {filename} 创建状态记录: {e}")
-                    # 创建临时状态用于显示
                     file_status = {
                         "error_codes": [],
                         "disabled": False,
@@ -713,18 +678,16 @@ async def get_creds_status(token: str = Depends(verify_token)):
                     }
 
             try:
-                # 从存储获取凭证数据
                 credential_data = await storage_adapter.get_credential(filename)
                 if credential_data:
                     result = {
                         "status": file_status,
                         "content": credential_data,
                         "filename": os.path.basename(filename),
-                        "backend_type": backend_type,  # 复用backend信息
+                        "backend_type": backend_type,
                         "user_email": file_status.get("user_email"),
                     }
 
-                    # 如果是文件模式，添加文件元数据
                     if backend_type == "file" and os.path.exists(filename):
                         result.update(
                             {
@@ -787,7 +750,7 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
 
         # 验证文件名
         if not filename.endswith(".json"):
-            log.error(f"Invalid filename: {filename} (not a .json file)")
+            log.error(f"无效的文件名: {filename}（不是.json文件）")
             raise HTTPException(status_code=400, detail=f"无效的文件名: {filename}")
 
         # 获取存储适配器
@@ -799,34 +762,34 @@ async def creds_action(request: CredFileActionRequest, token: str = Depends(veri
             # 检查凭证数据是否存在
             credential_data = await storage_adapter.get_credential(filename)
             if not credential_data:
-                log.error(f"Credential not found: {filename}")
+                log.error(f"凭证未找到: {filename}")
                 raise HTTPException(status_code=404, detail="凭证文件不存在")
 
         if action == "enable":
-            log.info(f"Web request: ENABLING file {filename}")
+            log.info(f"Web请求: 启用文件 {filename}")
             await credential_manager.set_cred_disabled(filename, False)
-            log.info(f"Web request: ENABLED file {filename} successfully")
+            log.info(f"Web请求: 文件 {filename} 已启用")
             return JSONResponse(content={"message": f"已启用凭证文件 {os.path.basename(filename)}"})
 
         elif action == "disable":
-            log.info(f"Web request: DISABLING file {filename}")
+            log.info(f"Web请求: 禁用文件 {filename}")
             await credential_manager.set_cred_disabled(filename, True)
-            log.info(f"Web request: DISABLED file {filename} successfully")
+            log.info(f"Web请求: 文件 {filename} 已禁用")
             return JSONResponse(content={"message": f"已禁用凭证文件 {os.path.basename(filename)}"})
 
         elif action == "delete":
             try:
-                # 使用存储适配器删除凭证
-                success = await storage_adapter.delete_credential(filename)
+                # 使用 CredentialManager 删除凭证（包含队列/状态同步）
+                success = await credential_manager.remove_credential(filename)
                 if success:
-                    log.info(f"Successfully deleted credential: {filename}")
+                    log.info(f"通过管理器成功删除凭证: {filename}")
                     return JSONResponse(
                         content={"message": f"已删除凭证文件 {os.path.basename(filename)}"}
                     )
                 else:
                     raise HTTPException(status_code=500, detail="删除凭证失败")
             except Exception as e:
-                log.error(f"Error deleting credential {filename}: {e}")
+                log.error(f"删除凭证 {filename} 时出错: {e}")
                 raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
 
         else:
@@ -853,12 +816,11 @@ async def creds_batch_action(
         if not filenames:
             raise HTTPException(status_code=400, detail="文件名列表不能为空")
 
-        log.info(f"Performing batch action '{action}' on {len(filenames)} files")
+        log.info(f"对 {len(filenames)} 个文件执行批量操作 '{action}'")
 
         success_count = 0
         errors = []
 
-        # 获取存储适配器
         storage_adapter = await get_storage_adapter()
 
         for filename in filenames:
@@ -887,11 +849,10 @@ async def creds_batch_action(
 
                 elif action == "delete":
                     try:
-                        # 使用存储适配器删除凭证
-                        delete_success = await storage_adapter.delete_credential(filename)
+                        delete_success = await credential_manager.remove_credential(filename)
                         if delete_success:
                             success_count += 1
-                            log.info(f"Successfully deleted credential in batch: {filename}")
+                            log.info(f"成功删除批量中的凭证: {filename}")
                         else:
                             errors.append(f"{filename}: 删除失败")
                             continue
@@ -903,7 +864,7 @@ async def creds_batch_action(
                     continue
 
             except Exception as e:
-                log.error(f"Processing {filename} failed: {e}")
+                log.error(f"处理 {filename} 时出错: {e}")
                 errors.append(f"{filename}: 处理失败 - {str(e)}")
                 continue
 
