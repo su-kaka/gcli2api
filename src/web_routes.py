@@ -1146,6 +1146,9 @@ async def get_config(token: str = Depends(verify_token)):
         # 兼容性配置
         current_config["compatibility_mode_enabled"] = await config.get_compatibility_mode_enabled()
 
+        # 思维链返回配置
+        current_config["return_thoughts_to_frontend"] = await config.get_return_thoughts_to_frontend()
+
         # 服务器配置
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
@@ -1164,6 +1167,8 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("anti_truncation_max_attempts")
         if os.getenv("COMPATIBILITY_MODE"):
             env_locked.append("compatibility_mode_enabled")
+        if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
+            env_locked.append("return_thoughts_to_frontend")
         if os.getenv("HOST"):
             env_locked.append("host")
         if os.getenv("PORT"):
@@ -1234,6 +1239,10 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["compatibility_mode_enabled"], bool):
                 raise HTTPException(status_code=400, detail="兼容性模式开关必须是布尔值")
 
+        if "return_thoughts_to_frontend" in new_config:
+            if not isinstance(new_config["return_thoughts_to_frontend"], bool):
+                raise HTTPException(status_code=400, detail="思维链返回开关必须是布尔值")
+
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
@@ -1295,6 +1304,8 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("anti_truncation_max_attempts")
         if os.getenv("COMPATIBILITY_MODE"):
             env_locked_keys.add("compatibility_mode_enabled")
+        if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
+            env_locked_keys.add("return_thoughts_to_frontend")
         if os.getenv("HOST"):
             env_locked_keys.add("host")
         if os.getenv("PORT"):
@@ -1377,6 +1388,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
                 "retry_429_interval",
                 "anti_truncation_max_attempts",
                 "compatibility_mode_enabled",
+                "return_thoughts_to_frontend",
             ]
 
             for config_key in hot_updatable_configs:

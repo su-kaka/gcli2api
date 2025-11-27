@@ -17,6 +17,7 @@ from config import (
     get_auto_ban_error_codes,
     get_base_model_name,
     get_code_assist_endpoint,
+    get_return_thoughts_to_frontend,
     get_retry_429_enabled,
     get_retry_429_interval,
     get_retry_429_max_retries,
@@ -30,6 +31,36 @@ from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .usage_stats import record_successful_call
 from .utils import get_user_agent
+
+
+def _filter_thoughts_from_response(response_data: dict) -> dict:
+    """
+    Filter out thoughts from response data if configured to do so.
+
+    Args:
+        response_data: The response data from Google API
+
+    Returns:
+        Modified response data with thoughts removed if applicable
+    """
+    if not isinstance(response_data, dict):
+        return response_data
+
+    # 检查是否存在candidates字段
+    if "candidates" not in response_data:
+        return response_data
+
+    # 遍历candidates并移除thoughts
+    for candidate in response_data.get("candidates", []):
+        if "content" in candidate and isinstance(candidate["content"], dict):
+            if "parts" in candidate["content"]:
+                # 过滤掉包含thought字段的parts
+                candidate["content"]["parts"] = [
+                    part for part in candidate["content"]["parts"]
+                    if not isinstance(part, dict) or "thought" not in part
+                ]
+
+    return response_data
 
 
 def _create_error_response(message: str, status_code: int = 500) -> Response:
@@ -547,6 +578,7 @@ def _handle_streaming_response_managed(
     async def managed_stream_generator():
         success_recorded = False
         managed_stream_generator._chunk_count = 0  # 初始化chunk计数器
+        return_thoughts = await get_return_thoughts_to_frontend()  # 获取配置
         try:
             async for chunk in resp.aiter_lines():
                 if not chunk or not chunk.startswith("data: "):
@@ -568,6 +600,9 @@ def _handle_streaming_response_managed(
                     obj = json.loads(payload)
                     if "response" in obj:
                         data = obj["response"]
+                        # 如果配置为不返回思维链，则过滤
+                        if not return_thoughts:
+                            data = _filter_thoughts_from_response(data)
                         yield f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
                         await asyncio.sleep(0)  # 让其他协程有机会运行
 
@@ -626,6 +661,12 @@ async def _handle_non_streaming_response(
                 f"Google API原始响应: {json.dumps(google_api_response, ensure_ascii=False)[:500]}..."
             )
             standard_gemini_response = google_api_response.get("response")
+
+            # 如果配置为不返回思维链，则过滤
+            return_thoughts = await get_return_thoughts_to_frontend()
+            if not return_thoughts:
+                standard_gemini_response = _filter_thoughts_from_response(standard_gemini_response)
+
             log.debug(
                 f"提取的response字段: {json.dumps(standard_gemini_response, ensure_ascii=False)[:500]}..."
             )

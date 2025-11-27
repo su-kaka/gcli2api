@@ -1500,6 +1500,19 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                                     <br><strong>适用场景：</strong>当遇到流式传输时模型不返回内容或返回空响应时启用此选项。
                                 </div>
                             </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="returnThoughtsToFrontend" class="config-checkbox" />
+                                    返回思维链到前端
+                                </label>
+                                <small class="config-note">启用后，模型的思维链会在响应中返回；禁用后，思维链会被过滤掉 <span
+                                        style="color: #28a745;">✓ 支持热更新</span></small>
+                                <div class="config-info"
+                                    style="background-color: #e3f2fd; border: 1px solid #2196f3; color: #0d47a1;">
+                                    <strong>💭 说明：</strong>某些模型（如Gemini 2.0 Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
+                                </div>
+                            </div>
                         </div>
 
                         <div class="config-group">
@@ -2883,6 +2896,9 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             // 兼容性配置
             document.getElementById('compatibilityModeEnabled').checked = Boolean(currentConfig.compatibility_mode_enabled);
 
+            // 思维链返回配置
+            document.getElementById('returnThoughtsToFrontend').checked = Boolean(currentConfig.return_thoughts_to_frontend !== false);
+
             // 抗截断配置
             setConfigField('antiTruncationMaxAttempts', currentConfig.anti_truncation_max_attempts || 3);
         }
@@ -2936,6 +2952,8 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     retry_429_interval: parseFloat(document.getElementById('retry429Interval').value) || 0.1,
                     // 兼容性配置
                     compatibility_mode_enabled: document.getElementById('compatibilityModeEnabled').checked,
+                    // 思维链返回配置
+                    return_thoughts_to_frontend: document.getElementById('returnThoughtsToFrontend').checked,
                     // 抗截断配置
                     anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || 3
                 };

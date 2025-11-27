@@ -405,6 +405,24 @@ async def get_compatibility_mode_enabled() -> bool:
     return bool(await get_config_value("compatibility_mode_enabled", True))
 
 
+async def get_return_thoughts_to_frontend() -> bool:
+    """
+    Get return thoughts to frontend setting.
+
+    控制是否将思维链返回到前端。
+    启用后，思维链会在响应中返回；禁用后，思维链会在响应中被过滤掉。
+
+    Environment variable: RETURN_THOUGHTS_TO_FRONTEND
+    TOML config key: return_thoughts_to_frontend
+    Default: True
+    """
+    env_value = os.getenv("RETURN_THOUGHTS_TO_FRONTEND")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("return_thoughts_to_frontend", True))
+
+
 async def get_oauth_proxy_url() -> str:
     """
     Get OAuth proxy URL setting.
