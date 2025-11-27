@@ -704,16 +704,25 @@ def build_gemini_payload_from_native(native_request: dict, model_from_path: str)
     generation_config = request_data["generationConfig"]
 
     # 配置thinking（如果未指定thinkingConfig）
+    # 注意：只有在thinkingBudget有值时才添加thinkingConfig，避免在thinking未启用时发送includeThoughts
     if "thinkingConfig" not in generation_config:
-        generation_config["thinkingConfig"] = {}
+        thinking_budget = get_thinking_budget(model_from_path)
 
-    thinking_config = generation_config["thinkingConfig"]
-
-    # 只有在未明确设置时才应用默认thinking配置
-    if "includeThoughts" not in thinking_config:
-        thinking_config["includeThoughts"] = should_include_thoughts(model_from_path)
-    if "thinkingBudget" not in thinking_config:
-        thinking_config["thinkingBudget"] = get_thinking_budget(model_from_path)
+        # 只有在有thinking budget时才添加thinkingConfig
+        if thinking_budget is not None:
+            generation_config["thinkingConfig"] = {
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": should_include_thoughts(model_from_path)
+            }
+    else:
+        # 如果用户已经提供了thinkingConfig，但没有设置某些字段，填充默认值
+        thinking_config = generation_config["thinkingConfig"]
+        if "thinkingBudget" not in thinking_config:
+            thinking_budget = get_thinking_budget(model_from_path)
+            if thinking_budget is not None:
+                thinking_config["thinkingBudget"] = thinking_budget
+        if "includeThoughts" not in thinking_config:
+            thinking_config["includeThoughts"] = should_include_thoughts(model_from_path)
 
     # 为搜索模型添加Google Search工具（如果未指定且没有functionDeclarations）
     if is_search_model(model_from_path):
