@@ -672,6 +672,59 @@ def _normalize_function_name(name: str) -> str:
     return normalized
 
 
+def _clean_schema_for_gemini(schema: Any) -> Any:
+    """
+    清理 JSON Schema，移除 Gemini 不支持的字段
+
+    Gemini API 只支持有限的 OpenAPI 3.0 Schema 属性：
+    - 支持: type, description, enum, items, properties, required, nullable, format
+    - 不支持: $schema, $id, $ref, $defs, title, examples, default, readOnly,
+              exclusiveMaximum, exclusiveMinimum, oneOf, anyOf, allOf, const 等
+
+    Args:
+        schema: JSON Schema 对象（字典、列表或其他值）
+
+    Returns:
+        清理后的 schema
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    # Gemini 不支持的字段（官方文档 + GitHub Issues 确认）
+    # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
+    # example (OpenAPI 3.0) 和 examples (JSON Schema) 都不支持
+    unsupported_keys = {
+        '$schema', '$id', '$ref', '$defs', 'definitions',
+        'title', 'example', 'examples', 'readOnly', 'writeOnly',
+        'default',
+        'exclusiveMaximum', 'exclusiveMinimum',
+        'oneOf', 'anyOf', 'allOf', 'const',
+        'additionalItems', 'contains', 'patternProperties',
+        'dependencies', 'propertyNames', 'if', 'then', 'else',
+        'contentEncoding', 'contentMediaType',
+    }
+
+    cleaned = {}
+    for key, value in schema.items():
+        if key in unsupported_keys:
+            continue
+        if isinstance(value, dict):
+            cleaned[key] = _clean_schema_for_gemini(value)
+        elif isinstance(value, list):
+            cleaned[key] = [
+                _clean_schema_for_gemini(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            cleaned[key] = value
+
+    # 确保有 type 字段（如果有 properties 但没有 type）
+    if 'properties' in cleaned and 'type' not in cleaned:
+        cleaned['type'] = 'object'
+
+    return cleaned
+
+
 def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
     """
     将 OpenAI tools 格式转换为 Gemini functionDeclarations 格式
@@ -723,9 +776,11 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
             "description": function.get("description", ""),
         }
 
-        # 添加参数（如果有）
+        # 添加参数（如果有）- 清理不支持的 schema 字段
         if "parameters" in function:
-            declaration["parameters"] = function["parameters"]
+            cleaned_params = _clean_schema_for_gemini(function["parameters"])
+            if cleaned_params:
+                declaration["parameters"] = cleaned_params
 
         function_declarations.append(declaration)
 
