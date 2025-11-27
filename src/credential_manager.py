@@ -297,14 +297,24 @@ class CredentialManager:
                 if not self._credential_files:
                     return None
 
+            tried: List[str] = []
+
             # 检查是否需要轮换
             if await self._should_rotate():
                 await self._rotate_credential()
 
-            # 尝试获取有效凭证，如果失败则自动切换
-            max_attempts = len(self._credential_files)  # 最多尝试所有凭证
+            # 动态循环：最多绕队列一圈
+            while self._credential_files:
+                current_file = self._credential_files[0]
+                # 如果已经尝试过当前文件，说明我们绕了一圈，退出
+                if current_file in tried:
+                    log.error(
+                        f"所有凭证都已尝试且无效，最后尝试: {current_file}, "
+                        f"已尝试: {tried}"
+                    )
+                    return None
 
-            for attempt in range(max_attempts):
+                tried.append(current_file)
                 try:
                     # 加载当前凭证
                     result = await self._load_current_credential()
@@ -312,33 +322,30 @@ class CredentialManager:
                         return result
 
                     # 当前凭证加载失败，标记为失效并切换到下一个
-                    current_file = (
-                        self._credential_files[0]  # 始终是第一个
-                        if self._credential_files
-                        else None
-                    )
-                    if current_file:
-                        log.warning(f"凭证失效，自动禁用并切换: {current_file}")
-                        # set_cred_disabled 内部负责刷新可用凭证
-                        await self.set_cred_disabled(current_file, True)
+                    log.warning(f"凭证失效，自动禁用并切换: {current_file}")
+                    await self.set_cred_disabled(current_file, True)
 
-                        if not self._credential_files:
-                            log.error("没有可用的凭证")
-                            return None
+                    if not self._credential_files:
+                        log.error("没有可用的凭证")
+                        return None
 
-                        log.info(f"切换到下一个可用凭证: {self._credential_files[0]}")
-                    else:
-                        log.error("无法获取当前凭证文件名")
-                        break
+                    # 如果禁用后队列头还是同一个，主动轮换一次
+                    if self._credential_files[0] == current_file and len(self._credential_files) > 1:
+                        await self._rotate_credential()
+
+                    log.info(f"切换到下一个可用凭证: {self._credential_files[0]}")
 
                 except Exception as e:
-                    log.error(f"获取凭证时发生异常 (尝试 {attempt + 1}/{max_attempts}): {e}")
-                    if attempt < max_attempts - 1:
-                        # 切换到下一个凭证继续尝试
+                    log.error(
+                        f"获取凭证时发生异常（当前: {current_file}, 已尝试: {tried}）: {e}"
+                    )
+                    # 异常时尝试轮换到下一个凭证继续
+                    if len(self._credential_files) > 1:
                         await self._rotate_credential()
-                    continue
+                    else:
+                        return None
 
-            log.error(f"所有 {max_attempts} 个凭证都尝试失败")
+            log.error("credential_files 为空，无法获取有效凭证")
             return None
 
     async def _should_rotate(self) -> bool:
@@ -605,7 +612,7 @@ class CredentialManager:
                 log.warning(f"检测到凭证永久失效: {filename}")
                 # 记录失效状态
                 await self.record_api_call_result(filename, False, 400)
-                # 新增：直接禁用该凭证并刷新可用列表
+                # 直接禁用该凭证并刷新可用列表
                 try:
                     disabled_ok = await self.set_cred_disabled(filename, True)
                     if disabled_ok:
@@ -613,6 +620,9 @@ class CredentialManager:
                             "永久失效凭证已禁用并刷新列表，当前可用凭证数: "
                             f"{len(self._credential_files)}"
                         )
+                        # 如果还有其他凭证，主动轮换一次，避免再次拿到同一个
+                        if len(self._credential_files) > 1 and self._credential_files[0] == filename:
+                            await self._rotate_credential()
                     else:
                         log.warning("永久失效凭证禁用失败，将由上层逻辑继续处理")
                 except Exception as e2:
