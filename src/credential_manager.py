@@ -605,13 +605,22 @@ class CredentialManager:
             error_msg = str(e)
             log.error(f"Token刷新失败 {filename}: {error_msg}")
 
-            # 检查是否是凭证永久失效的错误
-            is_permanent_failure = self._is_permanent_refresh_failure(error_msg)
+            # 尝试提取HTTP状态码（TokenError可能携带status_code属性）
+            status_code = None
+            if hasattr(e, 'status_code'):
+                status_code = e.status_code
+
+            # 检查是否是凭证永久失效的错误（只有明确的400/403等才判定为永久失效）
+            is_permanent_failure = self._is_permanent_refresh_failure(error_msg, status_code)
 
             if is_permanent_failure:
-                log.warning(f"检测到凭证永久失效: {filename}")
+                log.warning(f"检测到凭证永久失效 (HTTP {status_code}): {filename}")
                 # 记录失效状态
-                await self.record_api_call_result(filename, False, 400)
+                if status_code:
+                    await self.record_api_call_result(filename, False, status_code)
+                else:
+                    await self.record_api_call_result(filename, False, 400)
+
                 # 直接禁用该凭证并刷新可用列表
                 try:
                     disabled_ok = await self.set_cred_disabled(filename, True)
@@ -627,14 +636,41 @@ class CredentialManager:
                         log.warning("永久失效凭证禁用失败，将由上层逻辑继续处理")
                 except Exception as e2:
                     log.error(f"禁用永久失效凭证时出错 {filename}: {e2}")
+            else:
+                # 网络错误或其他临时性错误，不封禁凭证
+                log.warning(f"Token刷新失败但非永久性错误 (HTTP {status_code})，不封禁凭证: {filename}")
 
             return None
 
-    def _is_permanent_refresh_failure(self, error_msg: str) -> bool:
-        """判断是否是凭证永久失效的错误"""
-        # 常见的永久失效错误模式
+    def _is_permanent_refresh_failure(self, error_msg: str, status_code: Optional[int] = None) -> bool:
+        """
+        判断是否是凭证永久失效的错误
+
+        Args:
+            error_msg: 错误信息
+            status_code: HTTP状态码（如果有）
+
+        Returns:
+            True表示凭证永久失效应封禁，False表示临时错误不应封禁
+        """
+        # 优先使用HTTP状态码判断
+        if status_code is not None:
+            # 400/401/403 明确表示凭证有问题，应该封禁
+            if status_code in [400, 401, 403]:
+                log.debug(f"检测到客户端错误状态码 {status_code}，判定为永久失效")
+                return True
+            # 500/502/503/504 是服务器错误，不应封禁凭证
+            elif status_code in [500, 502, 503, 504]:
+                log.debug(f"检测到服务器错误状态码 {status_code}，不应封禁凭证")
+                return False
+            # 429 (限流) 不应封禁凭证
+            elif status_code == 429:
+                log.debug("检测到限流错误 429，不应封禁凭证")
+                return False
+
+        # 如果没有状态码，回退到错误信息匹配（谨慎判断）
+        # 只有明确的凭证失效错误才判定为永久失效
         permanent_error_patterns = [
-            "400 Bad Request",
             "invalid_grant",
             "refresh_token_expired",
             "invalid_refresh_token",
@@ -645,8 +681,11 @@ class CredentialManager:
         error_msg_lower = error_msg.lower()
         for pattern in permanent_error_patterns:
             if pattern.lower() in error_msg_lower:
+                log.debug(f"错误信息匹配到永久失效模式: {pattern}")
                 return True
 
+        # 默认认为是临时错误（如网络问题），不应封禁凭证
+        log.debug("未匹配到明确的永久失效模式，判定为临时错误")
         return False
 
 # 全局实例管理（保持兼容性）

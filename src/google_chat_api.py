@@ -43,35 +43,111 @@ def _create_error_response(message: str, status_code: int = 500) -> Response:
     )
 
 
-async def _handle_api_error(
-    credential_manager: CredentialManager, status_code: int, response_content: str = "", credential_name: str = None
-):
-    """Handle API errors by rotating credentials when needed. Error recording should be done before calling this function."""
-    if status_code == 429 and credential_manager:
-        if response_content:
-            log.error(
-                f"Google API returned status 429 - quota exhausted. Response details: {response_content[:500]}"
-            )
-        else:
-            log.error("Google API returned status 429 - quota exhausted, switching credentials")
-        await credential_manager.force_rotate_credential()
-
-    # 处理自动封禁的错误码
-    elif (
+async def _check_should_auto_ban(status_code: int) -> bool:
+    """检查是否应该触发自动封禁"""
+    return (
         await get_auto_ban_enabled()
         and status_code in await get_auto_ban_error_codes()
-        and credential_manager
-    ):
-        if response_content:
-            log.error(
-                f"Google API returned status {status_code} - auto ban triggered. Response details: {response_content[:500]}"
+    )
+
+
+async def _handle_auto_ban(
+    credential_manager: CredentialManager,
+    status_code: int,
+    credential_name: str
+) -> None:
+    """处理自动封禁：禁用凭证并轮换"""
+    if credential_manager and credential_name:
+        log.warning(
+            f"[AUTO_BAN] Status {status_code} triggers auto-ban, disabling credential: {credential_name}"
+        )
+        await credential_manager.set_cred_disabled(credential_name, True)
+        await credential_manager.force_rotate_credential()
+
+
+async def _get_next_credential(
+    credential_manager: CredentialManager,
+    payload: dict,
+    use_public_api: bool,
+    target_url: str
+):
+    """获取下一个可用凭证并准备请求参数"""
+    new_credential_result = await credential_manager.get_valid_credential()
+    if new_credential_result:
+        current_file, credential_data = new_credential_result
+        headers, updated_payload, target_url = (
+            await _prepare_request_headers_and_payload(
+                payload, credential_data, use_public_api, target_url
+            )
+        )
+        final_post_data = json.dumps(updated_payload)
+        return current_file, credential_data, headers, final_post_data, target_url
+    return None
+
+
+async def _handle_error_with_retry(
+    credential_manager: CredentialManager,
+    status_code: int,
+    current_file: str,
+    payload: dict,
+    use_public_api: bool,
+    target_url: str,
+    retry_enabled: bool,
+    attempt: int,
+    max_retries: int,
+    retry_interval: float
+):
+    """
+    统一处理错误和重试逻辑
+
+    返回值：
+    - (True, retry_data): 需要继续重试，retry_data包含新的请求参数
+    - (False, None): 不需要重试
+    """
+    # 优先检查自动封禁
+    should_auto_ban = await _check_should_auto_ban(status_code)
+
+    if should_auto_ban:
+        # 触发自动封禁
+        await _handle_auto_ban(credential_manager, status_code, current_file)
+
+        # 自动封禁后，仍然尝试重试（使用新凭证）
+        if retry_enabled and attempt < max_retries:
+            log.warning(
+                f"[RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})"
+            )
+            result = await _get_next_credential(
+                credential_manager, payload, use_public_api, target_url
+            )
+            if result:
+                await asyncio.sleep(retry_interval)
+                return True, result
+        return False, None
+
+    # 如果不触发自动封禁，使用普通重试逻辑
+    if retry_enabled and attempt < max_retries:
+        if status_code == 429:
+            log.warning(
+                f"[RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
             )
         else:
             log.warning(
-                f"Google API returned status {status_code} - auto ban triggered, rotating credentials"
+                f"[RETRY] Non-200 error encountered (status {status_code}), retrying ({attempt + 1}/{max_retries})"
             )
-        await credential_manager.set_cred_disabled(credential_name, True)
-        await credential_manager.force_rotate_credential()
+
+        if credential_manager:
+            # 强制轮换凭证
+            await credential_manager.force_rotate_credential()
+            result = await _get_next_credential(
+                credential_manager, payload, use_public_api, target_url
+            )
+            if result:
+                await asyncio.sleep(retry_interval)
+                return True, result
+
+    return False, None
+
+
 
 
 async def _prepare_request_headers_and_payload(
@@ -246,7 +322,7 @@ async def send_gemini_request(
                         except Exception as e:
                             log.debug(f"[STREAMING] Failed to read error response content: {e}")
 
-                        # 显示详细的错误信息（保留与429不同的文案）
+                        # 显示详细的错误信息
                         if response_content:
                             log.error(
                                 f"Google API returned status {resp.status_code} (STREAMING). Response details: {response_content[:500]}"
@@ -269,39 +345,34 @@ async def send_gemini_request(
                             pass
                         await client.aclose()
 
-                        # === 新增：对所有非200状态码沿用429的重试逻辑（受 retry_429_enabled 控制） ===
-                        if retry_429_enabled and attempt < max_retries:
-                            log.warning(
-                                f"[RETRY] Non-200 error encountered (status {resp.status_code}), retrying ({attempt + 1}/{max_retries})"
-                            )
-                            if credential_manager:
-                                # 与429相同：强制轮换凭证，不增加调用计数
-                                await credential_manager.force_rotate_credential()
-                                new_credential_result = (
-                                    await credential_manager.get_valid_credential()
-                                )
-                                if new_credential_result:
-                                    current_file, credential_data = new_credential_result
-                                    headers, updated_payload, target_url = (
-                                        await _prepare_request_headers_and_payload(
-                                            payload, credential_data, use_public_api, target_url
-                                        )
-                                    )
-                                    final_post_data = json.dumps(updated_payload)
-                            await asyncio.sleep(retry_interval)
-                            continue
-                        # === 兼容性：如果不重试，则按原来逻辑返回错误流 ===
-
-                        # 处理凭证轮换（单次错误处理，与重试逻辑并存，保证兼容性）
-                        await _handle_api_error(
-                            credential_manager, resp.status_code, response_content, current_file
+                        # 使用统一的错误处理和重试逻辑
+                        should_retry, retry_data = await _handle_error_with_retry(
+                            credential_manager,
+                            resp.status_code,
+                            current_file,
+                            payload,
+                            use_public_api,
+                            target_url,
+                            retry_429_enabled,
+                            attempt,
+                            max_retries,
+                            retry_interval
                         )
 
-                        # 返回错误流
+                        if should_retry and retry_data:
+                            # 解包新的请求参数并继续重试
+                            current_file, credential_data, headers, final_post_data, target_url = retry_data
+                            continue
+
+                        # 不需要重试，返回错误流
+                        error_msg = f"API error: {resp.status_code}"
+                        if await _check_should_auto_ban(resp.status_code):
+                            error_msg += " (credential auto-banned)"
+
                         async def error_stream():
                             error_response = {
                                 "error": {
-                                    "message": f"API error: {resp.status_code}",
+                                    "message": error_msg,
                                     "type": "api_error",
                                     "code": resp.status_code,
                                 }
@@ -351,46 +422,37 @@ async def send_gemini_request(
                             current_file, False, 429 if status == 429 else status
                         )
 
-                    # 如果允许重试且未达到最大次数，则按429逻辑重试
-                    if retry_429_enabled and attempt < max_retries:
-                        if status == 429:
-                            log.warning(
-                                f"[RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
-                            )
-                        else:
-                            log.warning(
-                                f"[RETRY] Non-200 error encountered (status {status}), retrying ({attempt + 1}/{max_retries})"
-                            )
-                        if credential_manager:
-                            # 与429相同：强制轮换凭证，不增加调用计数
-                            await credential_manager.force_rotate_credential()
-                            new_credential_result = (
-                                await credential_manager.get_valid_credential()
-                            )
-                            if new_credential_result:
-                                current_file, credential_data = new_credential_result
-                                headers, updated_payload, target_url = (
-                                    await _prepare_request_headers_and_payload(
-                                        payload, credential_data, use_public_api, target_url
-                                    )
-                                )
-                                final_post_data = json.dumps(updated_payload)
-                        await asyncio.sleep(retry_interval)
+                    # 使用统一的错误处理和重试逻辑
+                    should_retry, retry_data = await _handle_error_with_retry(
+                        credential_manager,
+                        status,
+                        current_file,
+                        payload,
+                        use_public_api,
+                        target_url,
+                        retry_429_enabled,
+                        attempt,
+                        max_retries,
+                        retry_interval
+                    )
+
+                    if should_retry and retry_data:
+                        # 解包新的请求参数并继续重试
+                        current_file, credential_data, headers, final_post_data, target_url = retry_data
                         continue
+
+                    # 不需要重试，返回错误
+                    error_msg = f"{status} error, max retries reached"
+                    if await _check_should_auto_ban(status):
+                        error_msg = f"{status} error (credential auto-banned), max retries reached"
+                        log.error(f"[AUTO_BAN] {error_msg}")
+                    elif status == 429:
+                        error_msg = "429 rate limit exceeded, max retries reached"
+                        log.error("[RETRY] Max retries exceeded for 429 error")
                     else:
-                        if status == 429:
-                            log.error("[RETRY] Max retries exceeded for 429 error")
-                            return _create_error_response(
-                                "429 rate limit exceeded, max retries reached", 429
-                            )
-                        else:
-                            log.error(
-                                f"[RETRY] Max retries exceeded for error status {status}"
-                            )
-                            # 非429时，返回对应状态码的max retries错误
-                            return _create_error_response(
-                                f"{status} error, max retries reached", status
-                            )
+                        log.error(f"[RETRY] Max retries exceeded for error status {status}")
+
+                    return _create_error_response(error_msg, status)
 
         except Exception as e:
             if attempt < max_retries:
@@ -462,7 +524,11 @@ def _handle_streaming_response_managed(
                     current_file, False, resp.status_code
                 )
 
-            await _handle_api_error(credential_manager, resp.status_code, response_content, current_file)
+            # 处理429和自动封禁
+            if resp.status_code == 429 and credential_manager:
+                await credential_manager.force_rotate_credential()
+            elif await _check_should_auto_ban(resp.status_code):
+                await _handle_auto_ban(credential_manager, resp.status_code, current_file)
 
             error_response = {
                 "error": {
@@ -611,7 +677,11 @@ async def _handle_non_streaming_response(
         if credential_manager and current_file:
             await credential_manager.record_api_call_result(current_file, False, resp.status_code)
 
-        await _handle_api_error(credential_manager, resp.status_code, response_content, current_file)
+        # 处理429和自动封禁
+        if resp.status_code == 429 and credential_manager:
+            await credential_manager.force_rotate_credential()
+        elif await _check_should_auto_ban(resp.status_code):
+            await _handle_auto_ban(credential_manager, resp.status_code, current_file)
 
         return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
 

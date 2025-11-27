@@ -83,6 +83,8 @@ class Credentials:
         }
 
         last_exception = None
+        last_status_code = None
+
         for attempt in range(max_retries + 1):
             try:
                 oauth_base_url = await get_oauth_proxy_url()
@@ -116,43 +118,81 @@ class Credentials:
                 last_exception = e
                 error_msg = str(e)
 
-                # 检查是否是不可恢复的错误，如果是则不重试
-                if self._is_non_retryable_error(error_msg):
-                    log.error(f"Token刷新遇到不可恢复错误: {error_msg}")
+                # 尝试提取HTTP状态码
+                status_code = None
+                if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+                    status_code = e.response.status_code
+                    last_status_code = status_code
+
+                # 检查是否是明确的客户端错误（400/403等），这些错误不应重试
+                if self._is_non_retryable_error(error_msg, status_code):
+                    log.error(f"Token刷新遇到不可恢复错误 (HTTP {status_code}): {error_msg}")
                     break
 
                 if attempt < max_retries:
                     # 计算退避延迟时间（指数退避）
                     delay = base_delay * (2**attempt)
                     log.warning(
-                        f"Token刷新失败（第{attempt + 1}次尝试）: {error_msg}，{delay}秒后重试..."
+                        f"Token刷新失败（第{attempt + 1}次尝试, HTTP {status_code}）: {error_msg}，{delay}秒后重试..."
                     )
                     await asyncio.sleep(delay)
                 else:
                     break
 
-        # 所有重试都失败了
+        # 所有重试都失败了，将HTTP状态码附加到异常信息中
         error_msg = f"Token刷新失败（已重试{max_retries}次）: {str(last_exception)}"
+        if last_status_code:
+            error_msg = f"Token刷新失败（已重试{max_retries}次，HTTP {last_status_code}）: {str(last_exception)}"
         log.error(error_msg)
-        raise TokenError(error_msg)
 
-    def _is_non_retryable_error(self, error_msg: str) -> bool:
-        """判断是否是不需要重试的错误"""
+        # 创建TokenError并附加状态码信息
+        token_error = TokenError(error_msg)
+        token_error.status_code = last_status_code  # 附加状态码供外部判断
+        raise token_error
+
+    def _is_non_retryable_error(self, error_msg: str, status_code: Optional[int] = None) -> bool:
+        """
+        判断是否是不需要重试的错误
+
+        Args:
+            error_msg: 错误信息
+            status_code: HTTP状态码（如果有）
+
+        Returns:
+            True表示不应重试（凭证永久失效），False表示可以重试（可能是网络问题）
+        """
+        # 优先使用HTTP状态码判断
+        if status_code is not None:
+            # 400/403/401 表示客户端错误，凭证有问题，不应重试
+            if status_code in [400, 401, 403]:
+                log.debug(f"检测到客户端错误状态码 {status_code}，判定为不可重试")
+                return True
+            # 500/502/503/504 是服务器错误，应该重试
+            elif status_code in [500, 502, 503, 504]:
+                log.debug(f"检测到服务器错误状态码 {status_code}，判定为可重试")
+                return False
+            # 429 (限流) 应该重试
+            elif status_code == 429:
+                log.debug("检测到限流错误 429，判定为可重试")
+                return False
+
+        # 如果没有状态码，回退到错误信息匹配
+        # 只有明确的凭证失效错误才判定为不可重试
         non_retryable_patterns = [
-            "400 Bad Request",
             "invalid_grant",
             "refresh_token_expired",
             "invalid_refresh_token",
             "unauthorized_client",
             "access_denied",
-            "401 Unauthorized",
         ]
 
         error_msg_lower = error_msg.lower()
         for pattern in non_retryable_patterns:
             if pattern.lower() in error_msg_lower:
+                log.debug(f"错误信息匹配到不可重试模式: {pattern}")
                 return True
 
+        # 默认认为可以重试（可能是网络问题）
         return False
 
     @classmethod
