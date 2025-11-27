@@ -246,7 +246,7 @@ async def send_gemini_request(
                         except Exception as e:
                             log.debug(f"[STREAMING] Failed to read error response content: {e}")
 
-                        # 显示详细的错误信息
+                        # 显示详细的错误信息（保留与429不同的文案）
                         if response_content:
                             log.error(
                                 f"Google API returned status {resp.status_code} (STREAMING). Response details: {response_content[:500]}"
@@ -269,7 +269,30 @@ async def send_gemini_request(
                             pass
                         await client.aclose()
 
-                        # 处理凭证轮换
+                        # === 新增：对所有非200状态码沿用429的重试逻辑（受 retry_429_enabled 控制） ===
+                        if retry_429_enabled and attempt < max_retries:
+                            log.warning(
+                                f"[RETRY] Non-200 error encountered (status {resp.status_code}), retrying ({attempt + 1}/{max_retries})"
+                            )
+                            if credential_manager:
+                                # 与429相同：强制轮换凭证，不增加调用计数
+                                await credential_manager.force_rotate_credential()
+                                new_credential_result = (
+                                    await credential_manager.get_valid_credential()
+                                )
+                                if new_credential_result:
+                                    current_file, credential_data = new_credential_result
+                                    headers, updated_payload, target_url = (
+                                        await _prepare_request_headers_and_payload(
+                                            payload, credential_data, use_public_api, target_url
+                                        )
+                                    )
+                                    final_post_data = json.dumps(updated_payload)
+                            await asyncio.sleep(retry_interval)
+                            continue
+                        # === 兼容性：如果不重试，则按原来逻辑返回错误流 ===
+
+                        # 处理凭证轮换（单次错误处理，与重试逻辑并存，保证兼容性）
                         await _handle_api_error(
                             credential_manager, resp.status_code, response_content, current_file
                         )
@@ -314,45 +337,60 @@ async def send_gemini_request(
                 async with http_client.get_client(timeout=None) as client:
                     resp = await client.post(target_url, content=final_post_data, headers=headers)
 
-                    if resp.status_code == 429:
-                        # 记录429错误
-                        if credential_manager and current_file:
-                            await credential_manager.record_api_call_result(
-                                current_file, False, 429
-                            )
+                    # === 修改：统一处理所有非200状态码，沿用429行为 ===
+                    if resp.status_code == 200:
+                        return await _handle_non_streaming_response(
+                            resp, credential_manager, payload.get("model", ""), current_file
+                        )
 
-                        # 如果重试可用且未达到最大次数，继续重试
-                        if retry_429_enabled and attempt < max_retries:
+                    # 记录错误
+                    status = resp.status_code
+                    if credential_manager and current_file:
+                        # 保留 429 的统计码不变
+                        await credential_manager.record_api_call_result(
+                            current_file, False, 429 if status == 429 else status
+                        )
+
+                    # 如果允许重试且未达到最大次数，则按429逻辑重试
+                    if retry_429_enabled and attempt < max_retries:
+                        if status == 429:
                             log.warning(
                                 f"[RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
                             )
-                            if credential_manager:
-                                # 429错误时强制轮换凭证，不增加调用计数
-                                await credential_manager.force_rotate_credential()
-                                # 重新获取凭证和headers（凭证可能已轮换）
-                                new_credential_result = (
-                                    await credential_manager.get_valid_credential()
-                                )
-                                if new_credential_result:
-                                    current_file, credential_data = new_credential_result
-                                    headers, updated_payload, target_url = (
-                                        await _prepare_request_headers_and_payload(
-                                            payload, credential_data, use_public_api, target_url
-                                        )
-                                    )
-                                    final_post_data = json.dumps(updated_payload)
-                            await asyncio.sleep(retry_interval)
-                            continue
                         else:
+                            log.warning(
+                                f"[RETRY] Non-200 error encountered (status {status}), retrying ({attempt + 1}/{max_retries})"
+                            )
+                        if credential_manager:
+                            # 与429相同：强制轮换凭证，不增加调用计数
+                            await credential_manager.force_rotate_credential()
+                            new_credential_result = (
+                                await credential_manager.get_valid_credential()
+                            )
+                            if new_credential_result:
+                                current_file, credential_data = new_credential_result
+                                headers, updated_payload, target_url = (
+                                    await _prepare_request_headers_and_payload(
+                                        payload, credential_data, use_public_api, target_url
+                                    )
+                                )
+                                final_post_data = json.dumps(updated_payload)
+                        await asyncio.sleep(retry_interval)
+                        continue
+                    else:
+                        if status == 429:
                             log.error("[RETRY] Max retries exceeded for 429 error")
                             return _create_error_response(
                                 "429 rate limit exceeded, max retries reached", 429
                             )
-                    else:
-                        # 非429错误或成功响应，正常处理
-                        return await _handle_non_streaming_response(
-                            resp, credential_manager, payload.get("model", ""), current_file
-                        )
+                        else:
+                            log.error(
+                                f"[RETRY] Max retries exceeded for error status {status}"
+                            )
+                            # 非429时，返回对应状态码的max retries错误
+                            return _create_error_response(
+                                f"{status} error, max retries reached", status
+                            )
 
         except Exception as e:
             if attempt < max_retries:
