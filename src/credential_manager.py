@@ -410,6 +410,15 @@ class CredentialManager:
             if success:
                 action = "disabled" if disabled else "enabled"
                 log.info(f"Credential {action}: {credential_name}")
+                # 关键：状态更新成功后，立即刷新内存中的可用凭证列表
+                try:
+                    await self._discover_credentials()
+                    log.debug(
+                        "Refreshed credential list after set_cred_disabled: "
+                        f"{len(self._credential_files)} available"
+                    )
+                except Exception as e:
+                    log.warning(f"刷新可用凭证列表失败（set_cred_disabled）: {e}")
 
             return success
 
@@ -594,8 +603,20 @@ class CredentialManager:
 
             if is_permanent_failure:
                 log.warning(f"检测到凭证永久失效: {filename}")
-                # 记录失效状态，但不在这里禁用凭证，让上层调用者处理
+                # 记录失效状态
                 await self.record_api_call_result(filename, False, 400)
+                # 新增：直接禁用该凭证并刷新可用列表
+                try:
+                    disabled_ok = await self.set_cred_disabled(filename, True)
+                    if disabled_ok:
+                        log.warning(
+                            "永久失效凭证已禁用并刷新列表，当前可用凭证数: "
+                            f"{len(self._credential_files)}"
+                        )
+                    else:
+                        log.warning("永久失效凭证禁用失败，将由上层逻辑继续处理")
+                except Exception as e2:
+                    log.error(f"禁用永久失效凭证时出错 {filename}: {e2}")
 
             return None
 
