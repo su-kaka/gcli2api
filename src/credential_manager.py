@@ -32,7 +32,6 @@ class CredentialManager:
         # 当前使用的凭证信息
         self._current_credential_file: Optional[str] = None
         self._current_credential_data: Optional[Dict[str, Any]] = None
-        self._current_credential_state: Dict[str, Any] = {}
 
         # 并发控制
         self._state_lock = asyncio.Lock()
@@ -205,13 +204,9 @@ class CredentialManager:
                     log.error(f"Token刷新失败: {current_file}")
                     return None
 
-            # 加载状态信息
-            state_data = await self._storage_adapter.get_credential_state(current_file)
-
             # 缓存当前凭证信息
             self._current_credential_file = current_file
             self._current_credential_data = credential_data
-            self._current_credential_state = state_data
 
             return current_file, credential_data
 
@@ -269,7 +264,7 @@ class CredentialManager:
                         "仅从队列中移除，不删除底层文件/文档"
                     )
 
-                # 2. 尝试删除对应状态（如果适配器支持）
+                # 2. 尝试删除对应状态
                 try:
                     if hasattr(self._storage_adapter, "delete_credential_state"):
                         await self._storage_adapter.delete_credential_state(credential_name)
@@ -286,20 +281,6 @@ class CredentialManager:
                         await self._storage_adapter.set_credential_order(self._credential_files)
                     except Exception as e:
                         log.warning(f"无法保存凭证顺序（remove_credential）: {e}")
-
-                # 4. 如果这是当前凭证，清空缓存并尝试切换到下一个
-                if credential_name == self._current_credential_file:
-                    self._current_credential_file = None
-                    self._current_credential_data = None
-                    self._current_credential_state = {}
-
-                    # 自动切换到下一个可用凭证（如果存在）
-                    if self._credential_files:
-                        log.info(
-                            f"当前凭证已被删除，切换到下一个可用凭证: {self._credential_files[0]}"
-                        )
-                    else:
-                        log.warning("删除当前凭证后，已无可用凭证")
 
                 log.info(f"Credential removed via manager: {credential_name}")
                 return True
@@ -377,8 +358,6 @@ class CredentialManager:
         current = self._credential_files.pop(0)
         self._credential_files.append(current)
 
-        # 当前凭证始终为队列头部，不再使用索引字段
-        # self._current_credential_index = 0
         self._call_count = 0
 
         # 持久化新的顺序
@@ -411,10 +390,6 @@ class CredentialManager:
                 credential_name, state_updates
             )
 
-            # 如果是当前使用的凭证，更新缓存
-            if credential_name == self._current_credential_file:
-                self._current_credential_state.update(state_updates)
-
             if success:
                 log.debug(f"Updated credential state: {credential_name}")
             else:
@@ -433,10 +408,6 @@ class CredentialManager:
             success = await self.update_credential_state(credential_name, state_updates)
 
             if success:
-                # 如果禁用了当前正在使用的凭证，重新发现可用凭证
-                if disabled and credential_name == self._current_credential_file:
-                    await self._discover_credentials()
-
                 action = "disabled" if disabled else "enabled"
                 log.info(f"Credential {action}: {credential_name}")
 
