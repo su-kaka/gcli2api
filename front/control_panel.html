@@ -2061,20 +2061,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             }
 
             // 检查文件大小
-            const totalSize = uploadSelectedFiles.reduce((sum, file) => sum + file.size, 0);
-            const maxSize = 200 * 1024 * 1024; // 200MB limit
-            if (totalSize > maxSize) {
-                showStatus(`文件总大小 ${(totalSize / 1024 / 1024).toFixed(1)}MB 超过限制 ${maxSize / 1024 / 1024}MB。请分批上传或删除部分文件。`, 'error');
-                return;
-            }
-
-            // 检查单个文件大小
-            for (const file of uploadSelectedFiles) {
-                if (file.size > 5 * 1024 * 1024) {
-                    showStatus(`文件 "${file.name}" 大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过单文件5MB限制`, 'error');
-                    return;
-                }
-            }
 
             const progressSection = document.getElementById('uploadProgressSection');
             const progressFill = document.getElementById('progressFill');
