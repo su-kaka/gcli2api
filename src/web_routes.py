@@ -1734,25 +1734,6 @@ class UsageLimitsUpdateRequest(BaseModel):
     total_limit: Optional[int] = None
 
 
-@router.post("/usage/update-limits")
-async def update_usage_limits(
-    request: UsageLimitsUpdateRequest, token: str = Depends(verify_token)
-):
-    """
-    更新指定凭证文件的每日使用限制 (已废弃 - 不再需要限制功能)
-
-    Returns:
-        Deprecated notice
-    """
-    return JSONResponse(
-        content={
-            "success": False,
-            "message": "此功能已废弃，新版本只统计24小时调用次数，不再需要限制设置"
-        },
-        status_code=410  # Gone
-    )
-
-
 class UsageResetRequest(BaseModel):
     filename: Optional[str] = None
 
