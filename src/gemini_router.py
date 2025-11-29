@@ -141,6 +141,11 @@ async def generate_content(
     log.debug(f"Non-streaming request received for model: {model}")
     log.debug(f"Request headers: {dict(request.headers)}")
     log.debug(f"API key received: {api_key[:10] if api_key else None}...")
+    try:
+        body = await request.body()
+        log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
+    except Exception as e:
+        log.error(f"Failed to read request body: {e}")
 
     # 获取原始请求数据
     try:
