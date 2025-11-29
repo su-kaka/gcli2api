@@ -734,9 +734,19 @@ def build_gemini_payload_from_native(native_request: dict, model_from_path: str)
     # 创建请求副本以避免修改原始数据
     request_data = native_request.copy()
 
-    # 应用默认安全设置（如果未指定）
-    if "safetySettings" not in request_data:
-        request_data["safetySettings"] = DEFAULT_SAFETY_SETTINGS
+    # 增量补全安全设置，用户指定的安全设置条目依照用户设置，未指定的条目使用DEFAULT_SAFETY_SETTINGS
+
+    # 获取用户现有的设置，如果不存在则初始化为空列表
+    user_settings = list(request_data.get("safetySettings", []))
+    # 提取用户已配置的 category 集合
+    existing_categories = {s.get("category") for s in user_settings}
+    # 遍历默认设置，将用户未配置的项追加到列表中
+    user_settings.extend(
+        default_setting for default_setting in DEFAULT_SAFETY_SETTINGS
+        if default_setting["category"] not in existing_categories
+    )
+    # 回写合并后的结果
+    request_data["safetySettings"] = user_settings
 
     # 确保generationConfig存在
     if "generationConfig" not in request_data:
