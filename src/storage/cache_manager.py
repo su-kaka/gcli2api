@@ -34,6 +34,8 @@ class UnifiedCacheManager:
         cache_backend: CacheBackend,
         cache_ttl: float = 300.0,
         write_delay: float = 1.0,
+        max_write_delay: float = 30.0,
+        min_write_interval: float = 5.0,
         name: str = "cache",
     ):
         """
@@ -41,19 +43,24 @@ class UnifiedCacheManager:
 
         Args:
             cache_backend: 缓存后端实现
-            cache_ttl: 缓存TTL（秒）
-            write_delay: 写入延迟（秒）
+            cache_ttl: 缓存TTL（秒）,设置为0表示永不过期
+            write_delay: 初始写入延迟（秒）
+            max_write_delay: 最大写入延迟（秒）,用于延迟写入策略
+            min_write_interval: 最小写入间隔（秒）,避免频繁写入
             name: 缓存名称（用于日志）
         """
         self._backend = cache_backend
         self._cache_ttl = cache_ttl
         self._write_delay = write_delay
+        self._max_write_delay = max_write_delay
+        self._min_write_interval = min_write_interval
         self._name = name
 
         # 缓存数据
         self._cache: Dict[str, Any] = {}
         self._cache_dirty = False
         self._last_cache_time = 0
+        self._cache_loaded = False  # 新增:标记缓存是否已加载
 
         # 并发控制
         self._cache_lock = asyncio.Lock()
@@ -62,9 +69,16 @@ class UnifiedCacheManager:
         self._write_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
 
+        # 写入控制
+        self._last_write_time = 0  # 新增:上次写入时间
+        self._pending_write_time = 0  # 新增:待写入数据的时间戳
+        self._write_count = 0  # 新增:写入次数统计
+
         # 性能监控
         self._operation_count = 0
         self._operation_times = deque(maxlen=1000)
+        self._read_count = 0  # 新增:后端读取次数
+        self._write_backend_count = 0  # 新增:实际后端写入次数
 
     async def start(self):
         """启动缓存管理器"""
@@ -228,16 +242,25 @@ class UnifiedCacheManager:
 
     async def _ensure_cache_loaded(self):
         """确保缓存已从底层存储加载"""
-        current_time = time.time()
+        # 如果已经加载过缓存,直接返回
+        if self._cache_loaded:
+            # 如果设置了TTL且缓存未过期,直接返回
+            if self._cache_ttl == 0:
+                return  # TTL为0表示永不过期
 
-        # 检查缓存是否需要加载（首次加载或过期）
-        # 如果缓存脏了（有未写入的数据），不要重新加载以避免数据丢失
-        if self._last_cache_time == 0 or (
-            current_time - self._last_cache_time > self._cache_ttl and not self._cache_dirty
-        ):
+            current_time = time.time()
+            # 如果缓存脏了（有未写入的数据）,不要重新加载以避免数据丢失
+            if self._cache_dirty:
+                return
 
-            await self._load_cache()
-            self._last_cache_time = current_time
+            # 检查是否过期
+            if current_time - self._last_cache_time <= self._cache_ttl:
+                return
+
+        # 首次加载或缓存过期,需要从后端加载
+        await self._load_cache()
+        self._last_cache_time = time.time()
+        self._cache_loaded = True
 
     async def _load_cache(self):
         """从底层存储加载缓存"""
@@ -246,10 +269,13 @@ class UnifiedCacheManager:
 
             # 从后端加载数据
             data = await self._backend.load_data()
+            self._read_count += 1  # 统计后端读取次数
 
             if data:
                 self._cache = data
-                log.debug(f"{self._name} cache loaded ({len(self._cache)}) from backend")
+                log.debug(
+                    f"{self._name} cache loaded ({len(self._cache)}) from backend (total reads: {self._read_count})"
+                )
             else:
                 # 如果后端没有数据，初始化空缓存
                 self._cache = {}
@@ -263,24 +289,86 @@ class UnifiedCacheManager:
             self._cache = {}
 
     async def _write_loop(self):
-        """异步写回循环"""
+        """异步写回循环 - 使用智能延迟写入策略"""
         while not self._shutdown_event.is_set():
             try:
+                # 计算动态写入延迟
+                current_time = time.time()
+                write_delay = self._calculate_write_delay(current_time)
+
                 # 等待写入延迟或关闭信号
                 try:
-                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=self._write_delay)
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=write_delay)
                     break  # 收到关闭信号
                 except asyncio.TimeoutError:
                     pass  # 超时，检查是否需要写回
 
-                # 如果缓存脏了，写回底层存储
+                # 如果缓存脏了,检查是否应该写回
                 async with self._cache_lock:
-                    if self._cache_dirty:
+                    if self._cache_dirty and self._should_write_now(current_time):
                         await self._write_cache()
 
             except Exception as e:
                 log.error(f"Error in {self._name} cache writer loop: {e}")
                 await asyncio.sleep(1)
+
+    def _calculate_write_delay(self, current_time: float) -> float:
+        """
+        计算动态写入延迟
+
+        如果缓存是脏的且接近最大延迟时间,使用较短的检查间隔
+        否则使用标准的写入延迟
+        """
+        if not self._cache_dirty:
+            # 缓存不脏,使用较长的检查间隔
+            return self._write_delay * 2
+
+        if self._pending_write_time == 0:
+            # 刚刚变脏,使用标准延迟
+            return self._write_delay
+
+        # 计算距离首次标记为脏的时间
+        time_since_dirty = current_time - self._pending_write_time
+
+        if time_since_dirty >= self._max_write_delay * 0.8:
+            # 接近最大延迟,使用较短的检查间隔
+            return self._write_delay * 0.5
+
+        # 使用标准延迟
+        return self._write_delay
+
+    def _should_write_now(self, current_time: float) -> bool:
+        """
+        判断是否应该立即写入
+
+        条件:
+        1. 距离上次写入已经超过最小写入间隔
+        2. 距离首次标记为脏已经超过初始写入延迟,或者超过最大写入延迟
+        """
+        if not self._cache_dirty:
+            return False
+
+        # 记录首次标记为脏的时间
+        if self._pending_write_time == 0:
+            self._pending_write_time = current_time
+            return False
+
+        # 检查最小写入间隔
+        if current_time - self._last_write_time < self._min_write_interval:
+            return False
+
+        # 计算距离首次标记为脏的时间
+        time_since_dirty = current_time - self._pending_write_time
+
+        # 如果超过最大延迟,必须写入
+        if time_since_dirty >= self._max_write_delay:
+            return True
+
+        # 如果超过初始写入延迟,可以写入
+        if time_since_dirty >= self._write_delay:
+            return True
+
+        return False
 
     async def _write_cache(self):
         """将缓存写回底层存储"""
@@ -295,9 +383,15 @@ class UnifiedCacheManager:
 
             if success:
                 self._cache_dirty = False
+                self._pending_write_time = 0  # 重置待写入时间
+                self._last_write_time = time.time()  # 更新最后写入时间
+                self._write_backend_count += 1  # 统计后端写入次数
+                self._write_count += 1
+
                 operation_time = time.time() - start_time
                 log.debug(
-                    f"{self._name} cache written to backend in {operation_time:.3f}s ({len(self._cache)} items)"
+                    f"{self._name} cache written to backend in {operation_time:.3f}s "
+                    f"({len(self._cache)} items, total writes: {self._write_backend_count})"
                 )
             else:
                 log.error(f"Failed to write {self._name} cache to backend")
@@ -311,18 +405,3 @@ class UnifiedCacheManager:
             if self._cache_dirty:
                 await self._write_cache()
                 log.debug(f"{self._name} cache flushed to backend")
-
-    def get_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
-        avg_time = (
-            sum(self._operation_times) / len(self._operation_times) if self._operation_times else 0
-        )
-
-        return {
-            "cache_name": self._name,
-            "cache_size": len(self._cache),
-            "cache_dirty": self._cache_dirty,
-            "operation_count": self._operation_count,
-            "avg_operation_time": avg_time,
-            "last_cache_time": self._last_cache_time,
-        }
