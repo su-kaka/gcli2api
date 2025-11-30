@@ -91,6 +91,27 @@ class StorageBackend(Protocol):
         """设置凭证轮换顺序"""
         ...
 
+    # API Key 管理
+    async def store_api_key(self, api_key: str, key_data: Dict[str, Any]) -> bool:
+        """存储 API Key 数据"""
+        ...
+
+    async def get_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        """获取 API Key 数据"""
+        ...
+
+    async def list_api_keys(self) -> Dict[str, Dict[str, Any]]:
+        """列出所有 API Keys"""
+        ...
+
+    async def delete_api_key(self, api_key: str) -> bool:
+        """删除 API Key"""
+        ...
+
+    async def update_api_key(self, api_key: str, updates: Dict[str, Any]) -> bool:
+        """更新 API Key 数据"""
+        ...
+
 
 class StorageAdapter:
     """存储适配器，根据配置选择存储后端"""
@@ -267,6 +288,33 @@ class StorageAdapter:
         """设置凭证轮换顺序"""
         self._ensure_initialized()
         return await self._backend.set_credential_order(order)
+
+    # ============ API Key 管理 ============
+
+    async def store_api_key(self, api_key: str, key_data: Dict[str, Any]) -> bool:
+        """存储 API Key 数据"""
+        self._ensure_initialized()
+        return await self._backend.store_api_key(api_key, key_data)
+
+    async def get_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        """获取 API Key 数据"""
+        self._ensure_initialized()
+        return await self._backend.get_api_key(api_key)
+
+    async def list_api_keys(self) -> Dict[str, Dict[str, Any]]:
+        """列出所有 API Keys"""
+        self._ensure_initialized()
+        return await self._backend.list_api_keys()
+
+    async def delete_api_key(self, api_key: str) -> bool:
+        """删除 API Key"""
+        self._ensure_initialized()
+        return await self._backend.delete_api_key(api_key)
+
+    async def update_api_key(self, api_key: str, updates: Dict[str, Any]) -> bool:
+        """更新 API Key 数据"""
+        self._ensure_initialized()
+        return await self._backend.update_api_key(api_key, updates)
 
     # ============ 工具方法 ============
 

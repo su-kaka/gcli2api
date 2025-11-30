@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>API Key 管理面板 - GCLI2API</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 32px;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            margin: 0 0 20px 0;
+            font-size: 20px;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="password"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="password"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .key-list {
+            margin-top: 20px;
+        }
+
+        .key-item {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            transition: border-color 0.3s;
+        }
+
+        .key-item:hover {
+            border-color: #667eea;
+        }
+
+        .key-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .key-value {
+            font-family: monospace;
+            font-size: 13px;
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            word-break: break-all;
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .key-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #777;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .model-stats {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        .model-stat-item {
+            display: inline-block;
+            background: white;
+            padding: 4px 8px;
+            margin: 4px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .model-config-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .model-config-table th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+        }
+
+        .model-config-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .model-config-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .model-config-table input[type="number"] {
+            width: 100px;
+            padding: 6px 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .model-config-table input[type="text"] {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .model-config-table .model-name {
+            font-family: monospace;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .model-config-table .cost-value {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .card {
+                padding: 15px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .key-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .key-value {
+                margin-right: 0;
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔑 API Key 管理面板</h1>
+            <p>创建、查看和管理 API Keys</p>
+        </div>
+
+        <div id="alertContainer"></div>
+
+        <!-- 创建 API Key -->
+        <div class="card">
+            <h2>创建新的 API Key</h2>
+            <div class="form-group">
+                <label for="panelPassword">面板密码</label>
+                <input type="password" id="panelPassword" placeholder="输入面板密码进行认证">
+            </div>
+            <div class="form-group">
+                <label for="totalQuota">配额次数</label>
+                <input type="number" id="totalQuota" value="1000" min="1" placeholder="输入总配额次数">
+            </div>
+            <div class="form-group">
+                <label for="description">描述（可选）</label>
+                <textarea id="description" placeholder="为这个 API Key 添加描述信息"></textarea>
+            </div>
+            <button onclick="createAPIKey()">创建 API Key</button>
+        </div>
+
+        <!-- API Key 列表 -->
+        <div class="card">
+            <h2>API Key 列表</h2>
+            <button onclick="loadAPIKeys()" style="margin-bottom: 15px;">刷新列表</button>
+            <div id="keyList" class="key-list">
+                <div class="loading">点击"刷新列表"加载 API Keys</div>
+            </div>
+        </div>
+
+        <!-- 模型消耗配置 -->
+        <div class="card">
+            <h2>⚙️ 模型消耗配置</h2>
+            <p style="color: #777; font-size: 14px; margin-bottom: 15px;">
+                配置每个模型调用时消耗的配额次数。支持批量修改，配置实时生效无需重启。
+            </p>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button onclick="loadModelCosts()">🔄 加载配置</button>
+                <button onclick="batchSaveModelCosts()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">💾 批量保存</button>
+            </div>
+
+            <div id="modelCosts"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            alertContainer.appendChild(alertDiv);
+
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        async function createAPIKey() {
+            const password = document.getElementById('panelPassword').value;
+            const totalQuota = parseInt(document.getElementById('totalQuota').value);
+            const description = document.getElementById('description').value;
+
+            if (!password) {
+                showAlert('请输入面板密码', 'error');
+                return;
+            }
+
+            if (!totalQuota || totalQuota <= 0) {
+                showAlert('请输入有效的配额次数', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/keys`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${password}`
+                    },
+                    body: JSON.stringify({
+                        total_quota: totalQuota,
+                        description: description || null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert(`API Key 创建成功！`, 'success');
+
+                    // 显示完整的 API Key
+                    const keyDisplay = `
+                        <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                            <strong>新创建的 API Key（请妥善保存）：</strong>
+                            <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace; word-break: break-all;">
+                                ${data.api_key}
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('alertContainer').insertAdjacentHTML('beforeend', keyDisplay);
+
+                    // 清空表单
+                    document.getElementById('totalQuota').value = '1000';
+                    document.getElementById('description').value = '';
+
+                    // 刷新列表
+                    loadAPIKeys();
+                } else {
+                    showAlert(data.detail || '创建失败', 'error');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+            }
+        }
+
+        async function loadAPIKeys() {
+            const password = document.getElementById('panelPassword').value;
+
+            if (!password) {
+                showAlert('请输入面板密码', 'error');
+                return;
+            }
+
+            const keyList = document.getElementById('keyList');
+            keyList.innerHTML = '<div class="loading">加载中...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/keys`, {
+                    headers: {
+                        'Authorization': `Bearer ${password}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (data.keys.length === 0) {
+                        keyList.innerHTML = '<div class="alert alert-info">暂无 API Key</div>';
+                        return;
+                    }
+
+                    keyList.innerHTML = data.keys.map(key => {
+                        const usagePercent = (key.used_quota / key.total_quota * 100).toFixed(2);
+                        const modelStatsHtml = Object.entries(key.model_stats || {})
+                            .map(([model, count]) => `<span class="model-stat-item">${model}: ${count}</span>`)
+                            .join('');
+
+                        return `
+                            <div class="key-item">
+                                <div class="key-header">
+                                    <div class="key-value">${key.api_key}</div>
+                                    <button class="btn-danger" onclick="deleteAPIKey('${key.api_key}')">删除</button>
+                                </div>
+                                ${key.description ? `<p style="margin: 5px 0; color: #777; font-size: 13px;">${key.description}</p>` : ''}
+                                <div class="key-stats">
+                                    <div class="stat-item">
+                                        <div class="stat-label">总配额</div>
+                                        <div class="stat-value">${key.total_quota}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">已使用</div>
+                                        <div class="stat-value">${key.used_quota}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">剩余</div>
+                                        <div class="stat-value">${key.remaining_quota}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">使用率</div>
+                                        <div class="stat-value">${usagePercent}%</div>
+                                    </div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${usagePercent}%"></div>
+                                </div>
+                                <div class="model-stats">
+                                    <strong>模型调用统计：</strong>
+                                    ${modelStatsHtml || '<span style="color: #999;">暂无数据</span>'}
+                                </div>
+                                <p style="margin: 10px 0 0 0; font-size: 12px; color: #999;">
+                                    创建时间: ${key.created_at}
+                                </p>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    showAlert(data.detail || '加载失败', 'error');
+                    keyList.innerHTML = '<div class="alert alert-error">加载失败</div>';
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+                keyList.innerHTML = '<div class="alert alert-error">网络错误</div>';
+            }
+        }
+
+        async function deleteAPIKey(apiKey) {
+            if (!confirm(`确定要删除这个 API Key 吗？\n${apiKey}`)) {
+                return;
+            }
+
+            const password = document.getElementById('panelPassword').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/keys/${encodeURIComponent(apiKey)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${password}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert('API Key 已删除', 'success');
+                    loadAPIKeys();
+                } else {
+                    showAlert(data.detail || '删除失败', 'error');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+            }
+        }
+
+        // 模型成本配置相关
+        let modelCostsData = {};
+        let defaultCost = 1;
+
+        async function loadModelCosts() {
+            const password = document.getElementById('panelPassword').value;
+
+            if (!password) {
+                showAlert('请输入面板密码', 'error');
+                return;
+            }
+
+            const modelCostsDiv = document.getElementById('modelCosts');
+            modelCostsDiv.innerHTML = '<div class="loading">🔄 加载中...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/models/costs`, {
+                    headers: {
+                        'Authorization': `Bearer ${password}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    modelCostsData = data.model_costs;
+                    defaultCost = data.default_cost;
+                    renderModelCostsTable();
+                } else {
+                    showAlert(data.detail || '加载失败', 'error');
+                    modelCostsDiv.innerHTML = '<div class="alert alert-error">❌ 加载失败</div>';
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+                modelCostsDiv.innerHTML = '<div class="alert alert-error">❌ 网络错误</div>';
+            }
+        }
+
+        function renderModelCostsTable() {
+            const modelCostsDiv = document.getElementById('modelCosts');
+            const costsArray = Object.entries(modelCostsData).sort((a, b) => a[0].localeCompare(b[0]));
+
+            const tableHtml = `
+                <div class="alert alert-info">
+                    <strong>📊 默认消耗:</strong> ${defaultCost} 次/调用<br>
+                    <small>当模型未配置时，将使用此默认值</small>
+                </div>
+
+                <div style="margin: 15px 0; display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="color: #333; font-size: 16px;">已配置的模型 (${costsArray.length})</strong>
+                    <div style="color: #777; font-size: 14px;">
+                        💡 提示: 修改后点击"批量保存"按钮保存所有更改
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="model-config-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">#</th>
+                                <th>模型名称</th>
+                                <th style="width: 180px;">消耗次数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modelTableBody">
+                            ${costsArray.map(([model, cost], index) => `
+                                <tr data-model="${model}">
+                                    <td style="color: #999;">${index + 1}</td>
+                                    <td>
+                                        <div class="model-name">${model}</div>
+                                    </td>
+                                    <td>
+                                        <input type="number"
+                                               class="cost-input"
+                                               value="${cost}"
+                                               min="0"
+                                               data-model="${model}"
+                                               data-original="${cost}">
+                                        <span class="cost-value" style="margin-left: 5px;">次</span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            modelCostsDiv.innerHTML = costsArray.length > 0 ? tableHtml : `
+                <div class="alert alert-info">
+                    📝 暂无自定义配置
+                </div>
+            `;
+
+            // 添加输入框变化监听，高亮修改的行
+            document.querySelectorAll('.cost-input').forEach(input => {
+                input.addEventListener('input', function() {
+                    const row = this.closest('tr');
+                    if (this.value !== this.dataset.original) {
+                        row.style.background = '#fff3cd';
+                    } else {
+                        row.style.background = '';
+                    }
+                });
+            });
+        }
+
+        async function batchSaveModelCosts() {
+            const password = document.getElementById('panelPassword').value;
+
+            if (!password) {
+                showAlert('请输入面板密码', 'error');
+                return;
+            }
+
+            const inputs = document.querySelectorAll('.cost-input');
+            const updates = [];
+
+            inputs.forEach(input => {
+                const modelName = input.dataset.model;
+                const newCost = parseInt(input.value);
+                const originalCost = parseInt(input.dataset.original);
+
+                if (newCost !== originalCost && !isNaN(newCost) && newCost >= 0) {
+                    updates.push({ model_name: modelName, cost: newCost });
+                }
+            });
+
+            if (updates.length === 0) {
+                showAlert('没有需要保存的修改', 'info');
+                return;
+            }
+
+            showAlert(`正在保存 ${updates.length} 个配置...`, 'info');
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const update of updates) {
+                try {
+                    const response = await fetch(`${API_BASE}/auth/models/costs`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${password}`
+                        },
+                        body: JSON.stringify(update)
+                    });
+
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    failCount++;
+                }
+            }
+
+            if (successCount > 0) {
+                showAlert(`✅ 成功保存 ${successCount} 个配置${failCount > 0 ? `，失败 ${failCount} 个` : ''}`, 'success');
+                loadModelCosts();
+            } else {
+                showAlert('❌ 保存失败', 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

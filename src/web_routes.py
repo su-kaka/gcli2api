@@ -238,7 +238,6 @@ def is_mobile_user_agent(user_agent: str) -> bool:
 
 @router.get("/", response_class=HTMLResponse)
 @router.get("/v1", response_class=HTMLResponse)
-@router.get("/auth", response_class=HTMLResponse)
 async def serve_control_panel(request: Request):
     """提供统一控制面板"""
     try:
@@ -259,6 +258,49 @@ async def serve_control_panel(request: Request):
         raise HTTPException(status_code=500, detail="服务器内部错误")
 
 
+@router.get("/auth", response_class=HTMLResponse)
+async def serve_auth_page():
+    """提供独立的OAuth认证页面（无需密码验证）"""
+    try:
+        # 读取HTML文件
+        html_file_path = "front/multi_user_auth_web.html"
+
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="认证页面不存在")
+    except Exception as e:
+        log.error(f"加载认证页面失败: {e}")
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+
+
+@router.get("/api-key-admin", response_class=HTMLResponse)
+async def serve_api_key_admin():
+    """提供 API Key 管理面板"""
+    try:
+        html_file_path = "front/api_key_admin.html"
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        log.error(f"加载 API Key 管理面板失败: {e}")
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+
+
+@router.get("/api-key-query", response_class=HTMLResponse)
+async def serve_api_key_query():
+    """提供 API Key 配额查询页面"""
+    try:
+        html_file_path = "front/api_key_query.html"
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        log.error(f"加载 API Key 查询页面失败: {e}")
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+
 @router.post("/auth/login")
 async def login(request: LoginRequest):
     """用户登录"""
@@ -276,8 +318,8 @@ async def login(request: LoginRequest):
 
 
 @router.post("/auth/start")
-async def start_auth(request: AuthStartRequest, token: str = Depends(verify_token)):
-    """开始认证流程，支持自动检测项目ID和批量获取所有项目"""
+async def start_auth(request: AuthStartRequest):
+    """开始认证流程，支持自动检测项目ID和批量获取所有项目（无需认证）"""
     try:
         # 检查是否为批量项目模式
         if request.get_all_projects:
@@ -289,8 +331,8 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
             if not project_id:
                 log.info("用户未提供项目ID，后续将使用自动检测...")
 
-        # 使用认证令牌作为用户会话标识
-        user_session = token if token else None
+        # 不使用用户会话标识（认证页面无需登录）
+        user_session = None
         result = await create_auth_url(
             project_id, user_session, get_all_projects=request.get_all_projects
         )
@@ -316,15 +358,15 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
 
 
 @router.post("/auth/callback")
-async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verify_token)):
-    """处理认证回调，支持自动检测项目ID和批量获取所有项目"""
+async def auth_callback(request: AuthCallbackRequest):
+    """处理认证回调，支持自动检测项目ID和批量获取所有项目（无需认证）"""
     try:
         # 项目ID现在是可选的，在回调处理中进行自动检测
         project_id = request.project_id
         get_all_projects = request.get_all_projects
 
-        # 使用认证令牌作为用户会话标识
-        user_session = token if token else None
+        # 不使用用户会话标识（认证页面无需登录）
+        user_session = None
         # 异步等待OAuth回调完成
         result = await asyncio_complete_auth_flow(
             project_id, user_session, get_all_projects=get_all_projects
@@ -378,8 +420,8 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
 
 
 @router.post("/auth/callback-url")
-async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
-    """从回调URL直接完成认证，支持批量获取所有项目"""
+async def auth_callback_url(request: AuthCallbackUrlRequest):
+    """从回调URL直接完成认证，支持批量获取所有项目（无需认证）"""
     try:
         # 验证URL格式
         if not request.callback_url or not request.callback_url.startswith(("http://", "https://")):

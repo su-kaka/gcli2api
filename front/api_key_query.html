@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>API Key 配额查询 - GCLI2API</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+            color: #333;
+        }
+
+        .header p {
+            margin: 0;
+            color: #777;
+            font-size: 14px;
+        }
+
+        .icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: monospace;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        button {
+            width: 100%;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .result-container {
+            display: none;
+            margin-top: 30px;
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .progress-container {
+            margin: 20px 0;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            transition: width 0.5s ease;
+            border-radius: 6px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #777;
+            font-size: 14px;
+        }
+
+        .info-value {
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+            word-break: break-all;
+            text-align: right;
+            max-width: 60%;
+        }
+
+        .model-stats {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .model-stats-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .model-stat-item {
+            display: inline-block;
+            background: white;
+            padding: 6px 12px;
+            margin: 4px;
+            border-radius: 6px;
+            font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <div class="icon">🔍</div>
+                <h1>API Key 配额查询</h1>
+                <p>查看您的 API Key 使用情况</p>
+            </div>
+
+            <div id="alertContainer"></div>
+
+            <div class="form-group">
+                <label for="apiKey">输入您的 API Key</label>
+                <input type="text" id="apiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+
+            <button onclick="queryUsage()">查询使用情况</button>
+
+            <div id="resultContainer" class="result-container">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">总配额</div>
+                        <div class="stat-value" id="totalQuota">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">已使用</div>
+                        <div class="stat-value" id="usedQuota">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">剩余</div>
+                        <div class="stat-value" id="remainingQuota">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">使用率</div>
+                        <div class="stat-value" id="usagePercent">-</div>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-label">
+                        <span>配额使用进度</span>
+                        <span id="progressText">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <div class="info-item">
+                        <span class="info-label">API Key</span>
+                        <span class="info-value" id="apiKeyDisplay">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">创建时间</span>
+                        <span class="info-value" id="createdAt">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">描述</span>
+                        <span class="info-value" id="description">-</span>
+                    </div>
+                </div>
+
+                <div class="model-stats">
+                    <div class="model-stats-title">📊 模型调用统计</div>
+                    <div id="modelStats"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        function showAlert(message, type = 'error') {
+            const alertContainer = document.getElementById('alertContainer');
+            alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        async function queryUsage() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+
+            if (!apiKey) {
+                showAlert('请输入 API Key');
+                return;
+            }
+
+            if (!apiKey.startsWith('sk-')) {
+                showAlert('API Key 格式不正确，应以 sk- 开头');
+                return;
+            }
+
+            // 隐藏结果
+            document.getElementById('resultContainer').style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        api_key: apiKey
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayResult(data);
+                } else {
+                    showAlert(data.detail || '查询失败');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message);
+            }
+        }
+
+        function displayResult(data) {
+            // 更新统计数据
+            document.getElementById('totalQuota').textContent = data.total_quota.toLocaleString();
+            document.getElementById('usedQuota').textContent = data.used_quota.toLocaleString();
+            document.getElementById('remainingQuota').textContent = data.remaining_quota.toLocaleString();
+            document.getElementById('usagePercent').textContent = data.usage_percentage + '%';
+
+            // 更新进度条
+            document.getElementById('progressText').textContent = data.usage_percentage + '%';
+            document.getElementById('progressFill').style.width = data.usage_percentage + '%';
+
+            // 更新信息
+            document.getElementById('apiKeyDisplay').textContent = data.api_key;
+            document.getElementById('createdAt').textContent = formatDate(data.created_at);
+            document.getElementById('description').textContent = data.description || '无';
+
+            // 更新模型统计
+            const modelStatsContainer = document.getElementById('modelStats');
+            if (data.model_stats && Object.keys(data.model_stats).length > 0) {
+                modelStatsContainer.innerHTML = Object.entries(data.model_stats)
+                    .map(([model, count]) => `<div class="model-stat-item">${model}: <strong>${count}</strong> 次</div>`)
+                    .join('');
+            } else {
+                modelStatsContainer.innerHTML = '<div class="empty-state">暂无调用记录</div>';
+            }
+
+            // 显示结果
+            document.getElementById('resultContainer').style.display = 'block';
+        }
+
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 支持回车键查询
+        document.getElementById('apiKey').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                queryUsage();
+            }
+        });
+
+        // 从 URL 参数中读取 API Key（如果有）
+        window.addEventListener('DOMContentLoaded', function () {
+            const urlParams = new URLSearchParams(window.location.search);
+            const apiKey = urlParams.get('key');
+            if (apiKey) {
+                document.getElementById('apiKey').value = apiKey;
+                queryUsage();
+            }
+        });
+    </script>
+</body>
+
+</html>

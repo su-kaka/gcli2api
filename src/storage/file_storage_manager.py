@@ -91,12 +91,14 @@ class FileStorageManager:
         self._credentials_dir = None  # 将通过异步初始化设置
         self._state_file = None
         self._config_file = None
+        self._api_keys_file = None  # API keys 独立存储文件
         self._lock = asyncio.Lock()
         self._initialized = False
 
         # 统一缓存管理器
         self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
         self._config_cache_manager: Optional[UnifiedCacheManager] = None
+        self._api_keys_cache_manager: Optional[UnifiedCacheManager] = None  # API keys 缓存管理器
 
         # 配置参数
         self._write_delay = 0.5  # 写入延迟（秒）
@@ -111,6 +113,7 @@ class FileStorageManager:
         self._credentials_dir = os.getenv("CREDENTIALS_DIR", "./creds")
         self._state_file = os.path.join(self._credentials_dir, "creds.toml")
         self._config_file = os.path.join(self._credentials_dir, "config.toml")
+        self._api_keys_file = os.path.join(self._credentials_dir, "api_keys.toml")  # API keys 独立文件
 
         # 确保目录存在
         os.makedirs(self._credentials_dir, exist_ok=True)
@@ -121,6 +124,7 @@ class FileStorageManager:
         # 创建缓存管理器
         credentials_backend = FileCacheBackend(self._state_file)
         config_backend = FileCacheBackend(self._config_file)
+        api_keys_backend = FileCacheBackend(self._api_keys_file)  # API keys 后端
 
         self._credentials_cache_manager = UnifiedCacheManager(
             credentials_backend,
@@ -133,9 +137,14 @@ class FileStorageManager:
             config_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="config"
         )
 
+        self._api_keys_cache_manager = UnifiedCacheManager(
+            api_keys_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="api_keys"
+        )
+
         # 启动缓存管理器
         await self._credentials_cache_manager.start()
         await self._config_cache_manager.start()
+        await self._api_keys_cache_manager.start()
 
         self._initialized = True
         log.debug("File storage manager initialized with unified cache")
@@ -147,6 +156,8 @@ class FileStorageManager:
             await self._credentials_cache_manager.stop()
         if self._config_cache_manager:
             await self._config_cache_manager.stop()
+        if self._api_keys_cache_manager:
+            await self._api_keys_cache_manager.stop()
 
         self._initialized = False
         log.debug("File storage manager closed with unified cache flushed")
@@ -651,3 +662,94 @@ class FileStorageManager:
         except Exception as e:
             log.error(f"Error setting credential order: {e}")
             return False
+
+    # ============ API Key 管理 ============
+
+    async def store_api_key(self, api_key: str, key_data: Dict[str, Any]) -> bool:
+        """存储 API Key 数据到独立的 API keys 缓存"""
+        self._ensure_initialized()
+
+        try:
+            # 直接存储到 API keys 缓存
+            success = await self._api_keys_cache_manager.set(api_key, key_data)
+
+            if success:
+                log.debug(f"Stored API key: {api_key[:10]}...")
+            else:
+                log.error(f"Failed to store API key: {api_key[:10]}...")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error storing API key {api_key[:10]}...: {e}")
+            return False
+
+    async def get_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        """从独立的 API keys 缓存获取 API Key 数据"""
+        self._ensure_initialized()
+
+        try:
+            return await self._api_keys_cache_manager.get(api_key)
+
+        except Exception as e:
+            log.error(f"Error getting API key {api_key[:10]}...: {e}")
+            return None
+
+    async def list_api_keys(self) -> Dict[str, Dict[str, Any]]:
+        """从独立的 API keys 缓存列出所有 API Keys"""
+        self._ensure_initialized()
+
+        try:
+            return await self._api_keys_cache_manager.get_all()
+
+        except Exception as e:
+            log.error(f"Error listing API keys: {e}")
+            return {}
+
+    async def delete_api_key(self, api_key: str) -> bool:
+        """从独立的 API keys 缓存删除 API Key"""
+        self._ensure_initialized()
+
+        try:
+            success = await self._api_keys_cache_manager.delete(api_key)
+
+            if success:
+                log.debug(f"Deleted API key: {api_key[:10]}...")
+            else:
+                log.warning(f"API key not found for deletion: {api_key[:10]}...")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error deleting API key {api_key[:10]}...: {e}")
+            return False
+
+    async def update_api_key(self, api_key: str, updates: Dict[str, Any]) -> bool:
+        """更新独立的 API keys 缓存中的 API Key 数据"""
+        self._ensure_initialized()
+
+        try:
+            # 获取现有数据
+            existing_data = await self._api_keys_cache_manager.get(api_key)
+
+            if existing_data is None:
+                log.warning(f"API key not found for update: {api_key[:10]}...")
+                return False
+
+            # 更新字段
+            existing_data.update(updates)
+
+            # 保存更新后的数据
+            success = await self._api_keys_cache_manager.set(api_key, existing_data)
+
+            if success:
+                log.debug(f"Updated API key: {api_key[:10]}...")
+            else:
+                log.error(f"Failed to update API key: {api_key[:10]}...")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error updating API key {api_key[:10]}...: {e}")
+            return False
+

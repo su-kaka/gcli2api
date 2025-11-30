@@ -255,121 +255,92 @@
 </head>
 <body>
     <div class="container">
-        
-        <!-- 登录界面 -->
-        <div id="loginSection">
-            <div class="logo">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-            </div>
-            <h1>Google OAuth 认证</h1>
-            <div class="login-form">
-                <div class="form-group">
-                    <input type="password" id="password" placeholder="请输入访问密码" onkeypress="handlePasswordEnter(event)" />
-                </div>
-                <button class="btn" onclick="login()">登录</button>
-            </div>
-        </div>
 
-        <!-- 主界面 -->
-        <div id="mainSection" class="hidden">
+        <!-- 主界面（已移除登录界面） -->
+        <div id="mainSection">
             <h1>Google OAuth 认证</h1>
-            
-            <!-- API 自动启用说明 -->
+
+            <!-- 使用说明 -->
             <div class="status info">
-                <h4>✨ 自动化优化</h4>
-                <p style="margin: 15px 0;">系统现在会在认证成功后自动为您的项目启用以下必需的API服务：</p>
-                <ul style="margin: 15px 0; padding-left: 20px;">
-                    <li><strong>Gemini Cloud Assist API</strong></li>
-                    <li><strong>Gemini for Google Cloud API</strong></li>
-                </ul>
-                <p style="margin: 15px 0; color: #0c5460;"><strong>说明：</strong>无需手动启用API，系统会自动处理这些配置步骤。</p>
+                <h4>📖 使用说明</h4>
+                <p style="margin: 10px 0; line-height: 1.6;">
+                    1️⃣ 点击下方按钮获取认证链接<br>
+                    2️⃣ 在新窗口中完成 Google 授权<br>
+                    3️⃣ <strong>如果访问失败，请复制浏览器地址栏的完整URL</strong><br>
+                    4️⃣ 将URL粘贴到"快捷获取凭证"区域，即可完成认证
+                </p>
             </div>
 
-            <!-- 折叠式 Project ID 输入框 -->
-            <div class="form-group">
-                <div style="cursor: pointer; user-select: none; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center;" onclick="toggleProjectIdSection()">
-                    <span style="font-weight: 600; color: #555;">📁 高级选项：Google Cloud Project ID (不用管，直接点击获取链接即可)</span>
-                    <span id="projectIdToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▶</span>
-                </div>
-                <div id="projectIdSection" style="display: none; margin-top: 15px; padding: 15px; border: 2px solid #e1e5e9; border-top: none; border-radius: 0 0 8px 8px; background: #ffffff;">
-                    <label for="projectId" style="display: block; margin-bottom: 8px; font-weight: 600; color: #555; font-size: 14px;">Google Cloud Project ID (可选):</label>
-                    <input type="text" id="projectId" style="width: 100%; padding: 12px 16px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 16px; box-sizing: border-box; transition: all 0.3s ease;" placeholder="留空将尝试自动检测，或手动输入项目ID" />
-                    <small style="color: #666; font-size: 12px; margin-top: 5px; display: block;">
-                        💡 提示：如果你不懂这是什么，可以留空此字段让系统自动检测项目ID
-                    </small>
-                </div>
-            </div>
-            
-            <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
-            
+            <button class="btn" id="getAuthBtn" onclick="startAuth()" style="font-size: 18px; padding: 16px 32px; margin: 20px 0;">
+                🔑 获取认证链接
+            </button>
+
             <div id="authUrlSection" class="hidden">
                 <h3>步骤一：认证链接</h3>
                 <div class="auth-url">
-                    <a id="authUrl" href="#" target="_blank">点击此链接进行 OAuth 认证</a>
+                    <a id="authUrl" href="#" target="_blank" style="font-size: 14px;">点击此链接进行 OAuth 认证</a>
                 </div>
-                
-                <div class="steps">
-                    <h4>认证步骤：</h4>
-                    <ol>
-                        <li>点击上方认证链接，在新窗口中完成 Google 登录</li>
-                        <li>授权应用访问您的 Google Cloud 项目</li>
-                        <li>看到 "OAuth authentication successful!" 页面后，关闭该窗口</li>
-                        <li>返回本页面，点击下方"获取认证文件"按钮</li>
-                    </ol>
-                    
-                    <div class="status warning" style="margin-top: 20px;">
-                        <h4>⚠️ 注意</h4>
-                        <p>当回源时，网页访问会显示报错。这时请手动将浏览器地址栏的 <code>localhost</code> 修改为 <code>gcli-auth.sukaka.top</code>，然后重新访问即可。</p>
-                    </div>
+
+                <div class="status warning" style="margin: 20px 0;">
+                    <h4>⚠️ 如果点击链接后页面无法访问</h4>
+                    <p style="margin: 10px 0; line-height: 1.6;">
+                        这是正常现象！请按照以下步骤操作：<br>
+                        1. 完成 Google 授权后，页面可能显示"无法访问此网站"<br>
+                        2. <strong style="color: #d32f2f;">不要关闭窗口！</strong>复制浏览器地址栏的<strong>完整URL</strong><br>
+                        3. 将复制的URL粘贴到下方"快捷获取凭证"区域
+                    </p>
                 </div>
-                
-                <!-- 快捷回调URL输入选项 -->
-                <div style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
-                    <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" onclick="toggleCallbackUrlSection()">
-                        <span style="font-weight: 600; color: #0066cc; font-size: 16px;">🚀 无法回源？试试快捷方式</span>
-                        <span id="callbackUrlToggleIcon" style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
-                    </div>
-                    <div id="callbackUrlSection" style="display: none;">
-                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
-                            <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚 适用场景：</div>
-                            <ul style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
-                                <li>云服务器、VPS等非本地环境</li>
-                                <li>防火墙阻止了回调端口访问</li>
-                                <li>网络环境无法正常回源</li>
-                                <li>Docker容器端口映射问题</li>
-                            </ul>
-                        </div>
-                        <div style="color: #666; font-size: 13px; margin-bottom: 12px; line-height: 1.6;">
-                            <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
-                            完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
-                            <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all; display: block; margin-top: 4px;">
+
+                <!-- 快捷回调URL输入选项（显眼位置） -->
+                <div style="margin: 25px 0; padding: 20px; border: 3px solid #4285f4; border-radius: 12px; background: linear-gradient(135deg, #f8fcff 0%, #e3f2fd 100%); box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15);">
+                    <h3 style="color: #1565c0; margin-top: 0; margin-bottom: 15px; font-size: 20px; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 24px;">🚀</span>
+                        <span>快捷获取凭证（推荐使用）</span>
+                    </h3>
+
+                    <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                        <div style="color: #856404; font-size: 15px; font-weight: bold; margin-bottom: 8px;">💡 什么是回调URL？</div>
+                        <p style="color: #856404; font-size: 14px; margin: 8px 0; line-height: 1.6;">
+                            完成Google授权后，浏览器地址栏显示的<strong>完整网址</strong>，即使页面显示无法访问，地址栏的URL也是有效的！
+                        </p>
+                        <div style="background: #fff; border-radius: 4px; padding: 8px; margin-top: 10px;">
+                            <strong style="color: #856404; font-size: 13px;">示例：</strong>
+                            <code style="background: #f1f3f4; padding: 4px 8px; border-radius: 3px; font-size: 12px; word-break: break-all; display: block; margin-top: 4px; color: #333;">
                                 http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
                             </code>
                         </div>
-                        <div style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
-                            <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋 使用步骤：</div>
-                            <ol style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
-                                <li>点击上方认证链接，完成Google授权</li>
-                                <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
-                                <li>粘贴到下方输入框，点击获取凭证即可</li>
-                            </ol>
-                        </div>
-                        <div style="margin-bottom: 12px;">
-                            <input type="url" id="callbackUrlInput" placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..." 
-                                   style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
-                        </div>
-                        <button class="btn" style="background: #28a745; border-color: #28a745;" onclick="processCallbackUrl()">
-                            从回调URL获取凭证
-                        </button>
                     </div>
+
+                    <div style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                        <div style="color: #2e7d32; font-size: 15px; font-weight: bold; margin-bottom: 8px;">📋 使用步骤：</div>
+                        <ol style="color: #2e7d32; font-size: 14px; margin: 0; padding-left: 20px; line-height: 1.8;">
+                            <li>点击上方认证链接，完成Google授权</li>
+                            <li><strong>复制浏览器地址栏的完整URL</strong>（即使页面显示错误）</li>
+                            <li>粘贴到下方输入框</li>
+                            <li>点击"立即获取凭证"按钮</li>
+                        </ol>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1565c0; font-size: 15px;">
+                            ⬇️ 将回调URL粘贴到这里：
+                        </label>
+                        <input type="url" id="callbackUrlInput"
+                               placeholder="粘贴浏览器地址栏的完整URL，例如：http://localhost:8080/?state=xxx&code=xxx..."
+                               style="width: 100%; padding: 14px; border: 2px solid #4285f4; border-radius: 8px; font-size: 14px; box-sizing: border-box; font-family: monospace;">
+                    </div>
+                    <button class="btn" style="background: linear-gradient(135deg, #4caf50, #45a049); border: none; font-size: 16px; padding: 14px 28px;" onclick="processCallbackUrl()">
+                        ✅ 立即获取凭证
+                    </button>
                 </div>
-                
-                <button class="btn secondary" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
+
+                <div style="text-align: center; margin: 20px 0; color: #999; font-size: 14px;">
+                    ━━━━━━ 或者 ━━━━━━
+                </div>
+
+                <button class="btn secondary" id="getCredsBtn" onclick="getCredentials()" style="opacity: 0.7;">
+                    ⏳ 等待自动回调获取凭证（需要网络能正常回源）
+                </button>
             </div>
             
             <div id="credentialsSection" class="hidden">
@@ -403,113 +374,57 @@
     </div>
 
     <script>
-        let currentProjectId = '';
         let authInProgress = false;
-        let authToken = '';
         let currentCredentials = null;
 
         function showStatus(message, type = 'info') {
             const statusSection = document.getElementById('statusSection');
             if (statusSection) {
                 statusSection.innerHTML = `<div class="status ${type}">${message}</div>`;
-                
+
                 // 自动滚动到状态消息
                 statusSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
 
-        // 登录相关函数
-        async function login() {
-            const password = document.getElementById('password').value;
-            
-            if (!password) {
-                showStatus('请输入密码', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/auth/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ password: password })
-                });
-
-                const data = await response.json();
-                
-                if (response.ok) {
-                    authToken = data.token;
-                    document.getElementById('loginSection').classList.add('hidden');
-                    document.getElementById('mainSection').classList.remove('hidden');
-                    showStatus('登录成功', 'success');
-                } else {
-                    showStatus(`登录失败: ${data.detail || data.error || '密码错误'}`, 'error');
-                }
-            } catch (error) {
-                showStatus(`网络错误: ${error.message}`, 'error');
-            }
-        }
-
-        function handlePasswordEnter(event) {
-            if (event.key === 'Enter') {
-                login();
-            }
-        }
-
-        // 获取认证头
+        // 获取认证头（无需认证令牌）
         function getAuthHeaders() {
             return {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
+                'Content-Type': 'application/json'
             };
         }
 
         async function startAuth() {
-            const projectId = document.getElementById('projectId').value.trim();
-            // 项目ID现在是可选的
-            currentProjectId = projectId || null;
-            
             const btn = document.getElementById('getAuthBtn');
             btn.disabled = true;
             btn.textContent = '正在生成认证链接...';
 
             try {
-                const requestBody = {};
-                if (projectId) {
-                    requestBody.project_id = projectId;
-                    showStatus('使用指定的项目ID生成认证链接...', 'info');
-                } else {
-                    showStatus('将尝试自动检测项目ID，正在生成认证链接...', 'info');
-                }
+                showStatus('正在生成认证链接，系统会自动检测项目ID...', 'info');
 
                 const response = await fetch('/auth/start', {
                     method: 'POST',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify({})
                 });
 
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     document.getElementById('authUrl').href = data.auth_url;
                     document.getElementById('authUrl').textContent = data.auth_url;
                     document.getElementById('authUrlSection').classList.remove('hidden');
-                    
-                    if (data.auto_project_detection) {
-                        showStatus('认证链接已生成（将在认证完成后自动检测项目ID），请点击链接完成 OAuth 授权', 'info');
-                    } else {
-                        showStatus(`认证链接已生成（项目ID: ${data.detected_project_id}），请点击链接完成 OAuth 授权`, 'info');
-                    }
+
+                    showStatus('认证链接已生成！请点击链接完成授权，如遇访问失败请使用"快捷获取凭证"', 'success');
                     authInProgress = true;
                 } else {
-                    showStatus(`生成认证链接失败: ${data.error || '未知错误'}`, 'error');
+                    showStatus(`生成认证链接失败: ${data.error || data.detail || '未知错误'}`, 'error');
                 }
             } catch (error) {
                 showStatus(`网络错误: ${error.message}`, 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = '获取认证链接';
+                btn.textContent = '🔑 获取认证链接';
             }
         }
 
@@ -525,75 +440,43 @@
 
             try {
                 showStatus('正在等待 OAuth 回调，请确保已完成浏览器中的授权...', 'info');
-                
-                const requestBody = {};
-                if (currentProjectId) {
-                    requestBody.project_id = currentProjectId;
-                }
-                
+
                 const response = await fetch('/auth/callback', {
                     method: 'POST',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify({})
                 });
 
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     currentCredentials = data.credentials;
                     document.getElementById('credentialsContent').textContent = JSON.stringify(data.credentials, null, 2);
                     document.getElementById('credentialsSection').classList.remove('hidden');
-                    
+
+                    const projectId = data.credentials.project_id || '未知';
                     if (data.auto_detected_project) {
-                        showStatus(`认证成功！项目ID已自动检测为: ${data.credentials.project_id}，文件已保存到服务器: ${data.file_path}`, 'success');
+                        showStatus(`认证成功！项目ID已自动检测为: ${projectId}，文件已保存到服务器: ${data.file_path}`, 'success');
                     } else {
                         showStatus(`认证成功！文件已保存到服务器: ${data.file_path}`, 'success');
                     }
-                    
+
                     authInProgress = false;
-                    
+
                     // 隐藏前面的步骤，突出显示成功结果
                     document.getElementById('authUrlSection').style.opacity = '0.6';
                 } else {
                     // 检查是否需要项目选择
                     if (data.requires_project_selection && data.available_projects) {
-                        let projectOptions = "请选择一个项目：\n\n";
-                        data.available_projects.forEach((project, index) => {
-                            projectOptions += `${index + 1}. ${project.name} (${project.projectId})\n`;
-                        });
-                        projectOptions += `\n请输入序号 (1-${data.available_projects.length}):`;
-                        
-                        const selection = prompt(projectOptions);
-                        const projectIndex = parseInt(selection) - 1;
-                        
-                        if (projectIndex >= 0 && projectIndex < data.available_projects.length) {
-                            const selectedProject = data.available_projects[projectIndex];
-                            currentProjectId = selectedProject.projectId;
-                            btn.textContent = '重新尝试获取认证文件';
-                            showStatus(`使用选择的项目 ${selectedProject.name} (${selectedProject.projectId}) 重新尝试...`, 'info');
-                            setTimeout(() => getCredentials(), 1000);
-                            return;
-                        } else {
-                            showStatus('无效的选择，请重新开始认证', 'error');
-                        }
+                        showStatus('检测到多个项目，这种情况请使用"快捷获取凭证"方式', 'warning');
                     }
                     // 检查是否需要手动输入项目ID
                     else if (data.requires_manual_project_id) {
-                        const userProjectId = prompt('无法自动检测项目ID，请手动输入您的Google Cloud项目ID:');
-                        if (userProjectId && userProjectId.trim()) {
-                            // 重新尝试，使用用户输入的项目ID
-                            currentProjectId = userProjectId.trim();
-                            btn.textContent = '重新尝试获取认证文件';
-                            showStatus('使用手动输入的项目ID重新尝试...', 'info');
-                            setTimeout(() => getCredentials(), 1000);
-                            return;
-                        } else {
-                            showStatus('需要项目ID才能完成认证，请重新开始并输入正确的项目ID', 'error');
-                        }
+                        showStatus('无法自动检测项目ID，请使用"快捷获取凭证"方式', 'warning');
                     } else {
                         showStatus(`认证失败: ${data.error || '获取认证文件失败'}`, 'error');
                         if (data.error && data.error.includes('未接收到授权回调')) {
-                            showStatus('提示：请确保已完成浏览器中的 OAuth 认证，并看到了"OAuth authentication successful"页面', 'warning');
+                            showStatus('提示：如果授权后页面无法访问，请使用上方"快捷获取凭证"功能', 'warning');
                         }
                     }
                 }
@@ -601,7 +484,7 @@
                 showStatus(`网络错误: ${error.message}`, 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = '获取认证文件';
+                btn.textContent = '⏳ 等待自动回调获取凭证（需要网络能正常回源）';
             }
         }
 
@@ -611,9 +494,10 @@
                 return;
             }
 
-            const filename = `${currentProjectId}-credentials.json`;
+            const projectId = currentCredentials.project_id || 'unknown';
+            const filename = `${projectId}-credentials.json`;
             const content = JSON.stringify(currentCredentials, null, 2);
-            
+
             const blob = new Blob([content], { type: 'application/json' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -624,55 +508,22 @@
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-            
+
             showStatus(`认证文件已下载: ${filename}`, 'success');
         }
 
         function resetForm() {
             // 重置表单
-            document.getElementById('projectId').value = '';
             document.getElementById('authUrlSection').classList.add('hidden');
             document.getElementById('credentialsSection').classList.add('hidden');
             document.getElementById('authUrlSection').style.opacity = '1';
-            
+            document.getElementById('callbackUrlInput').value = '';
+
             // 重置状态
-            currentProjectId = '';
             authInProgress = false;
             currentCredentials = null;
-            
-            showStatus('请输入新的 Project ID 开始认证', 'info');
-        }
 
-        // Project ID 折叠切换函数
-        function toggleProjectIdSection() {
-            const section = document.getElementById('projectIdSection');
-            const icon = document.getElementById('projectIdToggleIcon');
-            
-            if (section.style.display === 'none') {
-                section.style.display = 'block';
-                icon.style.transform = 'rotate(90deg)';
-                icon.textContent = '▼';
-            } else {
-                section.style.display = 'none';
-                icon.style.transform = 'rotate(0deg)';
-                icon.textContent = '▶';
-            }
-        }
-
-        // 回调URL输入区域折叠切换函数
-        function toggleCallbackUrlSection() {
-            const section = document.getElementById('callbackUrlSection');
-            const icon = document.getElementById('callbackUrlToggleIcon');
-
-            if (section.style.display === 'none') {
-                section.style.display = 'block';
-                icon.style.transform = 'rotate(180deg)';
-                icon.textContent = '▲';
-            } else {
-                section.style.display = 'none';
-                icon.style.transform = 'rotate(0deg)';
-                icon.textContent = '▼';
-            }
+            showStatus('请点击"获取认证链接"重新开始认证', 'info');
         }
 
         // 处理回调URL的函数
@@ -693,23 +544,18 @@
 
             // 检查是否包含必要参数
             if (!callbackUrl.includes('code=') || !callbackUrl.includes('state=')) {
-                showStatus('❌ 这不是有效的回调URL！请确保：\n1. 已完成Google OAuth授权\n2. 复制的是浏览器地址栏的完整URL\n3. URL包含code和state参数', 'error');
+                showStatus('❌ 这不是有效的回调URL！\n请确保：\n1. 已完成Google OAuth授权\n2. 复制的是浏览器地址栏的完整URL\n3. URL包含code和state参数', 'error');
                 return;
             }
 
             showStatus('正在从回调URL获取凭证...', 'info');
 
             try {
-                // 获取当前项目ID设置（如果有的话）
-                const projectIdInput = document.getElementById('projectId');
-                const projectId = projectIdInput ? projectIdInput.value.trim() : null;
-
                 const response = await fetch('/auth/callback-url', {
                     method: 'POST',
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
-                        callback_url: callbackUrl,
-                        project_id: projectId || null
+                        callback_url: callbackUrl
                     })
                 });
 
@@ -718,29 +564,26 @@
                 if (result.credentials) {
                     // 显示成功信息
                     showStatus(result.message || '从回调URL获取凭证成功！', 'success');
-                    
+
                     // 隐藏认证URL区域，显示凭证内容
                     document.getElementById('authUrlSection').classList.add('hidden');
                     document.getElementById('credentialsSection').classList.remove('hidden');
-                    
+
                     // 显示凭证内容
-                    document.getElementById('credentialsContent').innerHTML = 
-                        '<pre>' + JSON.stringify(result.credentials, null, 2) + '</pre>';
-                    
-                    // 设置全局变量供下载使用
-                    window.currentCredentials = result.credentials;
-                    
+                    currentCredentials = result.credentials;
+                    document.getElementById('credentialsContent').textContent = JSON.stringify(result.credentials, null, 2);
+
                     // 清空输入框
                     callbackUrlInput.value = '';
-                    
+
                 } else if (result.requires_manual_project_id) {
-                    showStatus('需要手动指定项目ID，请在高级选项中填入Google Cloud项目ID后重试', 'error');
+                    showStatus('⚠️ 需要手动指定项目ID。这种情况比较少见，请联系技术支持。', 'error');
                 } else if (result.requires_project_selection) {
-                    let projectOptions = '\n\n可用项目：\n';
+                    let projectList = '\n\n检测到多个项目：\n';
                     result.available_projects.forEach(project => {
-                        projectOptions += `• ${project.name} (ID: ${project.projectId})\n`;
+                        projectList += `• ${project.name} (ID: ${project.projectId})\n`;
                     });
-                    showStatus('检测到多个项目，请在高级选项中指定项目ID：' + projectOptions, 'error');
+                    showStatus('⚠️ 检测到多个项目。' + projectList + '\n这种情况比较少见，请联系技术支持。', 'warning');
                 } else {
                     showStatus(result.error || '从回调URL获取凭证失败', 'error');
                 }
@@ -752,10 +595,7 @@
 
         // 页面加载时的初始化
         window.onload = function() {
-            showStatus('请输入密码登录以开始 OAuth 认证', 'info');
-            
-            // 自动聚焦到密码输入框
-            document.getElementById('password').focus();
+            showStatus('欢迎使用 Google OAuth 认证服务！点击"获取认证链接"开始认证', 'info');
         };
     </script>
 </body>

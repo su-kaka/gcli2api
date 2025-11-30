@@ -62,17 +62,31 @@ async def authenticate_gemini_flexible(
     x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
     key: Optional[str] = Query(None),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
-) -> str:
-    """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
+) -> dict:
+    """
+    灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer
+    返回验证结果，包含认证类型和相关信息
+    """
     from config import get_api_password
 
     password = await get_api_password()
+
+    # 首先尝试API Key鉴权
+    from src.chat_api_auth import authenticate_api_key
+    try:
+        api_key_result = await authenticate_api_key(request)
+        # API Key 鉴权成功
+        log.debug("Using API Key authentication")
+        return {"type": "api_key", "data": api_key_result}
+    except HTTPException:
+        # API Key 鉴权失败，继续尝试其他方式
+        pass
 
     # 尝试从URL参数key获取（Google官方标准方式）
     if key:
         log.debug("Using URL parameter key authentication")
         if key == password:
-            return key
+            return {"type": "password", "data": key}
 
     # 尝试从Authorization头获取（兼容旧方式）
     auth_header = request.headers.get("authorization")
@@ -80,13 +94,13 @@ async def authenticate_gemini_flexible(
         token = auth_header[7:]  # 移除 "Bearer " 前缀
         log.debug("Using Bearer token authentication")
         if token == password:
-            return token
+            return {"type": "password", "data": token}
 
     # 尝试从x-goog-api-key头获取（新标准方式）
     if x_goog_api_key:
         log.debug("Using x-goog-api-key authentication")
         if x_goog_api_key == password:
-            return x_goog_api_key
+            return {"type": "password", "data": x_goog_api_key}
 
     log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
     raise HTTPException(
@@ -135,17 +149,23 @@ async def list_gemini_models():
 async def generate_content(
     model: str = Path(..., description="Model name"),
     request: Request = None,
-    api_key: str = Depends(authenticate_gemini_flexible),
+    auth_result: dict = Depends(authenticate_gemini_flexible),
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
     log.debug(f"Non-streaming request received for model: {model}")
     log.debug(f"Request headers: {dict(request.headers)}")
-    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
+    log.debug(f"Auth result: {auth_result}")
     try:
         body = await request.body()
         log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
     except Exception as e:
         log.error(f"Failed to read request body: {e}")
+
+    # 如果使用API Key鉴权，消耗配额
+    if auth_result["type"] == "api_key":
+        from src.chat_api_auth import consume_quota
+        api_key = auth_result["data"]["api_key"]
+        await consume_quota(api_key, model)
 
     # 获取原始请求数据
     try:
@@ -264,17 +284,23 @@ async def generate_content(
 async def stream_generate_content(
     model: str = Path(..., description="Model name"),
     request: Request = None,
-    api_key: str = Depends(authenticate_gemini_flexible),
+    auth_result: dict = Depends(authenticate_gemini_flexible),
 ):
     """处理Gemini格式的流式内容生成请求"""
     log.debug(f"Stream request received for model: {model}")
     log.debug(f"Request headers: {dict(request.headers)}")
-    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
+    log.debug(f"Auth result: {auth_result}")
     try:
         body = await request.body()
         log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
     except Exception as e:
         log.error(f"Failed to read request body: {e}")
+
+    # 如果使用API Key鉴权，消耗配额
+    if auth_result["type"] == "api_key":
+        from src.chat_api_auth import consume_quota
+        api_key = auth_result["data"]["api_key"]
+        await consume_quota(api_key, model)
 
     # 获取原始请求数据
     try:
@@ -358,7 +384,7 @@ async def stream_generate_content(
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
-    request: Request = None, api_key: str = Depends(authenticate_gemini_flexible)
+    request: Request = None, auth_result: dict = Depends(authenticate_gemini_flexible)
 ):
     """模拟Gemini格式的token计数"""
 
@@ -402,7 +428,7 @@ async def count_tokens(
 @router.get("/v1/models/{model:path}")
 async def get_model_info(
     model: str = Path(..., description="Model name"),
-    api_key: str = Depends(authenticate_gemini_flexible),
+    auth_result: dict = Depends(authenticate_gemini_flexible),
 ):
     """获取特定模型的信息"""
 
