@@ -337,17 +337,19 @@ class CredentialManager:
                     if result:
                         return result
 
-                    # 当前凭证加载失败，标记为失效并切换到下一个
-                    log.warning(f"凭证失效，自动禁用并切换: {current_file}")
+                    # 当前凭证加载失败，先轮换到队列尾，再标记为失效
+                    log.warning(f"凭证失效，先轮换再禁用: {current_file}")
+
+                    # 先将凭证移到队列尾部（如果有多个凭证）
+                    if len(self._credential_files) > 1:
+                        await self._rotate_credential()
+
+                    # 再执行禁用操作
                     await self.set_cred_disabled(current_file, True)
 
                     if not self._credential_files:
                         log.error("没有可用的凭证")
                         return None
-
-                    # 如果禁用后队列头还是同一个，主动轮换一次
-                    if self._credential_files[0] == current_file and len(self._credential_files) > 1:
-                        await self._rotate_credential()
 
                     log.info(f"切换到下一个可用凭证: {self._credential_files[0]}")
 
@@ -692,17 +694,19 @@ class CredentialManager:
                 else:
                     await self.record_api_call_result(filename, False, 400)
 
-                # 直接禁用该凭证并刷新可用列表
+                # 先轮换到队列尾，再禁用该凭证
                 try:
+                    # 如果有多个凭证且当前凭证在队列头，先轮换
+                    if len(self._credential_files) > 1 and self._credential_files[0] == filename:
+                        await self._rotate_credential()
+
+                    # 再执行禁用操作
                     disabled_ok = await self.set_cred_disabled(filename, True)
                     if disabled_ok:
                         log.warning(
                             "永久失效凭证已禁用并刷新列表，当前可用凭证数: "
                             f"{len(self._credential_files)}"
                         )
-                        # 如果还有其他凭证，主动轮换一次，避免再次拿到同一个
-                        if len(self._credential_files) > 1 and self._credential_files[0] == filename:
-                            await self._rotate_credential()
                     else:
                         log.warning("永久失效凭证禁用失败，将由上层逻辑继续处理")
                 except Exception as e2:

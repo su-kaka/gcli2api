@@ -88,13 +88,15 @@ async def _handle_auto_ban(
     status_code: int,
     credential_name: str
 ) -> None:
-    """处理自动封禁：禁用凭证并轮换"""
+    """处理自动封禁：先轮换到队列尾，再禁用凭证"""
     if credential_manager and credential_name:
         log.warning(
-            f"[AUTO_BAN] Status {status_code} triggers auto-ban, disabling credential: {credential_name}"
+            f"[AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
         )
-        await credential_manager.set_cred_disabled(credential_name, True)
+        # 先将凭证移到队列尾部（如果有多个凭证）
         await credential_manager.force_rotate_credential()
+        # 再执行禁用操作
+        await credential_manager.set_cred_disabled(credential_name, True)
 
 
 async def _get_next_credential(
