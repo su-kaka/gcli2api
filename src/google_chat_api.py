@@ -6,6 +6,7 @@ This module is used by both OpenAI compatibility layer and native Gemini endpoin
 import asyncio
 import gc
 import json
+from datetime import datetime, timezone
 
 from fastapi import Response
 from fastapi.responses import StreamingResponse
@@ -30,7 +31,7 @@ from log import log
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .usage_stats import record_successful_call
-from .utils import get_user_agent
+from .utils import get_user_agent, parse_quota_reset_timestamp
 
 
 def _filter_thoughts_from_response(response_data: dict) -> dict:
@@ -277,10 +278,19 @@ async def send_gemini_request(
                     if resp.status_code == 429:
                         # 记录429错误并获取响应内容
                         response_content = ""
+                        cooldown_until = None
                         try:
                             content_bytes = await resp.aread()
                             if isinstance(content_bytes, bytes):
                                 response_content = content_bytes.decode("utf-8", errors="ignore")
+                                # 尝试解析冷却时间
+                                try:
+                                    error_data = json.loads(response_content)
+                                    cooldown_until = parse_quota_reset_timestamp(error_data)
+                                    if cooldown_until:
+                                        log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
+                                except Exception as parse_err:
+                                    log.debug(f"[STREAMING] Failed to parse cooldown time: {parse_err}")
                         except Exception as e:
                             log.debug(f"[STREAMING] Failed to read 429 response content: {e}")
 
@@ -296,7 +306,7 @@ async def send_gemini_request(
 
                         if credential_manager and current_file:
                             await credential_manager.record_api_call_result(
-                                current_file, False, 429
+                                current_file, False, 429, cooldown_until
                             )
 
                         # 清理资源
@@ -346,10 +356,20 @@ async def send_gemini_request(
                     elif resp.status_code != 200:
                         # 处理其他非200状态码的错误
                         response_content = ""
+                        cooldown_until = None
                         try:
                             content_bytes = await resp.aread()
                             if isinstance(content_bytes, bytes):
                                 response_content = content_bytes.decode("utf-8", errors="ignore")
+                                # 如果是429错误，尝试解析冷却时间
+                                if resp.status_code == 429:
+                                    try:
+                                        error_data = json.loads(response_content)
+                                        cooldown_until = parse_quota_reset_timestamp(error_data)
+                                        if cooldown_until:
+                                            log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
+                                    except Exception as parse_err:
+                                        log.debug(f"[STREAMING] Failed to parse cooldown time: {parse_err}")
                         except Exception as e:
                             log.debug(f"[STREAMING] Failed to read error response content: {e}")
 
@@ -366,7 +386,7 @@ async def send_gemini_request(
                         # 记录API调用错误
                         if credential_manager and current_file:
                             await credential_manager.record_api_call_result(
-                                current_file, False, resp.status_code
+                                current_file, False, resp.status_code, cooldown_until
                             )
 
                         # 清理资源
@@ -447,10 +467,25 @@ async def send_gemini_request(
 
                     # 记录错误
                     status = resp.status_code
+                    cooldown_until = None
+
+                    # 如果是429错误，尝试获取冷却时间
+                    if status == 429:
+                        try:
+                            content_bytes = resp.content if hasattr(resp, "content") else await resp.aread()
+                            if isinstance(content_bytes, bytes):
+                                response_content = content_bytes.decode("utf-8", errors="ignore")
+                                error_data = json.loads(response_content)
+                                cooldown_until = parse_quota_reset_timestamp(error_data)
+                                if cooldown_until:
+                                    log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
+                        except Exception as parse_err:
+                            log.debug(f"[NON-STREAMING] Failed to parse cooldown time: {parse_err}")
+
                     if credential_manager and current_file:
                         # 保留 429 的统计码不变
                         await credential_manager.record_api_call_result(
-                            current_file, False, 429 if status == 429 else status
+                            current_file, False, 429 if status == 429 else status, cooldown_until
                         )
 
                     # 使用统一的错误处理和重试逻辑
@@ -525,10 +560,20 @@ def _handle_streaming_response_managed(
 
             # 获取响应内容用于详细错误显示
             response_content = ""
+            cooldown_until = None
             try:
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
                     response_content = content_bytes.decode("utf-8", errors="ignore")
+                    # 如果是429错误，尝试解析冷却时间
+                    if resp.status_code == 429:
+                        try:
+                            error_data = json.loads(response_content)
+                            cooldown_until = parse_quota_reset_timestamp(error_data)
+                            if cooldown_until:
+                                log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
+                        except Exception as parse_err:
+                            log.debug(f"[STREAMING] Failed to parse cooldown time for error analysis: {parse_err}")
             except Exception as e:
                 log.debug(f"[STREAMING] Failed to read response content for error analysis: {e}")
                 response_content = ""
@@ -552,7 +597,7 @@ def _handle_streaming_response_managed(
             # 记录API调用错误
             if credential_manager and current_file:
                 await credential_manager.record_api_call_result(
-                    current_file, False, resp.status_code
+                    current_file, False, resp.status_code, cooldown_until
                 )
 
             # 处理429和自动封禁
@@ -685,6 +730,7 @@ async def _handle_non_streaming_response(
     else:
         # 获取响应内容用于详细错误显示
         response_content = ""
+        cooldown_until = None
         try:
             if hasattr(resp, "content"):
                 content = resp.content
@@ -694,6 +740,16 @@ async def _handle_non_streaming_response(
                 content_bytes = await resp.aread()
                 if isinstance(content_bytes, bytes):
                     response_content = content_bytes.decode("utf-8", errors="ignore")
+
+            # 如果是429错误，尝试解析冷却时间
+            if resp.status_code == 429 and response_content:
+                try:
+                    error_data = json.loads(response_content)
+                    cooldown_until = parse_quota_reset_timestamp(error_data)
+                    if cooldown_until:
+                        log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
+                except Exception as parse_err:
+                    log.debug(f"[NON-STREAMING] Failed to parse cooldown time for error analysis: {parse_err}")
         except Exception as e:
             log.debug(f"[NON-STREAMING] Failed to read response content for error analysis: {e}")
             response_content = ""
@@ -716,7 +772,7 @@ async def _handle_non_streaming_response(
 
         # 记录API调用错误
         if credential_manager and current_file:
-            await credential_manager.record_api_call_result(current_file, False, resp.status_code)
+            await credential_manager.record_api_call_result(current_file, False, resp.status_code, cooldown_until)
 
         # 处理429和自动封禁
         if resp.status_code == 429 and credential_manager:

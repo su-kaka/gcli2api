@@ -688,6 +688,24 @@ async def get_creds_status(token: str = Depends(verify_token)):
                         "user_email": file_status.get("user_email"),
                     }
 
+                    # 添加冷却状态信息
+                    cooldown_until = file_status.get("cooldown_until")
+                    if cooldown_until:
+                        import time
+                        current_time = time.time()
+                        if current_time < cooldown_until:
+                            # 仍在冷却期
+                            remaining_seconds = int(cooldown_until - current_time)
+                            result["cooldown_status"] = "cooling"
+                            result["cooldown_until"] = cooldown_until
+                            result["cooldown_remaining_seconds"] = remaining_seconds
+                        else:
+                            # 冷却期已过
+                            result["cooldown_status"] = "ready"
+                    else:
+                        # 没有冷却
+                        result["cooldown_status"] = "ready"
+
                     if backend_type == "file" and os.path.exists(filename):
                         result.update(
                             {

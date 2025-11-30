@@ -290,7 +290,7 @@ class CredentialManager:
                 return False
 
     async def get_valid_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """获取有效的凭证，自动处理轮换和失效凭证切换"""
+        """获取有效的凭证，自动处理轮换、失效凭证切换和冷却检查"""
         async with self._operation_lock:
             if not self._credential_files:
                 await self._discover_credentials()
@@ -316,6 +316,22 @@ class CredentialManager:
 
                 tried.append(current_file)
                 try:
+                    # 检查凭证是否在冷却期
+                    if await self._is_credential_in_cooldown(current_file):
+                        log.info(f"凭证 {current_file} 在冷却期，跳过并轮换到下一个")
+                        # 如果只有一个凭证，即使在冷却期也要返回（让上层处理）
+                        if len(self._credential_files) == 1:
+                            log.warning(
+                                f"只有一个凭证 {current_file} 可用但在冷却期，仍然返回该凭证"
+                            )
+                            result = await self._load_current_credential()
+                            if result:
+                                return result
+                        else:
+                            # 有多个凭证，跳过冷却中的凭证
+                            await self._rotate_credential()
+                            continue
+
                     # 加载当前凭证
                     result = await self._load_current_credential()
                     if result:
@@ -444,6 +460,43 @@ class CredentialManager:
             log.error(f"Error getting credential statuses: {e}")
             return {}
 
+    async def _is_credential_in_cooldown(self, credential_name: str) -> bool:
+        """
+        检查凭证是否在冷却期内
+
+        Args:
+            credential_name: 凭证名称
+
+        Returns:
+            True表示在冷却期，False表示已过冷却期或无冷却
+        """
+        try:
+            state = await self._storage_adapter.get_credential_state(credential_name)
+            cooldown_until = state.get("cooldown_until")
+
+            if cooldown_until is None:
+                return False
+
+            current_time = time.time()
+            if current_time < cooldown_until:
+                remaining = cooldown_until - current_time
+                remaining_minutes = int(remaining / 60)
+                log.debug(
+                    f"凭证 {credential_name} 仍在冷却期，"
+                    f"剩余时间: {remaining_minutes}分{int(remaining % 60)}秒"
+                )
+                return True
+            else:
+                # 冷却期已过，清除冷却状态
+                log.info(f"凭证 {credential_name} 冷却期已过，恢复可用")
+                await self.update_credential_state(credential_name, {"cooldown_until": None})
+                return False
+
+        except Exception as e:
+            log.error(f"检查凭证冷却状态失败 {credential_name}: {e}")
+            # 出错时默认认为不在冷却期
+            return False
+
     async def get_or_fetch_user_email(self, credential_name: str) -> Optional[str]:
         """获取或获取用户邮箱地址"""
         try:
@@ -474,16 +527,26 @@ class CredentialManager:
             return None
 
     async def record_api_call_result(
-        self, credential_name: str, success: bool, error_code: Optional[int] = None
+        self, credential_name: str, success: bool, error_code: Optional[int] = None,
+        cooldown_until: Optional[float] = None
     ):
-        """记录API调用结果"""
+        """
+        记录API调用结果
+
+        Args:
+            credential_name: 凭证名称
+            success: 是否成功
+            error_code: 错误码（如果失败）
+            cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
+        """
         try:
             state_updates = {}
 
             if success:
                 state_updates["last_success"] = time.time()
-                # 清除错误码（如果之前有的话）
+                # 清除错误码和冷却时间（如果之前有的话）
                 state_updates["error_codes"] = []
+                state_updates["cooldown_until"] = None
             elif error_code:
                 # 记录错误码
                 current_state = await self._storage_adapter.get_credential_state(credential_name)
@@ -496,6 +559,14 @@ class CredentialManager:
                         error_codes = error_codes[-10:]
 
                 state_updates["error_codes"] = error_codes
+
+                # 如果提供了冷却时间，记录到状态中
+                if cooldown_until is not None:
+                    state_updates["cooldown_until"] = cooldown_until
+                    log.info(
+                        f"设置凭证冷却: {credential_name}, "
+                        f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                    )
 
             if state_updates:
                 await self.update_credential_state(credential_name, state_updates)

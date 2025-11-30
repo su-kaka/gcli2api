@@ -2358,6 +2358,25 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 statusBadges += '<span style="background-color: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">无错误</span>';
             }
 
+            // 添加冷却状态显示
+            if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_remaining_seconds) {
+                const remainingSeconds = credInfo.cooldown_remaining_seconds;
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
+
+                let timeDisplay = '';
+                if (hours > 0) {
+                    timeDisplay = `${hours}h ${minutes}m ${seconds}s`;
+                } else if (minutes > 0) {
+                    timeDisplay = `${minutes}m ${seconds}s`;
+                } else {
+                    timeDisplay = `${seconds}s`;
+                }
+
+                statusBadges += `<span class="cooldown-badge" style="background-color: #ffc107; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: bold; margin-right: 5px;" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 冷却: ${timeDisplay}</span>`;
+            }
+
             // 为HTML ID生成安全的标识符
             const pathId = btoa(encodeURIComponent(fullPath)).replace(/[+/=]/g, '_');
 
@@ -3385,7 +3404,87 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             if (checkbox) {
                 checkbox.addEventListener('change', handleGetAllProjectsChange);
             }
+
+            // 启动冷却倒计时自动更新（每秒更新一次）
+            startCooldownTimer();
         };
+
+        // 冷却倒计时自动更新
+        let cooldownTimerInterval = null;
+
+        function startCooldownTimer() {
+            // 清除旧的定时器
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+            }
+
+            // 每秒更新一次冷却状态
+            cooldownTimerInterval = setInterval(() => {
+                updateCooldownDisplays();
+            }, 1000);
+        }
+
+        function stopCooldownTimer() {
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+                cooldownTimerInterval = null;
+            }
+        }
+
+        function updateCooldownDisplays() {
+            // 遍历所有凭证，更新冷却显示
+            for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_until) {
+                    const currentTime = Date.now() / 1000; // 当前时间（秒）
+                    const remainingSeconds = Math.max(0, Math.floor(credInfo.cooldown_until - currentTime));
+
+                    // 更新内存中的剩余时间
+                    credInfo.cooldown_remaining_seconds = remainingSeconds;
+
+                    // 如果冷却期已过，标记为ready并刷新列表
+                    if (remainingSeconds <= 0) {
+                        credInfo.cooldown_status = 'ready';
+                        credInfo.cooldown_until = null;
+                        credInfo.cooldown_remaining_seconds = 0;
+
+                        // 重新渲染当前页
+                        renderCredsList();
+                        return; // 有状态变化，立即重新渲染
+                    }
+                }
+            }
+
+            // 更新页面上的冷却显示（只更新文字，不重新渲染整个卡片）
+            document.querySelectorAll('.cooldown-badge').forEach(badge => {
+                const filenameMatch = badge.closest('.card')?.querySelector('.card-title')?.textContent;
+                if (!filenameMatch) return;
+
+                // 找到对应的凭证数据
+                for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                    if (credInfo.filename === filenameMatch && credInfo.cooldown_status === 'cooling') {
+                        const remainingSeconds = credInfo.cooldown_remaining_seconds || 0;
+                        if (remainingSeconds > 0) {
+                            const hours = Math.floor(remainingSeconds / 3600);
+                            const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                            const seconds = remainingSeconds % 60;
+
+                            let timeDisplay = '';
+                            if (hours > 0) {
+                                timeDisplay = `${hours}h ${minutes}m ${seconds}s`;
+                            } else if (minutes > 0) {
+                                timeDisplay = `${minutes}m ${seconds}s`;
+                            } else {
+                                timeDisplay = `${seconds}s`;
+                            }
+
+                            // 只更新时间文本
+                            badge.innerHTML = `🕐 冷却: ${timeDisplay}`;
+                        }
+                        break;
+                    }
+                }
+            });
+        }
 
         // 页面离开时清理选择状态
         window.addEventListener('beforeunload', function () {
