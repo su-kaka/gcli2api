@@ -833,7 +833,7 @@ export COMPATIBILITY_MODE=true
 
 **QQ 群号：937681997**
 
-![QQ群二维码](docs/qq群.jpg)
+<img src="docs/qq群.jpg" width="200" alt="QQ群二维码">
 
 ---
 
