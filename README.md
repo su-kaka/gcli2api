@@ -59,6 +59,41 @@
 - **JWT Token 认证**：控制面板支持 JWT 令牌认证
 - **用户邮箱获取**：自动获取和显示 Google 账户邮箱地址
 
+### API Key 多用户额度管理系统
+
+**独立的 API Key 管理**
+- 创建多个独立的 API Key，每个 Key 拥有独立配额
+- 不同模型消耗不同次数（Pro: 10次、Flash: 2次、抗截断模式翻倍）
+- 实时查询 Key 余额和使用统计
+- 细致的模型调用统计（记录每个模型的使用次数）
+- 支持无认证查询（用户自查额度）
+
+**管理面板**
+- **管理端**: `/api-key-admin` - 创建、查看、删除 API Key（需要管理密码）
+- **查询端**: `/api-key-query` - 用户自助查询配额（无需密码）
+
+**核心 API 端点**
+- `POST /auth/keys` - 创建新 Key（需要面板密码）
+- `GET /auth/keys` - 查看所有 Key 状态（需要面板密码）
+- `GET /auth/quota` - 查看当前 Key 配额（使用 API Key 认证）
+- `POST /auth/query` - 查询指定 Key 余额（无需认证，提供 Key 即可）
+- `GET /auth/models/costs` - 查看模型消耗配置
+- `POST /auth/models/costs` - 更新模型消耗配置
+
+### 👥 独立的多用户认证面板（🆕 新功能）
+
+**无需登录的认证页面**
+- **访问路径**: `/auth` - 独立的 OAuth 认证界面
+- 一键生成 Google OAuth 认证链接
+- 支持手动粘贴回调 URL 完成认证（即使网络回调失败）
+- 自动保存认证凭证到服务器
+- 适合多人协作认证场景
+
+**使用场景**
+- 公益站运营：分享 `/auth` 链接给朋友们帮忙认证
+- 团队协作：多人贡献认证账号
+- 临时认证：无需登录控制面板即可完成认证
+
 ### 📊 智能凭证管理系统
 
 **高级凭证管理**
@@ -295,20 +330,107 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 ## 配置说明
 
-1. 访问 `http://127.0.0.1:7861/auth` （默认端口，可通过 PORT 环境变量修改）
-2. 完成 OAuth 认证流程（默认密码：`pwd`，可通过环境变量修改）
-3. 配置客户端：
+### 🚀 快速开始
 
-**OpenAI 兼容客户端：**
+**方式一：使用管理密码直接调用（传统方式）**
+1. 访问 `http://127.0.0.1:7861/auth` （默认端口，可通过 PORT 环境变量修改）
+2. 完成 OAuth 认证流程
+3. 配置客户端：
    - **端点地址**：`http://127.0.0.1:7861/v1`
    - **API 密钥**：`pwd`（默认值，可通过 API_PASSWORD 或 PASSWORD 环境变量修改）
 
-**Gemini 原生客户端：**
-   - **端点地址**：`http://127.0.0.1:7861`
-   - **认证方式**：
-     - `Authorization: Bearer your_api_password`
-     - `x-goog-api-key: your_api_password` 
-     - URL 参数：`?key=your_api_password`
+**方式二：使用 API Key 系统（推荐，适合多用户）**
+1. **认证阶段**：访问 `/auth` 让用户完成 OAuth 认证
+2. **管理阶段**：访问 `/api-key-admin` 创建 API Key
+   - 使用 `PANEL_PASSWORD` 登录管理面板
+   - 创建不同配额的 Key（例如：1000次、5000次、10000次）
+   - 为每个 Key 添加描述（如："Discord用户张三"）
+3. **分发阶段**：将生成的 API Key 分发给用户
+4. **使用阶段**：用户使用分配的 API Key 调用服务
+   - **端点地址**：`http://127.0.0.1:7861/v1`
+   - **API 密钥**：使用分配的 API Key（格式：`sk-xxx...`）
+5. **查询阶段**：用户访问 `/api-key-query` 查看剩余配额
+
+### 🔑 API Key 使用示例
+
+**创建 API Key（管理员）**
+```bash
+curl -X POST "http://127.0.0.1:7861/auth/keys" \
+  -H "Authorization: Bearer your_panel_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "total_quota": 1000,
+    "description": "测试用户"
+  }'
+
+# 返回示例：
+# {
+#   "api_key": "sk-AbCdEf123456...",
+#   "total_quota": 1000,
+#   "used_quota": 0,
+#   "remaining_quota": 1000,
+#   "created_at": "2024-01-01T00:00:00",
+#   "description": "测试用户"
+# }
+```
+
+**使用 API Key 调用（用户）**
+```bash
+curl -X POST "http://127.0.0.1:7861/v1/chat/completions" \
+  -H "Authorization: Bearer sk-AbCdEf123456..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+**查询 API Key 余额（用户）**
+```bash
+curl -X POST "http://127.0.0.1:7861/auth/query" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "api_key": "sk-AbCdEf123456..."
+  }'
+
+# 返回示例：
+# {
+#   "api_key": "sk-AbCdEf...456",
+#   "total_quota": 1000,
+#   "used_quota": 20,
+#   "remaining_quota": 980,
+#   "usage_percentage": 2.0,
+#   "model_stats": {
+#     "gemini-2.5-flash": 10  # 调用了10次（消耗20配额）
+#   }
+# }
+```
+
+### 🎯 适用场景
+
+**传统方式（共享密码）**：
+- 个人使用
+- 小团队内部使用
+- 信任的用户群体
+
+**API Key 方式（独立配额）**：
+- 公益站运营（多人共享但需要额度控制）
+- 社区分发（不同用户不同配额）
+- 临时访客（设置较小配额）
+- 精细化管理（需要统计每个用户的使用情况）
+
+### 🌐 认证方式说明
+
+**OpenAI 兼容端点：**
+- **端点地址**：`http://127.0.0.1:7861/v1`
+- **认证方式**：`Authorization: Bearer <API_PASSWORD 或 API_KEY>`
+
+**Gemini 原生端点：**
+- **端点地址**：`http://127.0.0.1:7861`
+- **认证方式**：
+  - `Authorization: Bearer <API_PASSWORD 或 API_KEY>`
+  - `x-goog-api-key: <API_PASSWORD 或 API_KEY>`
+  - URL 参数：`?key=<API_PASSWORD 或 API_KEY>`
 
 ## 💾 分布式存储模式
 
@@ -524,7 +646,10 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 
 **密码配置**
 - `API_PASSWORD`: 聊天 API 访问密码（默认：继承 PASSWORD 或 pwd）
-- `PANEL_PASSWORD`: 控制面板访问密码（默认：继承 PASSWORD 或 pwd）  
+  - 用于调用 `/v1/chat/completions` 等聊天端点
+  - 也可以使用 API Key 代替此密码
+- `PANEL_PASSWORD`: 控制面板访问密码（默认：继承 PASSWORD 或 pwd）
+  - 用于登录控制面板和创建 API Key
 - `PASSWORD`: 通用密码，设置后覆盖上述两个（默认：pwd）
 
 **性能和稳定性配置**
@@ -729,7 +854,20 @@ for part in response.candidates[0].content.parts:
 - `POST /auth/login` - 用户登录
 - `POST /auth/start` - 开始 OAuth 认证
 - `POST /auth/callback` - 处理 OAuth 回调
+- `POST /auth/callback-url` - 从回调 URL 直接完成认证（无需登录）
 - `GET /auth/status/{project_id}` - 检查认证状态
+
+**API Key 管理端点（🆕 新功能）**
+- `POST /auth/keys` - 创建新的 API Key（需要面板密码）
+- `GET /auth/keys` - 列出所有 API Key 及使用情况（需要面板密码）
+- `GET /auth/keys/{api_key}` - 查看特定 Key 的详细信息（需要面板密码）
+- `DELETE /auth/keys/{api_key}` - 删除指定的 API Key（需要面板密码）
+- `GET /auth/quota` - 查看当前 Key 的配额（使用 API Key 认证）
+- `POST /auth/query` - 查询 API Key 使用情况（无需认证，提供 Key 即可）
+- `GET /auth/models/costs` - 列出所有模型的消耗配置
+- `POST /auth/models/costs` - 更新模型的消耗配置
+- `DELETE /auth/models/costs/{model_name}` - 删除模型消耗配置
+- `GET /auth/models/{model_name}/cost` - 查询特定模型的消耗次数（公开接口）
 
 **凭证管理端点**
 - `GET /creds/status` - 获取所有凭证状态
