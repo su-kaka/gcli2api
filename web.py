@@ -155,6 +155,8 @@ async def main():
     log.info(f"控制面板: http://127.0.0.1:{port}")
     log.info(f"   API Key管理: http://127.0.0.1:{port}/api-key-admin")
     log.info(f"   API Key查询: http://127.0.0.1:{port}/api-key-query")
+    log.info(f"   管理后台: http://127.0.0.1:{port}/admin")
+    log.info(f"   用户界面: http://127.0.0.1:{port}/user")
     log.info("=" * 60)
     log.info("API端点:")
     log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
