@@ -54,7 +54,7 @@ async def get_credential_manager():
 
 async def authenticate(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """
-    验证用户密码或API Key
+    验证用户密码或API Key或多用户密钥
     返回验证结果，包含认证类型和相关信息
     """
     # 首先尝试API Key鉴权
@@ -62,17 +62,42 @@ async def authenticate(request: Request, credentials: HTTPAuthorizationCredentia
     try:
         api_key_result = await authenticate_api_key(request)
         # API Key 鉴权成功
-        log.debug("Using API Key authentication")
-        return {"type": "api_key", "data": api_key_result}
+        # 检查是否是用户密钥 (musr_)
+        if api_key_result.get("key_type") == "user_key":
+            log.debug(f"Using multi-user key authentication for user: {api_key_result.get('username')}")
+            # 将 username 添加到 info 中，以便后续使用
+            user_info = api_key_result["info"].copy()
+            user_info["username"] = api_key_result["username"]
+            return {"type": "multi_user", "data": user_info}
+        else:
+            # 传统 API Key (sk-)
+            log.debug("Using API Key authentication")
+            return {"type": "api_key", "data": api_key_result}
     except HTTPException:
-        # API Key 鉴权失败，继续尝试密码鉴权
+        # API Key 鉴权失败，继续尝试其他方式
         pass
+
+    # 获取令牌
+    token = credentials.credentials
+
+    # 检查是否是多用户密钥（这个分支理论上不会再执行，因为上面已经处理了）
+    if token.startswith("musr_"):
+        log.debug("Detected multi-user key authentication")
+        from src.muti_users import get_multi_user_manager
+        try:
+            manager = await get_multi_user_manager()
+            user_data = await manager.get_user_by_key(token)
+            if user_data:
+                log.debug(f"Multi-user authentication successful for user: {user_data['username']}")
+                return {"type": "multi_user", "data": user_data}
+        except Exception as e:
+            log.warning(f"Multi-user authentication failed: {e}")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户密钥无效")
 
     # 尝试密码鉴权
     from config import get_api_password
 
     password = await get_api_password()
-    token = credentials.credentials
     if token != password:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
     return {"type": "password", "data": token}
@@ -107,7 +132,9 @@ async def chat_completions(request: Request, auth_result: dict = Depends(authent
     if auth_result["type"] == "api_key":
         from src.chat_api_auth import consume_quota
         api_key = auth_result["data"]["api_key"]
-        await consume_quota(api_key, request_data.model)
+        key_type = auth_result["data"].get("key_type", "api_key")
+        username = auth_result["data"].get("username")
+        await consume_quota(api_key, request_data.model, username=username)
 
     # 健康检查
     if (
@@ -161,10 +188,25 @@ async def chat_completions(request: Request, auth_result: dict = Depends(authent
     real_model = get_base_model_from_feature_model(model)
     request_data.model = real_model
 
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
+    # 根据认证类型选择凭证管理器
+    if auth_result["type"] == "multi_user":
+        # 多用户模式：使用用户专属凭证管理器
+        from src.credential_manager import get_user_credential_manager
+        from src.muti_users import get_multi_user_manager
 
-    cred_mgr = await get_credential_manager()
+        user_data = auth_result["data"]
+        username = user_data["username"]
+
+        cred_mgr = await get_user_credential_manager(username)
+
+        # 记录用户调用
+        user_manager = await get_multi_user_manager()
+        await user_manager.record_user_api_call(username)
+    else:
+        # 默认模式：使用全局凭证管理器
+        from src.credential_manager import get_credential_manager
+
+        cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
     credential_result = await cred_mgr.get_valid_credential()

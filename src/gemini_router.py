@@ -66,6 +66,7 @@ async def authenticate_gemini_flexible(
     """
     灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer
     返回验证结果，包含认证类型和相关信息
+    支持多用户密钥认证
     """
     from config import get_api_password
 
@@ -76,31 +77,59 @@ async def authenticate_gemini_flexible(
     try:
         api_key_result = await authenticate_api_key(request)
         # API Key 鉴权成功
-        log.debug("Using API Key authentication")
-        return {"type": "api_key", "data": api_key_result}
+        # 检查是否是用户密钥 (musr_)
+        if api_key_result.get("key_type") == "user_key":
+            log.debug(f"Using multi-user key authentication for user: {api_key_result.get('username')}")
+            # 将 username 添加到 info 中，以便后续使用
+            user_info = api_key_result["info"].copy()
+            user_info["username"] = api_key_result["username"]
+            return {"type": "multi_user", "data": user_info}
+        else:
+            # 传统 API Key (sk-)
+            log.debug("Using API Key authentication")
+            return {"type": "api_key", "data": api_key_result}
     except HTTPException:
         # API Key 鉴权失败，继续尝试其他方式
         pass
 
+    # 收集所有可能的认证令牌
+    token_candidates = []
+
     # 尝试从URL参数key获取（Google官方标准方式）
     if key:
-        log.debug("Using URL parameter key authentication")
-        if key == password:
-            return {"type": "password", "data": key}
+        token_candidates.append(key)
 
     # 尝试从Authorization头获取（兼容旧方式）
     auth_header = request.headers.get("authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug("Using Bearer token authentication")
-        if token == password:
-            return {"type": "password", "data": token}
+        token_candidates.append(token)
 
     # 尝试从x-goog-api-key头获取（新标准方式）
     if x_goog_api_key:
-        log.debug("Using x-goog-api-key authentication")
-        if x_goog_api_key == password:
-            return {"type": "password", "data": x_goog_api_key}
+        token_candidates.append(x_goog_api_key)
+
+    # 检查是否是多用户密钥
+    for token in token_candidates:
+        if token.startswith("musr_"):
+            log.debug("Detected multi-user key authentication")
+            # 验证多用户密钥
+            from src.muti_users import get_multi_user_manager
+            try:
+                manager = await get_multi_user_manager()
+                user_data = await manager.get_user_by_key(token)
+                if user_data:
+                    log.debug(f"Multi-user authentication successful for user: {user_data['username']}")
+                    return {"type": "multi_user", "data": user_data}
+            except Exception as e:
+                log.warning(f"Multi-user authentication failed: {e}")
+                # 继续尝试其他认证方式
+
+    # 检查是否是管理员密码
+    for token in token_candidates:
+        if token == password:
+            log.debug("Using password authentication")
+            return {"type": "password", "data": token}
 
     log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
     raise HTTPException(
@@ -165,7 +194,8 @@ async def generate_content(
     if auth_result["type"] == "api_key":
         from src.chat_api_auth import consume_quota
         api_key = auth_result["data"]["api_key"]
-        await consume_quota(api_key, model)
+        username = auth_result["data"].get("username")
+        await consume_quota(api_key, model, username=username)
 
     # 获取原始请求数据
     try:
@@ -227,10 +257,25 @@ async def generate_content(
             }
         )
 
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
+    # 根据认证类型选择凭证管理器
+    if auth_result["type"] == "multi_user":
+        # 多用户模式：使用用户专属凭证管理器
+        from src.credential_manager import get_user_credential_manager
+        from src.muti_users import get_multi_user_manager
 
-    cred_mgr = await get_credential_manager()
+        user_data = auth_result["data"]
+        username = user_data["username"]
+
+        cred_mgr = await get_user_credential_manager(username)
+
+        # 记录用户调用
+        user_manager = await get_multi_user_manager()
+        await user_manager.record_user_api_call(username)
+    else:
+        # 默认模式：使用全局凭证管理器
+        from src.credential_manager import get_credential_manager
+
+        cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
     credential_result = await cred_mgr.get_valid_credential()
@@ -300,7 +345,8 @@ async def stream_generate_content(
     if auth_result["type"] == "api_key":
         from src.chat_api_auth import consume_quota
         api_key = auth_result["data"]["api_key"]
-        await consume_quota(api_key, model)
+        username = auth_result["data"].get("username")
+        await consume_quota(api_key, model, username=username)
 
     # 获取原始请求数据
     try:
@@ -342,10 +388,25 @@ async def stream_generate_content(
     if use_fake_streaming:
         return await fake_stream_response_gemini(request_data, real_model)
 
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
+    # 根据认证类型选择凭证管理器
+    if auth_result["type"] == "multi_user":
+        # 多用户模式：使用用户专属凭证管理器
+        from src.credential_manager import get_user_credential_manager
+        from src.muti_users import get_multi_user_manager
 
-    cred_mgr = await get_credential_manager()
+        user_data = auth_result["data"]
+        username = user_data["username"]
+
+        cred_mgr = await get_user_credential_manager(username)
+
+        # 记录用户调用
+        user_manager = await get_multi_user_manager()
+        await user_manager.record_user_api_call(username)
+    else:
+        # 默认模式：使用全局凭证管理器
+        from src.credential_manager import get_credential_manager
+
+        cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
     credential_result = await cred_mgr.get_valid_credential()

@@ -776,3 +776,382 @@ async def get_credential_manager() -> CredentialManager:
         await _credential_manager.initialize()
 
     return _credential_manager
+
+
+# ==================== 多用户凭证管理器 ====================
+
+
+class UserCredentialManager:
+    """
+    用户凭证管理器 - 为特定用户提供独立的凭证轮换
+    每个用户拥有自己的凭证池和轮换逻辑
+    """
+
+    def __init__(self, user_id: str):
+        """
+        初始化用户凭证管理器
+
+        Args:
+            user_id: 用户ID
+        """
+        self.user_id = user_id
+        self._initialized = False
+        self._storage_adapter = None
+
+        # 用户专属的凭证列表
+        self._credential_files: List[str] = []
+        self._call_count = 0
+        self._current_credential_file: Optional[str] = None
+        self._current_credential_data: Optional[Dict[str, Any]] = None
+
+        # 并发控制
+        self._state_lock = asyncio.Lock()
+        self._operation_lock = asyncio.Lock()
+
+    async def initialize(self):
+        """初始化用户凭证管理器"""
+        async with self._state_lock:
+            if self._initialized:
+                return
+
+            self._storage_adapter = await get_storage_adapter()
+            await self._discover_user_credentials()
+
+            self._initialized = True
+            log.debug(f"UserCredentialManager initialized for user: {self.user_id}")
+
+    async def _discover_user_credentials(self):
+        """发现用户的所有可用凭证"""
+        try:
+            # 获取所有凭证
+            all_credentials = await self._storage_adapter.list_credentials()
+
+            # 过滤出属于该用户的凭证
+            user_prefix = f"user_{self.user_id}_"
+            available_credentials = []
+
+            # 批量获取所有凭证状态
+            if all_credentials:
+                try:
+                    all_states = await self._storage_adapter.get_all_credential_states()
+
+                    for credential_name in all_credentials:
+                        if not credential_name.startswith(user_prefix):
+                            continue
+
+                        normalized_name = credential_name
+                        if hasattr(self._storage_adapter._backend, "_normalize_filename"):
+                            normalized_name = self._storage_adapter._backend._normalize_filename(
+                                credential_name
+                            )
+
+                        state = all_states.get(normalized_name, {})
+                        if not state.get("disabled", False):
+                            available_credentials.append(credential_name)
+                except Exception as e:
+                    log.warning(
+                        f"Failed to batch load credential states for user {self.user_id}: {e}"
+                    )
+                    # 回退到逐个检查
+                    for credential_name in all_credentials:
+                        if not credential_name.startswith(user_prefix):
+                            continue
+
+                        try:
+                            state = await self._storage_adapter.get_credential_state(
+                                credential_name
+                            )
+                            if not state.get("disabled", False):
+                                available_credentials.append(credential_name)
+                        except Exception as e2:
+                            log.warning(
+                                f"Failed to check state for user credential {credential_name}: {e2}"
+                            )
+
+            self._credential_files = available_credentials
+
+            if not self._credential_files:
+                log.warning(f"No available credentials found for user: {self.user_id}")
+            else:
+                log.debug(
+                    f"User {self.user_id} has {len(self._credential_files)} available credentials"
+                )
+
+        except Exception as e:
+            log.error(f"Failed to discover credentials for user {self.user_id}: {e}")
+
+    async def get_valid_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """获取有效的用户凭证"""
+        async with self._operation_lock:
+            if not self._credential_files:
+                await self._discover_user_credentials()
+                if not self._credential_files:
+                    return None
+
+            tried: List[str] = []
+
+            # 检查是否需要轮换
+            if await self._should_rotate():
+                await self._rotate_credential()
+
+            # 动态循环
+            while self._credential_files:
+                current_file = self._credential_files[0]
+
+                if current_file in tried:
+                    log.error(f"User {self.user_id}: All credentials tried and invalid")
+                    return None
+
+                tried.append(current_file)
+
+                try:
+                    # 检查冷却期
+                    if await self._is_credential_in_cooldown(current_file):
+                        log.info(f"User {self.user_id}: Credential {current_file} in cooldown")
+
+                        if len(self._credential_files) == 1:
+                            log.warning(
+                                f"User {self.user_id}: Only one credential available but in cooldown"
+                            )
+                            result = await self._load_current_credential()
+                            if result:
+                                return result
+                        else:
+                            await self._rotate_credential()
+                            continue
+
+                    # 加载当前凭证
+                    result = await self._load_current_credential()
+                    if result:
+                        return result
+
+                    # 凭证加载失败
+                    log.warning(f"User {self.user_id}: Credential {current_file} failed to load")
+
+                    if len(self._credential_files) > 1:
+                        await self._rotate_credential()
+
+                    # 禁用失效凭证
+                    await self._set_cred_disabled(current_file, True)
+
+                    if not self._credential_files:
+                        log.error(f"User {self.user_id}: No available credentials")
+                        return None
+
+                except Exception as e:
+                    log.error(f"User {self.user_id}: Error getting credential: {e}")
+                    if len(self._credential_files) > 1:
+                        await self._rotate_credential()
+                    else:
+                        return None
+
+            return None
+
+    async def _load_current_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """加载当前凭证数据"""
+        if not self._credential_files:
+            return None
+
+        try:
+            current_file = self._credential_files[0]
+
+            # 从存储适配器加载凭证数据
+            credential_data = await self._storage_adapter.get_credential(current_file)
+            if not credential_data:
+                log.error(f"User {self.user_id}: Failed to load credential {current_file}")
+                return None
+
+            # 检查refresh_token
+            if "refresh_token" not in credential_data or not credential_data["refresh_token"]:
+                log.warning(f"User {self.user_id}: No refresh token in {current_file}")
+                return None
+
+            # Auto-add 'type' field if missing
+            if "type" not in credential_data and all(
+                key in credential_data for key in ["client_id", "refresh_token"]
+            ):
+                credential_data["type"] = "authorized_user"
+
+            # 兼容不同的token字段格式
+            if "access_token" in credential_data and "token" not in credential_data:
+                credential_data["token"] = credential_data["access_token"]
+            if "scope" in credential_data and "scopes" not in credential_data:
+                credential_data["scopes"] = credential_data["scope"].split()
+
+            # Token刷新逻辑（复用基础manager的逻辑）
+            base_manager = await get_credential_manager()
+            should_refresh = await base_manager._should_refresh_token(credential_data)
+
+            if should_refresh:
+                log.debug(f"User {self.user_id}: Token needs refresh - {current_file}")
+                refreshed_data = await base_manager._refresh_token(credential_data, current_file)
+                if refreshed_data:
+                    credential_data = refreshed_data
+                else:
+                    log.error(f"User {self.user_id}: Token refresh failed - {current_file}")
+                    return None
+
+            self._current_credential_file = current_file
+            self._current_credential_data = credential_data
+
+            return current_file, credential_data
+
+        except Exception as e:
+            log.error(f"User {self.user_id}: Error loading credential: {e}")
+            return None
+
+    async def _should_rotate(self) -> bool:
+        """检查是否需要轮换凭证"""
+        if not self._credential_files or len(self._credential_files) <= 1:
+            return False
+
+        current_calls_per_rotation = await get_calls_per_rotation()
+        return self._call_count >= current_calls_per_rotation
+
+    async def _rotate_credential(self):
+        """轮换到下一个凭证"""
+        if len(self._credential_files) <= 1:
+            return
+
+        current = self._credential_files.pop(0)
+        self._credential_files.append(current)
+        self._call_count = 0
+
+        log.info(
+            f"User {self.user_id}: Rotated credential {current}, now using {self._credential_files[0]}"
+        )
+
+    def increment_call_count(self):
+        """增加调用计数"""
+        self._call_count += 1
+
+    async def _is_credential_in_cooldown(self, credential_name: str) -> bool:
+        """检查凭证是否在冷却期"""
+        try:
+            state = await self._storage_adapter.get_credential_state(credential_name)
+            cooldown_until = state.get("cooldown_until")
+
+            if cooldown_until is None:
+                return False
+
+            current_time = time.time()
+            if current_time < cooldown_until:
+                return True
+            else:
+                # 冷却期已过
+                await self._storage_adapter.update_credential_state(
+                    credential_name, {"cooldown_until": None}
+                )
+                return False
+
+        except Exception as e:
+            log.error(f"User {self.user_id}: Error checking cooldown for {credential_name}: {e}")
+            return False
+
+    async def _set_cred_disabled(self, credential_name: str, disabled: bool):
+        """设置凭证的启用/禁用状态"""
+        try:
+            state_updates = {"disabled": disabled}
+            success = await self._storage_adapter.update_credential_state(
+                credential_name, state_updates
+            )
+
+            if success:
+                action = "disabled" if disabled else "enabled"
+                log.info(f"User {self.user_id}: Credential {action}: {credential_name}")
+                # 刷新凭证列表
+                await self._discover_user_credentials()
+
+            return success
+
+        except Exception as e:
+            log.error(
+                f"User {self.user_id}: Error setting credential disabled state {credential_name}: {e}"
+            )
+            return False
+
+    async def force_rotate_credential(self):
+        """强制轮换到下一个凭证"""
+        async with self._operation_lock:
+            if len(self._credential_files) <= 1:
+                log.warning(f"User {self.user_id}: Only one credential, cannot rotate")
+                return
+
+            await self._rotate_credential()
+            log.info(f"User {self.user_id}: Forced credential rotation")
+
+    async def record_api_call_result(
+        self, credential_name: str, success: bool, error_code: Optional[int] = None,
+        cooldown_until: Optional[float] = None
+    ):
+        """
+        记录API调用结果
+
+        Args:
+            credential_name: 凭证名称
+            success: 是否成功
+            error_code: 错误码（如果失败）
+            cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
+        """
+        try:
+            state_updates = {}
+
+            if success:
+                state_updates["last_success"] = time.time()
+                # 清除错误码和冷却时间（如果之前有的话）
+                state_updates["error_codes"] = []
+                state_updates["cooldown_until"] = None
+            elif error_code:
+                # 记录错误码
+                current_state = await self._storage_adapter.get_credential_state(credential_name)
+                error_codes = current_state.get("error_codes", [])
+
+                if error_code not in error_codes:
+                    error_codes.append(error_code)
+                    # 限制错误码列表长度
+                    if len(error_codes) > 10:
+                        error_codes = error_codes[-10:]
+
+                state_updates["error_codes"] = error_codes
+
+                # 如果提供了冷却时间，记录到状态中
+                if cooldown_until is not None:
+                    state_updates["cooldown_until"] = cooldown_until
+                    log.info(
+                        f"User {self.user_id}: 设置凭证冷却: {credential_name}, "
+                        f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                    )
+
+            if state_updates:
+                await self._storage_adapter.update_credential_state(
+                    credential_name, state_updates
+                )
+
+        except Exception as e:
+            log.error(f"User {self.user_id}: Error recording API call result for {credential_name}: {e}")
+
+
+# 用户凭证管理器缓存
+_user_credential_managers: Dict[str, UserCredentialManager] = {}
+_user_managers_lock = asyncio.Lock()
+
+
+async def get_user_credential_manager(user_id: str) -> UserCredentialManager:
+    """
+    获取用户凭证管理器实例
+
+    Args:
+        user_id: 用户ID
+
+    Returns:
+        用户凭证管理器实例
+    """
+    global _user_credential_managers
+
+    async with _user_managers_lock:
+        if user_id not in _user_credential_managers:
+            manager = UserCredentialManager(user_id)
+            await manager.initialize()
+            _user_credential_managers[user_id] = manager
+
+        return _user_credential_managers[user_id]

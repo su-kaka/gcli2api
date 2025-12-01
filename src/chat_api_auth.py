@@ -109,6 +109,10 @@ async def authenticate_api_key(request: Request) -> dict:
     1. Authorization: Bearer <api_key>
     2. x-api-key header
     3. api_key query parameter
+
+    支持两种类型的 key:
+    - sk-xxx: 传统的 API Key (从 api_keys 存储读取)
+    - musr_xxx: 多用户密钥 (从 users 存储读取)
     """
     api_key = None
 
@@ -131,8 +135,39 @@ async def authenticate_api_key(request: Request) -> dict:
             detail="Missing API key. Provide it via 'Authorization: Bearer <key>', 'x-api-key' header, or 'api_key' query parameter"
         )
 
-    # 从存储中验证 API Key
     storage = await get_storage_adapter()
+
+    # 检查是否是多用户密钥 (musr_ 开头)
+    if api_key.startswith("musr_"):
+        from .muti_users import get_multi_user_manager
+
+        manager = await get_multi_user_manager()
+        user_data = await manager.get_user_by_key(api_key)
+
+        if not user_data:
+            log.warning(f"Invalid user key attempted: {api_key[:10]}...")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user key"
+            )
+
+        # 检查用户是否被禁用
+        if user_data.get("disabled", False):
+            log.warning(f"Disabled user key attempted: {api_key[:10]}...")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is disabled"
+            )
+
+        # 返回用户信息，标记为 user_key 类型
+        return {
+            "api_key": api_key,
+            "key_type": "user_key",
+            "username": user_data["username"],
+            "info": user_data
+        }
+
+    # 否则按传统 API Key 处理 (sk- 开头)
     key_info = await storage.get_api_key(api_key)
 
     if not key_info:
@@ -150,7 +185,7 @@ async def authenticate_api_key(request: Request) -> dict:
             detail="API key quota exhausted"
         )
 
-    return {"api_key": api_key, "info": key_info}
+    return {"api_key": api_key, "key_type": "api_key", "info": key_info}
 
 
 # 辅助函数
@@ -187,21 +222,40 @@ async def get_model_cost(model_name: str) -> int:
     return DEFAULT_MODEL_COST
 
 
-async def consume_quota(api_key: str, model_name: str) -> int:
+async def consume_quota(api_key: str, model_name: str, username: str = None) -> int:
     """
     消耗 API Key 的配额
     返回消耗的次数
 
-    注意：即使剩余配额不足，也允许请求，但配额最低降到 0
-    例如：剩余 1 次，请求消耗 10 次的模型，配额会变成 0
+    Args:
+        api_key: API Key 或用户密钥
+        model_name: 模型名称
+        username: 用户名（仅用于 user_key 类型）
+
+    注意：
+    - 对于传统 API Key (sk-xxx): 消耗配额，最低降到 0
+    - 对于用户密钥 (musr_xxx): 仅记录调用次数，不限制配额
     """
     storage = await get_storage_adapter()
+
+    # 检查是否是用户密钥
+    if api_key.startswith("musr_") and username:
+        # 用户密钥：只记录调用次数，不限制配额
+        from .muti_users import get_multi_user_manager
+
+        manager = await get_multi_user_manager()
+        await manager.record_user_api_call(username)
+
+        log.info(f"User {username} called API with model {model_name}")
+        return 0  # 用户密钥不消耗配额
+
+    # 传统 API Key：配额管理
     key_info = await storage.get_api_key(api_key)
 
     if not key_info:
         raise ValueError(f"API key not found: {api_key}")
 
-    cost = get_model_cost(model_name)
+    cost = await get_model_cost(model_name)
 
     # 检查配额是否已经用完（降到0）
     remaining = key_info["total_quota"] - key_info["used_quota"]

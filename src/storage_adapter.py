@@ -112,6 +112,27 @@ class StorageBackend(Protocol):
         """更新 API Key 数据"""
         ...
 
+    # 用户数据管理 (Multi-User)
+    async def store_user(self, username: str, user_data: Dict[str, Any]) -> bool:
+        """存储用户数据"""
+        ...
+
+    async def get_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """获取用户数据"""
+        ...
+
+    async def list_users(self) -> List[str]:
+        """列出所有用户名"""
+        ...
+
+    async def delete_user(self, username: str) -> bool:
+        """删除用户数据"""
+        ...
+
+    async def update_user(self, username: str, updates: Dict[str, Any]) -> bool:
+        """更新用户数据"""
+        ...
+
 
 class StorageAdapter:
     """存储适配器，根据配置选择存储后端"""
@@ -315,6 +336,33 @@ class StorageAdapter:
         """更新 API Key 数据"""
         self._ensure_initialized()
         return await self._backend.update_api_key(api_key, updates)
+
+    # ============ 用户数据管理 (Multi-User) ============
+
+    async def store_user(self, username: str, user_data: Dict[str, Any]) -> bool:
+        """存储用户数据"""
+        self._ensure_initialized()
+        return await self._backend.store_user(username, user_data)
+
+    async def get_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """获取用户数据"""
+        self._ensure_initialized()
+        return await self._backend.get_user(username)
+
+    async def list_users(self) -> List[str]:
+        """列出所有用户名"""
+        self._ensure_initialized()
+        return await self._backend.list_users()
+
+    async def delete_user(self, username: str) -> bool:
+        """删除用户数据"""
+        self._ensure_initialized()
+        return await self._backend.delete_user(username)
+
+    async def update_user(self, username: str, updates: Dict[str, Any]) -> bool:
+        """更新用户数据"""
+        self._ensure_initialized()
+        return await self._backend.update_user(username, updates)
 
     # ============ 工具方法 ============
 

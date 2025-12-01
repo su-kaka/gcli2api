@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户凭证管理 - GCLI2API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 1200px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section h2 {
+            color: #333;
+            font-size: 22px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="file"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="file"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        button.danger:hover {
+            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+        }
+
+        .credential-list {
+            margin-top: 20px;
+        }
+
+        .credential-item {
+            background: #f8f9fa;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s;
+        }
+
+        .credential-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateX(5px);
+        }
+
+        .credential-item.disabled {
+            border-left-color: #f5576c;
+            opacity: 0.7;
+        }
+
+        .credential-item h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+
+        .credential-item p {
+            color: #666;
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status-badge.active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.disabled {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .info-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .info-card p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .info-card strong {
+            font-weight: 600;
+        }
+
+        #managementSection {
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 用户凭证管理</h1>
+            <p>安全地管理您的 Google API 凭证</p>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <h2>登录</h2>
+                <div class="form-group">
+                    <label for="userKey">用户密钥:</label>
+                    <input type="password" id="userKey" placeholder="输入您的用户密钥 (musr_...)">
+                </div>
+                <button onclick="login()">登录</button>
+                <div id="loginMessage"></div>
+            </div>
+
+            <div id="managementSection" style="display: none;">
+                <div class="section">
+                    <h2>用户信息</h2>
+                    <div class="info-card" id="userInfo"></div>
+                </div>
+
+                <div class="section">
+                    <h2>上传凭证</h2>
+                    <div class="form-group">
+                        <label for="credentialName">凭证名称:</label>
+                        <input type="text" id="credentialName" placeholder="例如: my-credential-1">
+                    </div>
+                    <div class="form-group">
+                        <label for="credentialFile">凭证文件 (JSON, 最大 2KB):</label>
+                        <input type="file" id="credentialFile" accept=".json">
+                        <p style="font-size: 12px; color: #999; margin-top: 8px;">
+                            ⚠️ 仅支持 Google Service Account 或 OAuth2 凭证文件
+                        </p>
+                    </div>
+                    <button onclick="uploadCredential()">上传凭证</button>
+                    <div id="uploadMessage"></div>
+                </div>
+
+                <div class="section">
+                    <h2>我的凭证</h2>
+                    <button onclick="loadCredentials()">🔄 刷新列表</button>
+                    <div id="credentialList" class="credential-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUserKey = '';
+
+        async function login() {
+            const userKey = document.getElementById('userKey').value.trim();
+            if (!userKey) {
+                showMessage('loginMessage', '请输入用户密钥', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/user/info', {
+                    headers: {
+                        'Authorization': `Bearer ${userKey}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    currentUserKey = userKey;
+                    document.getElementById('managementSection').style.display = 'block';
+                    document.getElementById('userInfo').innerHTML = `
+                        <p><strong>👤 用户名:</strong> ${data.username}</p>
+                        <p><strong>📝 描述:</strong> ${data.description || '无'}</p>
+                        <p><strong>📁 凭证数量:</strong> ${data.credential_count || 0}</p>
+                        <p><strong>📊 总调用次数:</strong> ${data.total_calls || 0}</p>
+                        ${data.last_active ? `<p><strong>⏰ 最后活跃:</strong> ${new Date(data.last_active).toLocaleString()}</p>` : ''}
+                    `;
+                    showMessage('loginMessage', '✅ 登录成功', 'success');
+                    loadCredentials();
+                } else {
+                    const error = await response.json();
+                    showMessage('loginMessage', '❌ 登录失败: ' + (error.detail || '密钥无效'), 'error');
+                }
+            } catch (error) {
+                showMessage('loginMessage', '❌ 登录失败: ' + error.message, 'error');
+            }
+        }
+
+        async function uploadCredential() {
+            const credentialName = document.getElementById('credentialName').value.trim();
+            const credentialFile = document.getElementById('credentialFile').files[0];
+
+            if (!credentialName || !credentialFile) {
+                showMessage('uploadMessage', '请输入凭证名称并选择文件', 'error');
+                return;
+            }
+
+            // 前端验证：文件大小限制 2KB
+            const maxSize = 2 * 1024; // 2KB
+            if (credentialFile.size > maxSize) {
+                showMessage('uploadMessage', `❌ 文件过大: ${(credentialFile.size / 1024).toFixed(2)}KB (最大 2KB)`, 'error');
+                return;
+            }
+
+            // 前端验证：文件类型必须是 .json
+            if (!credentialFile.name.toLowerCase().endsWith('.json')) {
+                showMessage('uploadMessage', '❌ 文件类型错误: 只支持 .json 文件', 'error');
+                return;
+            }
+
+            // 前端验证：读取并验证 JSON 内容
+            try {
+                const fileContent = await credentialFile.text();
+                const jsonData = JSON.parse(fileContent);
+
+                // 验证是否是有效的 Google 凭证文件
+                const isValidCredential = validateCredentialStructure(jsonData);
+                if (!isValidCredential.valid) {
+                    showMessage('uploadMessage', '❌ 无效的凭证文件: ' + isValidCredential.reason, 'error');
+                    return;
+                }
+            } catch (error) {
+                showMessage('uploadMessage', '❌ 无效的 JSON 文件: ' + error.message, 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('credential_file', credentialFile);
+
+            try {
+                const response = await fetch(`/user/credentials/upload?credential_name=${encodeURIComponent(credentialName)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentUserKey}`
+                    },
+                    body: formData
+                });
+
+                if (response.ok) {
+                    showMessage('uploadMessage', '✅ 凭证上传成功', 'success');
+                    document.getElementById('credentialName').value = '';
+                    document.getElementById('credentialFile').value = '';
+                    loadCredentials();
+                } else {
+                    const error = await response.json();
+                    showMessage('uploadMessage', '❌ 上传失败: ' + (error.detail || '未知错误'), 'error');
+                }
+            } catch (error) {
+                showMessage('uploadMessage', '❌ 上传失败: ' + error.message, 'error');
+            }
+        }
+
+        // 验证凭证文件结构
+        function validateCredentialStructure(jsonData) {
+            // 检查是否是对象
+            if (!jsonData || typeof jsonData !== 'object') {
+                return { valid: false, reason: '文件内容必须是 JSON 对象' };
+            }
+
+            // 检查是否包含必要的凭证字段
+            // Google Service Account 凭证包含: type, project_id, private_key_id, private_key, client_email, etc.
+            const serviceAccountRequiredFields = ['type', 'project_id', 'private_key', 'client_email'];
+            const hasServiceAccountFields = serviceAccountRequiredFields.every(field => field in jsonData);
+
+            // Google OAuth2 凭证包含: installed 或 web
+            const hasOAuth2Fields = ('installed' in jsonData || 'web' in jsonData);
+
+            if (!hasServiceAccountFields && !hasOAuth2Fields) {
+                return {
+                    valid: false,
+                    reason: '文件不是有效的 Google 凭证 (缺少必要字段: type, project_id, private_key, client_email 或 installed/web)'
+                };
+            }
+
+            // 如果是 Service Account，验证 type 字段
+            if (hasServiceAccountFields && jsonData.type !== 'service_account') {
+                return { valid: false, reason: 'Service Account 凭证的 type 字段必须为 "service_account"' };
+            }
+
+            // 基本字段类型验证
+            if (hasServiceAccountFields) {
+                if (typeof jsonData.private_key !== 'string' || !jsonData.private_key.includes('-----BEGIN PRIVATE KEY-----')) {
+                    return { valid: false, reason: 'private_key 字段格式无效' };
+                }
+                if (typeof jsonData.client_email !== 'string' || !jsonData.client_email.includes('@')) {
+                    return { valid: false, reason: 'client_email 字段格式无效' };
+                }
+            }
+
+            return { valid: true };
+        }
+
+        async function loadCredentials() {
+            try {
+                const response = await fetch('/user/credentials', {
+                    headers: {
+                        'Authorization': `Bearer ${currentUserKey}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const listDiv = document.getElementById('credentialList');
+
+                    if (data.credentials.length === 0) {
+                        listDiv.innerHTML = `
+                            <div class="empty-state">
+                                <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clip-rule="evenodd"></path></svg>
+                                <p>暂无凭证，请上传凭证文件</p>
+                            </div>
+                        `;
+                    } else {
+                        listDiv.innerHTML = data.credentials.map(cred => `
+                            <div class="credential-item ${cred.disabled ? 'disabled' : ''}">
+                                <h3>
+                                    ${cred.name}
+                                    <span class="status-badge ${cred.disabled ? 'disabled' : 'active'}">
+                                        ${cred.disabled ? '已禁用' : '正常'}
+                                    </span>
+                                </h3>
+                                ${cred.last_success ? `<p>📅 最后成功: ${new Date(cred.last_success * 1000).toLocaleString()}</p>` : '<p>📅 最后成功: 从未使用</p>'}
+                                ${cred.error_codes && cred.error_codes.length > 0 ? `<p>⚠️ 错误码: ${cred.error_codes.join(', ')}</p>` : ''}
+                                <div style="margin-top: 15px;">
+                                    <button class="danger" onclick="deleteCredential('${cred.name}')">🗑️ 删除</button>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('加载凭证失败:', error);
+            }
+        }
+
+        async function deleteCredential(credentialName) {
+            if (!confirm(`确定要删除凭证 "${credentialName}" 吗?\n\n此操作不可恢复!`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/user/credentials/${encodeURIComponent(credentialName)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentUserKey}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('✅ 凭证删除成功');
+                    loadCredentials();
+                } else {
+                    const error = await response.json();
+                    alert('❌ 删除失败: ' + (error.detail || '未知错误'));
+                }
+            } catch (error) {
+                alert('❌ 删除失败: ' + error.message);
+            }
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.className = 'message ' + type;
+            element.innerHTML = message;
+            setTimeout(() => {
+                element.innerHTML = '';
+                element.className = '';
+            }, 5000);
+        }
+
+        // 支持回车键登录
+        document.getElementById('userKey').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -92,6 +92,7 @@ class FileStorageManager:
         self._state_file = None
         self._config_file = None
         self._api_keys_file = None  # API keys 独立存储文件
+        self._users_file = None  # 用户数据独立存储文件
         self._lock = asyncio.Lock()
         self._initialized = False
 
@@ -99,6 +100,7 @@ class FileStorageManager:
         self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
         self._config_cache_manager: Optional[UnifiedCacheManager] = None
         self._api_keys_cache_manager: Optional[UnifiedCacheManager] = None  # API keys 缓存管理器
+        self._users_cache_manager: Optional[UnifiedCacheManager] = None  # 用户数据缓存管理器
 
         # 配置参数
         self._write_delay = 0.5  # 写入延迟（秒）
@@ -114,6 +116,7 @@ class FileStorageManager:
         self._state_file = os.path.join(self._credentials_dir, "creds.toml")
         self._config_file = os.path.join(self._credentials_dir, "config.toml")
         self._api_keys_file = os.path.join(self._credentials_dir, "api_keys.toml")  # API keys 独立文件
+        self._users_file = os.path.join(self._credentials_dir, "users.toml")  # 用户数据独立文件
 
         # 确保目录存在
         os.makedirs(self._credentials_dir, exist_ok=True)
@@ -125,6 +128,7 @@ class FileStorageManager:
         credentials_backend = FileCacheBackend(self._state_file)
         config_backend = FileCacheBackend(self._config_file)
         api_keys_backend = FileCacheBackend(self._api_keys_file)  # API keys 后端
+        users_backend = FileCacheBackend(self._users_file)  # 用户数据后端
 
         self._credentials_cache_manager = UnifiedCacheManager(
             credentials_backend,
@@ -141,10 +145,15 @@ class FileStorageManager:
             api_keys_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="api_keys"
         )
 
+        self._users_cache_manager = UnifiedCacheManager(
+            users_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="users"
+        )
+
         # 启动缓存管理器
         await self._credentials_cache_manager.start()
         await self._config_cache_manager.start()
         await self._api_keys_cache_manager.start()
+        await self._users_cache_manager.start()
 
         self._initialized = True
         log.debug("File storage manager initialized with unified cache")
@@ -158,6 +167,8 @@ class FileStorageManager:
             await self._config_cache_manager.stop()
         if self._api_keys_cache_manager:
             await self._api_keys_cache_manager.stop()
+        if self._users_cache_manager:
+            await self._users_cache_manager.stop()
 
         self._initialized = False
         log.debug("File storage manager closed with unified cache flushed")
@@ -751,5 +762,96 @@ class FileStorageManager:
 
         except Exception as e:
             log.error(f"Error updating API key {api_key[:10]}...: {e}")
+            return False
+
+    # ============ 用户数据管理 (Multi-User) ============
+
+    async def store_user(self, username: str, user_data: Dict[str, Any]) -> bool:
+        """存储用户数据到独立的 users 缓存"""
+        self._ensure_initialized()
+
+        try:
+            success = await self._users_cache_manager.set(username, user_data)
+
+            if success:
+                log.debug(f"Stored user data: {username}")
+            else:
+                log.error(f"Failed to store user data: {username}")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error storing user {username}: {e}")
+            return False
+
+    async def get_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """从独立的 users 缓存中获取用户数据"""
+        self._ensure_initialized()
+
+        try:
+            user_data = await self._users_cache_manager.get(username)
+            return user_data
+
+        except Exception as e:
+            log.error(f"Error getting user {username}: {e}")
+            return None
+
+    async def list_users(self) -> List[str]:
+        """列出所有用户名"""
+        self._ensure_initialized()
+
+        try:
+            all_data = await self._users_cache_manager.get_all()
+            return list(all_data.keys())
+
+        except Exception as e:
+            log.error(f"Error listing users: {e}")
+            return []
+
+    async def delete_user(self, username: str) -> bool:
+        """删除用户数据"""
+        self._ensure_initialized()
+
+        try:
+            success = await self._users_cache_manager.delete(username)
+
+            if success:
+                log.debug(f"Deleted user: {username}")
+            else:
+                log.warning(f"User not found for deletion: {username}")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error deleting user {username}: {e}")
+            return False
+
+    async def update_user(self, username: str, updates: Dict[str, Any]) -> bool:
+        """更新用户数据"""
+        self._ensure_initialized()
+
+        try:
+            # 获取现有数据
+            existing_data = await self._users_cache_manager.get(username)
+
+            if existing_data is None:
+                log.warning(f"User not found for update: {username}")
+                return False
+
+            # 更新字段
+            existing_data.update(updates)
+
+            # 保存更新后的数据
+            success = await self._users_cache_manager.set(username, existing_data)
+
+            if success:
+                log.debug(f"Updated user: {username}")
+            else:
+                log.error(f"Failed to update user: {username}")
+
+            return success
+
+        except Exception as e:
+            log.error(f"Error updating user {username}: {e}")
             return False
 

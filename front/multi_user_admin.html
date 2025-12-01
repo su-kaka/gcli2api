@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员控制台 - GCLI2API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 1400px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section h2 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f5576c;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #f5576c;
+            box-shadow: 0 0 0 3px rgba(245, 87, 108, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        button.secondary:hover {
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);
+        }
+
+        button.danger:hover {
+            box-shadow: 0 4px 12px rgba(201, 42, 42, 0.4);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        th {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        td {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .user-key-box {
+            background: #f8f9fa;
+            border: 2px solid #f5576c;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .user-key-box strong {
+            display: block;
+            margin-bottom: 10px;
+            color: #f5576c;
+        }
+
+        .user-key {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            word-break: break-all;
+            font-size: 14px;
+            border: 1px solid #dee2e6;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.disabled {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        #adminSection {
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👑 管理员控制台</h1>
+            <p>GCLI2API 多用户管理系统</p>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <h2>管理员登录</h2>
+                <div class="form-group">
+                    <label for="adminPassword">管理员密码:</label>
+                    <input type="password" id="adminPassword" placeholder="输入管理员密码 (API_PASSWORD)">
+                </div>
+                <button onclick="login()">登录</button>
+                <div id="loginMessage"></div>
+            </div>
+
+            <div id="adminSection" style="display: none;">
+                <div class="section">
+                    <h2>系统概览</h2>
+                    <div class="stats-grid" id="statsGrid">
+                        <div class="stat-card">
+                            <h3 id="totalUsers">0</h3>
+                            <p>总用户数</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="activeUsers">0</h3>
+                            <p>活跃用户</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="totalCredentials">0</h3>
+                            <p>总凭证数</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>创建用户</h2>
+                    <div class="form-group">
+                        <label for="newUsername">用户名:</label>
+                        <input type="text" id="newUsername" placeholder="输入用户名 (字母、数字、下划线)">
+                    </div>
+                    <div class="form-group">
+                        <label for="newUserDesc">描述 (可选):</label>
+                        <input type="text" id="newUserDesc" placeholder="用户描述或备注信息">
+                    </div>
+                    <button onclick="createUser()">创建用户</button>
+                    <div id="createMessage"></div>
+                    <div id="newUserKey"></div>
+                </div>
+
+                <div class="section">
+                    <h2>用户列表</h2>
+                    <button onclick="loadUsers()">🔄 刷新列表</button>
+                    <table id="userTable">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>描述</th>
+                                <th>状态</th>
+                                <th>凭证数</th>
+                                <th>总调用</th>
+                                <th>最后活跃</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <tr>
+                                <td colspan="7" class="empty-state">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let adminToken = '';
+
+        async function login() {
+            const password = document.getElementById('adminPassword').value.trim();
+            if (!password) {
+                showMessage('loginMessage', '请输入管理员密码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/users', {
+                    headers: {
+                        'Authorization': `Bearer ${password}`
+                    }
+                });
+
+                if (response.ok) {
+                    adminToken = password;
+                    document.getElementById('adminSection').style.display = 'block';
+                    showMessage('loginMessage', '✅ 登录成功', 'success');
+                    loadUsers();
+                    loadStats();
+                } else {
+                    showMessage('loginMessage', '❌ 登录失败: 密码错误', 'error');
+                }
+            } catch (error) {
+                showMessage('loginMessage', '❌ 登录失败: ' + error.message, 'error');
+            }
+        }
+
+        async function createUser() {
+            const username = document.getElementById('newUsername').value.trim();
+            const description = document.getElementById('newUserDesc').value.trim();
+
+            if (!username) {
+                showMessage('createMessage', '请输入用户名', 'error');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+                showMessage('createMessage', '用户名只能包含字母、数字和下划线', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        description: description
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showMessage('createMessage', '✅ 用户创建成功', 'success');
+                    document.getElementById('newUserKey').innerHTML = `
+                        <div class="user-key-box">
+                            <strong>⚠️ 用户密钥 (请妥善保存，只显示一次):</strong>
+                            <div class="user-key">${data.user_key}</div>
+                        </div>
+                    `;
+                    document.getElementById('newUsername').value = '';
+                    document.getElementById('newUserDesc').value = '';
+                    loadUsers();
+                    loadStats();
+                } else {
+                    const error = await response.json();
+                    showMessage('createMessage', '❌ 创建失败: ' + (error.detail || '未知错误'), 'error');
+                }
+            } catch (error) {
+                showMessage('createMessage', '❌ 创建失败: ' + error.message, 'error');
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/admin/users', {
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const tbody = document.getElementById('userTableBody');
+
+                    if (data.users.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无用户</td></tr>';
+                    } else {
+                        tbody.innerHTML = data.users.map(user => `
+                            <tr>
+                                <td><strong>${user.username}</strong></td>
+                                <td>${user.description || '-'}</td>
+                                <td>
+                                    <span class="status-badge ${user.disabled ? 'disabled' : 'active'}">
+                                        ${user.disabled ? '🔴 禁用' : '🟢 正常'}
+                                    </span>
+                                </td>
+                                <td>${user.credential_count || 0}</td>
+                                <td>${user.total_calls || 0}</td>
+                                <td>${user.last_active ? new Date(user.last_active).toLocaleString() : '从未活跃'}</td>
+                                <td>
+                                    <button class="secondary" onclick="viewUserStats('${user.username}')">📊 统计</button>
+                                    <button onclick="toggleUserStatus('${user.username}', ${!user.disabled})">
+                                        ${user.disabled ? '✅ 启用' : '🔒 禁用'}
+                                    </button>
+                                    <button class="danger" onclick="deleteUser('${user.username}')">🗑️ 删除</button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('加载用户失败:', error);
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/admin/users', {
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const users = data.users;
+
+                    document.getElementById('totalUsers').textContent = users.length;
+                    document.getElementById('activeUsers').textContent = users.filter(u => !u.disabled).length;
+                    document.getElementById('totalCredentials').textContent = users.reduce((sum, u) => sum + (u.credential_count || 0), 0);
+                }
+            } catch (error) {
+                console.error('加载统计失败:', error);
+            }
+        }
+
+        async function toggleUserStatus(username, disabled) {
+            try {
+                const response = await fetch(`/admin/users/${username}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ disabled: disabled })
+                });
+
+                if (response.ok) {
+                    alert(`✅ 用户 ${username} ${disabled ? '已禁用' : '已启用'}`);
+                    loadUsers();
+                    loadStats();
+                } else {
+                    alert('❌ 操作失败');
+                }
+            } catch (error) {
+                alert('❌ 操作失败: ' + error.message);
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`⚠️ 确定要删除用户 "${username}" 及其所有凭证吗?\n\n此操作不可恢复!`)) {
+                return;
+            }
+
+            // 二次确认
+            const confirmText = prompt(`请输入用户名 "${username}" 以确认删除:`);
+            if (confirmText !== username) {
+                alert('❌ 用户名不匹配，取消删除');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/users/${username}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('✅ 用户删除成功');
+                    loadUsers();
+                    loadStats();
+                } else {
+                    const error = await response.json();
+                    alert('❌ 删除失败: ' + (error.detail || '未知错误'));
+                }
+            } catch (error) {
+                alert('❌ 删除失败: ' + error.message);
+            }
+        }
+
+        async function viewUserStats(username) {
+            try {
+                const response = await fetch(`/admin/users/${username}/stats`, {
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const stats = await response.json();
+                    let statsHtml = `📊 用户统计: ${username}\n\n`;
+                    statsHtml += `📁 凭证数量: ${stats.credential_count}\n`;
+                    statsHtml += `📊 总调用次数: ${stats.total_calls}\n`;
+                    statsHtml += `⏰ 最后活跃: ${stats.last_active ? new Date(stats.last_active).toLocaleString() : '未活跃'}\n\n`;
+                    statsHtml += `凭证详情:\n`;
+
+                    if (stats.credentials && stats.credentials.length > 0) {
+                        stats.credentials.forEach(cred => {
+                            statsHtml += `\n- ${cred.credential_name}\n`;
+                            statsHtml += `  状态: ${cred.disabled ? '🔴 已禁用' : '🟢 正常'}\n`;
+                            statsHtml += `  最后成功: ${cred.last_success ? new Date(cred.last_success * 1000).toLocaleString() : '从未使用'}\n`;
+                            if (cred.error_codes && cred.error_codes.length > 0) {
+                                statsHtml += `  错误码: ${cred.error_codes.join(', ')}\n`;
+                            }
+                        });
+                    } else {
+                        statsHtml += '\n暂无凭证';
+                    }
+
+                    alert(statsHtml);
+                }
+            } catch (error) {
+                alert('❌ 获取统计失败: ' + error.message);
+            }
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.className = 'message ' + type;
+            element.innerHTML = message;
+            setTimeout(() => {
+                element.innerHTML = '';
+                element.className = '';
+            }, 5000);
+        }
+
+        // 支持回车键登录
+        document.getElementById('adminPassword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+    </script>
+</body>
+</html>

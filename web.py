@@ -22,6 +22,7 @@ from src.openai_router import router as openai_router
 from src.chat_api_auth import router as auth_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
+from src.muti_users import router as multi_user_router
 
 # 全局凭证管理器
 global_credential_manager = None
@@ -115,6 +116,9 @@ app.include_router(auth_router, prefix="", tags=["API Authentication"])
 
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
+
+# 多用户管理路由 - 处理多用户隔离和凭证管理
+app.include_router(multi_user_router, prefix="", tags=["Multi-User Management"])
 
 # 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")
