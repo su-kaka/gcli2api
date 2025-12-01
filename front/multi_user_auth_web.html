@@ -264,46 +264,66 @@
             <div class="status info">
                 <h4>📖 使用说明</h4>
                 <p style="margin: 10px 0; line-height: 1.6;">
-                    1️⃣ 点击下方按钮生成认证链接<br>
-                    2️⃣ 在新窗口完成 Google 授权<br>
-                    3️⃣ <strong style="color: #d32f2f;">将浏览器地址栏的完整URL粘贴到输入框即可</strong>
+                    1️⃣ 点击下方按钮获取认证链接<br>
+                    2️⃣ 在新窗口中完成 Google 授权<br>
+                    3️⃣ <strong>如果访问失败，请复制浏览器地址栏的完整URL</strong><br>
+                    4️⃣ 将URL粘贴到"快捷获取凭证"区域，即可完成认证
                 </p>
             </div>
 
             <button class="btn" id="getAuthBtn" onclick="startAuth()" style="font-size: 18px; padding: 16px 32px; margin: 20px 0;">
-                🔑 生成认证链接
+                🔑 获取认证链接
             </button>
 
             <div id="authUrlSection" class="hidden">
-                <h3>步骤一：点击链接完成授权</h3>
+                <h3>步骤一：认证链接</h3>
                 <div class="auth-url">
-                    <a id="authUrl" href="#" target="_blank" style="font-size: 14px;">👉 点击此链接进行 Google 授权</a>
+                    <a id="authUrl" href="#" target="_blank" style="font-size: 14px;">点击此链接进行 OAuth 认证</a>
                 </div>
 
-                <!-- 快捷回调URL输入 -->
+                <div class="status warning" style="margin: 20px 0;">
+                    <h4>⚠️ 如果点击链接后页面无法访问</h4>
+                    <p style="margin: 10px 0; line-height: 1.6;">
+                        这是正常现象！请按照以下步骤操作：<br>
+                        1. 完成 Google 授权后，页面可能显示"无法访问此网站"<br>
+                        2. <strong style="color: #d32f2f;">不要关闭窗口！</strong>复制浏览器地址栏的<strong>完整URL</strong><br>
+                        3. 将复制的URL粘贴到下方"快捷获取凭证"区域
+                    </p>
+                </div>
+
+                <!-- 快捷回调URL输入选项（显眼位置） -->
                 <div style="margin: 25px 0; padding: 20px; border: 3px solid #4285f4; border-radius: 12px; background: linear-gradient(135deg, #f8fcff 0%, #e3f2fd 100%); box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15);">
                     <h3 style="color: #1565c0; margin-top: 0; margin-bottom: 15px; font-size: 20px; display: flex; align-items: center; gap: 10px;">
                         <span style="font-size: 24px;">🚀</span>
-                        <span>步骤二：粘贴浏览器上的回调链接</span>
+                        <span>快捷获取凭证（推荐使用）</span>
                     </h3>
 
                     <div style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-                        <div style="color: #856404; font-size: 15px; font-weight: bold; margin-bottom: 8px;">💡 重要提示</div>
+                        <div style="color: #856404; font-size: 15px; font-weight: bold; margin-bottom: 8px;">💡 什么是回调URL？</div>
                         <p style="color: #856404; font-size: 14px; margin: 8px 0; line-height: 1.6;">
-                            完成Google授权后，<strong>即使页面显示"无法访问"也不要关闭窗口</strong><br>
-                            直接复制浏览器地址栏的<strong>完整URL</strong>并粘贴到下方输入框即可！
+                            完成Google授权后，浏览器地址栏显示的<strong>完整网址</strong>，即使页面显示无法访问，地址栏的URL也是有效的！
                         </p>
                         <div style="background: #fff; border-radius: 4px; padding: 8px; margin-top: 10px;">
-                            <strong style="color: #856404; font-size: 13px;">地址栏示例：</strong>
+                            <strong style="color: #856404; font-size: 13px;">示例：</strong>
                             <code style="background: #f1f3f4; padding: 4px 8px; border-radius: 3px; font-size: 12px; word-break: break-all; display: block; margin-top: 4px; color: #333;">
-                                http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...
+                                http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
                             </code>
                         </div>
                     </div>
 
+                    <div style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                        <div style="color: #2e7d32; font-size: 15px; font-weight: bold; margin-bottom: 8px;">📋 使用步骤：</div>
+                        <ol style="color: #2e7d32; font-size: 14px; margin: 0; padding-left: 20px; line-height: 1.8;">
+                            <li>点击上方认证链接，完成Google授权</li>
+                            <li><strong>复制浏览器地址栏的完整URL</strong>（即使页面显示错误）</li>
+                            <li>粘贴到下方输入框</li>
+                            <li>点击"立即获取凭证"按钮</li>
+                        </ol>
+                    </div>
+
                     <div style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1565c0; font-size: 15px;">
-                            ⬇️ 将浏览器地址栏的URL粘贴到这里：
+                            ⬇️ 将回调URL粘贴到这里：
                         </label>
                         <input type="url" id="callbackUrlInput"
                                placeholder="粘贴浏览器地址栏的完整URL，例如：http://localhost:8080/?state=xxx&code=xxx..."
@@ -319,7 +339,7 @@
                 </div>
 
                 <button class="btn secondary" id="getCredsBtn" onclick="getCredentials()" style="opacity: 0.7;">
-                    ⏳ 等待自动回调（需要网络正常）
+                    ⏳ 等待自动回调获取凭证（需要网络能正常回源）
                 </button>
             </div>
             
@@ -377,10 +397,10 @@
         async function startAuth() {
             const btn = document.getElementById('getAuthBtn');
             btn.disabled = true;
-            btn.textContent = '正在生成...';
+            btn.textContent = '正在生成认证链接...';
 
             try {
-                showStatus('正在生成认证链接...', 'info');
+                showStatus('正在生成认证链接，系统会自动检测项目ID...', 'info');
 
                 const response = await fetch('/auth/start', {
                     method: 'POST',
@@ -395,16 +415,16 @@
                     document.getElementById('authUrl').textContent = data.auth_url;
                     document.getElementById('authUrlSection').classList.remove('hidden');
 
-                    showStatus('✅ 链接已生成！请点击链接授权，然后将浏览器地址栏的URL粘贴到输入框', 'success');
+                    showStatus('认证链接已生成！请点击链接完成授权，如遇访问失败请使用"快捷获取凭证"', 'success');
                     authInProgress = true;
                 } else {
-                    showStatus(`生成失败: ${data.error || data.detail || '未知错误'}`, 'error');
+                    showStatus(`生成认证链接失败: ${data.error || data.detail || '未知错误'}`, 'error');
                 }
             } catch (error) {
                 showStatus(`网络错误: ${error.message}`, 'error');
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🔑 生成认证链接';
+                btn.textContent = '🔑 获取认证链接';
             }
         }
 
@@ -524,11 +544,11 @@
 
             // 检查是否包含必要参数
             if (!callbackUrl.includes('code=') || !callbackUrl.includes('state=')) {
-                showStatus('❌ URL无效！请确保已完成授权并复制了浏览器地址栏的完整URL', 'error');
+                showStatus('❌ 这不是有效的回调URL！\n请确保：\n1. 已完成Google OAuth授权\n2. 复制的是浏览器地址栏的完整URL\n3. URL包含code和state参数', 'error');
                 return;
             }
 
-            showStatus('正在获取凭证...', 'info');
+            showStatus('正在从回调URL获取凭证...', 'info');
 
             try {
                 const response = await fetch('/auth/callback-url', {
@@ -543,7 +563,7 @@
 
                 if (result.credentials) {
                     // 显示成功信息
-                    showStatus('✅ 获取凭证成功！', 'success');
+                    showStatus(result.message || '从回调URL获取凭证成功！', 'success');
 
                     // 隐藏认证URL区域，显示凭证内容
                     document.getElementById('authUrlSection').classList.add('hidden');
@@ -557,25 +577,25 @@
                     callbackUrlInput.value = '';
 
                 } else if (result.requires_manual_project_id) {
-                    showStatus('⚠️ 需要手动指定项目ID，请联系技术支持', 'error');
+                    showStatus('⚠️ 需要手动指定项目ID。这种情况比较少见，请联系技术支持。', 'error');
                 } else if (result.requires_project_selection) {
-                    let projectList = '\n检测到多个项目：\n';
+                    let projectList = '\n\n检测到多个项目：\n';
                     result.available_projects.forEach(project => {
                         projectList += `• ${project.name} (ID: ${project.projectId})\n`;
                     });
-                    showStatus('⚠️ 检测到多个项目' + projectList + '\n请联系技术支持', 'warning');
+                    showStatus('⚠️ 检测到多个项目。' + projectList + '\n这种情况比较少见，请联系技术支持。', 'warning');
                 } else {
-                    showStatus(result.error || '获取凭证失败', 'error');
+                    showStatus(result.error || '从回调URL获取凭证失败', 'error');
                 }
             } catch (error) {
-                console.error('获取凭证错误:', error);
-                showStatus(`获取凭证失败: ${error.message}`, 'error');
+                console.error('从回调URL获取凭证时出错:', error);
+                showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
             }
         }
 
         // 页面加载时的初始化
         window.onload = function() {
-            showStatus('👋 欢迎！点击"生成认证链接"开始', 'info');
+            showStatus('欢迎使用 Google OAuth 认证服务！点击"获取认证链接"开始认证', 'info');
         };
     </script>
 </body>
