@@ -52,30 +52,15 @@ async def get_credential_manager():
     yield credential_manager
 
 
-async def authenticate(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """
-    验证用户密码或API Key
-    返回验证结果，包含认证类型和相关信息
-    """
-    # 首先尝试API Key鉴权
-    from src.chat_api_auth import authenticate_api_key
-    try:
-        api_key_result = await authenticate_api_key(request)
-        # API Key 鉴权成功
-        log.debug("Using API Key authentication")
-        return {"type": "api_key", "data": api_key_result}
-    except HTTPException:
-        # API Key 鉴权失败，继续尝试密码鉴权
-        pass
-
-    # 尝试密码鉴权
+async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """验证用户密码"""
     from config import get_api_password
 
     password = await get_api_password()
     token = credentials.credentials
     if token != password:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
-    return {"type": "password", "data": token}
+    return token
 
 
 @router.get("/v1/models", response_model=ModelList)
@@ -86,7 +71,7 @@ async def list_models():
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: Request, auth_result: dict = Depends(authenticate)):
+async def chat_completions(request: Request, token: str = Depends(authenticate)):
     """处理OpenAI格式的聊天完成请求"""
 
     # 获取原始请求数据
@@ -102,12 +87,6 @@ async def chat_completions(request: Request, auth_result: dict = Depends(authent
     except Exception as e:
         log.error(f"Request validation failed: {e}")
         raise HTTPException(status_code=400, detail=f"Request validation error: {str(e)}")
-
-    # 如果使用API Key鉴权，消耗配额
-    if auth_result["type"] == "api_key":
-        from src.chat_api_auth import consume_quota
-        api_key = auth_result["data"]["api_key"]
-        await consume_quota(api_key, request_data.model)
 
     # 健康检查
     if (
