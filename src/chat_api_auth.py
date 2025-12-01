@@ -255,6 +255,15 @@ async def consume_quota(api_key: str, model_name: str, username: str = None) -> 
     if not key_info:
         raise ValueError(f"API key not found: {api_key}")
 
+    # 验证 key_info 数据完整性
+    if "total_quota" not in key_info or key_info["total_quota"] is None:
+        log.error(f"API key {api_key[:10]}... has invalid total_quota: {key_info.get('total_quota')}")
+        raise ValueError(f"API key data corrupted: missing or invalid total_quota")
+
+    if "used_quota" not in key_info or key_info["used_quota"] is None:
+        log.warning(f"API key {api_key[:10]}... has invalid used_quota, resetting to 0")
+        key_info["used_quota"] = 0
+
     cost = await get_model_cost(model_name)
 
     # 检查配额是否已经用完（降到0）
