@@ -108,7 +108,8 @@ async def authenticate_api_key(request: Request) -> dict:
     支持多种方式传递 API Key:
     1. Authorization: Bearer <api_key>
     2. x-api-key header
-    3. api_key query parameter
+    3. x-goog-api-key header (Google AI 标准)
+    4. api_key query parameter
 
     支持两种类型的 key:
     - sk-xxx: 传统的 API Key (从 api_keys 存储读取)
@@ -125,6 +126,10 @@ async def authenticate_api_key(request: Request) -> dict:
     if not api_key:
         api_key = request.headers.get("x-api-key")
 
+    # 尝试从 x-goog-api-key header 获取 (Google AI 标准)
+    if not api_key:
+        api_key = request.headers.get("x-goog-api-key")
+
     # 尝试从 query parameter 获取
     if not api_key:
         api_key = request.query_params.get("api_key")
@@ -132,7 +137,7 @@ async def authenticate_api_key(request: Request) -> dict:
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide it via 'Authorization: Bearer <key>', 'x-api-key' header, or 'api_key' query parameter"
+            detail="Missing API key. Provide it via 'Authorization: Bearer <key>', 'x-api-key' header, 'x-goog-api-key' header, or 'api_key' query parameter"
         )
 
     storage = await get_storage_adapter()
