@@ -32,7 +32,6 @@ class UnifiedCacheManager:
     def __init__(
         self,
         cache_backend: CacheBackend,
-        cache_ttl: float = 300.0,
         write_delay: float = 1.0,
         max_write_delay: float = 30.0,
         min_write_interval: float = 5.0,
@@ -43,14 +42,12 @@ class UnifiedCacheManager:
 
         Args:
             cache_backend: 缓存后端实现
-            cache_ttl: 缓存TTL（秒）,设置为0表示永不过期
             write_delay: 初始写入延迟（秒）
             max_write_delay: 最大写入延迟（秒）,用于延迟写入策略
             min_write_interval: 最小写入间隔（秒）,避免频繁写入
             name: 缓存名称（用于日志）
         """
         self._backend = cache_backend
-        self._cache_ttl = cache_ttl
         self._write_delay = write_delay
         self._max_write_delay = max_write_delay
         self._min_write_interval = min_write_interval
@@ -59,8 +56,7 @@ class UnifiedCacheManager:
         # 缓存数据
         self._cache: Dict[str, Any] = {}
         self._cache_dirty = False
-        self._last_cache_time = 0
-        self._cache_loaded = False  # 新增:标记缓存是否已加载
+        self._cache_loaded = False  # 标记缓存是否已从后端加载
 
         # 并发控制
         self._cache_lock = asyncio.Lock()
@@ -70,20 +66,24 @@ class UnifiedCacheManager:
         self._shutdown_event = asyncio.Event()
 
         # 写入控制
-        self._last_write_time = 0  # 新增:上次写入时间
-        self._pending_write_time = 0  # 新增:待写入数据的时间戳
-        self._write_count = 0  # 新增:写入次数统计
+        self._last_write_time = 0  # 上次写入时间
+        self._pending_write_time = 0  # 待写入数据的时间戳
+        self._write_count = 0  # 写入次数统计
 
         # 性能监控
         self._operation_count = 0
         self._operation_times = deque(maxlen=1000)
-        self._read_count = 0  # 新增:后端读取次数
-        self._write_backend_count = 0  # 新增:实际后端写入次数
+        self._initial_load_count = 0  # 启动时的后端读取次数（应该只有1次）
+        self._write_backend_count = 0  # 实际后端写入次数
 
     async def start(self):
-        """启动缓存管理器"""
+        """启动缓存管理器，并从后端加载初始数据"""
         if self._write_task and not self._write_task.done():
             return
+
+        # 启动时从后端加载一次数据
+        if not self._cache_loaded:
+            await self._load_initial_cache()
 
         self._shutdown_event.clear()
         self._write_task = asyncio.create_task(self._write_loop())
@@ -110,8 +110,10 @@ class UnifiedCacheManager:
             start_time = time.time()
 
             try:
-                # 确保缓存已加载
-                await self._ensure_cache_loaded()
+                # 确保缓存已加载（启动时加载一次，后续不再从后端读取）
+                if not self._cache_loaded:
+                    log.warning(f"{self._name} cache not loaded, loading now")
+                    await self._load_initial_cache()
 
                 # 性能监控
                 self._operation_count += 1
@@ -135,8 +137,10 @@ class UnifiedCacheManager:
             start_time = time.time()
 
             try:
-                # 确保缓存已加载
-                await self._ensure_cache_loaded()
+                # 确保缓存已加载（启动时加载一次，后续不再从后端读取）
+                if not self._cache_loaded:
+                    log.warning(f"{self._name} cache not loaded, loading now")
+                    await self._load_initial_cache()
 
                 # 更新缓存
                 self._cache[key] = value
@@ -163,8 +167,10 @@ class UnifiedCacheManager:
             start_time = time.time()
 
             try:
-                # 确保缓存已加载
-                await self._ensure_cache_loaded()
+                # 确保缓存已加载（启动时加载一次，后续不再从后端读取）
+                if not self._cache_loaded:
+                    log.warning(f"{self._name} cache not loaded, loading now")
+                    await self._load_initial_cache()
 
                 if key in self._cache:
                     del self._cache[key]
@@ -194,8 +200,10 @@ class UnifiedCacheManager:
             start_time = time.time()
 
             try:
-                # 确保缓存已加载
-                await self._ensure_cache_loaded()
+                # 确保缓存已加载（启动时加载一次，后续不再从后端读取）
+                if not self._cache_loaded:
+                    log.warning(f"{self._name} cache not loaded, loading now")
+                    await self._load_initial_cache()
 
                 # 性能监控
                 self._operation_count += 1
@@ -218,8 +226,10 @@ class UnifiedCacheManager:
             start_time = time.time()
 
             try:
-                # 确保缓存已加载
-                await self._ensure_cache_loaded()
+                # 确保缓存已加载（启动时加载一次，后续不再从后端读取）
+                if not self._cache_loaded:
+                    log.warning(f"{self._name} cache not loaded, loading now")
+                    await self._load_initial_cache()
 
                 # 批量更新
                 self._cache.update(updates)
@@ -240,53 +250,42 @@ class UnifiedCacheManager:
                 log.error(f"Error updating {self._name} cache multi in {operation_time:.3f}s: {e}")
                 return False
 
-    async def _ensure_cache_loaded(self):
-        """确保缓存已从底层存储加载"""
-        # 如果已经加载过缓存,直接返回
+    async def _load_initial_cache(self):
+        """
+        启动时从底层存储加载初始缓存数据
+        这个方法只在启动时调用一次，后续运行期间不再从后端读取
+        """
         if self._cache_loaded:
-            # 如果设置了TTL且缓存未过期,直接返回
-            if self._cache_ttl == 0:
-                return  # TTL为0表示永不过期
+            log.debug(f"{self._name} cache already loaded, skipping reload")
+            return
 
-            current_time = time.time()
-            # 如果缓存脏了（有未写入的数据）,不要重新加载以避免数据丢失
-            if self._cache_dirty:
-                return
-
-            # 检查是否过期
-            if current_time - self._last_cache_time <= self._cache_ttl:
-                return
-
-        # 首次加载或缓存过期,需要从后端加载
-        await self._load_cache()
-        self._last_cache_time = time.time()
-        self._cache_loaded = True
-
-    async def _load_cache(self):
-        """从底层存储加载缓存"""
         try:
             start_time = time.time()
 
             # 从后端加载数据
             data = await self._backend.load_data()
-            self._read_count += 1  # 统计后端读取次数
+            self._initial_load_count += 1
 
             if data:
                 self._cache = data
-                log.debug(
-                    f"{self._name} cache loaded ({len(self._cache)}) from backend (total reads: {self._read_count})"
+                log.info(
+                    f"{self._name} cache loaded {len(self._cache)} items from backend "
+                    f"(initial load #{self._initial_load_count})"
                 )
             else:
                 # 如果后端没有数据，初始化空缓存
                 self._cache = {}
-                log.debug(f"{self._name} cache initialized empty")
+                log.info(f"{self._name} cache initialized empty (backend has no data)")
 
+            self._cache_loaded = True
             operation_time = time.time() - start_time
-            log.debug(f"{self._name} cache loaded in {operation_time:.3f}s")
+            log.info(f"{self._name} initial cache load completed in {operation_time:.3f}s")
 
         except Exception as e:
-            log.error(f"Error loading {self._name} cache from backend: {e}")
+            log.error(f"Error loading {self._name} initial cache from backend: {e}")
+            # 加载失败时初始化空缓存，但标记为已加载以避免重复尝试
             self._cache = {}
+            self._cache_loaded = True
 
     async def _write_loop(self):
         """异步写回循环 - 使用智能延迟写入策略"""
