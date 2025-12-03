@@ -100,7 +100,6 @@ class FileStorageManager:
 
         # 配置参数
         self._write_delay = 0.5  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
 
     async def initialize(self) -> None:
         """初始化文件存储"""
@@ -124,13 +123,12 @@ class FileStorageManager:
 
         self._credentials_cache_manager = UnifiedCacheManager(
             credentials_backend,
-            cache_ttl=self._cache_ttl,
             write_delay=self._write_delay,
             name="credentials",
         )
 
         self._config_cache_manager = UnifiedCacheManager(
-            config_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="config"
+            config_backend, write_delay=self._write_delay, name="config"
         )
 
         # 启动缓存管理器

@@ -84,7 +84,6 @@ class MongoDBManager:
 
         # 写入配置参数
         self._write_delay = 1.0  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
 
     async def initialize(self):
         """初始化MongoDB连接"""
@@ -129,14 +128,12 @@ class MongoDBManager:
 
                 self._credentials_cache_manager = UnifiedCacheManager(
                     credentials_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="credentials",
                 )
 
                 self._config_cache_manager = UnifiedCacheManager(
                     config_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="config",
                 )

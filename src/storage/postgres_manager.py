@@ -90,7 +90,6 @@ class PostgresManager:
         self._config_row_key = "config_data"
 
         self._write_delay = 1.0
-        self._cache_ttl = 300
 
     async def initialize(self):
         async with self._lock:
@@ -116,13 +115,11 @@ class PostgresManager:
 
                 self._credentials_cache_manager = UnifiedCacheManager(
                     credentials_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="credentials",
                 )
                 self._config_cache_manager = UnifiedCacheManager(
                     config_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="config",
                 )
