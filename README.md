@@ -162,8 +162,7 @@
 
 ### 🤖 基础模型
 - `gemini-2.5-pro`
-- `gemini-2.5-pro-preview-06-05`  
-- `gemini-2.5-pro-preview-05-06`
+- `gemini-3-pro-preview`
 
 ### 🧠 思维模型（Thinking Models）
 - `gemini-2.5-pro-maxthinking`：最大思考预算模式

@@ -160,8 +160,7 @@ All models have 1M context window capacity. Each credential file provides 1000 r
 
 ### 🤖 Base Models
 - `gemini-2.5-pro`
-- `gemini-2.5-pro-preview-06-05`  
-- `gemini-2.5-pro-preview-05-06`
+- `gemini-3-pro-preview`
 
 ### 🧠 Thinking Models
 - `gemini-2.5-pro-maxthinking`: Maximum thinking budget mode
