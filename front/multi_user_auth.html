@@ -291,7 +291,7 @@
                         <label for="credentialFile">凭证文件 (JSON, 最大 2KB):</label>
                         <input type="file" id="credentialFile" accept=".json">
                         <p style="font-size: 12px; color: #999; margin-top: 8px;">
-                            ⚠️ 仅支持 Google Service Account 或 OAuth2 凭证文件
+                            ⚠️ 支持 Google Service Account 或 OAuth2 Token 凭证文件
                         </p>
                     </div>
                     <button onclick="uploadCredential()">上传凭证</button>
@@ -417,35 +417,41 @@
                 return { valid: false, reason: '文件内容必须是 JSON 对象' };
             }
 
-            // 检查是否包含必要的凭证字段
-            // Google Service Account 凭证包含: type, project_id, private_key_id, private_key, client_email, etc.
+            // Google Service Account 凭证的必要字段
             const serviceAccountRequiredFields = ['type', 'project_id', 'private_key', 'client_email'];
             const hasServiceAccountFields = serviceAccountRequiredFields.every(field => field in jsonData);
 
-            // Google OAuth2 凭证包含: installed 或 web
-            const hasOAuth2Fields = ('installed' in jsonData || 'web' in jsonData);
+            // Google OAuth2 授权后的 token 凭证 (包含 client_id, client_secret, refresh_token)
+            const oauth2TokenRequiredFields = ['client_id', 'client_secret', 'refresh_token'];
+            const hasOAuth2TokenFields = oauth2TokenRequiredFields.every(field => field in jsonData);
 
-            if (!hasServiceAccountFields && !hasOAuth2Fields) {
+            // 至少要满足其中一种凭证格式
+            if (!hasServiceAccountFields && !hasOAuth2TokenFields) {
                 return {
                     valid: false,
-                    reason: '文件不是有效的 Google 凭证 (缺少必要字段: type, project_id, private_key, client_email 或 installed/web)'
+                    reason: '文件不是有效的 Google 凭证 (缺少必要字段: type, project_id, private_key, client_email 或 client_id, client_secret, refresh_token)'
                 };
             }
 
             // 如果是 Service Account，验证 type 字段
-            if (hasServiceAccountFields && jsonData.type !== 'service_account') {
-                return { valid: false, reason: 'Service Account 凭证的 type 字段必须为 "service_account"' };
-            }
-
-            // 基本字段类型验证
             if (hasServiceAccountFields) {
+                if (jsonData.type !== 'service_account') {
+                    return { valid: false, reason: 'Service Account 凭证的 type 字段必须为 "service_account"' };
+                }
+
+                // 验证 private_key 格式
                 if (typeof jsonData.private_key !== 'string' || !jsonData.private_key.includes('-----BEGIN PRIVATE KEY-----')) {
                     return { valid: false, reason: 'private_key 字段格式无效' };
                 }
+
+                // 验证 client_email 格式
                 if (typeof jsonData.client_email !== 'string' || !jsonData.client_email.includes('@')) {
                     return { valid: false, reason: 'client_email 字段格式无效' };
                 }
             }
+
+            // OAuth2 Token 凭证不需要额外验证，只要字段存在即可
+            // token 和 access_token 都是可选的，不影响验证
 
             return { valid: true };
         }
