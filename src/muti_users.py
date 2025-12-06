@@ -598,14 +598,15 @@ def _validate_credential_structure(credential_data: Dict[str, Any]) -> Dict[str,
     service_account_required_fields = ["type", "project_id", "private_key", "client_email"]
     has_service_account_fields = all(field in credential_data for field in service_account_required_fields)
 
-    # Google OAuth2 凭证包含 installed 或 web
-    has_oauth2_fields = "installed" in credential_data or "web" in credential_data
+    # Google OAuth2 授权后的 token 凭证 (包含 client_id, client_secret, refresh_token)
+    oauth2_token_required_fields = ["client_id", "client_secret", "refresh_token"]
+    has_oauth2_token_fields = all(field in credential_data for field in oauth2_token_required_fields)
 
     # 至少要满足其中一种凭证格式
-    if not has_service_account_fields and not has_oauth2_fields:
+    if not has_service_account_fields and not has_oauth2_token_fields:
         return {
             "valid": False,
-            "reason": "文件不是有效的 Google 凭证 (缺少必要字段: type, project_id, private_key, client_email 或 installed/web)"
+            "reason": "文件不是有效的 Google 凭证 (缺少必要字段: type, project_id, private_key, client_email 或 client_id, client_secret, refresh_token)"
         }
 
     # 如果是 Service Account，验证 type 字段
@@ -622,6 +623,12 @@ def _validate_credential_structure(credential_data: Dict[str, Any]) -> Dict[str,
         client_email = credential_data.get("client_email", "")
         if not isinstance(client_email, str) or "@" not in client_email:
             return {"valid": False, "reason": "client_email 字段格式无效"}
+
+    # 如果是 OAuth2 Token 凭证，验证必要字段（宽松验证，只检查存在性）
+    if has_oauth2_token_fields:
+        # token 和 access_token 都是可选的，不影响验证
+        # 只要有 client_id, client_secret, refresh_token 三个字段即可
+        pass
 
     return {"valid": True, "reason": ""}
 
