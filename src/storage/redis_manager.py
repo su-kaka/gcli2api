@@ -47,7 +47,8 @@ class RedisCacheBackend(CacheBackend):
         """将数据写入Redis哈希表"""
         try:
             if not data:
-                await self._client.delete(self._hash_name)
+                # 空数据时不删除，保留现有数据
+                log.warning(f"Empty data for {self._hash_name}, skipping write")
                 return True
 
             hash_data = {}
@@ -59,12 +60,12 @@ class RedisCacheBackend(CacheBackend):
                     continue
 
             if not hash_data:
+                log.warning(f"No valid data to write for {self._hash_name}, skipping write")
                 return True
 
-            pipe = self._client.pipeline()
-            pipe.delete(self._hash_name)
-            pipe.hset(self._hash_name, mapping=hash_data)
-            await pipe.execute()
+            # 直接 HSET，会自动覆盖同名键，不会删除其他键
+            # 这样即使中途崩溃，旧数据也不会丢失
+            await self._client.hset(self._hash_name, mapping=hash_data)
             return True
         except Exception as e:
             log.error(f"Error writing data to Redis hash {self._hash_name}: {e}")
