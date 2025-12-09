@@ -206,13 +206,29 @@ async def openai_request_to_gemini_payload(
         f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}"
     )
 
-    # 为thinking模型添加thinking配置
-    thinking_budget = get_thinking_budget(openai_request.model)
-    if thinking_budget is not None:
+    # 从extra_body中取得thinking配置
+    thinking_override = None
+    try:
+        thinking_override = (
+            openai_request.extra_body.get("google", {}).get("thinking_config")
+            if openai_request.extra_body
+            else None
+        )
+    except Exception:
+        thinking_override = None
+
+    if thinking_override:  # 使用OPENAI的额外参数作为thinking参数
         request_data["generationConfig"]["thinkingConfig"] = {
-            "thinkingBudget": thinking_budget,
-            "includeThoughts": should_include_thoughts(openai_request.model),
+            "thinkingBudget": thinking_override.get("thinking_budget"),
+            "includeThoughts": thinking_override.get("include_thoughts", False),
         }
+    else:  # 如无提供的参数，则为thinking模型添加thinking配置
+        thinking_budget = get_thinking_budget(openai_request.model)
+        if thinking_budget is not None:
+            request_data["generationConfig"]["thinkingConfig"] = {
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": should_include_thoughts(openai_request.model),
+            }
 
     # 处理工具定义和配置
     # 首先检查是否有自定义工具
@@ -694,14 +710,33 @@ def _clean_schema_for_gemini(schema: Any) -> Any:
     # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
     # example (OpenAPI 3.0) 和 examples (JSON Schema) 都不支持
     unsupported_keys = {
-        '$schema', '$id', '$ref', '$defs', 'definitions',
-        'title', 'example', 'examples', 'readOnly', 'writeOnly',
-        'default',
-        'exclusiveMaximum', 'exclusiveMinimum',
-        'oneOf', 'anyOf', 'allOf', 'const',
-        'additionalItems', 'contains', 'patternProperties',
-        'dependencies', 'propertyNames', 'if', 'then', 'else',
-        'contentEncoding', 'contentMediaType',
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "definitions",
+        "title",
+        "example",
+        "examples",
+        "readOnly",
+        "writeOnly",
+        "default",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "additionalItems",
+        "contains",
+        "patternProperties",
+        "dependencies",
+        "propertyNames",
+        "if",
+        "then",
+        "else",
+        "contentEncoding",
+        "contentMediaType",
     }
 
     cleaned = {}
@@ -712,15 +747,14 @@ def _clean_schema_for_gemini(schema: Any) -> Any:
             cleaned[key] = _clean_schema_for_gemini(value)
         elif isinstance(value, list):
             cleaned[key] = [
-                _clean_schema_for_gemini(item) if isinstance(item, dict) else item
-                for item in value
+                _clean_schema_for_gemini(item) if isinstance(item, dict) else item for item in value
             ]
         else:
             cleaned[key] = value
 
     # 确保有 type 字段（如果有 properties 但没有 type）
-    if 'properties' in cleaned and 'type' not in cleaned:
-        cleaned['type'] = 'object'
+    if "properties" in cleaned and "type" not in cleaned:
+        cleaned["type"] = "object"
 
     return cleaned
 
