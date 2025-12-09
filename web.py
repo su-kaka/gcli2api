@@ -19,6 +19,7 @@ from src.gemini_router import router as gemini_router
 
 # Import all routers
 from src.openai_router import router as openai_router
+from src.healthcheck import start_healthcheck_scheduler, stop_healthcheck_scheduler
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
 
@@ -60,6 +61,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"创建自动加载环境变量凭证任务失败: {e}")
 
+    # 启动健康检查调度
+    try:
+        await start_healthcheck_scheduler()
+        log.info("健康检查调度已启动")
+    except Exception as e:
+        log.error(f"启动健康检查调度失败: {e}")
+
     # OAuth回调服务器将在需要时按需启动
 
     yield
@@ -81,6 +89,12 @@ async def lifespan(app: FastAPI):
             log.info("凭证管理器已关闭")
         except Exception as e:
             log.error(f"关闭凭证管理器时出错: {e}")
+
+    # 停止健康检查调度
+    try:
+        await stop_healthcheck_scheduler()
+    except Exception as e:
+        log.error(f"停止健康检查调度失败: {e}")
 
     log.info("GCLI2API 主服务已停止")
 

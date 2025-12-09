@@ -44,6 +44,7 @@ from .auth import (
     verify_password,
 )
 from .credential_manager import CredentialManager
+from .healthcheck import get_healthcheck_status, run_healthcheck
 from .storage_adapter import get_storage_adapter
 from .usage_stats import get_aggregated_stats, get_usage_stats, get_usage_stats_instance
 
@@ -1167,6 +1168,14 @@ async def get_config(token: str = Depends(verify_token)):
         # 思维链返回配置
         current_config["return_thoughts_to_frontend"] = await config.get_return_thoughts_to_frontend()
 
+        # 健康检查配置
+        current_config["healthcheck_enabled"] = await config.get_healthcheck_enabled()
+        current_config["healthcheck_interval"] = await config.get_healthcheck_interval()
+        current_config["healthcheck_model"] = await config.get_healthcheck_model()
+        current_config["healthcheck_timeout"] = await config.get_healthcheck_timeout()
+        current_config["healthcheck_concurrency"] = await config.get_healthcheck_concurrency()
+        current_config["healthcheck_delete_on_error"] = await config.get_healthcheck_delete_on_error()
+
         # 服务器配置
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
@@ -1187,6 +1196,18 @@ async def get_config(token: str = Depends(verify_token)):
             env_locked.append("compatibility_mode_enabled")
         if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
             env_locked.append("return_thoughts_to_frontend")
+        if os.getenv("HEALTHCHECK_ENABLED"):
+            env_locked.append("healthcheck_enabled")
+        if os.getenv("HEALTHCHECK_INTERVAL"):
+            env_locked.append("healthcheck_interval")
+        if os.getenv("HEALTHCHECK_MODEL"):
+            env_locked.append("healthcheck_model")
+        if os.getenv("HEALTHCHECK_TIMEOUT"):
+            env_locked.append("healthcheck_timeout")
+        if os.getenv("HEALTHCHECK_CONCURRENCY"):
+            env_locked.append("healthcheck_concurrency")
+        if os.getenv("HEALTHCHECK_DELETE_ON_ERROR"):
+            env_locked.append("healthcheck_delete_on_error")
         if os.getenv("HOST"):
             env_locked.append("host")
         if os.getenv("PORT"):
@@ -1261,6 +1282,47 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["return_thoughts_to_frontend"], bool):
                 raise HTTPException(status_code=400, detail="思维链返回开关必须是布尔值")
 
+        # 健康检查配置
+        if "healthcheck_enabled" in new_config and not isinstance(
+            new_config["healthcheck_enabled"], bool
+        ):
+            raise HTTPException(status_code=400, detail="健康检查开关必须是布尔值")
+
+        if "healthcheck_interval" in new_config:
+            try:
+                interval = int(new_config["healthcheck_interval"])
+                if interval < 30:
+                    raise HTTPException(status_code=400, detail="健康检查间隔至少30秒")
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="健康检查间隔必须是整数")
+
+        if "healthcheck_model" in new_config:
+            if not isinstance(new_config["healthcheck_model"], str) or not new_config[
+                "healthcheck_model"
+            ].strip():
+                raise HTTPException(status_code=400, detail="健康检查模型不能为空")
+
+        if "healthcheck_timeout" in new_config:
+            try:
+                timeout_val = float(new_config["healthcheck_timeout"])
+                if timeout_val <= 0:
+                    raise HTTPException(status_code=400, detail="健康检查超时必须大于0")
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="健康检查超时必须是数字")
+
+        if "healthcheck_concurrency" in new_config:
+            try:
+                conc = int(new_config["healthcheck_concurrency"])
+                if conc < 1:
+                    raise HTTPException(status_code=400, detail="健康检查并发至少为1")
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="健康检查并发必须是整数")
+
+        if "healthcheck_delete_on_error" in new_config and not isinstance(
+            new_config["healthcheck_delete_on_error"], bool
+        ):
+            raise HTTPException(status_code=400, detail="健康检查删除开关必须是布尔值")
+
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
@@ -1324,6 +1386,18 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             env_locked_keys.add("compatibility_mode_enabled")
         if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
             env_locked_keys.add("return_thoughts_to_frontend")
+        if os.getenv("HEALTHCHECK_ENABLED"):
+            env_locked_keys.add("healthcheck_enabled")
+        if os.getenv("HEALTHCHECK_INTERVAL"):
+            env_locked_keys.add("healthcheck_interval")
+        if os.getenv("HEALTHCHECK_MODEL"):
+            env_locked_keys.add("healthcheck_model")
+        if os.getenv("HEALTHCHECK_TIMEOUT"):
+            env_locked_keys.add("healthcheck_timeout")
+        if os.getenv("HEALTHCHECK_CONCURRENCY"):
+            env_locked_keys.add("healthcheck_concurrency")
+        if os.getenv("HEALTHCHECK_DELETE_ON_ERROR"):
+            env_locked_keys.add("healthcheck_delete_on_error")
         if os.getenv("HOST"):
             env_locked_keys.add("host")
         if os.getenv("PORT"):
@@ -1787,6 +1861,11 @@ class UsageResetRequest(BaseModel):
     filename: Optional[str] = None
 
 
+class HealthcheckRunRequest(BaseModel):
+    dry_run: Optional[bool] = False
+    limit: Optional[int] = None
+
+
 @router.post("/usage/reset")
 async def reset_usage_statistics(request: UsageResetRequest, token: str = Depends(verify_token)):
     """
@@ -1812,4 +1891,32 @@ async def reset_usage_statistics(request: UsageResetRequest, token: str = Depend
 
     except Exception as e:
         log.error(f"重置使用统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 健康检查 API
+# =============================================================================
+
+
+@router.post("/healthcheck/run")
+async def trigger_healthcheck(request: HealthcheckRunRequest, token: str = Depends(verify_token)):
+    """手动触发健康检查，可dry_run或限制数量"""
+    try:
+        result = await run_healthcheck(dry_run=request.dry_run or False, limit=request.limit)
+        return JSONResponse(content={"success": True, "data": result})
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        log.error(f"手动健康检查失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/healthcheck/status")
+async def healthcheck_status(token: str = Depends(verify_token)):
+    """获取健康检查运行状态及最近结果"""
+    try:
+        return JSONResponse(content={"success": True, "data": get_healthcheck_status()})
+    except Exception as e:
+        log.error(f"获取健康检查状态失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

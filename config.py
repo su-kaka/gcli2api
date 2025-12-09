@@ -560,3 +560,61 @@ async def is_mongodb_mode() -> bool:
     """
     mongodb_uri = await get_mongodb_uri()
     return bool(mongodb_uri and mongodb_uri.strip())
+
+
+# Healthcheck configuration
+async def get_healthcheck_enabled() -> bool:
+    """是否启用凭证自动健康检查"""
+    env_value = os.getenv("HEALTHCHECK_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+    return bool(await get_config_value("healthcheck_enabled", False))
+
+
+async def get_healthcheck_interval() -> int:
+    """健康检查执行间隔（秒）"""
+    env_value = os.getenv("HEALTHCHECK_INTERVAL")
+    if env_value:
+        try:
+            return max(30, int(env_value))
+        except ValueError:
+            pass
+    return int(await get_config_value("healthcheck_interval", 3600))
+
+
+async def get_healthcheck_model() -> str:
+    """健康检查使用的模型名称"""
+    env_value = os.getenv("HEALTHCHECK_MODEL")
+    if env_value:
+        return env_value
+    return str(await get_config_value("healthcheck_model", "gemini-2.5-pro"))
+
+
+async def get_healthcheck_timeout() -> float:
+    """单个探活请求超时（秒）"""
+    env_value = os.getenv("HEALTHCHECK_TIMEOUT")
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            pass
+    return float(await get_config_value("healthcheck_timeout", 15.0))
+
+
+async def get_healthcheck_concurrency() -> int:
+    """健康检查并发上限"""
+    env_value = os.getenv("HEALTHCHECK_CONCURRENCY")
+    if env_value:
+        try:
+            return max(1, int(env_value))
+        except ValueError:
+            pass
+    return int(await get_config_value("healthcheck_concurrency", 3))
+
+
+async def get_healthcheck_delete_on_error() -> bool:
+    """非429错误是否自动删除凭证（默认True）"""
+    env_value = os.getenv("HEALTHCHECK_DELETE_ON_ERROR")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+    return bool(await get_config_value("healthcheck_delete_on_error", True))

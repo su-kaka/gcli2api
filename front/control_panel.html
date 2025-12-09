@@ -1552,6 +1552,69 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                         </div>
 
                         <div class="config-group">
+                            <h4>健康检查（自动验活）</h4>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="healthcheckEnabled" class="config-checkbox" />
+                                    启用自动健康检查
+                                </label>
+                                <small class="config-note">按间隔自动检测所有凭证；成功恢复禁用，429禁用，其他错误默认删除</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="healthcheckInterval">检查间隔（秒）:</label>
+                                <input type="number" id="healthcheckInterval" class="config-input" min="30"
+                                    placeholder="3600" />
+                                <small class="config-note">自动检查周期，默认3600秒</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="healthcheckModel">探活模型:</label>
+                                <input type="text" id="healthcheckModel" class="config-input"
+                                    placeholder="gemini-2.5-pro" />
+                                <small class="config-note">用于探活的模型名称，建议基础模型</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="healthcheckTimeout">单请求超时（秒）:</label>
+                                <input type="number" id="healthcheckTimeout" class="config-input" step="0.1"
+                                    min="1" placeholder="15" />
+                                <small class="config-note">探活请求超时，默认15秒</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="healthcheckConcurrency">并发数:</label>
+                                <input type="number" id="healthcheckConcurrency" class="config-input" min="1"
+                                    max="10" placeholder="3" />
+                                <small class="config-note">健康检查并发上限，默认3</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="healthcheckDeleteOnError" class="config-checkbox" />
+                                    非429错误自动删除凭证
+                                </label>
+                                <small class="config-note">默认开启；若关闭则改为禁用</small>
+                            </div>
+
+                            <div class="form-group" style="display:flex;gap:10px;flex-wrap:wrap;">
+                                <button class="btn" type="button" onclick="triggerHealthcheck(false)">立即健康检查</button>
+                                <button class="btn" type="button" style="background-color:#6c757d;"
+                                    onclick="triggerHealthcheck(true)">Dry-run（仅预览动作）</button>
+                                <button class="refresh-btn" type="button" onclick="refreshHealthcheckStatus()">刷新状态</button>
+                            </div>
+
+                            <div class="config-info" id="healthcheckStatusBox"
+                                style="background-color:#f8f9fa;border:1px solid #e1e4e8;border-radius:8px;padding:12px;">
+                                <div><strong>运行状态：</strong><span id="healthcheckRunning">未知</span></div>
+                                <div><strong>最近结果：</strong></div>
+                                <pre id="healthcheckLastResult"
+                                    style="background:#1e1e1e;color:#e9ecef;padding:10px;border-radius:6px;max-height:220px;overflow:auto;font-size:12px;"></pre>
+                            </div>
+                        </div>
+
+                        <div class="config-group">
                             <h4>配置热更新说明</h4>
 
                             <div class="form-group">
@@ -1819,6 +1882,7 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             // 如果切换到配置管理页面，自动加载配置
             if (tabName === 'config') {
                 loadConfig();
+                refreshHealthcheckStatus();
             }
             // 如果切换到环境变量页面，自动检查状态
             if (tabName === 'envload') {
@@ -2929,13 +2993,21 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             setConfigField('retry429Interval', currentConfig.retry_429_interval || 0.1);
 
             // 兼容性配置
-            document.getElementById('compatibilityModeEnabled').checked = Boolean(currentConfig.compatibility_mode_enabled);
+            setCheckboxField('compatibilityModeEnabled', currentConfig.compatibility_mode_enabled);
 
             // 思维链返回配置
-            document.getElementById('returnThoughtsToFrontend').checked = Boolean(currentConfig.return_thoughts_to_frontend !== false);
+            setCheckboxField('returnThoughtsToFrontend', currentConfig.return_thoughts_to_frontend !== false, 'return_thoughts_to_frontend');
 
             // 抗截断配置
             setConfigField('antiTruncationMaxAttempts', currentConfig.anti_truncation_max_attempts || 3);
+
+            // 健康检查配置
+            setCheckboxField('healthcheckEnabled', currentConfig.healthcheck_enabled);
+            setConfigField('healthcheckInterval', currentConfig.healthcheck_interval || 3600);
+            setConfigField('healthcheckModel', currentConfig.healthcheck_model || 'gemini-2.5-pro');
+            setConfigField('healthcheckTimeout', currentConfig.healthcheck_timeout || 15);
+            setConfigField('healthcheckConcurrency', currentConfig.healthcheck_concurrency || 3);
+            setCheckboxField('healthcheckDeleteOnError', currentConfig.healthcheck_delete_on_error !== false, 'healthcheck_delete_on_error');
         }
 
         function setConfigField(fieldId, value) {
@@ -2945,6 +3017,21 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
 
                 // 检查是否被环境变量锚定
                 const configKey = fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
+                if (envLockedFields.has(configKey)) {
+                    field.disabled = true;
+                    field.classList.add('env-locked');
+                } else {
+                    field.disabled = false;
+                    field.classList.remove('env-locked');
+                }
+            }
+        }
+
+        function setCheckboxField(fieldId, checked, configKeyOverride) {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.checked = Boolean(checked);
+                const configKey = (configKeyOverride || fieldId).replace(/([A-Z])/g, '_$1').toLowerCase();
                 if (envLockedFields.has(configKey)) {
                     field.disabled = true;
                     field.classList.add('env-locked');
@@ -2990,7 +3077,14 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     // 思维链返回配置
                     return_thoughts_to_frontend: document.getElementById('returnThoughtsToFrontend').checked,
                     // 抗截断配置
-                    anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || 3
+                    anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || 3,
+                    // 健康检查配置
+                    healthcheck_enabled: document.getElementById('healthcheckEnabled').checked,
+                    healthcheck_interval: parseInt(document.getElementById('healthcheckInterval').value) || 3600,
+                    healthcheck_model: document.getElementById('healthcheckModel').value.trim(),
+                    healthcheck_timeout: parseFloat(document.getElementById('healthcheckTimeout').value) || 15,
+                    healthcheck_concurrency: parseInt(document.getElementById('healthcheckConcurrency').value) || 3,
+                    healthcheck_delete_on_error: document.getElementById('healthcheckDeleteOnError').checked
                 };
 
                 const response = await fetch('/config/save', {
@@ -3024,6 +3118,63 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 }
             } catch (error) {
                 console.error('saveConfig error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        // 健康检查相关
+        async function refreshHealthcheckStatus() {
+            try {
+                const resp = await fetch('/healthcheck/status', {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    renderHealthcheckStatus(data.data);
+                    showStatus('健康检查状态已刷新', 'success');
+                } else {
+                    showStatus(`获取健康检查状态失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('refreshHealthcheckStatus error:', error);
+                showStatus(`网络错误: ${error.message}`, 'error');
+            }
+        }
+
+        function renderHealthcheckStatus(statusData) {
+            const runningEl = document.getElementById('healthcheckRunning');
+            const resultEl = document.getElementById('healthcheckLastResult');
+            if (!statusData) {
+                runningEl.textContent = '无数据';
+                resultEl.textContent = '';
+                return;
+            }
+            runningEl.textContent = statusData.running ? '运行中' : '空闲';
+            if (statusData.last_result) {
+                resultEl.textContent = JSON.stringify(statusData.last_result, null, 2);
+            } else {
+                resultEl.textContent = '尚无历史结果';
+            }
+        }
+
+        async function triggerHealthcheck(dryRun = false) {
+            try {
+                showStatus(dryRun ? '正在执行健康检查（dry-run）...' : '正在执行健康检查...', 'info');
+                const resp = await fetch('/healthcheck/run', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ dry_run: dryRun })
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    renderHealthcheckStatus({ running: false, last_result: data.data });
+                    showStatus('健康检查完成', 'success');
+                } else {
+                    showStatus(`健康检查失败: ${data.detail || data.error || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                console.error('triggerHealthcheck error:', error);
                 showStatus(`网络错误: ${error.message}`, 'error');
             }
         }
