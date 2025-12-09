@@ -155,7 +155,7 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
     log.debug(f"Using credential: {current_file}")
 
     # 增加调用计数
-    cred_mgr.increment_call_count()
+    await cred_mgr.increment_call_count()
 
     # 转换为Gemini API payload格式
     try:

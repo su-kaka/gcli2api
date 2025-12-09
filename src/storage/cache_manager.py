@@ -6,7 +6,6 @@
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from collections import deque
 from typing import Any, Dict, Optional
 
 from log import log
@@ -70,9 +69,8 @@ class UnifiedCacheManager:
         self._pending_write_time = 0  # 待写入数据的时间戳
         self._write_count = 0  # 写入次数统计
 
-        # 性能监控
+        # 性能监控 - 仅保留基本计数，移除deque
         self._operation_count = 0
-        self._operation_times = deque(maxlen=1000)
         self._initial_load_count = 0  # 启动时的后端读取次数（应该只有1次）
         self._write_backend_count = 0  # 实际后端写入次数
 
@@ -118,7 +116,7 @@ class UnifiedCacheManager:
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
+                
 
                 result = self._cache.get(key, default)
                 log.debug(f"{self._name} cache get: {key} in {operation_time:.3f}s")
@@ -149,7 +147,7 @@ class UnifiedCacheManager:
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
+                
 
                 log.debug(f"{self._name} cache set: {key} in {operation_time:.3f}s")
                 return True
@@ -179,7 +177,7 @@ class UnifiedCacheManager:
                     # 性能监控
                     self._operation_count += 1
                     operation_time = time.time() - start_time
-                    self._operation_times.append(operation_time)
+                    
 
                     log.debug(f"{self._name} cache delete: {key} in {operation_time:.3f}s")
                     return True
@@ -208,7 +206,7 @@ class UnifiedCacheManager:
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
+                
 
                 log.debug(
                     f"{self._name} cache get_all ({len(self._cache)}) in {operation_time:.3f}s"
@@ -238,7 +236,7 @@ class UnifiedCacheManager:
                 # 性能监控
                 self._operation_count += 1
                 operation_time = time.time() - start_time
-                self._operation_times.append(operation_time)
+                
 
                 log.debug(
                     f"{self._name} cache update_multi ({len(updates)}) in {operation_time:.3f}s"

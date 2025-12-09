@@ -193,7 +193,7 @@ async def get_retry_429_interval() -> float:
         except ValueError:
             pass
 
-    return float(await get_config_value("retry_429_interval", 1))
+    return float(await get_config_value("retry_429_interval", 0.1))
 
 
 # Model name lists for different features

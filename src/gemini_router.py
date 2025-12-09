@@ -219,7 +219,7 @@ async def generate_content(
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
 
     # 增加调用计数
-    cred_mgr.increment_call_count()
+    await cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -328,7 +328,7 @@ async def stream_generate_content(
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
 
     # 增加调用计数
-    cred_mgr.increment_call_count()
+    await cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -454,7 +454,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 return
 
             # 增加调用计数
-            cred_mgr.increment_call_count()
+            await cred_mgr.increment_call_count()
 
             # 构建Google API payload
             try:

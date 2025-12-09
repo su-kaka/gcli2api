@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import time
-from collections import deque
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
@@ -88,9 +87,8 @@ class RedisManager:
         self._credentials_hash_name = "gcli2api:credentials"
         self._config_hash_name = "gcli2api:config"
 
-        # 性能监控
+        # 性能监控 - 仅保留基本计数，移除deque
         self._operation_count = 0
-        self._operation_times = deque(maxlen=5000)
 
         # 统一缓存管理器
         self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
@@ -213,7 +211,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Stored credential to unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -234,7 +232,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "credential" in credential_entry:
                 return credential_entry["credential"]
@@ -257,7 +255,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Listed {len(filenames)} credentials from unified cache in {operation_time:.3f}s"
@@ -280,7 +278,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Deleted credential from unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -316,7 +314,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Updated credential state in unified cache: {filename} in {operation_time:.3f}s"
@@ -339,7 +337,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "state" in credential_entry:
                 log.debug(
@@ -370,7 +368,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Retrieved all credential states from unified cache ({len(states)}) in {operation_time:.3f}s"
@@ -395,7 +393,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Set config to unified cache: {key} in {operation_time:.3f}s")
             return success
@@ -446,7 +444,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Updated usage stats in unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -467,7 +465,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "stats" in credential_entry:
                 log.debug(
@@ -498,7 +496,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Retrieved all usage stats from unified cache ({len(stats)}) in {operation_time:.3f}s"

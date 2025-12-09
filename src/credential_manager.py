@@ -29,9 +29,6 @@ class CredentialManager:
         # 凭证轮换相关
         self._credential_files: List[str] = []  # 存储凭证文件名列表
         self._call_count = 0
-        # 当前使用的凭证信息
-        self._current_credential_file: Optional[str] = None
-        self._current_credential_data: Optional[Dict[str, Any]] = None
 
         # 并发控制
         self._state_lock = asyncio.Lock()
@@ -204,10 +201,7 @@ class CredentialManager:
                     log.error(f"Token刷新失败: {current_file}")
                     return None
 
-            # 缓存当前凭证信息
-            self._current_credential_file = current_file
-            self._current_credential_data = credential_data
-
+            # 不再缓存凭证数据，直接返回（storage_adapter已经有缓存）
             return current_file, credential_data
 
         except Exception as e:
@@ -344,8 +338,8 @@ class CredentialManager:
                     if len(self._credential_files) > 1:
                         await self._rotate_credential()
 
-                    # 再执行禁用操作
-                    await self.set_cred_disabled(current_file, True)
+                    # 再执行禁用操作（使用不加锁版本，因为已持有_operation_lock）
+                    await self._set_cred_disabled_unlocked(current_file, True)
 
                     if not self._credential_files:
                         log.error("没有可用的凭证")
@@ -403,12 +397,33 @@ class CredentialManager:
             await self._rotate_credential()
             log.info("Forced credential rotation due to rate limit")
 
-    def increment_call_count(self):
-        """增加调用计数"""
-        self._call_count += 1
+    async def increment_call_count(self):
+        """增加调用计数（线程安全）"""
+        async with self._state_lock:
+            self._call_count += 1
 
     async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any]):
-        """更新凭证状态"""
+        """更新凭证状态（线程安全）"""
+        async with self._state_lock:
+            try:
+                # 直接通过存储适配器更新状态
+                success = await self._storage_adapter.update_credential_state(
+                    credential_name, state_updates
+                )
+
+                if success:
+                    log.debug(f"Updated credential state: {credential_name}")
+                else:
+                    log.warning(f"Failed to update credential state: {credential_name}")
+
+                return success
+
+            except Exception as e:
+                log.error(f"Error updating credential state {credential_name}: {e}")
+                return False
+
+    async def _update_credential_state_unlocked(self, credential_name: str, state_updates: Dict[str, Any]):
+        """更新凭证状态（内部方法，不加锁，供已加锁的方法调用）"""
         try:
             # 直接通过存储适配器更新状态
             success = await self._storage_adapter.update_credential_state(
@@ -427,7 +442,12 @@ class CredentialManager:
             return False
 
     async def set_cred_disabled(self, credential_name: str, disabled: bool):
-        """设置凭证的启用/禁用状态"""
+        """设置凭证的启用/禁用状态（线程安全）"""
+        async with self._operation_lock:
+            return await self._set_cred_disabled_unlocked(credential_name, disabled)
+
+    async def _set_cred_disabled_unlocked(self, credential_name: str, disabled: bool):
+        """设置凭证的启用/禁用状态（内部方法，不加锁，供已加锁的方法调用）"""
         try:
             state_updates = {"disabled": disabled}
             success = await self.update_credential_state(credential_name, state_updates)
@@ -452,19 +472,20 @@ class CredentialManager:
             return False
 
     async def get_creds_status(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有凭证的状态"""
-        try:
-            # 从存储适配器获取所有状态
-            all_states = await self._storage_adapter.get_all_credential_states()
-            return all_states
+        """获取所有凭证的状态（线程安全）"""
+        async with self._state_lock:
+            try:
+                # 从存储适配器获取所有状态
+                all_states = await self._storage_adapter.get_all_credential_states()
+                return all_states
 
-        except Exception as e:
-            log.error(f"Error getting credential statuses: {e}")
-            return {}
+            except Exception as e:
+                log.error(f"Error getting credential statuses: {e}")
+                return {}
 
     async def _is_credential_in_cooldown(self, credential_name: str) -> bool:
         """
-        检查凭证是否在冷却期内
+        检查凭证是否在冷却期内（内部方法，调用者需要持有适当的锁）
 
         Args:
             credential_name: 凭证名称
@@ -491,7 +512,9 @@ class CredentialManager:
             else:
                 # 冷却期已过，清除冷却状态
                 log.info(f"凭证 {credential_name} 冷却期已过，恢复可用")
-                await self.update_credential_state(credential_name, {"cooldown_until": None})
+                # 调用内部不加锁版本，因为调用者已经持有锁
+                async with self._state_lock:
+                    await self._update_credential_state_unlocked(credential_name, {"cooldown_until": None})
                 return False
 
         except Exception as e:
@@ -500,33 +523,34 @@ class CredentialManager:
             return False
 
     async def get_or_fetch_user_email(self, credential_name: str) -> Optional[str]:
-        """获取或获取用户邮箱地址"""
-        try:
-            # 首先检查缓存的状态
-            state = await self._storage_adapter.get_credential_state(credential_name)
-            cached_email = state.get("user_email")
+        """获取或获取用户邮箱地址（线程安全）"""
+        async with self._state_lock:
+            try:
+                # 首先检查缓存的状态
+                state = await self._storage_adapter.get_credential_state(credential_name)
+                cached_email = state.get("user_email")
 
-            if cached_email:
-                return cached_email
+                if cached_email:
+                    return cached_email
 
-            # 如果没有缓存，从凭证数据获取
-            credential_data = await self._storage_adapter.get_credential(credential_name)
-            if not credential_data:
+                # 如果没有缓存，从凭证数据获取
+                credential_data = await self._storage_adapter.get_credential(credential_name)
+                if not credential_data:
+                    return None
+
+                # 尝试获取邮箱
+                email = await fetch_user_email_from_file(credential_data)
+
+                if email:
+                    # 缓存邮箱地址（使用内部不加锁版本避免死锁）
+                    await self._update_credential_state_unlocked(credential_name, {"user_email": email})
+                    return email
+
                 return None
 
-            # 尝试获取邮箱
-            email = await fetch_user_email_from_file(credential_data)
-
-            if email:
-                # 缓存邮箱地址
-                await self.update_credential_state(credential_name, {"user_email": email})
-                return email
-
-            return None
-
-        except Exception as e:
-            log.error(f"Error fetching user email for {credential_name}: {e}")
-            return None
+            except Exception as e:
+                log.error(f"Error fetching user email for {credential_name}: {e}")
+                return None
 
     async def record_api_call_result(
         self, credential_name: str, success: bool, error_code: Optional[int] = None,
@@ -700,8 +724,8 @@ class CredentialManager:
                     if len(self._credential_files) > 1 and self._credential_files[0] == filename:
                         await self._rotate_credential()
 
-                    # 再执行禁用操作
-                    disabled_ok = await self.set_cred_disabled(filename, True)
+                    # 再执行禁用操作（使用不加锁版本，因为调用者已持有_operation_lock）
+                    disabled_ok = await self._set_cred_disabled_unlocked(filename, True)
                     if disabled_ok:
                         log.warning(
                             "永久失效凭证已禁用并刷新列表，当前可用凭证数: "
