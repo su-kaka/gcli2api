@@ -443,6 +443,12 @@ class CredentialManager:
             # 检查是否可以刷新
             if not creds.refresh_token:
                 log.error(f"没有refresh_token，无法刷新: {filename}")
+                # 自动禁用没有refresh_token的凭证
+                try:
+                    await self.update_credential_state(filename, {"disabled": True})
+                    log.warning(f"凭证已自动禁用（缺少refresh_token）: {filename}")
+                except Exception as e:
+                    log.error(f"禁用凭证失败 {filename}: {e}")
                 return None
 
             # 刷新token
