@@ -15,6 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
     get_anti_truncation_max_attempts,
+)
+from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
     is_anti_truncation_model,
@@ -153,9 +155,6 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
 
     current_file = credential_result
     log.debug(f"Using credential: {current_file}")
-
-    # 增加调用计数
-    await cred_mgr.increment_call_count()
 
     # 转换为Gemini API payload格式
     try:

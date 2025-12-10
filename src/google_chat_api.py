@@ -12,16 +12,18 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 
 from config import (
-    DEFAULT_SAFETY_SETTINGS,
-    PUBLIC_API_MODELS,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
-    get_base_model_name,
     get_code_assist_endpoint,
     get_return_thoughts_to_frontend,
     get_retry_429_enabled,
     get_retry_429_interval,
     get_retry_429_max_retries,
+)
+from src.utils import (
+    DEFAULT_SAFETY_SETTINGS,
+    PUBLIC_API_MODELS,
+    get_base_model_name,
     get_thinking_budget,
     is_search_model,
     should_include_thoughts,
@@ -30,7 +32,6 @@ from log import log
 
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
-from .usage_stats import record_successful_call
 from .utils import get_user_agent, parse_quota_reset_timestamp
 
 
@@ -88,14 +89,12 @@ async def _handle_auto_ban(
     status_code: int,
     credential_name: str
 ) -> None:
-    """处理自动封禁：先轮换到队列尾，再禁用凭证"""
+    """处理自动封禁：直接禁用凭证（随机选择机制会自动跳过被禁用的凭证）"""
     if credential_manager and credential_name:
         log.warning(
             f"[AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
         )
-        # 先将凭证移到队列尾部（如果有多个凭证）
-        await credential_manager.force_rotate_credential()
-        # 再执行禁用操作
+        # 直接禁用凭证，下次get_valid_credential会自动跳过
         await credential_manager.set_cred_disabled(credential_name, True)
 
 
@@ -170,8 +169,7 @@ async def _handle_error_with_retry(
             )
 
         if credential_manager:
-            # 强制轮换凭证
-            await credential_manager.force_rotate_credential()
+            # 直接获取下一个随机凭证（不需要轮换操作）
             result = await _get_next_credential(
                 credential_manager, payload, use_public_api, target_url
             )
@@ -525,8 +523,9 @@ def _handle_streaming_response_managed(
                 )
 
             # 处理429和自动封禁
-            if resp.status_code == 429 and credential_manager:
-                await credential_manager.force_rotate_credential()
+            if resp.status_code == 429:
+                # 429错误：记录冷却时间，下次get_valid_credential会自动跳过
+                log.warning(f"429 error encountered for credential: {current_file}")
             elif await _check_should_auto_ban(resp.status_code):
                 await _handle_auto_ban(credential_manager, resp.status_code, current_file)
 
@@ -557,11 +556,6 @@ def _handle_streaming_response_managed(
                 if not success_recorded:
                     if current_file and credential_manager:
                         await credential_manager.record_api_call_result(current_file, True)
-                        # 记录到使用统计
-                        try:
-                            await record_successful_call(current_file, model_name)
-                        except Exception as e:
-                            log.debug(f"Failed to record usage statistics: {e}")
                     success_recorded = True
 
                 payload = chunk[len("data: ") :]
@@ -615,11 +609,6 @@ async def _handle_non_streaming_response(
             # 记录成功响应
             if current_file and credential_manager:
                 await credential_manager.record_api_call_result(current_file, True)
-                # 记录到使用统计
-                try:
-                    await record_successful_call(current_file, model_name)
-                except Exception as e:
-                    log.debug(f"Failed to record usage statistics: {e}")
 
             raw = await resp.aread()
             google_api_response = raw.decode("utf-8")
@@ -699,8 +688,9 @@ async def _handle_non_streaming_response(
             await credential_manager.record_api_call_result(current_file, False, resp.status_code, cooldown_until)
 
         # 处理429和自动封禁
-        if resp.status_code == 429 and credential_manager:
-            await credential_manager.force_rotate_credential()
+        if resp.status_code == 429:
+            # 429错误：记录冷却时间，下次get_valid_credential会自动跳过
+            log.warning(f"429 error encountered for credential: {current_file}")
         elif await _check_should_auto_ban(resp.status_code):
             await _handle_auto_ban(credential_manager, resp.status_code, current_file)
 
