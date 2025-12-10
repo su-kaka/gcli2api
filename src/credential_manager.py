@@ -520,7 +520,47 @@ class CredentialManager:
             if cooldown_until is None:
                 return False
 
+            # 检查 cooldown_until 的类型和值
+            log.debug(
+                f"[冷却期检查] 凭证: {credential_name}, "
+                f"cooldown_until类型: {type(cooldown_until)}, "
+                f"cooldown_until值: {cooldown_until}"
+            )
+
+            # 如果是字符串（ISO格式），需要转换为时间戳
+            if isinstance(cooldown_until, str):
+                try:
+                    # 解析ISO格式时间
+                    if cooldown_until.endswith("Z"):
+                        cooldown_until = cooldown_until.replace("Z", "+00:00")
+                    reset_dt = datetime.fromisoformat(cooldown_until)
+                    if reset_dt.tzinfo is None:
+                        reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+
+                    # 转换为Unix时间戳（避免本地时区影响）
+                    reset_dt_utc = reset_dt.astimezone(timezone.utc)
+                    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                    cooldown_until = (reset_dt_utc - epoch).total_seconds()
+
+                    log.debug(
+                        f"[冷却期检查] 将ISO时间转换为时间戳: {cooldown_until}"
+                    )
+                except Exception as parse_err:
+                    log.error(
+                        f"[冷却期检查] 解析ISO时间失败 {credential_name}: {parse_err}, "
+                        f"原始值: {cooldown_until}"
+                    )
+                    return False
+
+            # time.time() 返回的是正确的 UTC 时间戳
             current_time = time.time()
+            log.debug(
+                f"[冷却期检查] 当前时间: {current_time} "
+                f"({datetime.fromtimestamp(current_time, timezone.utc).isoformat()}), "
+                f"冷却截止: {cooldown_until} "
+                f"({datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()})"
+            )
+
             if current_time < cooldown_until:
                 remaining = cooldown_until - current_time
                 remaining_minutes = int(remaining / 60)

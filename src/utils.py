@@ -66,8 +66,12 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
                     if reset_dt.tzinfo is None:
                         reset_dt = reset_dt.replace(tzinfo=timezone.utc)
 
-                    # 转换为Unix时间戳
-                    return reset_dt.timestamp()
+                    # 转换为Unix时间戳（使用UTC时间计算，避免本地时区影响）
+                    # 方法1：先转为UTC，再计算时间戳
+                    reset_dt_utc = reset_dt.astimezone(timezone.utc)
+                    # 方法2：使用 datetime(1970,1,1, tzinfo=utc) 作为基准计算
+                    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                    return (reset_dt_utc - epoch).total_seconds()
 
             # 也尝试从RetryInfo中提取延迟时间（作为备用）
             elif detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
