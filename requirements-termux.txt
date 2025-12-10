@@ -10,3 +10,4 @@ PyJWT
 oauthlib
 motor
 pypinyin
+aiosqlite
