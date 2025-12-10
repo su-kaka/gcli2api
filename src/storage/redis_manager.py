@@ -296,15 +296,13 @@ class RedisManager:
         start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
+            # 获取现有数据
             existing_data = await self._credentials_cache_manager.get(filename, {})
 
             if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
-                }
+                # 凭证不存在（可能已被删除），不自动创建
+                log.warning(f"Credential {filename} not found in cache, skipping state update (may have been deleted)")
+                return True  # 返回成功，避免报错
 
             # 更新状态数据
             existing_data["state"].update(state_updates)
@@ -314,7 +312,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            
+
 
             log.debug(
                 f"Updated credential state in unified cache: {filename} in {operation_time:.3f}s"

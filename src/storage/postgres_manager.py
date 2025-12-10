@@ -222,11 +222,9 @@ class PostgresManager:
         try:
             existing_data = await self._credentials_cache_manager.get(filename, {})
             if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
-                }
+                # 凭证不存在（可能已被删除），不自动创建
+                log.warning(f"Credential {filename} not found in cache, skipping state update (may have been deleted)")
+                return True  # 返回成功，避免报错
             existing_data["state"].update(state_updates)
             return await self._credentials_cache_manager.set(filename, existing_data)
         except Exception as e:

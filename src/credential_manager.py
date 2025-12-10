@@ -455,15 +455,35 @@ class CredentialManager:
             if success:
                 action = "disabled" if disabled else "enabled"
                 log.info(f"Credential {action}: {credential_name}")
-                # 关键：状态更新成功后，立即刷新内存中的可用凭证列表
-                try:
-                    await self._discover_credentials()
-                    log.debug(
-                        "Refreshed credential list after set_cred_disabled: "
-                        f"{len(self._credential_files)} available"
-                    )
-                except Exception as e:
-                    log.warning(f"刷新可用凭证列表失败（set_cred_disabled）: {e}")
+
+                if disabled:
+                    # 禁用凭证：从列表中移除
+                    if credential_name in self._credential_files:
+                        self._credential_files = [
+                            c for c in self._credential_files if c != credential_name
+                        ]
+                        log.debug(f"从轮换队列中移除凭证: {credential_name}")
+                        # 持久化新的顺序
+                        try:
+                            await self._storage_adapter.set_credential_order(self._credential_files)
+                        except Exception as e:
+                            log.warning(f"无法保存凭证顺序（禁用凭证）: {e}")
+                else:
+                    # 启用凭证：直接加回列表（如果不存在）
+                    if credential_name not in self._credential_files:
+                        self._credential_files.append(credential_name)
+                        log.info(f"凭证已加回轮换队列（队列末尾）: {credential_name}")
+                        # 持久化新的顺序
+                        try:
+                            await self._storage_adapter.set_credential_order(self._credential_files)
+                        except Exception as e:
+                            log.warning(f"无法保存凭证顺序（启用凭证）: {e}")
+                    else:
+                        log.debug(f"凭证已在轮换队列中，无需重复添加: {credential_name}")
+
+                log.debug(
+                    f"凭证状态更新完成，当前可用凭证数: {len(self._credential_files)}"
+                )
 
             return success
 
