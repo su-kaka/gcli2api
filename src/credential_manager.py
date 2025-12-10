@@ -715,7 +715,12 @@ class CredentialManager:
                 now = datetime.now(timezone.utc)
                 time_left = (file_expiry - now).total_seconds()
 
-                log.debug(f"Token剩余时间: {int(time_left/60)}分钟")
+                log.debug(
+                    f"Token时间检查: "
+                    f"当前UTC时间={now.isoformat()}, "
+                    f"过期时间={file_expiry.isoformat()}, "
+                    f"剩余时间={int(time_left/60)}分{int(time_left%60)}秒"
+                )
 
                 if time_left > 300:  # 5分钟缓冲
                     return False
