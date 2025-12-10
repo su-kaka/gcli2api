@@ -98,33 +98,10 @@ async def _handle_auto_ban(
         await credential_manager.set_cred_disabled(credential_name, True)
 
 
-async def _get_next_credential(
-    credential_manager: CredentialManager,
-    payload: dict,
-    use_public_api: bool,
-    target_url: str
-):
-    """获取下一个可用凭证并准备请求参数"""
-    new_credential_result = await credential_manager.get_valid_credential()
-    if new_credential_result:
-        current_file, credential_data = new_credential_result
-        headers, updated_payload, target_url = (
-            await _prepare_request_headers_and_payload(
-                payload, credential_data, use_public_api, target_url
-            )
-        )
-        final_post_data = json.dumps(updated_payload)
-        return current_file, credential_data, headers, final_post_data, target_url
-    return None
-
-
 async def _handle_error_with_retry(
     credential_manager: CredentialManager,
     status_code: int,
     current_file: str,
-    payload: dict,
-    use_public_api: bool,
-    target_url: str,
     retry_enabled: bool,
     attempt: int,
     max_retries: int,
@@ -134,8 +111,8 @@ async def _handle_error_with_retry(
     统一处理错误和重试逻辑
 
     返回值：
-    - (True, retry_data): 需要继续重试，retry_data包含新的请求参数
-    - (False, None): 不需要重试
+    - True: 需要继续重试（会在下次循环中自动获取新凭证）
+    - False: 不需要重试
     """
     # 优先检查自动封禁
     should_auto_ban = await _check_should_auto_ban(status_code)
@@ -144,18 +121,14 @@ async def _handle_error_with_retry(
         # 触发自动封禁
         await _handle_auto_ban(credential_manager, status_code, current_file)
 
-        # 自动封禁后，仍然尝试重试（使用新凭证）
+        # 自动封禁后，仍然尝试重试（会在下次循环中自动获取新凭证）
         if retry_enabled and attempt < max_retries:
             log.warning(
                 f"[RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})"
             )
-            result = await _get_next_credential(
-                credential_manager, payload, use_public_api, target_url
-            )
-            if result:
-                await asyncio.sleep(retry_interval)
-                return True, result
-        return False, None
+            await asyncio.sleep(retry_interval)
+            return True
+        return False
 
     # 如果不触发自动封禁，使用普通重试逻辑
     if retry_enabled and attempt < max_retries:
@@ -168,16 +141,10 @@ async def _handle_error_with_retry(
                 f"[RETRY] Non-200 error encountered (status {status_code}), retrying ({attempt + 1}/{max_retries})"
             )
 
-        if credential_manager:
-            # 直接获取下一个随机凭证（不需要轮换操作）
-            result = await _get_next_credential(
-                credential_manager, payload, use_public_api, target_url
-            )
-            if result:
-                await asyncio.sleep(retry_interval)
-                return True, result
+        await asyncio.sleep(retry_interval)
+        return True
 
-    return False, None
+    return False
 
 
 
@@ -246,23 +213,21 @@ async def send_gemini_request(
     if not credential_manager:
         return _create_error_response("Credential manager not provided", 500)
 
-    # 获取当前凭证
-    try:
-        credential_result = await credential_manager.get_valid_credential()
-        if not credential_result:
-            return _create_error_response("No valid credentials available", 500)
-
-        current_file, credential_data = credential_result
-        headers, final_payload, target_url = await _prepare_request_headers_and_payload(
-            payload, credential_data, use_public_api, target_url
-        )
-    except Exception as e:
-        return _create_error_response(str(e), 500)
-
-    # 预序列化payload，避免重试时重复序列化
-    final_post_data = json.dumps(final_payload)
-
     for attempt in range(max_retries + 1):
+        # 每次请求都获取新的凭证
+        try:
+            credential_result = await credential_manager.get_valid_credential()
+            if not credential_result:
+                return _create_error_response("No valid credentials available", 500)
+
+            current_file, credential_data = credential_result
+            headers, final_payload, target_url = await _prepare_request_headers_and_payload(
+                payload, credential_data, use_public_api, target_url
+            )
+            # 预序列化payload
+            final_post_data = json.dumps(final_payload)
+        except Exception as e:
+            return _create_error_response(str(e), 500)
         try:
             if is_streaming:
                 # 流式请求处理 - 使用httpx_client模块的统一配置
@@ -319,22 +284,18 @@ async def send_gemini_request(
                         await client.aclose()
 
                         # 使用统一的错误处理和重试逻辑
-                        should_retry, retry_data = await _handle_error_with_retry(
+                        should_retry = await _handle_error_with_retry(
                             credential_manager,
                             resp.status_code,
                             current_file,
-                            payload,
-                            use_public_api,
-                            target_url,
                             retry_429_enabled,
                             attempt,
                             max_retries,
                             retry_interval
                         )
 
-                        if should_retry and retry_data:
-                            # 解包新的请求参数并继续重试
-                            current_file, credential_data, headers, final_post_data, target_url = retry_data
+                        if should_retry:
+                            # 继续重试（会在下次循环中自动获取新凭证）
                             continue
 
                         # 不需要重试，返回错误流
@@ -411,22 +372,18 @@ async def send_gemini_request(
                         )
 
                     # 使用统一的错误处理和重试逻辑
-                    should_retry, retry_data = await _handle_error_with_retry(
+                    should_retry = await _handle_error_with_retry(
                         credential_manager,
                         status,
                         current_file,
-                        payload,
-                        use_public_api,
-                        target_url,
                         retry_429_enabled,
                         attempt,
                         max_retries,
                         retry_interval
                     )
 
-                    if should_retry and retry_data:
-                        # 解包新的请求参数并继续重试
-                        current_file, credential_data, headers, final_post_data, target_url = retry_data
+                    if should_retry:
+                        # 继续重试（会在下次循环中自动获取新凭证）
                         continue
 
                     # 不需要重试，返回错误
