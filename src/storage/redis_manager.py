@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 import time
-from collections import deque
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
@@ -47,7 +46,8 @@ class RedisCacheBackend(CacheBackend):
         """将数据写入Redis哈希表"""
         try:
             if not data:
-                await self._client.delete(self._hash_name)
+                # 空数据时不删除，保留现有数据
+                log.warning(f"Empty data for {self._hash_name}, skipping write")
                 return True
 
             hash_data = {}
@@ -59,12 +59,12 @@ class RedisCacheBackend(CacheBackend):
                     continue
 
             if not hash_data:
+                log.warning(f"No valid data to write for {self._hash_name}, skipping write")
                 return True
 
-            pipe = self._client.pipeline()
-            pipe.delete(self._hash_name)
-            pipe.hset(self._hash_name, mapping=hash_data)
-            await pipe.execute()
+            # 直接 HSET，会自动覆盖同名键，不会删除其他键
+            # 这样即使中途崩溃，旧数据也不会丢失
+            await self._client.hset(self._hash_name, mapping=hash_data)
             return True
         except Exception as e:
             log.error(f"Error writing data to Redis hash {self._hash_name}: {e}")
@@ -87,9 +87,8 @@ class RedisManager:
         self._credentials_hash_name = "gcli2api:credentials"
         self._config_hash_name = "gcli2api:config"
 
-        # 性能监控
+        # 性能监控 - 仅保留基本计数，移除deque
         self._operation_count = 0
-        self._operation_times = deque(maxlen=5000)
 
         # 统一缓存管理器
         self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
@@ -97,7 +96,6 @@ class RedisManager:
 
         # 写入配置参数
         self._write_delay = 1.0  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
 
     async def initialize(self):
         """初始化Redis连接"""
@@ -137,14 +135,12 @@ class RedisManager:
 
                 self._credentials_cache_manager = UnifiedCacheManager(
                     credentials_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="credentials",
                 )
 
                 self._config_cache_manager = UnifiedCacheManager(
                     config_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="config",
                 )
@@ -215,7 +211,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Stored credential to unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -236,7 +232,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "credential" in credential_entry:
                 return credential_entry["credential"]
@@ -259,7 +255,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Listed {len(filenames)} credentials from unified cache in {operation_time:.3f}s"
@@ -282,7 +278,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Deleted credential from unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -300,15 +296,13 @@ class RedisManager:
         start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
+            # 获取现有数据
             existing_data = await self._credentials_cache_manager.get(filename, {})
 
             if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
-                }
+                # 凭证不存在（可能已被删除），不自动创建
+                log.warning(f"Credential {filename} not found in cache, skipping state update (may have been deleted)")
+                return True  # 返回成功，避免报错
 
             # 更新状态数据
             existing_data["state"].update(state_updates)
@@ -318,7 +312,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+
 
             log.debug(
                 f"Updated credential state in unified cache: {filename} in {operation_time:.3f}s"
@@ -341,7 +335,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "state" in credential_entry:
                 log.debug(
@@ -372,7 +366,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Retrieved all credential states from unified cache ({len(states)}) in {operation_time:.3f}s"
@@ -397,7 +391,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Set config to unified cache: {key} in {operation_time:.3f}s")
             return success
@@ -448,7 +442,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(f"Updated usage stats in unified cache: {filename} in {operation_time:.3f}s")
             return success
@@ -469,7 +463,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             if credential_entry and "stats" in credential_entry:
                 log.debug(
@@ -500,7 +494,7 @@ class RedisManager:
             # 性能监控
             self._operation_count += 1
             operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            
 
             log.debug(
                 f"Retrieved all usage stats from unified cache ({len(stats)}) in {operation_time:.3f}s"

@@ -84,7 +84,6 @@ class MongoDBManager:
 
         # 写入配置参数
         self._write_delay = 1.0  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
 
     async def initialize(self):
         """初始化MongoDB连接"""
@@ -129,14 +128,12 @@ class MongoDBManager:
 
                 self._credentials_cache_manager = UnifiedCacheManager(
                     credentials_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="credentials",
                 )
 
                 self._config_cache_manager = UnifiedCacheManager(
                     config_backend,
-                    cache_ttl=self._cache_ttl,
                     write_delay=self._write_delay,
                     name="config",
                 )
@@ -304,15 +301,13 @@ class MongoDBManager:
         start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
+            # 获取现有数据
             existing_data = await self._credentials_cache_manager.get(filename, {})
 
             if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
-                }
+                # 凭证不存在（可能已被删除），不自动创建
+                log.warning(f"Credential {filename} not found in cache, skipping state update (may have been deleted)")
+                return True  # 返回成功，避免报错
 
             # 更新状态数据
             existing_data["state"].update(state_updates)

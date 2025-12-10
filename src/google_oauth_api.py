@@ -101,7 +101,13 @@ class Credentials:
 
                 if "expires_in" in token_data:
                     expires_in = int(token_data["expires_in"])
-                    self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                    current_utc = datetime.now(timezone.utc)
+                    self.expires_at = current_utc + timedelta(seconds=expires_in)
+                    log.debug(
+                        f"Token刷新: 当前UTC时间={current_utc.isoformat()}, "
+                        f"有效期={expires_in}秒, "
+                        f"过期时间={self.expires_at.isoformat()}"
+                    )
 
                 if "refresh_token" in token_data:
                     self.refresh_token = token_data["refresh_token"]

@@ -18,18 +18,30 @@ DEFAULT_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
 ]
 
 
 # Helper function to get base model name from any variant
 def get_base_model_name(model_name):
     """Convert variant model name to base model name."""
-    # Remove all possible suffixes in order
+    # Remove all possible suffixes (supports multiple suffixes in any order)
     suffixes = ["-maxthinking", "-nothinking", "-search"]
-    for suffix in suffixes:
-        if model_name.endswith(suffix):
-            return model_name[: -len(suffix)]
-    return model_name
+    result = model_name
+    # Keep removing suffixes until no more matches
+    changed = True
+    while changed:
+        changed = False
+        for suffix in suffixes:
+            if result.endswith(suffix):
+                result = result[: -len(suffix)]
+                changed = True
+                break
+    return result
 
 
 # Helper function to check if model uses search grounding
@@ -181,12 +193,11 @@ async def get_retry_429_interval() -> float:
         except ValueError:
             pass
 
-    return float(await get_config_value("retry_429_interval", 1))
+    return float(await get_config_value("retry_429_interval", 0.1))
 
 
 # Model name lists for different features
 BASE_MODELS = [
-    "gemini-2.5-pro-preview-06-05",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-3-pro-preview",
@@ -221,15 +232,27 @@ def get_available_models(router_type="openai"):
         models.append(f"流式抗截断/{base_model}")
 
         # 支持thinking模式后缀与功能前缀组合
-        for thinking_suffix in ["-maxthinking", "-nothinking", "-search"]:
-            # 基础模型 + thinking后缀
+        # 新增: 支持多后缀组合 (thinking + search)
+        thinking_suffixes = ["-maxthinking", "-nothinking"]
+        search_suffix = "-search"
+
+        # 1. 单独的 thinking 后缀
+        for thinking_suffix in thinking_suffixes:
             models.append(f"{base_model}{thinking_suffix}")
-
-            # 假流式 + thinking后缀
             models.append(f"假流式/{base_model}{thinking_suffix}")
-
-            # 流式抗截断 + thinking后缀
             models.append(f"流式抗截断/{base_model}{thinking_suffix}")
+
+        # 2. 单独的 search 后缀
+        models.append(f"{base_model}{search_suffix}")
+        models.append(f"假流式/{base_model}{search_suffix}")
+        models.append(f"流式抗截断/{base_model}{search_suffix}")
+
+        # 3. thinking + search 组合后缀
+        for thinking_suffix in thinking_suffixes:
+            combined_suffix = f"{thinking_suffix}{search_suffix}"
+            models.append(f"{base_model}{combined_suffix}")
+            models.append(f"假流式/{base_model}{combined_suffix}")
+            models.append(f"流式抗截断/{base_model}{combined_suffix}")
 
     return models
 

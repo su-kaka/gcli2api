@@ -100,7 +100,6 @@ class FileStorageManager:
 
         # 配置参数
         self._write_delay = 0.5  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
 
     async def initialize(self) -> None:
         """初始化文件存储"""
@@ -124,13 +123,12 @@ class FileStorageManager:
 
         self._credentials_cache_manager = UnifiedCacheManager(
             credentials_backend,
-            cache_ttl=self._cache_ttl,
             write_delay=self._write_delay,
             name="credentials",
         )
 
         self._config_cache_manager = UnifiedCacheManager(
-            config_backend, cache_ttl=self._cache_ttl, write_delay=self._write_delay, name="config"
+            config_backend, write_delay=self._write_delay, name="config"
         )
 
         # 启动缓存管理器
@@ -364,7 +362,9 @@ class FileStorageManager:
             all_data = await self._credentials_cache_manager.get_all()
 
             if filename not in all_data:
-                all_data[filename] = self.get_default_state()
+                # 凭证不存在（可能已被删除），不自动创建
+                log.warning(f"Credential {filename} not found in cache, skipping state update (may have been deleted)")
+                return True  # 返回成功，避免报错
 
             # 更新状态
             all_data[filename].update(state_updates)

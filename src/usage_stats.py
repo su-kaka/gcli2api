@@ -1,11 +1,10 @@
 """
 Usage statistics module for tracking API calls per credential file.
-Simplified version: only tracks 24h successful call counts.
+只保留24小时调用计数，不存储时间戳列表
 """
 
 import os
 import time
-from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, Optional
 
@@ -16,15 +15,10 @@ from .state_manager import get_state_manager
 from .storage_adapter import get_storage_adapter
 
 
-def _get_24h_ago() -> datetime:
-    """Get the timestamp for 24 hours ago."""
-    return datetime.now(timezone.utc) - timedelta(hours=24)
-
-
 class UsageStats:
     """
-    Simplified usage statistics manager.
-    Only tracks successful API calls in the last 24 hours.
+    优化的使用统计管理器 - 只保留24小时调用总数和最后重置时间
+    不再存储每个时间戳列表
     """
 
     def __init__(self):
@@ -32,7 +26,8 @@ class UsageStats:
         self._state_file = None
         self._state_manager = None
         self._storage_adapter = None
-        self._stats_cache: Dict[str, Dict[str, Any]] = {}
+        # 优化：只保留计数和重置时间，不保留时间戳列表
+        self._stats_cache: Dict[str, Dict[str, Any]] = {}  # {filename: {calls_24h: int, last_reset: timestamp}}
         self._initialized = False
         self._cache_dirty = False
         self._last_save_time = 0
@@ -67,7 +62,7 @@ class UsageStats:
         return os.path.basename(filename)
 
     async def _load_stats(self):
-        """Load statistics from unified storage"""
+        """从统一存储加载统计数据 - 优化版本，只加载计数"""
         try:
             import asyncio
 
@@ -77,19 +72,27 @@ class UsageStats:
                 stats_cache = {}
                 processed_count = 0
 
+                current_time = time.time()
                 for filename, stats_data in all_usage_stats.items():
                     if isinstance(stats_data, dict):
                         normalized_filename = self._normalize_filename(filename)
 
-                        # Only load call_timestamps
+                        # 优化：只加载计数和重置时间
+                        last_reset = stats_data.get("last_reset", current_time)
+                        calls_24h = stats_data.get("calls_24h", 0)
+
+                        # 检查是否需要重置（超过24小时）
+                        if current_time - last_reset > 86400:
+                            calls_24h = 0
+                            last_reset = current_time
+
                         usage_data = {
-                            "call_timestamps": stats_data.get("call_timestamps", []),
+                            "calls_24h": calls_24h,
+                            "last_reset": last_reset,
                         }
 
-                        # Only cache if there are actual timestamps
-                        if usage_data.get("call_timestamps"):
-                            stats_cache[normalized_filename] = usage_data
-                            processed_count += 1
+                        stats_cache[normalized_filename] = usage_data
+                        processed_count += 1
 
                 return stats_cache, processed_count
 
@@ -108,7 +111,7 @@ class UsageStats:
             self._stats_cache = {}
 
     async def _save_stats(self):
-        """Save statistics to unified storage."""
+        """保存统计数据到统一存储 - 优化版本，只存储计数"""
         current_time = time.time()
 
         if not self._cache_dirty or (current_time - self._last_save_time < self._save_interval):
@@ -119,7 +122,8 @@ class UsageStats:
             for filename, stats in self._stats_cache.items():
                 try:
                     stats_data = {
-                        "call_timestamps": stats.get("call_timestamps", []),
+                        "calls_24h": stats.get("calls_24h", 0),
+                        "last_reset": stats.get("last_reset", current_time),
                     }
 
                     success = await self._storage_adapter.update_usage_stats(filename, stats_data)
@@ -144,38 +148,32 @@ class UsageStats:
         if normalized_filename not in self._stats_cache:
             # Control cache size - remove oldest entry if limit reached
             if len(self._stats_cache) >= self._max_cache_size:
-                # Remove entry with oldest/fewest timestamps
+                # Remove entry with lowest call count
                 oldest_key = min(
                     self._stats_cache.keys(),
-                    key=lambda k: len(self._stats_cache[k].get("call_timestamps", [])),
+                    key=lambda k: self._stats_cache[k].get("calls_24h", 0),
                 )
                 del self._stats_cache[oldest_key]
                 self._cache_dirty = True
-                log.debug(f"Removed oldest usage stats cache entry: {oldest_key}")
+                log.debug(f"Removed lowest usage stats cache entry: {oldest_key}")
 
             self._stats_cache[normalized_filename] = {
-                "call_timestamps": [],
+                "calls_24h": 0,
+                "last_reset": time.time(),
             }
             self._cache_dirty = True
 
         return self._stats_cache[normalized_filename]
 
-    def _cleanup_old_timestamps(self, stats: Dict[str, Any]):
-        """Remove timestamps older than 24 hours."""
-        cutoff_time = _get_24h_ago()
-        timestamps = stats.get("call_timestamps", [])
+    def _check_and_reset_if_needed(self, stats: Dict[str, Any]):
+        """检查并重置过期的统计数据"""
+        current_time = time.time()
+        last_reset = stats.get("last_reset", current_time)
 
-        if not timestamps:
-            return
-
-        # Filter out timestamps older than 24 hours
-        new_timestamps = [
-            ts for ts in timestamps
-            if datetime.fromisoformat(ts) > cutoff_time
-        ]
-
-        if len(new_timestamps) != len(timestamps):
-            stats["call_timestamps"] = new_timestamps
+        # 如果超过24小时，重置计数
+        if current_time - last_reset > 86400:
+            stats["calls_24h"] = 0
+            stats["last_reset"] = current_time
             self._cache_dirty = True
 
     async def record_successful_call(self, filename: str, model_name: str = None):
@@ -188,19 +186,16 @@ class UsageStats:
                 normalized_filename = self._normalize_filename(filename)
                 stats = self._get_or_create_stats(normalized_filename)
 
-                # Clean up old timestamps
-                self._cleanup_old_timestamps(stats)
+                # 检查并重置
+                self._check_and_reset_if_needed(stats)
 
-                # Add current timestamp
-                current_time = datetime.now(timezone.utc).isoformat()
-                stats["call_timestamps"].append(current_time)
-
+                # 增加计数
+                stats["calls_24h"] += 1
                 self._cache_dirty = True
 
-                call_count = len(stats["call_timestamps"])
                 log.debug(
                     f"Usage recorded - File: {normalized_filename}, "
-                    f"24h calls: {call_count}"
+                    f"24h calls: {stats['calls_24h']}"
                 )
 
             except Exception as e:
@@ -221,19 +216,19 @@ class UsageStats:
             if filename:
                 normalized_filename = self._normalize_filename(filename)
                 stats = self._get_or_create_stats(normalized_filename)
-                self._cleanup_old_timestamps(stats)
+                self._check_and_reset_if_needed(stats)
 
                 return {
                     "filename": normalized_filename,
-                    "calls_24h": len(stats.get("call_timestamps", [])),
+                    "calls_24h": stats.get("calls_24h", 0),
                 }
             else:
                 # Return all statistics
                 all_stats = {}
                 for filename, stats in self._stats_cache.items():
-                    self._cleanup_old_timestamps(stats)
+                    self._check_and_reset_if_needed(stats)
                     all_stats[filename] = {
-                        "calls_24h": len(stats.get("call_timestamps", [])),
+                        "calls_24h": stats.get("calls_24h", 0),
                     }
 
                 return all_stats
@@ -266,13 +261,16 @@ class UsageStats:
             if filename:
                 normalized_filename = self._normalize_filename(filename)
                 if normalized_filename in self._stats_cache:
-                    self._stats_cache[normalized_filename]["call_timestamps"] = []
+                    self._stats_cache[normalized_filename]["calls_24h"] = 0
+                    self._stats_cache[normalized_filename]["last_reset"] = time.time()
                     self._cache_dirty = True
                     log.info(f"Reset usage statistics for {normalized_filename}")
             else:
                 # Reset all statistics
+                current_time = time.time()
                 for stats in self._stats_cache.values():
-                    stats["call_timestamps"] = []
+                    stats["calls_24h"] = 0
+                    stats["last_reset"] = current_time
                 self._cache_dirty = True
                 log.info("Reset usage statistics for all credential files")
 

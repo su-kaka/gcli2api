@@ -138,6 +138,14 @@ async def generate_content(
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
+    log.debug(f"Non-streaming request received for model: {model}")
+    log.debug(f"Request headers: {dict(request.headers)}")
+    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
+    try:
+        body = await request.body()
+        log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
+    except Exception as e:
+        log.error(f"Failed to read request body: {e}")
 
     # 获取原始请求数据
     try:
@@ -211,7 +219,7 @@ async def generate_content(
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
 
     # 增加调用计数
-    cred_mgr.increment_call_count()
+    await cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -320,7 +328,7 @@ async def stream_generate_content(
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
 
     # 增加调用计数
-    cred_mgr.increment_call_count()
+    await cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -446,7 +454,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 return
 
             # 增加调用计数
-            cred_mgr.increment_call_count()
+            await cred_mgr.increment_call_count()
 
             # 构建Google API payload
             try:

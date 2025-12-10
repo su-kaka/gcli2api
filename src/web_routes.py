@@ -688,6 +688,24 @@ async def get_creds_status(token: str = Depends(verify_token)):
                         "user_email": file_status.get("user_email"),
                     }
 
+                    # 添加冷却状态信息
+                    cooldown_until = file_status.get("cooldown_until")
+                    if cooldown_until:
+                        import time
+                        current_time = time.time()
+                        if current_time < cooldown_until:
+                            # 仍在冷却期
+                            remaining_seconds = int(cooldown_until - current_time)
+                            result["cooldown_status"] = "cooling"
+                            result["cooldown_until"] = cooldown_until
+                            result["cooldown_remaining_seconds"] = remaining_seconds
+                        else:
+                            # 冷却期已过
+                            result["cooldown_status"] = "ready"
+                    else:
+                        # 没有冷却
+                        result["cooldown_status"] = "ready"
+
                     if backend_type == "file" and os.path.exists(filename):
                         result.update(
                             {
@@ -1628,57 +1646,88 @@ async def websocket_logs(websocket: WebSocket):
         max_read_size = 8192  # 限制单次读取大小为8KB，防止大量日志造成内存激增
         check_interval = 2  # 增加检查间隔，减少CPU和I/O开销
 
-        while websocket.client_state == WebSocketState.CONNECTED:
-            await asyncio.sleep(check_interval)
+        # 创建后台任务监听客户端断开
+        # 即使没有日志更新，receive_text() 也能即时感知断开
+        async def listen_for_disconnect():
+            try:
+                while True:
+                    await websocket.receive_text()
+            except Exception:
+                pass
 
-            if os.path.exists(log_file_path):
-                current_size = os.path.getsize(log_file_path)
-                if current_size > last_size:
-                    # 限制读取大小，防止单次读取过多内容
-                    read_size = min(current_size - last_size, max_read_size)
+        listener_task = asyncio.create_task(listen_for_disconnect())
 
-                    try:
-                        with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
-                            f.seek(last_size)
-                            new_content = f.read(read_size)
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                # 使用 asyncio.wait 同时等待定时器和断开信号
+                # timeout=check_interval 替代了 asyncio.sleep
+                done, pending = await asyncio.wait(
+                    [listener_task],
+                    timeout=check_interval,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-                            # 处理编码错误的情况
-                            if not new_content:
-                                last_size = current_size
-                                continue
+                # 如果监听任务结束（通常是因为连接断开），则退出循环
+                if listener_task in done:
+                    break
 
-                            # 分行发送，避免发送不完整的行
-                            lines = new_content.splitlines(keepends=True)
-                            if lines:
-                                # 如果最后一行没有换行符，保留到下次处理
-                                if not lines[-1].endswith("\n") and len(lines) > 1:
-                                    # 除了最后一行，其他都发送
-                                    for line in lines[:-1]:
-                                        if line.strip():
-                                            await websocket.send_text(line.rstrip())
-                                    # 更新位置，但要退回最后一行的字节数
-                                    last_size += len(new_content.encode("utf-8")) - len(
-                                        lines[-1].encode("utf-8")
-                                    )
-                                else:
-                                    # 所有行都发送
-                                    for line in lines:
-                                        if line.strip():
-                                            await websocket.send_text(line.rstrip())
-                                    last_size += len(new_content.encode("utf-8"))
-                    except UnicodeDecodeError as e:
-                        # 遇到编码错误时，跳过这部分内容
-                        log.warning(f"WebSocket日志读取编码错误: {e}, 跳过部分内容")
-                        last_size = current_size
-                    except Exception as e:
-                        await websocket.send_text(f"Error reading new content: {e}")
-                        # 发生其他错误时，重置文件位置
-                        last_size = current_size
+                if os.path.exists(log_file_path):
+                    current_size = os.path.getsize(log_file_path)
+                    if current_size > last_size:
+                        # 限制读取大小，防止单次读取过多内容
+                        read_size = min(current_size - last_size, max_read_size)
 
-                # 如果文件被截断（如清空日志），重置位置
-                elif current_size < last_size:
-                    last_size = 0
-                    await websocket.send_text("--- 日志已清空 ---")
+                        try:
+                            with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+                                f.seek(last_size)
+                                new_content = f.read(read_size)
+
+                                # 处理编码错误的情况
+                                if not new_content:
+                                    last_size = current_size
+                                    continue
+
+                                # 分行发送，避免发送不完整的行
+                                lines = new_content.splitlines(keepends=True)
+                                if lines:
+                                    # 如果最后一行没有换行符，保留到下次处理
+                                    if not lines[-1].endswith("\n") and len(lines) > 1:
+                                        # 除了最后一行，其他都发送
+                                        for line in lines[:-1]:
+                                            if line.strip():
+                                                await websocket.send_text(line.rstrip())
+                                        # 更新位置，但要退回最后一行的字节数
+                                        last_size += len(new_content.encode("utf-8")) - len(
+                                            lines[-1].encode("utf-8")
+                                        )
+                                    else:
+                                        # 所有行都发送
+                                        for line in lines:
+                                            if line.strip():
+                                                await websocket.send_text(line.rstrip())
+                                        last_size += len(new_content.encode("utf-8"))
+                        except UnicodeDecodeError as e:
+                            # 遇到编码错误时，跳过这部分内容
+                            log.warning(f"WebSocket日志读取编码错误: {e}, 跳过部分内容")
+                            last_size = current_size
+                        except Exception as e:
+                            await websocket.send_text(f"Error reading new content: {e}")
+                            # 发生其他错误时，重置文件位置
+                            last_size = current_size
+
+                    # 如果文件被截断（如清空日志），重置位置
+                    elif current_size < last_size:
+                        last_size = 0
+                        await websocket.send_text("--- 日志已清空 ---")
+
+        finally:
+            # 确保清理监听任务
+            if not listener_task.done():
+                listener_task.cancel()
+                try:
+                    await listener_task
+                except asyncio.CancelledError:
+                    pass
 
     except WebSocketDisconnect:
         pass
@@ -1732,25 +1781,6 @@ class UsageLimitsUpdateRequest(BaseModel):
     filename: str
     gemini_2_5_pro_limit: Optional[int] = None
     total_limit: Optional[int] = None
-
-
-@router.post("/usage/update-limits")
-async def update_usage_limits(
-    request: UsageLimitsUpdateRequest, token: str = Depends(verify_token)
-):
-    """
-    更新指定凭证文件的每日使用限制 (已废弃 - 不再需要限制功能)
-
-    Returns:
-        Deprecated notice
-    """
-    return JSONResponse(
-        content={
-            "success": False,
-            "message": "此功能已废弃，新版本只统计24小时调用次数，不再需要限制设置"
-        },
-        status_code=410  # Gone
-    )
 
 
 class UsageResetRequest(BaseModel):

@@ -1313,6 +1313,21 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                     </div>
                 </div>
 
+                <!-- 交流群 -->
+                <div class="card" style="border-left: 4px solid #4285f4; text-align: center;">
+                    <h4 style="margin-top: 0; color: #1976d2;">💬 交流群</h4>
+                    <div style="color: #1565c0; line-height: 1.6; font-size: 14px;">
+                        <p>欢迎加入 QQ 群交流讨论！</p>
+                        <p style="font-size: 16px; font-weight: bold; color: #4285f4;">QQ 群号：937681997</p>
+                    </div>
+                    <div
+                        style="display: inline-block; background: white; padding: 12px; border-radius: 10px; box-shadow: 0 2px 15px rgba(0,0,0,0.1); margin-top: 10px;">
+                        <img src="docs/qq群.jpg" alt="QQ群二维码"
+                            style="width: 180px; height: 180px; border-radius: 6px; display: block;">
+                        <p style="color: #666; margin: 8px 0 0 0; font-size: 12px; font-weight: 600; text-align: center;">扫码加入QQ群</p>
+                    </div>
+                </div>
+
                 <!-- 支持项目 -->
                 <div
                     style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 12px; margin: 20px 0; text-align: center; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);">
@@ -1873,22 +1888,6 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 return;
             }
 
-            // 检查文件大小
-            const totalSize = uploadSelectedFiles.reduce((sum, file) => sum + file.size, 0);
-            const maxSize = 200 * 1024 * 1024; // 200MB limit
-            if (totalSize > maxSize) {
-                showStatus(`文件总大小 ${(totalSize / 1024 / 1024).toFixed(1)}MB 超过限制 ${maxSize / 1024 / 1024}MB。请分批上传或删除部分文件。`, 'error');
-                return;
-            }
-
-            // 检查单个文件大小
-            for (const file of uploadSelectedFiles) {
-                if (file.size > 5 * 1024 * 1024) {
-                    showStatus(`文件 "${file.name}" 大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过单文件5MB限制`, 'error');
-                    return;
-                }
-            }
-
             const progressSection = document.getElementById('uploadProgressSection');
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
@@ -2372,6 +2371,25 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
                 statusBadges += `<span style="background-color: #dc3545; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin-right: 5px;">错误码: ${status.error_codes.join(', ')}</span>`;
             } else {
                 statusBadges += '<span style="background-color: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">无错误</span>';
+            }
+
+            // 添加冷却状态显示
+            if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_remaining_seconds) {
+                const remainingSeconds = credInfo.cooldown_remaining_seconds;
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
+
+                let timeDisplay = '';
+                if (hours > 0) {
+                    timeDisplay = `${hours}h ${minutes}m ${seconds}s`;
+                } else if (minutes > 0) {
+                    timeDisplay = `${minutes}m ${seconds}s`;
+                } else {
+                    timeDisplay = `${seconds}s`;
+                }
+
+                statusBadges += `<span class="cooldown-badge" style="background-color: #ffc107; color: #856404; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: bold; margin-right: 5px;" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 冷却: ${timeDisplay}</span>`;
             }
 
             // 为HTML ID生成安全的标识符
@@ -3401,7 +3419,87 @@ docker run -e GCLI_CREDS_1='{"client_id":"..."}' \
             if (checkbox) {
                 checkbox.addEventListener('change', handleGetAllProjectsChange);
             }
+
+            // 启动冷却倒计时自动更新（每秒更新一次）
+            startCooldownTimer();
         };
+
+        // 冷却倒计时自动更新
+        let cooldownTimerInterval = null;
+
+        function startCooldownTimer() {
+            // 清除旧的定时器
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+            }
+
+            // 每秒更新一次冷却状态
+            cooldownTimerInterval = setInterval(() => {
+                updateCooldownDisplays();
+            }, 1000);
+        }
+
+        function stopCooldownTimer() {
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+                cooldownTimerInterval = null;
+            }
+        }
+
+        function updateCooldownDisplays() {
+            // 遍历所有凭证，更新冷却显示
+            for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_until) {
+                    const currentTime = Date.now() / 1000; // 当前时间（秒）
+                    const remainingSeconds = Math.max(0, Math.floor(credInfo.cooldown_until - currentTime));
+
+                    // 更新内存中的剩余时间
+                    credInfo.cooldown_remaining_seconds = remainingSeconds;
+
+                    // 如果冷却期已过，标记为ready并刷新列表
+                    if (remainingSeconds <= 0) {
+                        credInfo.cooldown_status = 'ready';
+                        credInfo.cooldown_until = null;
+                        credInfo.cooldown_remaining_seconds = 0;
+
+                        // 重新渲染当前页
+                        renderCredsList();
+                        return; // 有状态变化，立即重新渲染
+                    }
+                }
+            }
+
+            // 更新页面上的冷却显示（只更新文字，不重新渲染整个卡片）
+            document.querySelectorAll('.cooldown-badge').forEach(badge => {
+                const filenameMatch = badge.closest('.card')?.querySelector('.card-title')?.textContent;
+                if (!filenameMatch) return;
+
+                // 找到对应的凭证数据
+                for (const [fullPath, credInfo] of Object.entries(credsData)) {
+                    if (credInfo.filename === filenameMatch && credInfo.cooldown_status === 'cooling') {
+                        const remainingSeconds = credInfo.cooldown_remaining_seconds || 0;
+                        if (remainingSeconds > 0) {
+                            const hours = Math.floor(remainingSeconds / 3600);
+                            const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                            const seconds = remainingSeconds % 60;
+
+                            let timeDisplay = '';
+                            if (hours > 0) {
+                                timeDisplay = `${hours}h ${minutes}m ${seconds}s`;
+                            } else if (minutes > 0) {
+                                timeDisplay = `${minutes}m ${seconds}s`;
+                            } else {
+                                timeDisplay = `${seconds}s`;
+                            }
+
+                            // 只更新时间文本
+                            badge.innerHTML = `🕐 冷却: ${timeDisplay}`;
+                        }
+                        break;
+                    }
+                }
+            });
+        }
 
         // 页面离开时清理选择状态
         window.addEventListener('beforeunload', function () {

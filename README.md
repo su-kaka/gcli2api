@@ -162,8 +162,7 @@
 
 ### 🤖 基础模型
 - `gemini-2.5-pro`
-- `gemini-2.5-pro-preview-06-05`  
-- `gemini-2.5-pro-preview-05-06`
+- `gemini-3-pro-preview`
 
 ### 🧠 思维模型（Thinking Models）
 - `gemini-2.5-pro-maxthinking`：最大思考预算模式
@@ -824,6 +823,16 @@ for part in response.candidates[0].content.parts:
 export COMPATIBILITY_MODE=true
 ```
 此模式下，所有 `system` 消息会转换为 `user` 消息，提高与某些客户端的兼容性。
+
+---
+
+## 💬 交流群
+
+欢迎加入 QQ 群交流讨论！
+
+**QQ 群号：937681997**
+
+<img src="docs/qq群.jpg" width="200" alt="QQ群二维码">
 
 ---
 

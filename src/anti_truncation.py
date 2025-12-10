@@ -193,7 +193,8 @@ class AntiTruncationStreamProcessor:
         self.original_request_func = original_request_func
         self.base_payload = payload.copy()
         self.max_attempts = max_attempts
-        self.collected_content = []  # 使用列表避免字符串重复拼接
+        # 直接用字符串，避免列表+join的双重内存占用
+        self.collected_content = ""
         self.current_attempt = 0
 
     async def process_stream(self) -> AsyncGenerator[bytes, None]:
@@ -271,14 +272,14 @@ class AntiTruncationStreamProcessor:
                         yield chunk
                         continue
 
-                # 更新收集的内容 - 使用列表避免字符串重复拼接
+                # 更新收集的内容 - 直接拼接，避免中间数据结构
                 if chunk_content:
-                    self.collected_content.append(chunk_content)
+                    self.collected_content += chunk_content
 
                 # 如果找到了done标记，结束
                 if found_done_marker:
                     # 立即清理内容释放内存
-                    self.collected_content.clear()
+                    self.collected_content = ""
                     yield b"data: [DONE]\n\n"
                     return
 
@@ -290,7 +291,7 @@ class AntiTruncationStreamProcessor:
                     if self._check_done_marker_in_text(accumulated_text):
                         log.info("Anti-truncation: Found [done] marker in accumulated content")
                         # 立即清理内容释放内存
-                        self.collected_content.clear()
+                        self.collected_content = ""
                         yield b"data: [DONE]\n\n"
                         return
 
@@ -315,7 +316,7 @@ class AntiTruncationStreamProcessor:
                     # 最后一次尝试，直接结束
                     log.warning("Anti-truncation: Max attempts reached, ending stream")
                     # 立即清理内容释放内存
-                    self.collected_content.clear()
+                    self.collected_content = ""
                     yield b"data: [DONE]\n\n"
                     return
 
@@ -337,8 +338,8 @@ class AntiTruncationStreamProcessor:
 
         # 如果所有尝试都失败了
         log.error("Anti-truncation: All attempts failed")
-        # 确保清理内容释放内存
-        self.collected_content.clear()
+        # 清理内存
+        self.collected_content = ""
         yield b"data: [DONE]\n\n"
 
     def _build_current_payload(self) -> Dict[str, Any]:
@@ -356,15 +357,15 @@ class AntiTruncationStreamProcessor:
         new_contents = contents.copy()
 
         # 如果有收集到的内容，添加到对话中
+        # 只拼接一次，复用结果，避免重复拼接导致内存峰值
+        accumulated_text = ""
         if self.collected_content:
-            # 拼接收集的内容并添加模型的回复
-            accumulated_text = "".join(self.collected_content)
+            accumulated_text = self.collected_content
             new_contents.append({"role": "model", "parts": [{"text": accumulated_text}]})
 
         # 构建具体的续写指令，包含前面的内容摘要
         content_summary = ""
-        if self.collected_content:
-            accumulated_text = "".join(self.collected_content)
+        if accumulated_text:  # 复用已拼接的字符串
             if len(accumulated_text) > 200:
                 content_summary = f'\n\n前面你已经输出了约 {len(accumulated_text)} 个字符的内容，结尾是：\n"...{accumulated_text[-100:]}"'
             else:
@@ -429,7 +430,7 @@ class AntiTruncationStreamProcessor:
             if not has_done_marker and self.current_attempt < self.max_attempts:
                 log.info("Anti-truncation: Non-streaming response needs continuation")
                 if text_content:
-                    self.collected_content.append(text_content)
+                    self.collected_content += text_content
                 # 递归处理续传
                 return await self._handle_non_streaming_response(
                     await self.original_request_func(self._build_current_payload())
