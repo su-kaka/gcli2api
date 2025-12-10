@@ -109,13 +109,6 @@ async def _get_next_credential(
     new_credential_result = await credential_manager.get_valid_credential()
     if new_credential_result:
         current_file, credential_data = new_credential_result
-
-        # 快速检查：如果凭证已被禁用，直接返回None
-        state = await credential_manager._storage_adapter.get_credential_state(current_file)
-        if state.get("disabled", False):
-            log.debug(f"获取到已禁用的凭证，快速跳过: {current_file}")
-            return None
-
         headers, updated_payload, target_url = (
             await _prepare_request_headers_and_payload(
                 payload, credential_data, use_public_api, target_url
@@ -284,85 +277,7 @@ async def send_gemini_request(
                     )
                     resp = await stream_ctx.__aenter__()
 
-                    if resp.status_code == 429:
-                        # 记录429错误并获取响应内容
-                        response_content = ""
-                        cooldown_until = None
-                        try:
-                            content_bytes = await resp.aread()
-                            if isinstance(content_bytes, bytes):
-                                response_content = content_bytes.decode("utf-8", errors="ignore")
-                                # 尝试解析冷却时间
-                                try:
-                                    error_data = json.loads(response_content)
-                                    cooldown_until = parse_quota_reset_timestamp(error_data)
-                                    if cooldown_until:
-                                        log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
-                                except Exception as parse_err:
-                                    log.debug(f"[STREAMING] Failed to parse cooldown time: {parse_err}")
-                        except Exception as e:
-                            log.debug(f"[STREAMING] Failed to read 429 response content: {e}")
-
-                        # 显示详细的429错误信息
-                        if response_content:
-                            log.error(
-                                f"Google API returned status 429 (STREAMING). Response details: {response_content[:500]}"
-                            )
-                        else:
-                            log.error(
-                                "Google API returned status 429 (STREAMING) - quota exhausted, no response details available"
-                            )
-
-                        if credential_manager and current_file:
-                            await credential_manager.record_api_call_result(
-                                current_file, False, 429, cooldown_until
-                            )
-
-                        # 清理资源
-                        try:
-                            await stream_ctx.__aexit__(None, None, None)
-                        except Exception:
-                            pass
-                        await client.aclose()
-
-                        # 如果重试可用且未达到最大次数，进行重试
-                        if retry_429_enabled and attempt < max_retries:
-                            log.warning(
-                                f"[RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
-                            )
-                            if credential_manager:
-                                # 429错误时强制轮换凭证，不增加调用计数
-                                await credential_manager.force_rotate_credential()
-                                # 重新获取凭证和headers（凭证可能已轮换）
-                                new_credential_result = (
-                                    await credential_manager.get_valid_credential()
-                                )
-                                if new_credential_result:
-                                    current_file, credential_data = new_credential_result
-                                    headers, updated_payload, target_url = (
-                                        await _prepare_request_headers_and_payload(
-                                            payload, credential_data, use_public_api, target_url
-                                        )
-                                    )
-                                    final_post_data = json.dumps(updated_payload)
-                            await asyncio.sleep(retry_interval)
-                            continue  # 跳出内层处理，继续外层循环重试
-                        else:
-                            # 返回429错误流
-                            async def error_stream():
-                                error_response = {
-                                    "error": {
-                                        "message": "429 rate limit exceeded, max retries reached",
-                                        "type": "api_error",
-                                        "code": 429,
-                                    }
-                                }
-                                yield f"data: {json.dumps(error_response)}\n\n"
-
-                            return StreamingResponse(
-                                error_stream(), media_type="text/event-stream", status_code=429
-                            )
-                    elif resp.status_code != 200:
+                    if resp.status_code != 200:
                         # 处理其他非200状态码的错误
                         response_content = ""
                         cooldown_until = None

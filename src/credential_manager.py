@@ -164,12 +164,6 @@ class CredentialManager:
             # 始终使用第一个凭证（循环队列头部）
             current_file = self._credential_files[0]
 
-            # 快速检查：如果凭证已被禁用，直接跳过
-            state = await self._storage_adapter.get_credential_state(current_file)
-            if state.get("disabled", False):
-                log.debug(f"凭证已禁用，快速跳过: {current_file}")
-                return None
-
             # 从存储适配器加载凭证数据
             credential_data = await self._storage_adapter.get_credential(current_file)
             if not credential_data:
@@ -521,12 +515,6 @@ class CredentialManager:
         """
         try:
             state = await self._storage_adapter.get_credential_state(credential_name)
-
-            # 快速检查：如果凭证已被禁用，认为在冷却期（避免使用）
-            if state.get("disabled", False):
-                log.debug(f"凭证已禁用，视为冷却期: {credential_name}")
-                return True
-
             cooldown_until = state.get("cooldown_until")
 
             if cooldown_until is None:
@@ -536,17 +524,22 @@ class CredentialManager:
             if current_time < cooldown_until:
                 remaining = cooldown_until - current_time
                 remaining_minutes = int(remaining / 60)
-                log.debug(
+                log.info(
                     f"凭证 {credential_name} 仍在冷却期，"
-                    f"剩余时间: {remaining_minutes}分{int(remaining % 60)}秒"
+                    f"剩余时间: {remaining_minutes}分{int(remaining % 60)}秒 "
+                    f"(截止时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()})"
                 )
                 return True
             else:
                 # 冷却期已过，清除冷却状态
                 log.info(f"凭证 {credential_name} 冷却期已过，恢复可用")
-                # 调用内部不加锁版本，因为调用者已经持有锁
-                async with self._state_lock:
-                    await self._update_credential_state_unlocked(credential_name, {"cooldown_until": None})
+                # 直接调用不加锁的更新方法（调用者已经持有operation_lock）
+                try:
+                    await self._storage_adapter.update_credential_state(
+                        credential_name, {"cooldown_until": None}
+                    )
+                except Exception as clear_err:
+                    log.warning(f"清除冷却状态失败 {credential_name}: {clear_err}")
                 return False
 
         except Exception as e:
