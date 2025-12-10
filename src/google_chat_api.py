@@ -109,6 +109,13 @@ async def _get_next_credential(
     new_credential_result = await credential_manager.get_valid_credential()
     if new_credential_result:
         current_file, credential_data = new_credential_result
+
+        # 快速检查：如果凭证已被禁用，直接返回None
+        state = await credential_manager._storage_adapter.get_credential_state(current_file)
+        if state.get("disabled", False):
+            log.debug(f"获取到已禁用的凭证，快速跳过: {current_file}")
+            return None
+
         headers, updated_payload, target_url = (
             await _prepare_request_headers_and_payload(
                 payload, credential_data, use_public_api, target_url

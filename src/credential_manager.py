@@ -164,6 +164,12 @@ class CredentialManager:
             # 始终使用第一个凭证（循环队列头部）
             current_file = self._credential_files[0]
 
+            # 快速检查：如果凭证已被禁用，直接跳过
+            state = await self._storage_adapter.get_credential_state(current_file)
+            if state.get("disabled", False):
+                log.debug(f"凭证已禁用，快速跳过: {current_file}")
+                return None
+
             # 从存储适配器加载凭证数据
             credential_data = await self._storage_adapter.get_credential(current_file)
             if not credential_data:
@@ -515,6 +521,12 @@ class CredentialManager:
         """
         try:
             state = await self._storage_adapter.get_credential_state(credential_name)
+
+            # 快速检查：如果凭证已被禁用，认为在冷却期（避免使用）
+            if state.get("disabled", False):
+                log.debug(f"凭证已禁用，视为冷却期: {credential_name}")
+                return True
+
             cooldown_until = state.get("cooldown_until")
 
             if cooldown_until is None:
