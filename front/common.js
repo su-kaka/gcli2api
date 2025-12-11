@@ -1742,35 +1742,54 @@ async function saveConfig() {
         console.log('DEBUG: configPassword元素:', passwordElement);
         console.log('DEBUG: configPassword值:', passwordElement ? passwordElement.value : 'ELEMENT_NOT_FOUND');
 
+        const getElementValue = (id, defaultValue = '') => {
+            const element = document.getElementById(id);
+            return element ? element.value.trim() : defaultValue;
+        };
+
+        const getElementIntValue = (id, defaultValue = 0) => {
+            const element = document.getElementById(id);
+            return element ? (parseInt(element.value) || defaultValue) : defaultValue;
+        };
+
+        const getElementFloatValue = (id, defaultValue = 0.0) => {
+            const element = document.getElementById(id);
+            return element ?  (parseFloat(element.value) || defaultValue) : defaultValue;
+        };
+
+        const getElementChecked = (id, defaultValue = false) => {
+            const element = document.getElementById(id);
+            return element ? element.checked :  defaultValue;
+        };
         const config = {
-            host: document.getElementById('host').value.trim(),
-            port: parseInt(document.getElementById('port').value) || 7861,
-            api_password: document.getElementById('configApiPassword').value.trim(),
-            panel_password: document.getElementById('configPanelPassword').value.trim(),
-            password: document.getElementById('configPassword').value.trim(),
-            code_assist_endpoint: document.getElementById('codeAssistEndpoint').value.trim(),
-            credentials_dir: document.getElementById('credentialsDir').value.trim(),
-            proxy: document.getElementById('proxy').value.trim(),
+            host: getElementValue('host', '0.0.0.0'),
+            port: getElementIntValue('port', 7861),
+            api_password: getElementValue('configApiPassword'),
+            panel_password: getElementValue('configPanelPassword'),
+            password: getElementValue('configPassword', 'pwd'),
+            code_assist_endpoint: getElementValue('codeAssistEndpoint'),
+            credentials_dir: getElementValue('credentialsDir'),
+            proxy: getElementValue('proxy'),
             // 端点配置
-            oauth_proxy_url: document.getElementById('oauthProxyUrl').value.trim(),
-            googleapis_proxy_url: document.getElementById('googleapisProxyUrl').value.trim(),
-            resource_manager_api_url: document.getElementById('resourceManagerApiUrl').value.trim(),
-            service_usage_api_url: document.getElementById('serviceUsageApiUrl').value.trim(),
-            auto_ban_enabled: document.getElementById('autoBanEnabled').checked,
-            auto_ban_error_codes: document.getElementById('autoBanErrorCodes').value
+            oauth_proxy_url: getElementValue('oauthProxyUrl'),
+            googleapis_proxy_url:  getElementValue('googleapisProxyUrl'),
+            resource_manager_api_url: getElementValue('resourceManagerApiUrl'),
+            service_usage_api_url:  getElementValue('serviceUsageApiUrl'),
+            auto_ban_enabled: getElementChecked('autoBanEnabled'),
+            auto_ban_error_codes: getElementValue('autoBanErrorCodes')
                 .split(',')
                 .map(code => parseInt(code.trim()))
                 .filter(code => !isNaN(code)),
-            calls_per_rotation: parseInt(document.getElementById('callsPerRotation').value) || 10,
-            retry_429_enabled: document.getElementById('retry429Enabled').checked,
-            retry_429_max_retries: parseInt(document.getElementById('retry429MaxRetries').value) || 20,
-            retry_429_interval: parseFloat(document.getElementById('retry429Interval').value) || 0.1,
+            calls_per_rotation: getElementIntValue('callsPerRotation', 10),
+            retry_429_enabled: getElementChecked('retry429Enabled'),
+            retry_429_max_retries: getElementIntValue('retry429MaxRetries', 20),
+            retry_429_interval: getElementFloatValue('retry429Interval', 0.1),
             // 兼容性配置
-            compatibility_mode_enabled: document.getElementById('compatibilityModeEnabled').checked,
+            compatibility_mode_enabled: getElementChecked('compatibilityModeEnabled'),
             // 思维链返回配置
-            return_thoughts_to_frontend: document.getElementById('returnThoughtsToFrontend').checked,
+            return_thoughts_to_frontend: getElementChecked('returnThoughtsToFrontend'),
             // 抗截断配置
-            anti_truncation_max_attempts: parseInt(document.getElementById('antiTruncationMaxAttempts').value) || 3
+            anti_truncation_max_attempts: getElementIntValue('antiTruncationMaxAttempts', 3)
         };
 
         const response = await fetch('/config/save', {
