@@ -26,7 +26,7 @@ from .google_oauth_api import (
 )
 from .storage_adapter import get_storage_adapter
 
-# OAuth Configuration
+# OAuth Configuration - 标准模式
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 CLIENT_SECRET = "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"
 SCOPES = [
@@ -34,6 +34,20 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
+
+# Antigravity OAuth Configuration
+ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+ANTIGRAVITY_CLIENT_SECRET = "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"
+ANTIGRAVITY_SCOPES = [
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/cclog',
+    'https://www.googleapis.com/auth/experimentsandconfigs'
+]
+
+# 统一的 Token URL（两种模式相同）
+TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 # 回调服务器配置
 CALLBACK_HOST = "localhost"
@@ -161,7 +175,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 async def create_auth_url(
-    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False
+    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
     try:
@@ -188,12 +202,20 @@ async def create_auth_url(
             }
 
         # 创建OAuth流程
-        # Commented out unused client_config
+        # 根据模式选择配置
+        if use_antigravity:
+            client_id = ANTIGRAVITY_CLIENT_ID
+            client_secret = ANTIGRAVITY_CLIENT_SECRET
+            scopes = ANTIGRAVITY_SCOPES
+        else:
+            client_id = CLIENT_ID
+            client_secret = CLIENT_SECRET
+            scopes = SCOPES
 
         flow = Flow(
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-            scopes=SCOPES,
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
             redirect_uri=callback_url,
         )
 
@@ -237,6 +259,7 @@ async def create_auth_url(
             "created_at": time.time(),
             "auto_project_detection": project_id is None,  # 标记是否需要自动检测项目ID
             "get_all_projects": get_all_projects,  # 是否为所有项目获取凭证
+            "use_antigravity": use_antigravity,  # 是否使用antigravity模式
         }
 
         # 清理过期的流程（30分钟）
@@ -434,7 +457,7 @@ async def complete_auth_flow(
                 "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
                 "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
+                "token_uri": TOKEN_URL,
                 "project_id": project_id,
             }
 
@@ -479,7 +502,7 @@ async def complete_auth_flow(
 
 
 async def asyncio_complete_auth_flow(
-    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False
+    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
     try:
@@ -618,6 +641,58 @@ async def asyncio_complete_auth_flow(
             log.info(
                 f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}"
             )
+
+            # 检查是否为antigravity模式
+            is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
+            if is_antigravity:
+                log.info("Antigravity模式：生成随机project_id...")
+                # 生成随机字符串作为project_id
+                import random
+                import string
+                project_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+                log.info(f"生成的随机project_id: {project_id}")
+
+                # 保存antigravity凭证
+                saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
+
+                # 准备返回的凭证数据
+                creds_data = {
+                    "client_id": ANTIGRAVITY_CLIENT_ID,
+                    "client_secret": ANTIGRAVITY_CLIENT_SECRET,
+                    "token": credentials.access_token,
+                    "refresh_token": credentials.refresh_token,
+                    "scopes": ANTIGRAVITY_SCOPES,
+                    "token_uri": TOKEN_URL,
+                    "project_id": project_id,
+                }
+
+                if credentials.expires_at:
+                    if credentials.expires_at.tzinfo is None:
+                        expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
+                    else:
+                        expiry_utc = credentials.expires_at
+                    creds_data["expiry"] = expiry_utc.isoformat()
+
+                # 清理使用过的流程
+                if state in auth_flows:
+                    flow_data_to_clean = auth_flows[state]
+                    try:
+                        if flow_data_to_clean.get("server"):
+                            server = flow_data_to_clean["server"]
+                            port = flow_data_to_clean.get("callback_port")
+                            async_shutdown_server(server, port)
+                    except Exception as e:
+                        log.debug(f"启动异步关闭服务器时出错: {e}")
+                    del auth_flows[state]
+
+                log.info("Antigravity OAuth认证成功，凭证已保存")
+                return {
+                    "success": True,
+                    "credentials": creds_data,
+                    "file_path": saved_filename,
+                    "auto_detected_project": False,
+                    "is_antigravity": True,
+                }
 
             # 检查是否为批量获取所有项目模式
             if flow_data.get("get_all_projects", False) or get_all_projects:
@@ -781,7 +856,7 @@ async def asyncio_complete_auth_flow(
                 "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
                 "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
+                "token_uri": TOKEN_URL,
                 "project_id": project_id,
             }
 
@@ -826,7 +901,7 @@ async def asyncio_complete_auth_flow(
 
 
 async def complete_auth_flow_from_callback_url(
-    callback_url: str, project_id: Optional[str] = None, get_all_projects: bool = False
+    callback_url: str, project_id: Optional[str] = None, get_all_projects: bool = False, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """从回调URL直接完成认证流程，无需启动本地服务器"""
     try:
@@ -863,6 +938,58 @@ async def complete_auth_flow_from_callback_url(
             # 使用authorization code获取token
             credentials = await flow.exchange_code(code)
             log.info("成功获取访问令牌")
+
+            # 检查是否为antigravity模式
+            is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
+            if is_antigravity:
+                log.info("Antigravity模式（从回调URL）：生成随机project_id...")
+                # 生成随机字符串作为project_id
+                import random
+                import string
+                project_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+                log.info(f"生成的随机project_id: {project_id}")
+
+                # 保存antigravity凭证
+                saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
+
+                # 准备返回的凭证数据
+                creds_data = {
+                    "client_id": ANTIGRAVITY_CLIENT_ID,
+                    "client_secret": ANTIGRAVITY_CLIENT_SECRET,
+                    "token": credentials.access_token,
+                    "refresh_token": credentials.refresh_token,
+                    "scopes": ANTIGRAVITY_SCOPES,
+                    "token_uri": TOKEN_URL,
+                    "project_id": project_id,
+                }
+
+                if credentials.expires_at:
+                    if credentials.expires_at.tzinfo is None:
+                        expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
+                    else:
+                        expiry_utc = credentials.expires_at
+                    creds_data["expiry"] = expiry_utc.isoformat()
+
+                # 清理使用过的流程
+                if state in auth_flows:
+                    flow_data_to_clean = auth_flows[state]
+                    try:
+                        if flow_data_to_clean.get("server"):
+                            server = flow_data_to_clean["server"]
+                            port = flow_data_to_clean.get("callback_port")
+                            async_shutdown_server(server, port)
+                    except Exception as e:
+                        log.debug(f"关闭服务器时出错: {e}")
+                    del auth_flows[state]
+
+                log.info("从回调URL完成Antigravity OAuth认证成功，凭证已保存")
+                return {
+                    "success": True,
+                    "credentials": creds_data,
+                    "file_path": saved_filename,
+                    "auto_detected_project": False,
+                    "is_antigravity": True,
+                }
 
             # 检查是否为批量获取所有项目模式
             if get_all_projects:
@@ -1019,7 +1146,7 @@ async def complete_auth_flow_from_callback_url(
                 "token": credentials.access_token,
                 "refresh_token": credentials.refresh_token,
                 "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
+                "token_uri": TOKEN_URL,
                 "project_id": detected_project_id,
             }
 
@@ -1061,22 +1188,38 @@ async def complete_auth_flow_from_callback_url(
         return {"success": False, "error": str(e)}
 
 
-async def save_credentials(creds: Credentials, project_id: str) -> str:
+async def save_credentials(creds: Credentials, project_id: str, is_antigravity: bool = False) -> str:
     """通过统一存储系统保存凭证"""
     # 生成文件名（使用project_id和时间戳）
     timestamp = int(time.time())
-    filename = f"{project_id}-{timestamp}.json"
+
+    # antigravity模式使用特殊前缀
+    if is_antigravity:
+        filename = f"ag_{project_id}-{timestamp}.json"
+    else:
+        filename = f"{project_id}-{timestamp}.json"
 
     # 准备凭证数据
-    creds_data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "token": creds.access_token,
-        "refresh_token": creds.refresh_token,
-        "scopes": SCOPES,
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "project_id": project_id,
-    }
+    if is_antigravity:
+        creds_data = {
+            "client_id": ANTIGRAVITY_CLIENT_ID,
+            "client_secret": ANTIGRAVITY_CLIENT_SECRET,
+            "token": creds.access_token,
+            "refresh_token": creds.refresh_token,
+            "scopes": ANTIGRAVITY_SCOPES,
+            "token_uri": TOKEN_URL,
+            "project_id": project_id,
+        }
+    else:
+        creds_data = {
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "token": creds.access_token,
+            "refresh_token": creds.refresh_token,
+            "scopes": SCOPES,
+            "token_uri": TOKEN_URL,
+            "project_id": project_id,
+        }
 
     if creds.expires_at:
         if creds.expires_at.tzinfo is None:
@@ -1087,7 +1230,7 @@ async def save_credentials(creds: Credentials, project_id: str) -> str:
 
     # 通过存储适配器保存
     storage_adapter = await get_storage_adapter()
-    success = await storage_adapter.store_credential(filename, creds_data)
+    success = await storage_adapter.store_credential(filename, creds_data, is_antigravity=is_antigravity)
 
     if success:
         # 创建默认状态记录
@@ -1098,8 +1241,8 @@ async def save_credentials(creds: Credentials, project_id: str) -> str:
                 "last_success": time.time(),
                 "user_email": None,
             }
-            await storage_adapter.update_credential_state(filename, default_state)
-            log.info(f"凭证和状态已保存到: {filename}")
+            await storage_adapter.update_credential_state(filename, default_state, is_antigravity=is_antigravity)
+            log.info(f"凭证和状态已保存到: {filename} (antigravity={is_antigravity})")
         except Exception as e:
             log.warning(f"创建默认状态记录失败 {filename}: {e}")
 

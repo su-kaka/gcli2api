@@ -183,6 +183,10 @@ function switchTab(tabName) {
     if (tabName === 'manage') {
         refreshCredsStatus();
     }
+    // 如果切换到 Antigravity 管理页面，自动加载数据
+    if (tabName === 'antigravity-manage') {
+        refreshAntigravityCredsList();
+    }
     // 如果切换到配置管理页面，自动加载配置
     if (tabName === 'config') {
         loadConfig();
@@ -385,6 +389,738 @@ async function getCredentials() {
     } finally {
         btn.disabled = false;
         btn.textContent = '获取认证文件';
+    }
+}
+
+// ============ Antigravity 认证相关函数 ============
+
+let antigravityAuthState = null;
+let antigravityAuthInProgress = false;
+
+async function startAntigravityAuth() {
+    const btn = document.getElementById('getAntigravityAuthBtn');
+    btn.disabled = true;
+    btn.textContent = '生成认证链接中...';
+
+    try {
+        showStatus('正在生成 Antigravity 认证链接...', 'info');
+
+        const response = await fetch('/auth/start', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                use_antigravity: true
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            antigravityAuthState = data.state;
+            antigravityAuthInProgress = true;
+
+            const authUrlSection = document.getElementById('antigravityAuthUrlSection');
+            const authUrlLink = document.getElementById('antigravityAuthUrl');
+
+            authUrlLink.href = data.auth_url;
+            authUrlLink.textContent = data.auth_url;
+            authUrlSection.classList.remove('hidden');
+
+            showStatus('✅ Antigravity 认证链接已生成！请点击链接完成授权', 'success');
+        } else {
+            showStatus(`❌ 错误: ${data.error || '生成认证链接失败'}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`网络错误: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '获取 Antigravity 认证链接';
+    }
+}
+
+async function getAntigravityCredentials() {
+    if (!antigravityAuthInProgress) {
+        showStatus('请先获取 Antigravity 认证链接并完成授权', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('getAntigravityCredsBtn');
+    btn.disabled = true;
+    btn.textContent = '等待OAuth回调中...';
+
+    try {
+        showStatus('正在等待 Antigravity OAuth回调...', 'info');
+
+        const response = await fetch('/auth/callback', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                use_antigravity: true
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            const credentialsSection = document.getElementById('antigravityCredsSection');
+            const credentialsContent = document.getElementById('antigravityCredsContent');
+
+            credentialsContent.textContent = JSON.stringify(data.credentials, null, 2);
+            credentialsSection.classList.remove('hidden');
+
+            antigravityAuthInProgress = false;
+            showStatus(`✅ Antigravity 认证成功！文件已保存到: ${data.file_path}`, 'success');
+        } else {
+            showStatus(`❌ 错误: ${data.error || '获取认证文件失败'}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`网络错误: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '获取 Antigravity 凭证';
+    }
+}
+
+function downloadAntigravityCredentials() {
+    const content = document.getElementById('antigravityCredsContent').textContent;
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `antigravity-credential-${Date.now()}.json`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+// Antigravity 凭证管理相关变量
+let antigravityCredsData = {};
+let filteredAntigravityCredsData = {};
+let antigravityCurrentPage = 1;
+let antigravityPageSize = 20;
+let selectedAntigravityCredFiles = new Set();
+let antigravityTotalCredsCount = 0;
+let antigravityCurrentStatusFilter = 'all';
+let antigravityStatsData = {
+    total: 0,
+    normal: 0,
+    disabled: 0
+};
+
+async function refreshAntigravityCredsList() {
+    const credsLoading = document.getElementById('antigravityCredsLoading');
+    const credsList = document.getElementById('antigravityCredsList');
+
+    try {
+        credsLoading.style.display = 'block';
+        credsList.innerHTML = '';
+
+        console.log('Fetching antigravity creds status...');
+
+        // 构建分页和筛选参数
+        const offset = (antigravityCurrentPage - 1) * antigravityPageSize;
+        const statusFilter = antigravityCurrentStatusFilter;
+        const response = await fetch(`/antigravity/creds/status?offset=${offset}&limit=${antigravityPageSize}&status_filter=${statusFilter}`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        console.log('Antigravity creds status response:', response.status);
+
+        const data = await response.json();
+        console.log('Antigravity creds status data:', data);
+
+        if (response.ok) {
+            // 转换为卡片格式数据
+            antigravityCredsData = {};
+            for (const item of data.items) {
+                const filename = item.filename;
+                antigravityCredsData[filename] = {
+                    filename: filename,
+                    status: {
+                        disabled: item.disabled,
+                        error_codes: item.error_codes || [],
+                        last_success: item.last_success,
+                    },
+                    user_email: item.user_email,
+                    cooldown_status: item.cooldown_status,
+                    cooldown_remaining_seconds: item.cooldown_remaining_seconds,
+                    cooldown_until: item.cooldown_until
+                };
+            }
+
+            // 保存总数用于分页
+            antigravityTotalCredsCount = data.total;
+
+            // 计算统计数据
+            calculateAntigravityStats();
+
+            // 更新统计显示
+            updateAntigravityStatsDisplay();
+
+            // 显示数据
+            filteredAntigravityCredsData = antigravityCredsData;
+            renderAntigravityCredsList();
+            updateAntigravityPagination();
+
+            // 更新状态消息
+            let statusMsg = `已加载 ${data.total} 个Antigravity凭证文件`;
+            if (statusFilter === 'enabled') {
+                statusMsg += ' (筛选: 仅启用)';
+            } else if (statusFilter === 'disabled') {
+                statusMsg += ' (筛选: 仅禁用)';
+            }
+            showStatus(statusMsg, 'success');
+        } else {
+            showStatus(`加载失败: ${data.detail || data.error || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        console.error('refreshAntigravityCredsList error:', error);
+        showStatus(`网络错误: ${error.message}`, 'error');
+    } finally {
+        credsLoading.style.display = 'none';
+    }
+}
+
+async function downloadAntigravityCred(filename) {
+    try {
+        const response = await fetch(`/antigravity/creds/download/${filename}`, {
+            headers: getAuthHeaders()
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            showStatus(`✅ 已下载: ${filename}`, 'success');
+        } else {
+            showStatus(`下载失败: ${filename}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`网络错误: ${error.message}`, 'error');
+    }
+}
+
+async function deleteAntigravityCred(filename) {
+    if (!confirm(`确定要删除 ${filename} 吗？`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/antigravity/creds/action', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                filename: filename,
+                action: 'delete'
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showStatus(data.message, 'success');
+            refreshAntigravityCredsList();
+        } else {
+            showStatus(`删除失败: ${data.detail || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`网络错误: ${error.message}`, 'error');
+    }
+}
+
+// 应用Antigravity状态筛选
+function applyAntigravityStatusFilter() {
+    const statusFilter = document.getElementById('antigravityStatusFilter').value;
+    antigravityCurrentStatusFilter = statusFilter;
+    antigravityCurrentPage = 1; // 重置到第一页
+    refreshAntigravityCredsList(); // 重新从服务器获取数据
+}
+
+// 计算Antigravity统计数据
+function calculateAntigravityStats() {
+    antigravityStatsData = {
+        total: antigravityTotalCredsCount,
+        normal: 0,
+        disabled: 0
+    };
+
+    // 基于当前页数据统计
+    for (const [fullPath, credInfo] of Object.entries(antigravityCredsData)) {
+        if (credInfo.status.disabled) {
+            antigravityStatsData.disabled++;
+        } else {
+            antigravityStatsData.normal++;
+        }
+    }
+}
+
+// 更新Antigravity统计显示
+function updateAntigravityStatsDisplay() {
+    document.getElementById('antigravityStatTotal').textContent = antigravityStatsData.total;
+    document.getElementById('antigravityStatNormal').textContent = antigravityStatsData.normal;
+    document.getElementById('antigravityStatDisabled').textContent = antigravityStatsData.disabled;
+}
+
+// 获取Antigravity总页数
+function getAntigravityTotalPages() {
+    return Math.ceil(antigravityTotalCredsCount / antigravityPageSize);
+}
+
+// 渲染Antigravity凭证列表
+function renderAntigravityCredsList() {
+    const credsList = document.getElementById('antigravityCredsList');
+    credsList.innerHTML = '';
+
+    const currentPageData = Object.entries(filteredAntigravityCredsData);
+
+    if (currentPageData.length === 0) {
+        const message = antigravityTotalCredsCount === 0 ?
+            '暂无Antigravity凭证文件' : '当前筛选条件下暂无数据';
+        credsList.innerHTML = `<p style="text-align: center; color: #666;">${message}</p>`;
+        document.getElementById('antigravityPaginationContainer').style.display = 'none';
+        return;
+    }
+
+    for (const [fullPath, credInfo] of currentPageData) {
+        const card = createAntigravityCredCard(fullPath, credInfo);
+        credsList.appendChild(card);
+    }
+
+    document.getElementById('antigravityPaginationContainer').style.display = getAntigravityTotalPages() > 1 ? 'flex' : 'none';
+
+    // 更新批量控件状态
+    updateAntigravityBatchControls();
+}
+
+// 更新Antigravity分页信息
+function updateAntigravityPagination() {
+    const totalPages = getAntigravityTotalPages();
+    const startItem = (antigravityCurrentPage - 1) * antigravityPageSize + 1;
+    const endItem = Math.min(antigravityCurrentPage * antigravityPageSize, antigravityTotalCredsCount);
+
+    document.getElementById('antigravityPaginationInfo').textContent =
+        `第 ${antigravityCurrentPage} 页，共 ${totalPages} 页 (显示 ${startItem}-${endItem}，共 ${antigravityTotalCredsCount} 项)`;
+
+    document.getElementById('antigravityPrevPageBtn').disabled = antigravityCurrentPage <= 1;
+    document.getElementById('antigravityNextPageBtn').disabled = antigravityCurrentPage >= totalPages;
+}
+
+// 切换Antigravity页面
+function changeAntigravityPage(direction) {
+    const totalPages = getAntigravityTotalPages();
+    const newPage = antigravityCurrentPage + direction;
+
+    if (newPage >= 1 && newPage <= totalPages) {
+        antigravityCurrentPage = newPage;
+        refreshAntigravityCredsList(); // 重新加载新页数据
+    }
+}
+
+// 改变Antigravity每页显示数量
+function changeAntigravityPageSize() {
+    antigravityPageSize = parseInt(document.getElementById('antigravityPageSizeSelect').value);
+    antigravityCurrentPage = 1;
+    refreshAntigravityCredsList(); // 重新加载数据
+}
+
+// 创建Antigravity凭证卡片
+function createAntigravityCredCard(fullPath, credInfo) {
+    const div = document.createElement('div');
+    const status = credInfo.status;
+    const filename = credInfo.filename;
+
+    // 设置卡片状态样式
+    let cardClass = 'cred-card';
+    if (status.disabled) cardClass += ' disabled';
+
+    div.className = cardClass;
+
+    // 创建状态标签
+    let statusBadges = '';
+    if (status.disabled) {
+        statusBadges += '<span class="status-badge disabled">已禁用</span>';
+    } else {
+        statusBadges += '<span class="status-badge enabled">已启用</span>';
+    }
+
+    if (status.error_codes && status.error_codes.length > 0) {
+        statusBadges += `<span class="error-codes">错误码: ${status.error_codes.join(', ')}</span>`;
+        const autoBanErrors = status.error_codes.filter(code => code === 400 || code === 403);
+        if (autoBanErrors.length > 0 && status.disabled) {
+            statusBadges += `<span class="status-badge" style="background-color: #e74c3c; color: white;">AUTO_BAN</span>`;
+        }
+    } else {
+        statusBadges += `<span class="status-badge" style="background-color: #28a745; color: white;">无错误</span>`;
+    }
+
+    // 添加冷却状态显示
+    if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_remaining_seconds) {
+        const remainingSeconds = credInfo.cooldown_remaining_seconds;
+        const hours = Math.floor(remainingSeconds / 3600);
+        const minutes = Math.floor((remainingSeconds % 3600) / 60);
+        const seconds = remainingSeconds % 60;
+
+        let timeDisplay = '';
+        if (hours > 0) {
+            timeDisplay = `${hours}h ${minutes}m ${seconds}s`;
+        } else if (minutes > 0) {
+            timeDisplay = `${minutes}m ${seconds}s`;
+        } else {
+            timeDisplay = `${seconds}s`;
+        }
+
+        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 冷却中: ${timeDisplay}</span>`;
+    }
+
+    // 为HTML ID生成安全的标识符
+    const pathId = 'ag_' + btoa(encodeURIComponent(fullPath)).replace(/[+/=]/g, '_');
+
+    // 创建操作按钮
+    let actionButtons = '';
+    if (status.disabled) {
+        actionButtons += `<button class="cred-btn enable" data-filename="${filename}" data-action="enable">启用</button>`;
+    } else {
+        actionButtons += `<button class="cred-btn disable" data-filename="${filename}" data-action="disable">禁用</button>`;
+    }
+
+    actionButtons += `
+        <button class="cred-btn view" onclick="toggleAntigravityCredDetails('${pathId}')">查看内容</button>
+        <button class="cred-btn download" onclick="downloadAntigravityCred('${filename}')">下载</button>
+        <button class="cred-btn email" onclick="fetchAntigravityUserEmail('${filename}')">查看账号邮箱</button>
+        <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
+    `;
+
+    // 构建邮箱显示
+    let emailInfo = '';
+    if (credInfo.user_email) {
+        emailInfo = `<div class="cred-email" style="font-size: 12px; color: #666; margin-top: 2px;">${credInfo.user_email}</div>`;
+    } else {
+        emailInfo = `<div class="cred-email" style="font-size: 12px; color: #999; margin-top: 2px; font-style: italic;">未获取邮箱</div>`;
+    }
+
+    div.innerHTML = `
+        <div class="cred-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" class="antigravity-file-checkbox" data-filename="${filename}" onchange="toggleAntigravityFileSelection('${filename}')">
+                <div>
+                    <div class="cred-filename">${filename}</div>
+                    ${emailInfo}
+                </div>
+            </div>
+            <div class="cred-status">${statusBadges}</div>
+        </div>
+        <div class="cred-actions">${actionButtons}</div>
+        <div class="cred-details" id="details-${pathId}">
+            <div class="cred-content"></div>
+        </div>
+    `;
+
+    // 设置文件内容
+    const contentDiv = div.querySelector('.cred-content');
+    contentDiv.textContent = '点击"查看内容"按钮加载文件详情...';
+    contentDiv.setAttribute('data-filename', filename);
+    contentDiv.setAttribute('data-loaded', 'false');
+
+    // 添加事件监听器到按钮
+    const actionButtonElements = div.querySelectorAll('[data-filename][data-action]');
+    actionButtonElements.forEach(button => {
+        button.addEventListener('click', function () {
+            const filename = this.getAttribute('data-filename');
+            const action = this.getAttribute('data-action');
+
+            if (action === 'delete') {
+                deleteAntigravityCred(filename);
+            } else {
+                antigravityCredAction(filename, action);
+            }
+        });
+    });
+
+    return div;
+}
+
+// Antigravity凭证操作
+async function antigravityCredAction(filename, action) {
+    try {
+        console.log('Performing antigravity action:', action, 'on file:', filename);
+
+        const response = await fetch('/antigravity/creds/action', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                filename: filename,
+                action: action
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showStatus(data.message || `操作成功: ${action}`, 'success');
+            await refreshAntigravityCredsList();
+        } else {
+            showStatus(`操作失败: ${data.detail || data.error || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        console.error('antigravityCredAction error:', error);
+        showStatus(`网络错误: ${error.message}`, 'error');
+    }
+}
+
+// 切换Antigravity凭证详情显示
+async function toggleAntigravityCredDetails(pathId) {
+    const detailsDiv = document.getElementById('details-' + pathId);
+    const contentDiv = detailsDiv.querySelector('.cred-content');
+    const isLoaded = contentDiv.getAttribute('data-loaded') === 'true';
+
+    if (detailsDiv.classList.contains('show')) {
+        detailsDiv.classList.remove('show');
+    } else {
+        detailsDiv.classList.add('show');
+
+        // 如果还没加载过内容，则加载
+        if (!isLoaded) {
+            const filename = contentDiv.getAttribute('data-filename');
+            contentDiv.textContent = '正在加载...';
+
+            try {
+                const response = await fetch(`/antigravity/creds/download/${encodeURIComponent(filename)}`, {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+
+                if (response.ok) {
+                    const text = await response.text();
+                    contentDiv.textContent = text;
+                    contentDiv.setAttribute('data-loaded', 'true');
+                } else {
+                    contentDiv.textContent = '加载失败';
+                }
+            } catch (error) {
+                console.error('Load antigravity cred content error:', error);
+                contentDiv.textContent = `加载失败: ${error.message}`;
+            }
+        }
+    }
+}
+
+// 切换Antigravity文件选择
+function toggleAntigravityFileSelection(filename) {
+    if (selectedAntigravityCredFiles.has(filename)) {
+        selectedAntigravityCredFiles.delete(filename);
+    } else {
+        selectedAntigravityCredFiles.add(filename);
+    }
+    updateAntigravityBatchControls();
+}
+
+// 更新Antigravity批量控件状态
+function updateAntigravityBatchControls() {
+    const selectedCount = selectedAntigravityCredFiles.size;
+
+    // 更新选中数量显示
+    document.getElementById('antigravitySelectedCount').textContent = `已选择 ${selectedCount} 项`;
+
+    // 更新批量操作按钮状态
+    const batchEnableBtn = document.getElementById('antigravityBatchEnableBtn');
+    const batchDisableBtn = document.getElementById('antigravityBatchDisableBtn');
+    const batchDeleteBtn = document.getElementById('antigravityBatchDeleteBtn');
+
+    if (batchEnableBtn) batchEnableBtn.disabled = selectedCount === 0;
+    if (batchDisableBtn) batchDisableBtn.disabled = selectedCount === 0;
+    if (batchDeleteBtn) batchDeleteBtn.disabled = selectedCount === 0;
+
+    // 更新全选复选框状态
+    const selectAllCheckbox = document.getElementById('selectAllAntigravityCheckbox');
+    if (!selectAllCheckbox) return;
+
+    const currentPageFileCount = document.querySelectorAll('.antigravity-file-checkbox').length;
+    const currentPageSelectedCount = Array.from(document.querySelectorAll('.antigravity-file-checkbox'))
+        .filter(checkbox => selectedAntigravityCredFiles.has(checkbox.getAttribute('data-filename'))).length;
+
+    if (currentPageSelectedCount === 0) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = false;
+    } else if (currentPageSelectedCount === currentPageFileCount) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = true;
+    } else {
+        selectAllCheckbox.indeterminate = true;
+        selectAllCheckbox.checked = false;
+    }
+
+    // 更新页面上的复选框状态
+    document.querySelectorAll('.antigravity-file-checkbox').forEach(checkbox => {
+        const filename = checkbox.getAttribute('data-filename');
+        checkbox.checked = selectedAntigravityCredFiles.has(filename);
+    });
+}
+
+function toggleSelectAllAntigravity() {
+    const selectAllCheckbox = document.getElementById('selectAllAntigravityCheckbox');
+    const checkboxes = document.querySelectorAll('.antigravity-file-checkbox');
+
+    if (selectAllCheckbox.checked) {
+        // 全选当前页
+        checkboxes.forEach(cb => {
+            const filename = cb.getAttribute('data-filename');
+            selectedAntigravityCredFiles.add(filename);
+            cb.checked = true;
+        });
+    } else {
+        // 取消选择当前页
+        checkboxes.forEach(cb => {
+            const filename = cb.getAttribute('data-filename');
+            selectedAntigravityCredFiles.delete(filename);
+            cb.checked = false;
+        });
+    }
+
+    updateAntigravityBatchControls();
+}
+
+// Antigravity批量操作
+async function batchAntigravityAction(action) {
+    const selectedFiles = Array.from(selectedAntigravityCredFiles);
+
+    if (selectedFiles.length === 0) {
+        showStatus('请先选择要操作的文件', 'error');
+        return;
+    }
+
+    let confirmMessage = '';
+    switch (action) {
+        case 'enable':
+            confirmMessage = `确定要启用选中的 ${selectedFiles.length} 个文件吗？`;
+            break;
+        case 'disable':
+            confirmMessage = `确定要禁用选中的 ${selectedFiles.length} 个文件吗？`;
+            break;
+        case 'delete':
+            confirmMessage = `确定要删除选中的 ${selectedFiles.length} 个文件吗？\n注意：此操作不可恢复！`;
+            break;
+    }
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    try {
+        showStatus(`正在执行批量${action === 'enable' ? '启用' : action === 'disable' ? '禁用' : '删除'}操作...`, 'info');
+
+        const requestBody = {
+            action: action,
+            filenames: selectedFiles
+        };
+
+        const response = await fetch('/antigravity/creds/batch-action', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(requestBody)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showStatus(`批量操作完成：成功处理 ${data.success_count || data.succeeded}/${selectedFiles.length} 个文件`, 'success');
+
+            // 清空选择
+            selectedAntigravityCredFiles.clear();
+            updateAntigravityBatchControls();
+
+            // 刷新列表
+            await refreshAntigravityCredsList();
+        } else {
+            showStatus(`批量操作失败: ${data.detail || data.error || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        console.error('batchAntigravityAction error:', error);
+        showStatus(`批量操作网络错误: ${error.message}`, 'error');
+    }
+}
+
+// 获取Antigravity用户邮箱
+async function fetchAntigravityUserEmail(filename) {
+    try {
+        showStatus('正在获取用户邮箱...', 'info');
+
+        const response = await fetch(`/antigravity/creds/fetch-email/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.user_email) {
+            showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
+            await refreshAntigravityCredsList();
+        } else {
+            showStatus(data.message || '无法获取用户邮箱', 'error');
+        }
+    } catch (error) {
+        console.error('fetchAntigravityUserEmail error:', error);
+        showStatus(`获取邮箱失败: ${error.message}`, 'error');
+    }
+}
+
+// 刷新所有Antigravity邮箱
+async function refreshAllAntigravityEmails() {
+    try {
+        if (!confirm('确定要刷新所有Antigravity凭证的用户邮箱吗？这可能需要一些时间。')) {
+            return;
+        }
+
+        showStatus('正在刷新所有用户邮箱...', 'info');
+
+        const response = await fetch('/antigravity/creds/refresh-all-emails', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showStatus(`邮箱刷新完成：成功获取 ${data.success_count}/${data.total_count} 个邮箱地址`, 'success');
+            await refreshAntigravityCredsList();
+        } else {
+            showStatus(data.message || '邮箱刷新失败', 'error');
+        }
+    } catch (error) {
+        console.error('refreshAllAntigravityEmails error:', error);
+        showStatus(`邮箱刷新网络错误: ${error.message}`, 'error');
+    }
+}
+
+// 打包下载所有Antigravity凭证
+async function downloadAllAntigravityCreds() {
+    try {
+        showStatus('正在打包所有Antigravity凭证文件...', 'info');
+
+        const response = await fetch('/antigravity/creds/download-all', {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `antigravity_credentials_${new Date().getTime()}.zip`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            showStatus('✅ 所有Antigravity凭证已打包下载', 'success');
+        } else {
+            const data = await response.json();
+            showStatus(`打包下载失败: ${data.detail || data.error || '未知错误'}`, 'error');
+        }
+    } catch (error) {
+        console.error('downloadAllAntigravityCreds error:', error);
+        showStatus(`网络错误: ${error.message}`, 'error');
     }
 }
 

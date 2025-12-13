@@ -25,32 +25,32 @@ class StorageBackend(Protocol):
         ...
 
     # 凭证管理
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """存储凭证数据"""
         ...
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         ...
 
-    async def list_credentials(self) -> List[str]:
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
         """列出所有凭证文件名"""
         ...
 
-    async def delete_credential(self, filename: str) -> bool:
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
         """删除凭证"""
         ...
 
     # 状态管理
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
+    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """更新凭证状态"""
         ...
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
         """获取凭证状态"""
         ...
 
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         ...
 
@@ -138,42 +138,42 @@ class StorageAdapter:
 
     # ============ 凭证管理 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """存储凭证数据"""
         self._ensure_initialized()
-        return await self._backend.store_credential(filename, credential_data)
+        return await self._backend.store_credential(filename, credential_data, is_antigravity)
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         self._ensure_initialized()
-        return await self._backend.get_credential(filename)
+        return await self._backend.get_credential(filename, is_antigravity)
 
-    async def list_credentials(self) -> List[str]:
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
         """列出所有凭证文件名"""
         self._ensure_initialized()
-        return await self._backend.list_credentials()
+        return await self._backend.list_credentials(is_antigravity)
 
-    async def delete_credential(self, filename: str) -> bool:
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
         """删除凭证"""
         self._ensure_initialized()
-        return await self._backend.delete_credential(filename)
+        return await self._backend.delete_credential(filename, is_antigravity)
 
     # ============ 状态管理 ============
 
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
+    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """更新凭证状态"""
         self._ensure_initialized()
-        return await self._backend.update_credential_state(filename, state_updates)
+        return await self._backend.update_credential_state(filename, state_updates, is_antigravity)
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
         """获取凭证状态"""
         self._ensure_initialized()
-        return await self._backend.get_credential_state(filename)
+        return await self._backend.get_credential_state(filename, is_antigravity)
 
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         self._ensure_initialized()
-        return await self._backend.get_all_credential_states()
+        return await self._backend.get_all_credential_states(is_antigravity)
 
     # ============ 配置管理 ============
 

@@ -108,7 +108,31 @@ class SQLiteManager:
             )
         """)
 
-        # 创建索引
+        # Antigravity 凭证表（结构相同但独立存储）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS antigravity_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT UNIQUE NOT NULL,
+                credential_data TEXT NOT NULL,
+
+                -- 状态字段
+                disabled INTEGER DEFAULT 0,
+                error_codes TEXT DEFAULT '[]',
+                last_success REAL,
+                user_email TEXT,
+                cooldown_until REAL,
+
+                -- 轮换相关
+                rotation_order INTEGER DEFAULT 0,
+                call_count INTEGER DEFAULT 0,
+
+                -- 时间戳
+                created_at REAL DEFAULT (unixepoch()),
+                updated_at REAL DEFAULT (unixepoch())
+            )
+        """)
+
+        # 创建索引 - 普通凭证表
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_disabled
             ON credentials(disabled)
@@ -120,6 +144,20 @@ class SQLiteManager:
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_rotation_order
             ON credentials(rotation_order)
+        """)
+
+        # 创建索引 - Antigravity 凭证表
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ag_disabled
+            ON antigravity_credentials(disabled)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ag_cooldown
+            ON antigravity_credentials(cooldown_until)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ag_rotation_order
+            ON antigravity_credentials(rotation_order)
         """)
 
         # 配置表
@@ -257,6 +295,14 @@ class SQLiteManager:
         if not self._initialized:
             raise RuntimeError("SQLite manager not initialized")
 
+    def _is_antigravity(self, filename: str) -> bool:
+        """判断是否为 antigravity 凭证"""
+        return filename.startswith("ag_")
+
+    def _get_table_name(self, is_antigravity: bool) -> str:
+        """根据 is_antigravity 标志获取对应的表名"""
+        return "antigravity_credentials" if is_antigravity else "credentials"
+
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
@@ -390,58 +436,60 @@ class SQLiteManager:
 
     # ============ StorageBackend 协议方法 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """存储或更新凭证"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
                 # 检查凭证是否存在
-                async with db.execute("""
+                async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email,
                            cooldown_until, rotation_order, call_count
-                    FROM credentials WHERE filename = ?
+                    FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     existing = await cursor.fetchone()
 
                 if existing:
                     # 更新现有凭证（保留状态）
-                    await db.execute("""
-                        UPDATE credentials
+                    await db.execute(f"""
+                        UPDATE {table_name}
                         SET credential_data = ?,
                             updated_at = unixepoch()
                         WHERE filename = ?
                     """, (json.dumps(credential_data), filename))
                 else:
                     # 插入新凭证
-                    async with db.execute("""
-                        SELECT COALESCE(MAX(rotation_order), -1) + 1 FROM credentials
+                    async with db.execute(f"""
+                        SELECT COALESCE(MAX(rotation_order), -1) + 1 FROM {table_name}
                     """) as cursor:
                         row = await cursor.fetchone()
                         next_order = row[0]
 
-                    await db.execute("""
-                        INSERT INTO credentials
+                    await db.execute(f"""
+                        INSERT INTO {table_name}
                         (filename, credential_data, rotation_order, last_success)
                         VALUES (?, ?, ?, ?)
                     """, (filename, json.dumps(credential_data), next_order, time.time()))
 
                 await db.commit()
-                log.debug(f"Stored credential: {filename}")
+                log.debug(f"Stored credential: {filename} (antigravity={is_antigravity})")
                 return True
 
         except Exception as e:
             log.error(f"Error storing credential {filename}: {e}")
             return False
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute("""
-                    SELECT credential_data FROM credentials WHERE filename = ?
+                async with db.execute(f"""
+                    SELECT credential_data FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
 
@@ -453,14 +501,15 @@ class SQLiteManager:
             log.error(f"Error getting credential {filename}: {e}")
             return None
 
-    async def list_credentials(self) -> List[str]:
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
         """列出所有凭证文件名（包括禁用的）"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute("""
-                    SELECT filename FROM credentials ORDER BY rotation_order
+                async with db.execute(f"""
+                    SELECT filename FROM {table_name} ORDER BY rotation_order
                 """) as cursor:
                     rows = await cursor.fetchall()
                     return [row[0] for row in rows]
@@ -469,28 +518,30 @@ class SQLiteManager:
             log.error(f"Error listing credentials: {e}")
             return []
 
-    async def delete_credential(self, filename: str) -> bool:
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
         """删除凭证"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("""
-                    DELETE FROM credentials WHERE filename = ?
+                await db.execute(f"""
+                    DELETE FROM {table_name} WHERE filename = ?
                 """, (filename,))
                 await db.commit()
-                log.debug(f"Deleted credential: {filename}")
+                log.debug(f"Deleted credential: {filename} (antigravity={is_antigravity})")
                 return True
 
         except Exception as e:
             log.error(f"Error deleting credential {filename}: {e}")
             return False
 
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
+    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """更新凭证状态"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             # 构建动态 SQL
             set_clauses = []
             values = []
@@ -512,7 +563,7 @@ class SQLiteManager:
 
             async with aiosqlite.connect(self._db_path) as db:
                 await db.execute(f"""
-                    UPDATE credentials
+                    UPDATE {table_name}
                     SET {', '.join(set_clauses)}
                     WHERE filename = ?
                 """, values)
@@ -523,15 +574,16 @@ class SQLiteManager:
             log.error(f"Error updating credential state {filename}: {e}")
             return False
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
         """获取凭证状态"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute("""
+                async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email, cooldown_until
-                    FROM credentials WHERE filename = ?
+                    FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
 
@@ -558,16 +610,17 @@ class SQLiteManager:
             log.error(f"Error getting credential state {filename}: {e}")
             return {}
 
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute("""
+                async with db.execute(f"""
                     SELECT filename, disabled, error_codes, last_success,
                            user_email, cooldown_until
-                    FROM credentials
+                    FROM {table_name}
                 """) as cursor:
                     rows = await cursor.fetchall()
 
@@ -593,7 +646,8 @@ class SQLiteManager:
         self,
         offset: int = 0,
         limit: Optional[int] = None,
-        status_filter: str = "all"
+        status_filter: str = "all",
+        is_antigravity: bool = False
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -602,6 +656,7 @@ class SQLiteManager:
             offset: 跳过的记录数（默认0）
             limit: 返回的最大记录数（None表示返回所有）
             status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
+            is_antigravity: 是否查询antigravity凭证表（默认False）
 
         Returns:
             包含 items（凭证列表）、total（总数）、offset、limit 的字典
@@ -609,6 +664,9 @@ class SQLiteManager:
         self._ensure_initialized()
 
         try:
+            # 根据 is_antigravity 选择表名
+            table_name = self._get_table_name(is_antigravity)
+
             async with aiosqlite.connect(self._db_path) as db:
                 # 构建WHERE子句
                 where_clause = ""
@@ -621,7 +679,7 @@ class SQLiteManager:
                     where_clause = "WHERE disabled = 1"
 
                 # 先获取符合筛选条件的总数
-                count_query = f"SELECT COUNT(*) FROM credentials {where_clause}"
+                count_query = f"SELECT COUNT(*) FROM {table_name} {where_clause}"
                 async with db.execute(count_query, count_params) as cursor:
                     row = await cursor.fetchone()
                     total_count = row[0] if row else 0
@@ -631,7 +689,7 @@ class SQLiteManager:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
                                user_email, cooldown_until, rotation_order
-                        FROM credentials
+                        FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
                         LIMIT ? OFFSET ?
@@ -641,7 +699,7 @@ class SQLiteManager:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
                                user_email, cooldown_until, rotation_order
-                        FROM credentials
+                        FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
                         OFFSET ?

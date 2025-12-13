@@ -937,8 +937,10 @@
             <!-- 标签页 -->
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
+                <button class="tab" onclick="switchTab('antigravity')">Antigravity认证</button>
                 <button class="tab" onclick="switchTab('upload')">批量上传</button>
-                <button class="tab" onclick="switchTab('manage')">文件管理</button>
+                <button class="tab" onclick="switchTab('manage')">GCLI凭证管理</button>
+                <button class="tab" onclick="switchTab('antigravity-manage')">Antigravity凭证管理</button>
                 <button class="tab" onclick="switchTab('config')">配置管理</button>
                 <button class="tab" onclick="switchTab('logs')">实时日志</button>
                 <button class="tab" onclick="switchTab('about')">项目信息</button>
@@ -1080,6 +1082,44 @@
                 </div>
             </div>
 
+            <!-- Antigravity 认证标签页 -->
+            <div id="antigravityTab" class="tab-content">
+                <div class="status info" style="margin-bottom: 20px;">
+                    <strong>🚀 Antigravity 认证模式</strong>
+                    <p style="margin: 10px 0;">
+                        获取谷歌Antigravity 凭证
+                    </p>
+                </div>
+
+                <button class="btn" id="getAntigravityAuthBtn" onclick="startAntigravityAuth()">获取 Antigravity 认证链接</button>
+
+                <div id="antigravityAuthUrlSection" class="hidden">
+                    <h3>Antigravity 认证链接：</h3>
+                    <div class="auth-url">
+                        <a id="antigravityAuthUrl" href="#" target="_blank">点击此链接进行认证</a>
+                    </div>
+                    <div class="status info">
+                        <strong>使用说明：</strong>
+                        <ol style="margin: 10px 0; padding-left: 20px;">
+                            <li>点击上方认证链接，在新窗口中完成 Google 授权</li>
+                            <li>授权成功后会跳转到 localhost 显示成功页面</li>
+                            <li>关闭 OAuth 窗口，返回本页面</li>
+                            <li>点击下方"获取凭证"按钮完成流程</li>
+                        </ol>
+                    </div>
+
+                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity 凭证</button>
+
+                    <div id="antigravityCredsSection" class="hidden">
+                        <h3>Antigravity 凭证内容：</h3>
+                        <div class="credentials">
+                            <pre id="antigravityCredsContent"></pre>
+                        </div>
+                        <button class="btn" onclick="downloadAntigravityCredentials()">下载凭证文件</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- 批量上传标签页 -->
             <div id="uploadTab" class="tab-content">
                 <h3>批量上传认证文件</h3>
@@ -1112,10 +1152,10 @@
                 </div>
             </div>
 
-            <!-- 文件管理标签页 -->
+            <!-- GCLI凭证管理标签页 -->
             <div id="manageTab" class="tab-content">
-                <h3>凭证文件管理</h3>
-                <p>管理所有认证文件，查看状态和执行操作</p>
+                <h3>GCLI凭证文件管理</h3>
+                <p>管理所有GCLI认证文件，查看状态和执行操作</p>
 
                 <!-- 状态统计 -->
                 <div class="stats-container" id="statsContainer">
@@ -1184,6 +1224,82 @@
                         <button class="pagination-btn" id="prevPageBtn" onclick="changePage(-1)">上一页</button>
                         <div class="pagination-info" id="paginationInfo">第 1 页，共 1 页</div>
                         <button class="pagination-btn" id="nextPageBtn" onclick="changePage(1)">下一页</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Antigravity 凭证管理标签页 -->
+            <div id="antigravity-manageTab" class="tab-content">
+                <h3>Antigravity凭证文件管理</h3>
+                <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
+
+                <!-- 状态统计 -->
+                <div class="stats-container" id="antigravityStatsContainer">
+                    <div class="stat-item total">
+                        <span class="stat-number" id="antigravityStatTotal">0</span>
+                        <span class="stat-label">总计</span>
+                    </div>
+                    <div class="stat-item normal">
+                        <span class="stat-number" id="antigravityStatNormal">0</span>
+                        <span class="stat-label">正常</span>
+                    </div>
+                    <div class="stat-item disabled">
+                        <span class="stat-number" id="antigravityStatDisabled">0</span>
+                        <span class="stat-label">禁用</span>
+                    </div>
+                </div>
+
+                <div class="manage-actions">
+                    <button class="refresh-btn" onclick="refreshAntigravityCredsList()">刷新状态</button>
+                    <button class="download-all-btn" onclick="downloadAllAntigravityCreds()">打包下载所有文件</button>
+                </div>
+
+                <!-- 批量操作控件 -->
+                <div class="batch-controls">
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">批量操作</h4>
+                    <div class="batch-actions">
+                        <div class="checkbox-container">
+                            <input type="checkbox" id="selectAllAntigravityCheckbox" class="select-all-checkbox"
+                                onchange="toggleSelectAllAntigravity()">
+                            <label for="selectAllAntigravityCheckbox">全选</label>
+                        </div>
+                        <span class="selected-count" id="antigravitySelectedCount">已选择 0 项</span>
+                        <button class="batch-btn batch-enable" id="antigravityBatchEnableBtn" onclick="batchAntigravityAction('enable')"
+                            disabled>批量启用</button>
+                        <button class="batch-btn batch-disable" id="antigravityBatchDisableBtn" onclick="batchAntigravityAction('disable')"
+                            disabled>批量禁用</button>
+                        <button class="batch-btn batch-delete" id="antigravityBatchDeleteBtn" onclick="batchAntigravityAction('delete')"
+                            disabled>批量删除</button>
+                        <button class="batch-btn batch-email" onclick="refreshAllAntigravityEmails()">刷新所有邮箱</button>
+                    </div>
+                </div>
+
+                <!-- 筛选和分页控件 -->
+                <div class="filter-container">
+                    <label for="antigravityStatusFilter">凭证状态：</label>
+                    <select id="antigravityStatusFilter" class="filter-select" onchange="applyAntigravityStatusFilter()">
+                        <option value="all">全部凭证</option>
+                        <option value="enabled">仅启用</option>
+                        <option value="disabled">仅禁用</option>
+                    </select>
+
+                    <label for="antigravityPageSizeSelect" style="margin-left: 20px;">每页显示：</label>
+                    <select id="antigravityPageSizeSelect" class="page-size-select" onchange="changeAntigravityPageSize()">
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+
+                <div id="antigravityCredsListSection">
+                    <div class="loading" id="antigravityCredsLoading">正在加载凭证文件...</div>
+                    <div id="antigravityCredsList"></div>
+
+                    <!-- 分页控件 -->
+                    <div class="pagination-container" id="antigravityPaginationContainer" style="display: none;">
+                        <button class="pagination-btn" id="antigravityPrevPageBtn" onclick="changeAntigravityPage(-1)">上一页</button>
+                        <div class="pagination-info" id="antigravityPaginationInfo">第 1 页，共 1 页</div>
+                        <button class="pagination-btn" id="antigravityNextPageBtn" onclick="changeAntigravityPage(1)">下一页</button>
                     </div>
                 </div>
             </div>

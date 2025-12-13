@@ -300,18 +300,18 @@ class CredentialManager:
             # 出错时默认认为不在冷却期
             return False
 
-    async def get_or_fetch_user_email(self, credential_name: str) -> Optional[str]:
+    async def get_or_fetch_user_email(self, credential_name: str, is_antigravity: bool = False) -> Optional[str]:
         """获取或获取用户邮箱地址"""
         try:
             # 从状态中获取缓存的邮箱
-            state = await self._storage_adapter.get_credential_state(credential_name)
+            state = await self._storage_adapter.get_credential_state(credential_name, is_antigravity=is_antigravity)
             cached_email = state.get("user_email")
 
             if cached_email:
                 return cached_email
 
             # 如果没有缓存，从凭证数据获取
-            credential_data = await self._storage_adapter.get_credential(credential_name)
+            credential_data = await self._storage_adapter.get_credential(credential_name, is_antigravity=is_antigravity)
             if not credential_data:
                 return None
 
@@ -320,7 +320,9 @@ class CredentialManager:
 
             if email:
                 # 缓存邮箱地址
-                await self.update_credential_state(credential_name, {"user_email": email})
+                await self._storage_adapter.update_credential_state(
+                    credential_name, {"user_email": email}, is_antigravity=is_antigravity
+                )
                 return email
 
             return None
