@@ -94,8 +94,6 @@ def is_thinking_model(model_name: str) -> bool:
 def extract_images_from_content(content: Any) -> Dict[str, Any]:
     """
     从 OpenAI content 中提取文本和图片
-
-    参考文档 2.3.2 多模态内容处理
     """
     result = {"text": "", "images": []}
 
@@ -128,8 +126,6 @@ def extract_images_from_content(content: Any) -> Dict[str, Any]:
 def openai_messages_to_antigravity_contents(messages: List[Any]) -> List[Dict[str, Any]]:
     """
     将 OpenAI 消息格式转换为 Antigravity contents 格式
-
-    参考文档 2.3 消息格式转换
     """
     contents = []
     system_messages = []
@@ -222,8 +218,6 @@ def openai_messages_to_antigravity_contents(messages: List[Any]) -> List[Dict[st
 def convert_openai_tools_to_antigravity(tools: Optional[List[Any]]) -> Optional[List[Dict[str, Any]]]:
     """
     将 OpenAI 工具定义转换为 Antigravity 格式
-
-    参考文档 2.4 工具定义转换
     """
     if not tools:
         return None
@@ -285,8 +279,6 @@ def generate_generation_config(
 ) -> Dict[str, Any]:
     """
     生成 Antigravity generationConfig
-
-    参考文档 2.5 生成配置转换
     """
     config = {
         "candidateCount": 1,
@@ -334,8 +326,6 @@ def generate_generation_config(
 def convert_to_openai_tool_call(function_call: Dict[str, Any]) -> Dict[str, Any]:
     """
     将 Antigravity functionCall 转换为 OpenAI tool_call
-
-    参考文档 4.3 工具调用转换
     """
     return {
         "id": function_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
@@ -359,8 +349,6 @@ async def convert_antigravity_stream_to_openai(
     """
     将 Antigravity 流式响应转换为 OpenAI 格式的 SSE 流
 
-    参考文档 4.1 流式响应处理
-    注意: 此函数负责管理 response, stream_ctx, client 的生命周期
     """
     state = {
         "thinking_started": False,
@@ -511,8 +499,6 @@ def convert_antigravity_response_to_openai(
 ) -> Dict[str, Any]:
     """
     将 Antigravity 非流式响应转换为 OpenAI 格式
-
-    参考文档 4.2 非流式响应处理
     """
     # 提取 parts
     parts = response_data.get("response", {}).get("candidates", [{}])[0].get("content", {}).get("parts", [])
@@ -627,8 +613,6 @@ async def list_models():
 async def chat_completions(request: Request, token: str = Depends(authenticate)):
     """
     处理 OpenAI 格式的聊天完成请求，转换为 Antigravity API
-
-    参考文档 2.1 入口点
     """
     # 获取原始请求数据
     try:
