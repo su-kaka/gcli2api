@@ -672,26 +672,6 @@
                     </div>
                 </div>
 
-                <!-- 为所有项目获取凭证选项 -->
-                <div class="form-group">
-                    <div style="padding: 12px; border: 2px solid #28a745; border-radius: 8px; background: #f8fff9;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <input type="checkbox" id="getAllProjectsCreds" style="transform: scale(1.2);">
-                            <label for="getAllProjectsCreds"
-                                style="font-weight: bold; color: #28a745; margin: 0; cursor: pointer; font-size: 14px;">
-                                🌐 为当前账号所有项目获取凭证
-                            </label>
-                        </div>
-                        <div style="margin-top: 8px; color: #155724; font-size: 12px; line-height: 1.4;">
-                            <strong>说明：</strong>勾选此选项后，系统会自动检测当前Google账号下的所有项目，<strong>并发处理</strong>为每个项目生成独立的认证文件。
-                        </div>
-                        <div id="allProjectsNote"
-                            style="margin-top: 6px; padding: 6px; background: #d4edda; border-radius: 4px; font-size: 11px; color: #155724; display: none;">
-                            ✨ <strong>批量并发认证模式已启用</strong> - 认证完成后将并发为所有可访问的项目生成凭证文件
-                        </div>
-                    </div>
-                </div>
-
                 <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
 
                 <div id="authUrlSection" class="hidden">

@@ -215,7 +215,6 @@ function getAuthHeaders() {
 
 async function startAuth() {
     const projectId = document.getElementById('projectId').value.trim();
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
     // 项目ID现在是可选的
     currentProjectId = projectId || null;
 
@@ -228,10 +227,7 @@ async function startAuth() {
         if (projectId) {
             requestBody.project_id = projectId;
         }
-        if (getAllProjects) {
-            requestBody.get_all_projects = true;
-            showStatus('批量并发认证模式：将为当前账号所有项目生成认证链接...', 'info');
-        } else if (projectId) {
+        if (projectId) {
             showStatus('使用指定的项目ID生成认证链接...', 'info');
         } else {
             showStatus('将尝试自动检测项目ID，正在生成认证链接...', 'info');
@@ -250,9 +246,7 @@ async function startAuth() {
             document.getElementById('authUrl').textContent = data.auth_url;
             document.getElementById('authUrlSection').classList.remove('hidden');
 
-            if (getAllProjects) {
-                showStatus('批量并发认证链接已生成，完成授权后将并发为所有可访问项目生成凭证文件', 'info');
-            } else if (data.auto_project_detection) {
+            if (data.auto_project_detection) {
                 showStatus('认证链接已生成（将在认证完成后自动检测项目ID），请点击链接完成授权', 'info');
             } else {
                 showStatus(`认证链接已生成（项目ID: ${data.detected_project_id}），请点击链接完成授权`, 'info');
@@ -276,23 +270,15 @@ async function getCredentials() {
     }
 
     const btn = document.getElementById('getCredsBtn');
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
     btn.disabled = true;
-    btn.textContent = getAllProjects ? '并发批量获取所有项目凭证中...' : '等待OAuth回调中...';
+    btn.textContent = '等待OAuth回调中...';
 
     try {
-        if (getAllProjects) {
-            showStatus('正在并发为所有项目获取认证凭证，采用并发处理提升速度...', 'info');
-        } else {
-            showStatus('正在等待OAuth回调，这可能需要一些时间...', 'info');
-        }
+        showStatus('正在等待OAuth回调，这可能需要一些时间...', 'info');
 
         const requestBody = {};
         if (currentProjectId) {
             requestBody.project_id = currentProjectId;
-        }
-        if (getAllProjects) {
-            requestBody.get_all_projects = true;
         }
 
         const response = await fetch('/auth/callback', {
@@ -307,37 +293,13 @@ async function getCredentials() {
             const credentialsSection = document.getElementById('credentialsSection');
             const credentialsContent = document.getElementById('credentialsContent');
 
-            if (getAllProjects && data.multiple_credentials) {
-                // 处理多项目认证结果
-                const results = data.multiple_credentials;
-                let resultText = `批量并发认证完成！成功为 ${results.success.length} 个项目生成凭证：\n\n`;
+            // 处理单项目认证结果
+            credentialsContent.textContent = JSON.stringify(data.credentials, null, 2);
 
-                // 显示成功的项目
-                results.success.forEach((item, index) => {
-                    resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
-                    resultText += `   文件: ${item.file_path}\n\n`;
-                });
-
-                // 显示失败的项目（如果有）
-                if (results.failed.length > 0) {
-                    resultText += `\n失败的项目 (${results.failed.length} 个):\n`;
-                    results.failed.forEach((item, index) => {
-                        resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
-                        resultText += `   错误: ${item.error}\n\n`;
-                    });
-                }
-
-                credentialsContent.textContent = resultText;
-                showStatus(`✅ 批量并发认证完成！成功生成 ${results.success.length} 个项目的凭证文件${results.failed.length > 0 ? `，${results.failed.length} 个项目失败` : ''}`, 'success');
+            if (data.auto_detected_project) {
+                showStatus(`✅ 认证成功！项目ID已自动检测为: ${data.credentials.project_id}，文件已保存到: ${data.file_path}`, 'success');
             } else {
-                // 处理单项目认证结果
-                credentialsContent.textContent = JSON.stringify(data.credentials, null, 2);
-
-                if (data.auto_detected_project) {
-                    showStatus(`✅ 认证成功！项目ID已自动检测为: ${data.credentials.project_id}，文件已保存到: ${data.file_path}`, 'success');
-                } else {
-                    showStatus(`✅ 认证成功！文件已保存到: ${data.file_path}`, 'success');
-                }
+                showStatus(`✅ 认证成功！文件已保存到: ${data.file_path}`, 'success');
             }
 
             credentialsSection.classList.remove('hidden');
@@ -1296,7 +1258,6 @@ function toggleCallbackUrlSection() {
 async function processCallbackUrl() {
     const callbackUrlInput = document.getElementById('callbackUrlInput');
     const callbackUrl = callbackUrlInput.value.trim();
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
 
     if (!callbackUrl) {
         showStatus('请输入回调URL', 'error');
@@ -1315,11 +1276,7 @@ async function processCallbackUrl() {
         return;
     }
 
-    if (getAllProjects) {
-        showStatus('正在从回调URL并发批量获取所有项目凭证...', 'info');
-    } else {
-        showStatus('正在从回调URL获取凭证...', 'info');
-    }
+    showStatus('正在从回调URL获取凭证...', 'info');
 
     try {
         // 获取当前项目ID设置（如果有的话）
@@ -1331,39 +1288,13 @@ async function processCallbackUrl() {
             headers: getAuthHeaders(),
             body: JSON.stringify({
                 callback_url: callbackUrl,
-                project_id: projectId || null,
-                get_all_projects: getAllProjects
+                project_id: projectId || null
             })
         });
 
         const result = await response.json();
 
-        if (getAllProjects && result.multiple_credentials) {
-            // 处理多项目认证结果
-            const results = result.multiple_credentials;
-            let resultText = `批量并发认证完成！成功为 ${results.success.length} 个项目生成凭证：\n\n`;
-
-            // 显示成功的项目
-            results.success.forEach((item, index) => {
-                resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
-                resultText += `   文件: ${item.file_path}\n\n`;
-            });
-
-            // 显示失败的项目（如果有）
-            if (results.failed.length > 0) {
-                resultText += `\n失败的项目 (${results.failed.length} 个):\n`;
-                results.failed.forEach((item, index) => {
-                    resultText += `${index + 1}. 项目: ${item.project_name} (${item.project_id})\n`;
-                    resultText += `   错误: ${item.error}\n\n`;
-                });
-            }
-
-            // 显示结果
-            document.getElementById('credentialsContent').textContent = resultText;
-            document.getElementById('credentialsSection').classList.remove('hidden');
-            showStatus(`✅ 批量并发认证完成！成功生成 ${results.success.length} 个项目的凭证文件${results.failed.length > 0 ? `，${results.failed.length} 个项目失败` : ''}`, 'success');
-
-        } else if (result.credentials) {
+        if (result.credentials) {
             // 处理单项目认证结果
             showStatus(result.message || '从回调URL获取凭证成功！', 'success');
 
@@ -1397,33 +1328,6 @@ async function processCallbackUrl() {
     } catch (error) {
         console.error('从回调URL获取凭证时出错:', error);
         showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
-    }
-}
-
-// 处理勾选框状态变化
-function handleGetAllProjectsChange() {
-    const checkbox = document.getElementById('getAllProjectsCreds');
-    const note = document.getElementById('allProjectsNote');
-    const projectIdSection = document.getElementById('projectIdSection');
-    const projectIdToggle = document.querySelector('[onclick="toggleProjectIdSection()"]');
-
-    if (checkbox.checked) {
-        // 显示批量认证提示
-        note.style.display = 'block';
-        // 禁用项目ID输入（批量模式下不需要指定单个项目）
-        if (projectIdSection.style.display !== 'none') {
-            toggleProjectIdSection();
-        }
-        projectIdToggle.style.opacity = '0.5';
-        projectIdToggle.style.pointerEvents = 'none';
-        projectIdToggle.title = '批量认证模式下无需指定单个项目ID';
-    } else {
-        // 隐藏批量认证提示
-        note.style.display = 'none';
-        // 重新启用项目ID输入
-        projectIdToggle.style.opacity = '1';
-        projectIdToggle.style.pointerEvents = 'auto';
-        projectIdToggle.title = '';
     }
 }
 
@@ -3204,12 +3108,6 @@ window.onload = async function () {
     if (!autoLoginSuccess) {
         // 自动登录失败，显示登录提示
         showStatus('请输入密码登录', 'info');
-    }
-
-    // 添加勾选框事件监听器
-    const checkbox = document.getElementById('getAllProjectsCreds');
-    if (checkbox) {
-        checkbox.addEventListener('change', handleGetAllProjectsChange);
     }
 
     // 启动冷却倒计时自动更新（每秒更新一次）
