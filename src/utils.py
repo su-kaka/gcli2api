@@ -161,6 +161,32 @@ def get_available_models(router_type: str = "openai") -> List[str]:
     return models
 
 
+def get_model_group(model_name: str) -> str:
+    """
+    获取模型组，用于 GCLI CD 机制。
+
+    Args:
+        model_name: 模型名称
+
+    Returns:
+        "pro" 或 "flash"
+
+    说明:
+        - pro 组: gemini-2.5-pro, gemini-3-pro-preview 共享额度
+        - flash 组: gemini-2.5-flash 单独额度
+    """
+    # 去除功能前缀和后缀，获取基础模型名
+    base_model = get_base_model_from_feature_model(model_name)
+    base_model = get_base_model_name(base_model)
+
+    # 判断模型组
+    if "flash" in base_model.lower():
+        return "flash"
+    else:
+        # pro 模型（包括 gemini-2.5-pro 和 gemini-3-pro-preview）
+        return "pro"
+
+
 # ====================== User Agent ======================
 
 

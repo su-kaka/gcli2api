@@ -42,19 +42,26 @@ class CredentialManager:
         self._initialized = False
         log.debug("Credential manager closed")
 
-    async def get_valid_credential(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
+    async def get_valid_credential(
+        self, is_antigravity: bool = False, model_key: Optional[str] = None
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
         每次随机选择一个可用的凭证（未禁用、未冷却）
 
         Args:
             is_antigravity: 是否获取 antigravity 凭证（默认 False）
+            model_key: 模型键，用于模型级冷却检查
+                      - antigravity: 模型名称（如 "gemini-2.0-flash-exp"）
+                      - gcli: "pro" 或 "flash"
         """
         async with self._operation_lock:
             # 使用 SQL 随机查询获取可用凭证
             if hasattr(self._storage_adapter._backend, 'get_next_available_credential'):
                 # SQLite 后端：直接用智能 SQL（已经是随机选择）
-                result = await self._storage_adapter._backend.get_next_available_credential(is_antigravity=is_antigravity)
+                result = await self._storage_adapter._backend.get_next_available_credential(
+                    is_antigravity=is_antigravity, model_key=model_key
+                )
                 if result:
                     filename, credential_data = result
                     # Token 刷新检查
@@ -71,10 +78,20 @@ class CredentialManager:
                 return None
             else:
                 # MongoDB/Postgres 后端：使用传统方法（随机选择）
-                return await self._get_valid_credential_traditional(is_antigravity=is_antigravity)
+                return await self._get_valid_credential_traditional(
+                    is_antigravity=is_antigravity, model_key=model_key
+                )
 
-    async def _get_valid_credential_traditional(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """传统方式获取凭证（用于 MongoDB/Postgres 后端）- 随机选择"""
+    async def _get_valid_credential_traditional(
+        self, is_antigravity: bool = False, model_key: Optional[str] = None
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        传统方式获取凭证（用于 MongoDB/Postgres 后端）- 随机选择
+
+        Args:
+            is_antigravity: 是否获取 antigravity 凭证
+            model_key: 模型键，用于模型级冷却检查
+        """
         import random
 
         all_creds = await self._storage_adapter.list_credentials(is_antigravity=is_antigravity)
@@ -89,6 +106,18 @@ class CredentialManager:
                 # 检查冷却期
                 if await self._is_credential_in_cooldown(filename, is_antigravity=is_antigravity):
                     continue
+
+                # 如果提供了 model_key，检查模型级冷却
+                if model_key:
+                    state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
+                    model_cooldowns = state.get("model_cooldowns", {})
+                    model_cooldown = model_cooldowns.get(model_key)
+
+                    if model_cooldown is not None:
+                        current_time = time.time()
+                        if current_time < model_cooldown:
+                            # 该模型仍在冷却中
+                            continue
 
                 # 检查禁用状态
                 state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
@@ -335,8 +364,13 @@ class CredentialManager:
             return None
 
     async def record_api_call_result(
-        self, credential_name: str, success: bool, error_code: Optional[int] = None,
-        cooldown_until: Optional[float] = None, is_antigravity: bool = False
+        self,
+        credential_name: str,
+        success: bool,
+        error_code: Optional[int] = None,
+        cooldown_until: Optional[float] = None,
+        is_antigravity: bool = False,
+        model_key: Optional[str] = None
     ):
         """
         记录API调用结果
@@ -347,6 +381,7 @@ class CredentialManager:
             error_code: 错误码（如果失败）
             cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
             is_antigravity: 是否为 antigravity 凭证
+            model_key: 模型键（如果提供，则设置模型级冷却而非全局冷却）
         """
         try:
             state_updates = {}
@@ -355,7 +390,17 @@ class CredentialManager:
                 state_updates["last_success"] = time.time()
                 # 清除错误码和冷却时间（如果之前有的话）
                 state_updates["error_codes"] = []
-                state_updates["cooldown_until"] = None
+
+                # 如果提供了 model_key，清除该模型的冷却
+                if model_key:
+                    if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
+                        await self._storage_adapter._backend.set_model_cooldown(
+                            credential_name, model_key, None, is_antigravity=is_antigravity
+                        )
+                else:
+                    # 清除全局冷却
+                    state_updates["cooldown_until"] = None
+
             elif error_code:
                 # 记录错误码
                 current_state = await self._storage_adapter.get_credential_state(credential_name, is_antigravity=is_antigravity)
@@ -371,11 +416,23 @@ class CredentialManager:
 
                 # 如果提供了冷却时间，记录到状态中
                 if cooldown_until is not None:
-                    state_updates["cooldown_until"] = cooldown_until
-                    log.info(
-                        f"设置凭证冷却: {credential_name}, "
-                        f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
-                    )
+                    if model_key:
+                        # 设置模型级冷却
+                        if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
+                            await self._storage_adapter._backend.set_model_cooldown(
+                                credential_name, model_key, cooldown_until, is_antigravity=is_antigravity
+                            )
+                            log.info(
+                                f"设置模型级冷却: {credential_name}, model_key={model_key}, "
+                                f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                            )
+                    else:
+                        # 设置全局冷却
+                        state_updates["cooldown_until"] = cooldown_until
+                        log.info(
+                            f"设置凭证冷却: {credential_name}, "
+                            f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                        )
 
             if state_updates:
                 await self.update_credential_state(credential_name, state_updates, is_antigravity=is_antigravity)

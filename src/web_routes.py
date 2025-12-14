@@ -686,6 +686,7 @@ async def get_creds_status(
                     "cooldown_status": summary["cooldown_status"],
                     "cooldown_remaining_seconds": summary["cooldown_remaining_seconds"],
                     "backend_type": backend_type,
+                    "model_cooldowns": summary.get("model_cooldowns", {}),
                 }
 
                 if summary["cooldown_until"]:
@@ -750,6 +751,7 @@ async def get_creds_status(
                 "cooldown_status": cooldown_status,
                 "cooldown_remaining_seconds": cooldown_remaining_seconds,
                 "backend_type": backend_type,
+                "model_cooldowns": file_status.get("model_cooldowns", {}),
             }
 
             if cooldown_until:
@@ -1652,6 +1654,140 @@ async def websocket_logs(websocket: WebSocket):
 
 # ============ Antigravity 凭证管理路由 ============
 
+@router.post("/antigravity/upload")
+async def upload_antigravity_credentials(
+    files: List[UploadFile] = File(...), token: str = Depends(verify_token)
+):
+    """批量上传Antigravity认证文件"""
+    try:
+        if not files:
+            raise HTTPException(status_code=400, detail="请选择要上传的文件")
+
+        # 检查文件数量限制
+        if len(files) > 100:
+            raise HTTPException(
+                status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个"
+            )
+
+        files_data = []
+        for file in files:
+            # 检查文件类型：支持JSON和ZIP
+            if file.filename.endswith(".zip"):
+                # 处理ZIP文件
+                zip_files_data = await extract_json_files_from_zip(file)
+                files_data.extend(zip_files_data)
+                log.info(f"从ZIP文件 {file.filename} 中提取了 {len(zip_files_data)} 个JSON文件")
+
+            elif file.filename.endswith(".json"):
+                # 处理单个JSON文件
+                # 流式读取文件内容
+                content_chunks = []
+                while True:
+                    chunk = await file.read(8192)  # 8KB chunks
+                    if not chunk:
+                        break
+                    content_chunks.append(chunk)
+
+                content = b"".join(content_chunks)
+                try:
+                    content_str = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(
+                        status_code=400, detail=f"文件 {file.filename} 编码格式不支持"
+                    )
+
+                files_data.append({"filename": file.filename, "content": content_str})
+            else:
+                raise HTTPException(
+                    status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
+                )
+
+        # 读取完 files_data 后，改为通过 CredentialManager 写入
+        await ensure_credential_manager_initialized()
+
+        batch_size = 1000
+        all_results = []
+        total_success = 0
+
+        for i in range(0, len(files_data), batch_size):
+            batch_files = files_data[i : i + batch_size]
+
+            async def process_single_file(file_data):
+                """处理单个Antigravity文件的并发函数"""
+                try:
+                    filename = file_data["filename"]
+                    content_str = file_data["content"]
+
+                    credential_data = json.loads(content_str)
+
+                    # 使用 CredentialManager 统一新增/更新Antigravity凭证
+                    await credential_manager.add_antigravity_credential(filename, credential_data)
+
+                    log.debug(f"成功上传Antigravity凭证文件: {filename}")
+                    return {"filename": filename, "status": "success", "message": "上传成功"}
+
+                except json.JSONDecodeError as e:
+                    return {
+                        "filename": file_data["filename"],
+                        "status": "error",
+                        "message": f"JSON格式错误: {str(e)}",
+                    }
+                except Exception as e:
+                    return {
+                        "filename": file_data["filename"],
+                        "status": "error",
+                        "message": f"处理失败: {str(e)}",
+                    }
+
+            log.info(f"开始并发处理 {len(batch_files)} 个Antigravity文件...")
+            concurrent_tasks = [process_single_file(file_data) for file_data in batch_files]
+            batch_results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
+
+            processed_results = []
+            batch_uploaded_count = 0
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    processed_results.append(
+                        {
+                            "filename": "unknown",
+                            "status": "error",
+                            "message": f"处理异常: {str(result)}",
+                        }
+                    )
+                else:
+                    processed_results.append(result)
+                    if result["status"] == "success":
+                        batch_uploaded_count += 1
+
+            all_results.extend(processed_results)
+            total_success += batch_uploaded_count
+
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(files_data) + batch_size - 1) // batch_size
+            log.info(
+                f"批次 {batch_num}/{total_batches} 完成: 成功 "
+                f"{batch_uploaded_count}/{len(batch_files)} 个Antigravity文件"
+            )
+
+        if total_success > 0:
+            return JSONResponse(
+                content={
+                    "uploaded_count": total_success,
+                    "total_count": len(files_data),
+                    "results": all_results,
+                    "message": f"批量上传完成: 成功 {total_success}/{len(files_data)} 个Antigravity文件",
+                }
+            )
+        else:
+            raise HTTPException(status_code=400, detail="没有Antigravity文件上传成功")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"批量上传Antigravity文件失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/antigravity/creds/status")
 async def get_antigravity_creds_status(
     token: str = Depends(verify_token),
@@ -1706,6 +1842,7 @@ async def get_antigravity_creds_status(
                     "cooldown_status": summary["cooldown_status"],
                     "cooldown_remaining_seconds": summary["cooldown_remaining_seconds"],
                     "backend_type": backend_type,
+                    "model_cooldowns": summary.get("model_cooldowns", {}),
                 }
 
                 if summary["cooldown_until"]:
@@ -1770,6 +1907,7 @@ async def get_antigravity_creds_status(
                 "cooldown_status": cooldown_status,
                 "cooldown_remaining_seconds": cooldown_remaining_seconds,
                 "backend_type": backend_type,
+                "model_cooldowns": file_status.get("model_cooldowns", {}),
             }
 
             if cooldown_until:

@@ -454,6 +454,49 @@
             background-color: #6c757d;
         }
 
+        .error-codes {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+
+        .cooldown-badge {
+            background-color: #ffc107;
+            color: #856404;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .cooldown-badge.ready {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .model-cooldown-details {
+            background-color: #e3f2fd;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #1976d2;
+        }
+
+        .model-cooldown-item {
+            display: inline-block;
+            background-color: #64b5f6;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin: 2px;
+            font-size: 10px;
+        }
+
         .cred-actions {
             display: flex;
             gap: 5px;
@@ -587,8 +630,10 @@
             <!-- 移动端优化的标签页 -->
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
+                <button class="tab" onclick="switchTab('antigravity')">Antigravity认证</button>
                 <button class="tab" onclick="switchTab('upload')">批量上传</button>
-                <button class="tab" onclick="switchTab('manage')">文件管理</button>
+                <button class="tab" onclick="switchTab('manage')">GCLI凭证</button>
+                <button class="tab" onclick="switchTab('antigravity-manage')">AG凭证</button>
                 <button class="tab" onclick="switchTab('config')">配置管理</button>
                 <button class="tab" onclick="switchTab('logs')">实时日志</button>
                 <button class="tab" onclick="switchTab('about')">项目信息</button>
@@ -730,39 +775,120 @@
                 </div>
             </div>
 
-            <!-- 其他标签页内容将逐步添加 -->
-            <div id="uploadTab" class="tab-content">
-                <h3>批量上传认证文件</h3>
-                <p>支持上传多个JSON格式的认证文件到服务器</p>
-
-                <div style="border: 2px dashed #ddd; border-radius: 8px; padding: 30px; text-align: center; background-color: #fafafa; margin: 20px 0; cursor: pointer; transition: border-color 0.3s;"
-                    id="uploadArea" onclick="document.getElementById('fileInput').click()">
-                    <p style="margin: 10px 0; font-size: 16px;">📁 点击选择文件或拖拽文件到此区域</p>
-                    <p style="color: #666; font-size: 14px; margin: 5px 0;">支持 .json 和 .zip 格式文件</p>
-                    <p style="color: #888; font-size: 12px; margin: 5px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
+            <!-- Antigravity 认证标签页 -->
+            <div id="antigravityTab" class="tab-content">
+                <div class="status info" style="margin-bottom: 20px;">
+                    <strong>🚀 Antigravity 认证模式</strong>
+                    <p style="margin: 10px 0; font-size: 13px;">
+                        获取谷歌Antigravity 凭证
+                    </p>
                 </div>
 
-                <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;"
-                    onchange="handleFileSelect(event)" />
+                <button class="btn" id="getAntigravityAuthBtn" onclick="startAntigravityAuth()">获取 Antigravity 认证链接</button>
 
-                <div id="fileListSection" class="hidden">
-                    <h4>选择的文件：</h4>
-                    <div id="fileList"></div>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button class="btn" onclick="uploadFiles()" style="flex: 1;">上传文件</button>
-                        <button class="btn" style="background-color: #6c757d; flex: 1;"
-                            onclick="clearFiles()">清空列表</button>
+                <div id="antigravityAuthUrlSection" class="hidden">
+                    <h4>Antigravity 认证链接：</h4>
+                    <div
+                        style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0; word-break: break-all;">
+                        <a id="antigravityAuthUrl" href="#" target="_blank"
+                            style="color: #4285f4; text-decoration: none;">点击此链接进行认证</a>
+                    </div>
+                    <div class="status info">
+                        <strong>使用说明：</strong>
+                        <ol style="margin: 10px 0; padding-left: 20px; font-size: 13px;">
+                            <li>点击上方认证链接，在新窗口中完成 Google 授权</li>
+                            <li>授权成功后会跳转到 localhost 显示成功页面</li>
+                            <li>关闭 OAuth 窗口，返回本页面</li>
+                            <li>点击下方"获取凭证"按钮完成流程</li>
+                        </ol>
+                    </div>
+
+                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity 凭证</button>
+
+                    <div id="antigravityCredsSection" class="hidden">
+                        <h4>Antigravity 凭证内容：</h4>
+                        <div style="background-color: #f0f8ff; border: 1px solid #b0d4ff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">
+                            <pre id="antigravityCredsContent"></pre>
+                        </div>
+                        <button class="btn" onclick="downloadAntigravityCredentials()" style="margin-top: 10px;">下载凭证文件</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批量上传标签页 -->
+            <div id="uploadTab" class="tab-content">
+                <h3>批量上传认证文件</h3>
+                <p>支持批量上传 GCLI 和 Antigravity 认证文件</p>
+
+                <!-- GCLI凭证上传区域 -->
+                <div style="margin-bottom: 25px; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background: #f8f9fa;">
+                    <h4 style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 16px;">📤 GCLI 凭证批量上传</h4>
+
+                    <div style="border: 2px dashed #007bff; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer; transition: border-color 0.3s;"
+                        id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                        <p style="margin: 10px 0; font-size: 16px;">📁 点击选择文件或拖拽文件到此区域</p>
+                        <p style="color: #666; font-size: 14px; margin: 5px 0;">支持 .json 和 .zip 格式文件</p>
+                        <p style="color: #888; font-size: 12px; margin: 5px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                    </div>
+
+                    <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;"
+                        onchange="handleFileSelect(event)" />
+
+                    <div id="fileListSection" class="hidden">
+                        <h4>选择的文件：</h4>
+                        <div id="fileList"></div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button class="btn" onclick="uploadFiles()" style="flex: 1;">上传文件</button>
+                            <button class="btn" style="background-color: #6c757d; flex: 1;"
+                                onclick="clearFiles()">清空列表</button>
+                        </div>
+                    </div>
+
+                    <div id="uploadProgressSection" class="hidden">
+                        <div
+                            style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                            <h4>上传进度：</h4>
+                            <div class="progress-bar" style="height: 20px;">
+                                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                            </div>
+                            <p id="progressText" style="text-align: center; margin: 10px 0;">0%</p>
+                        </div>
                     </div>
                 </div>
 
-                <div id="uploadProgressSection" class="hidden">
-                    <div
-                        style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin: 20px 0;">
-                        <h4>上传进度：</h4>
-                        <div class="progress-bar" style="height: 20px;">
-                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                <!-- Antigravity凭证上传区域 -->
+                <div style="padding: 15px; border: 2px solid #28a745; border-radius: 8px; background: #f8f9fa;">
+                    <h4 style="margin-top: 0; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 8px; font-size: 16px;">📤 Antigravity 凭证批量上传</h4>
+
+                    <div style="border: 2px dashed #28a745; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer;"
+                        onclick="document.getElementById('antigravityFileInput').click()">
+                        <p style="color: #28a745; font-size: 16px; font-weight: bold; margin: 8px 0;">📤 批量上传 Antigravity 凭证文件</p>
+                        <p style="color: #666; font-size: 14px; margin: 4px 0;">支持 .json 和 .zip 格式文件</p>
+                        <p style="color: #888; font-size: 12px; margin: 4px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                    </div>
+
+                    <input type="file" id="antigravityFileInput" multiple accept=".json,.zip" style="display: none;"
+                        onchange="handleAntigravityFileSelect(event)" />
+
+                    <div id="antigravityFileListSection" class="hidden">
+                        <h4>选择的文件：</h4>
+                        <div id="antigravityFileList"></div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button class="btn" style="background-color: #28a745; flex: 1;" onclick="uploadAntigravityFiles()">上传文件</button>
+                            <button class="btn" style="background-color: #6c757d; flex: 1;"
+                                onclick="clearAntigravityFiles()">清空列表</button>
                         </div>
-                        <p id="progressText" style="text-align: center; margin: 10px 0;">0%</p>
+                    </div>
+
+                    <div id="antigravityUploadProgressSection" class="hidden">
+                        <div
+                            style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                            <h4>上传进度：</h4>
+                            <div class="progress-bar" style="height: 20px;">
+                                <div class="progress-fill" id="antigravityProgressFill" style="width: 0%"></div>
+                            </div>
+                            <p id="antigravityProgressText" style="text-align: center; margin: 10px 0;">0%</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -867,6 +993,99 @@
                                     <option value="100">100</option>
                                 </select>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Antigravity凭证管理标签页 -->
+            <div id="antigravity-manageTab" class="tab-content">
+                <h3>Antigravity凭证文件管理</h3>
+                <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
+
+                <!-- 状态统计 -->
+                <div class="stats-container" id="antigravityStatsContainer">
+                    <div class="stat-item" style="border-left: 4px solid #007bff;">
+                        <span class="stat-number" id="antigravityStatTotal">0</span>
+                        <span class="stat-label">总计</span>
+                    </div>
+                    <div class="stat-item" style="border-left: 4px solid #28a745;">
+                        <span class="stat-number" id="antigravityStatNormal">0</span>
+                        <span class="stat-label">正常</span>
+                    </div>
+                    <div class="stat-item" style="border-left: 4px solid #6c757d;">
+                        <span class="stat-number" id="antigravityStatDisabled">0</span>
+                        <span class="stat-label">禁用</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
+                    <button class="btn btn-small" onclick="refreshAntigravityCredsList()"
+                        style="background-color: #17a2b8;">刷新状态</button>
+                    <button class="btn btn-small" onclick="downloadAllAntigravityCreds()"
+                        style="background-color: #28a745;">打包下载</button>
+                </div>
+
+                <!-- 批量操作控件 -->
+                <div class="card" style="margin: 15px 0;">
+                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">批量操作</h4>
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px;">
+                            <input type="checkbox" id="selectAllAntigravityCheckbox" onchange="toggleSelectAllAntigravity()"
+                                style="margin-right: 8px; transform: scale(1.2);">
+                            全选
+                        </label>
+                        <span id="antigravitySelectedCount" style="font-weight: bold; color: #007bff; font-size: 12px;">已选择 0
+                            项</span>
+                    </div>
+                    <div class="batch-controls-grid">
+                        <button class="btn btn-small" id="antigravityBatchEnableBtn" onclick="batchAntigravityAction('enable')" disabled
+                            style="background-color: #28a745;">批量启用</button>
+                        <button class="btn btn-small" id="antigravityBatchDisableBtn" onclick="batchAntigravityAction('disable')" disabled
+                            style="background-color: #6c757d;">批量禁用</button>
+                        <button class="btn btn-small" id="antigravityBatchDeleteBtn" onclick="batchAntigravityAction('delete')" disabled
+                            style="background-color: #dc3545;">批量删除</button>
+                        <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
+                            style="background-color: #17a2b8;">刷新所有邮箱</button>
+                    </div>
+                </div>
+
+                <!-- 筛选控件 -->
+                <div
+                    style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0;">
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="antigravityStatusFilter">状态筛选：</label>
+                        <select id="antigravityStatusFilter" onchange="applyAntigravityStatusFilter()">
+                            <option value="all">全部凭证</option>
+                            <option value="enabled">仅启用</option>
+                            <option value="disabled">仅禁用</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="antigravityPageSizeSelect">每页显示：</label>
+                        <select id="antigravityPageSizeSelect" onchange="changeAntigravityPageSize()">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="antigravityCredsListSection">
+                    <div class="loading" id="antigravityCredsLoading">正在加载凭证文件...</div>
+                    <div id="antigravityCredsList"></div>
+
+                    <!-- 分页控件 -->
+                    <div id="antigravityPaginationContainer" style="display: none; text-align: center; margin: 20px 0;">
+                        <div
+                            style="display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <button class="btn btn-small" id="antigravityPrevPageBtn" onclick="changeAntigravityPage(-1)"
+                                style="background-color: #6c757d;">上一页</button>
+                            <div id="antigravityPaginationInfo" style="font-size: 14px; color: #666;">第 1 页，共 1 页</div>
+                            <button class="btn btn-small" id="antigravityNextPageBtn" onclick="changeAntigravityPage(1)"
+                                style="background-color: #6c757d;">下一页</button>
                         </div>
                     </div>
                 </div>

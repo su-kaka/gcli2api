@@ -26,6 +26,7 @@ class SQLiteManager:
         "last_success",
         "user_email",
         "cooldown_until",
+        "model_cooldowns",
     }
 
     def __init__(self):
@@ -66,6 +67,10 @@ class SQLiteManager:
 
                     # 创建表
                     await self._create_tables(db)
+
+                    # 升级现有数据库（添加 model_cooldowns 字段）
+                    await self._upgrade_database(db)
+
                     await db.commit()
 
                 # 如果是新数据库，尝试从 TOML 迁移
@@ -98,6 +103,9 @@ class SQLiteManager:
                 user_email TEXT,
                 cooldown_until REAL,
 
+                -- 模型级 CD 支持 (JSON: {model_key: cooldown_timestamp})
+                model_cooldowns TEXT DEFAULT '{}',
+
                 -- 轮换相关
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
@@ -121,6 +129,9 @@ class SQLiteManager:
                 last_success REAL,
                 user_email TEXT,
                 cooldown_until REAL,
+
+                -- 模型级 CD 支持 (JSON: {model_name: cooldown_timestamp})
+                model_cooldowns TEXT DEFAULT '{}',
 
                 -- 轮换相关
                 rotation_order INTEGER DEFAULT 0,
@@ -170,6 +181,39 @@ class SQLiteManager:
         """)
 
         log.debug("SQLite tables and indexes created")
+
+    async def _upgrade_database(self, db: aiosqlite.Connection):
+        """升级数据库结构（为现有数据库添加新字段）"""
+        try:
+            # 检查 credentials 表是否有 model_cooldowns 字段
+            async with db.execute("PRAGMA table_info(credentials)") as cursor:
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+
+                if "model_cooldowns" not in column_names:
+                    log.info("Upgrading credentials table: adding model_cooldowns column")
+                    await db.execute("""
+                        ALTER TABLE credentials
+                        ADD COLUMN model_cooldowns TEXT DEFAULT '{}'
+                    """)
+                    log.info("Credentials table upgraded successfully")
+
+            # 检查 antigravity_credentials 表是否有 model_cooldowns 字段
+            async with db.execute("PRAGMA table_info(antigravity_credentials)") as cursor:
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+
+                if "model_cooldowns" not in column_names:
+                    log.info("Upgrading antigravity_credentials table: adding model_cooldowns column")
+                    await db.execute("""
+                        ALTER TABLE antigravity_credentials
+                        ADD COLUMN model_cooldowns TEXT DEFAULT '{}'
+                    """)
+                    log.info("Antigravity credentials table upgraded successfully")
+
+        except Exception as e:
+            log.warning(f"Database upgrade skipped or failed: {e}")
+
 
     async def _migrate_from_toml(self):
         """从 TOML 文件迁移数据到 SQLite"""
@@ -305,15 +349,23 @@ class SQLiteManager:
 
     # ============ SQL 方法 ============
 
-    async def get_next_available_credential(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
+    async def get_next_available_credential(
+        self, is_antigravity: bool = False, model_key: Optional[str] = None
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
         - 未冷却（或冷却期已过）
+        - 如果提供了 model_key，还会检查模型级冷却
         - 随机选择
 
         Args:
             is_antigravity: 是否获取 antigravity 凭证（默认 False）
+            model_key: 模型键（用于模型级冷却检查，antigravity 用模型名，gcli 用 pro/flash）
+
+        Note:
+            - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
+            - 对于 gcli: model_key 是 "pro" 或 "flash"
         """
         self._ensure_initialized()
 
@@ -322,25 +374,39 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
+                # 获取所有候选凭证（未禁用且全局未冷却）
                 async with db.execute(f"""
-                    SELECT filename, credential_data, id
+                    SELECT filename, credential_data, model_cooldowns
                     FROM {table_name}
                     WHERE disabled = 0
                       AND (cooldown_until IS NULL OR cooldown_until < ?)
                     ORDER BY RANDOM()
-                    LIMIT 1
                 """, (current_time,)) as cursor:
-                    row = await cursor.fetchone()
+                    rows = await cursor.fetchall()
 
-                    if row:
-                        filename, credential_json, cred_id = row
-                        credential_data = json.loads(credential_json)
-                        return filename, credential_data
+                    # 如果没有提供 model_key，使用第一个可用凭证
+                    if not model_key:
+                        if rows:
+                            filename, credential_json, _ = rows[0]
+                            credential_data = json.loads(credential_json)
+                            return filename, credential_data
+                        return None
 
-                return None
+                    # 如果提供了 model_key，检查模型级冷却
+                    for filename, credential_json, model_cooldowns_json in rows:
+                        model_cooldowns = json.loads(model_cooldowns_json or '{}')
+
+                        # 检查该模型是否在冷却中
+                        model_cooldown = model_cooldowns.get(model_key)
+                        if model_cooldown is None or current_time >= model_cooldown:
+                            # 该模型未冷却或冷却已过期
+                            credential_data = json.loads(credential_json)
+                            return filename, credential_data
+
+                    return None
 
         except Exception as e:
-            log.error(f"Error getting next available credential (antigravity={is_antigravity}): {e}")
+            log.error(f"Error getting next available credential (antigravity={is_antigravity}, model_key={model_key}): {e}")
             return None
 
     async def rotate_and_update_credential(self, filename: str, increment_call: bool = True):
@@ -555,6 +621,9 @@ class SQLiteManager:
                     if key == "error_codes":
                         set_clauses.append(f"{key} = ?")
                         values.append(json.dumps(value))
+                    elif key == "model_cooldowns":
+                        set_clauses.append(f"{key} = ?")
+                        values.append(json.dumps(value))
                     else:
                         set_clauses.append(f"{key} = ?")
                         values.append(value)
@@ -586,19 +655,21 @@ class SQLiteManager:
             table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
                 async with db.execute(f"""
-                    SELECT disabled, error_codes, last_success, user_email, cooldown_until
+                    SELECT disabled, error_codes, last_success, user_email, cooldown_until, model_cooldowns
                     FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
 
                     if row:
                         error_codes_json = row[1] or '[]'
+                        model_cooldowns_json = row[5] or '{}'
                         return {
                             "disabled": bool(row[0]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[2] or time.time(),
                             "user_email": row[3],
                             "cooldown_until": row[4],
+                            "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
                     # 返回默认状态
@@ -608,6 +679,7 @@ class SQLiteManager:
                         "last_success": time.time(),
                         "user_email": None,
                         "cooldown_until": None,
+                        "model_cooldowns": {},
                     }
 
         except Exception as e:
@@ -623,7 +695,7 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 async with db.execute(f"""
                     SELECT filename, disabled, error_codes, last_success,
-                           user_email, cooldown_until
+                           user_email, cooldown_until, model_cooldowns
                     FROM {table_name}
                 """) as cursor:
                     rows = await cursor.fetchall()
@@ -632,12 +704,14 @@ class SQLiteManager:
                     for row in rows:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
+                        model_cooldowns_json = row[6] or '{}'
                         states[filename] = {
                             "disabled": bool(row[1]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[3] or time.time(),
                             "user_email": row[4],
                             "cooldown_until": row[5],
+                            "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
                     return states
@@ -692,7 +766,7 @@ class SQLiteManager:
                 if limit is not None:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, cooldown_until, rotation_order
+                               user_email, cooldown_until, rotation_order, model_cooldowns
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -702,7 +776,7 @@ class SQLiteManager:
                 else:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, cooldown_until, rotation_order
+                               user_email, cooldown_until, rotation_order, model_cooldowns
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -720,6 +794,7 @@ class SQLiteManager:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
                         cooldown_until = row[5]
+                        model_cooldowns_json = row[7] or '{}'
 
                         # 计算冷却状态
                         cooldown_status = "ready"
@@ -739,6 +814,7 @@ class SQLiteManager:
                             "cooldown_status": cooldown_status,
                             "cooldown_remaining_seconds": cooldown_remaining_seconds,
                             "rotation_order": row[6],
+                            "model_cooldowns": json.loads(model_cooldowns_json),
                         })
 
                     return {
@@ -815,3 +891,119 @@ class SQLiteManager:
         except Exception as e:
             log.error(f"Error deleting config {key}: {e}")
             return False
+
+    # ============ 模型级冷却管理 ============
+
+    async def set_model_cooldown(
+        self,
+        filename: str,
+        model_key: str,
+        cooldown_until: Optional[float],
+        is_antigravity: bool = False
+    ) -> bool:
+        """
+        设置特定模型的冷却时间
+
+        Args:
+            filename: 凭证文件名
+            model_key: 模型键（antigravity 用模型名，gcli 用 pro/flash）
+            cooldown_until: 冷却截止时间戳（None 表示清除冷却）
+            is_antigravity: 是否为 antigravity 凭证
+
+        Returns:
+            是否成功
+        """
+        self._ensure_initialized()
+
+        try:
+            table_name = self._get_table_name(is_antigravity)
+            async with aiosqlite.connect(self._db_path) as db:
+                # 获取当前的 model_cooldowns
+                async with db.execute(f"""
+                    SELECT model_cooldowns FROM {table_name} WHERE filename = ?
+                """, (filename,)) as cursor:
+                    row = await cursor.fetchone()
+
+                    if not row:
+                        log.warning(f"Credential {filename} not found")
+                        return False
+
+                    model_cooldowns = json.loads(row[0] or '{}')
+
+                    # 更新或删除指定模型的冷却时间
+                    if cooldown_until is None:
+                        model_cooldowns.pop(model_key, None)
+                    else:
+                        model_cooldowns[model_key] = cooldown_until
+
+                    # 写回数据库
+                    await db.execute(f"""
+                        UPDATE {table_name}
+                        SET model_cooldowns = ?,
+                            updated_at = unixepoch()
+                        WHERE filename = ?
+                    """, (json.dumps(model_cooldowns), filename))
+                    await db.commit()
+
+                    log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
+                    return True
+
+        except Exception as e:
+            log.error(f"Error setting model cooldown for {filename}: {e}")
+            return False
+
+    async def clear_expired_model_cooldowns(self, is_antigravity: bool = False) -> int:
+        """
+        清除已过期的模型级冷却
+
+        Args:
+            is_antigravity: 是否为 antigravity 凭证表
+
+        Returns:
+            清除的冷却项数量
+        """
+        self._ensure_initialized()
+
+        try:
+            table_name = self._get_table_name(is_antigravity)
+            current_time = time.time()
+            cleared_count = 0
+
+            async with aiosqlite.connect(self._db_path) as db:
+                # 获取所有凭证的 model_cooldowns
+                async with db.execute(f"""
+                    SELECT filename, model_cooldowns FROM {table_name}
+                    WHERE model_cooldowns != '{{}}'
+                """) as cursor:
+                    rows = await cursor.fetchall()
+
+                    for filename, model_cooldowns_json in rows:
+                        model_cooldowns = json.loads(model_cooldowns_json or '{}')
+                        original_len = len(model_cooldowns)
+
+                        # 过滤掉已过期的冷却
+                        model_cooldowns = {
+                            k: v for k, v in model_cooldowns.items()
+                            if v > current_time
+                        }
+
+                        # 如果有变化，更新数据库
+                        if len(model_cooldowns) < original_len:
+                            await db.execute(f"""
+                                UPDATE {table_name}
+                                SET model_cooldowns = ?,
+                                    updated_at = unixepoch()
+                                WHERE filename = ?
+                            """, (json.dumps(model_cooldowns), filename))
+                            cleared_count += (original_len - len(model_cooldowns))
+
+                    await db.commit()
+
+            if cleared_count > 0:
+                log.debug(f"Cleared {cleared_count} expired model cooldowns")
+
+            return cleared_count
+
+        except Exception as e:
+            log.error(f"Error clearing expired model cooldowns: {e}")
+            return 0

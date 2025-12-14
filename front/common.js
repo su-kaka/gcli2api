@@ -6,6 +6,7 @@
 let currentProjectId = '';
 let authInProgress = false;
 let uploadSelectedFiles = []; // 上传页面用的文件列表
+let antigravityUploadSelectedFiles = []; // Antigravity上传页面用的文件列表
 let authToken = '';
 let credsData = {};
 
@@ -544,7 +545,8 @@ async function refreshAntigravityCredsList() {
                     user_email: item.user_email,
                     cooldown_status: item.cooldown_status,
                     cooldown_remaining_seconds: item.cooldown_remaining_seconds,
-                    cooldown_until: item.cooldown_until
+                    cooldown_until: item.cooldown_until,
+                    model_cooldowns: item.model_cooldowns || {}
                 };
             }
 
@@ -773,7 +775,50 @@ function createAntigravityCredCard(fullPath, credInfo) {
             timeDisplay = `${seconds}s`;
         }
 
-        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 冷却中: ${timeDisplay}</span>`;
+        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 全局冷却: ${timeDisplay}</span>`;
+    }
+
+    // 添加模型级冷却状态显示
+    if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {
+        const currentTime = Date.now() / 1000;
+        const activeModelCooldowns = Object.entries(credInfo.model_cooldowns)
+            .filter(([model, until]) => until > currentTime)
+            .map(([model, until]) => {
+                const remainingSeconds = Math.max(0, Math.floor(until - currentTime));
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
+
+                let timeDisplay = '';
+                if (hours > 0) {
+                    timeDisplay = `${hours}h${minutes}m`;
+                } else if (minutes > 0) {
+                    timeDisplay = `${minutes}m`;
+                } else {
+                    timeDisplay = `${seconds}s`;
+                }
+
+                // 缩短模型名显示
+                const shortModel = model.replace('gemini-', '').replace('-exp', '').replace('2.0-', '2-').replace('1.5-', '1.5-');
+                return { model: shortModel, time: timeDisplay, fullModel: model };
+            });
+
+        if (activeModelCooldowns.length > 0) {
+            // 显示前2个模型，如果超过2个则显示"+N"
+            if (activeModelCooldowns.length <= 2) {
+                activeModelCooldowns.forEach(item => {
+                    statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="模型: ${item.fullModel}">🔧 ${item.model}: ${item.time}</span>`;
+                });
+            } else {
+                // 显示前2个 + 剩余数量
+                activeModelCooldowns.slice(0, 2).forEach(item => {
+                    statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="模型: ${item.fullModel}">🔧 ${item.model}: ${item.time}</span>`;
+                });
+                const remaining = activeModelCooldowns.length - 2;
+                const remainingModels = activeModelCooldowns.slice(2).map(item => `${item.fullModel}: ${item.time}`).join('\n');
+                statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="其他模型:\n${remainingModels}">+${remaining}</span>`;
+            }
+        }
     }
 
     // 为HTML ID生成安全的标识符
@@ -1446,6 +1491,165 @@ async function uploadFiles() {
 }
 
 // =====================================================================
+// Antigravity 批量上传相关函数
+// =====================================================================
+
+function handleAntigravityFileSelect(event) {
+    const files = Array.from(event.target.files);
+    addAntigravityFiles(files);
+}
+
+function handleAntigravityFileDrop(event) {
+    event.preventDefault();
+    event.currentTarget.style.borderColor = '#007bff';
+    event.currentTarget.style.backgroundColor = '#f8f9fa';
+
+    const files = Array.from(event.dataTransfer.files);
+    addAntigravityFiles(files);
+}
+
+function addAntigravityFiles(files) {
+    files.forEach(file => {
+        if (file.type === 'application/json' || file.name.endsWith('.json') ||
+            file.type === 'application/zip' || file.name.endsWith('.zip')) {
+            if (!antigravityUploadSelectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                antigravityUploadSelectedFiles.push(file);
+            }
+        } else {
+            showStatus(`文件 ${file.name} 格式不支持，只支持JSON和ZIP文件`, 'error');
+        }
+    });
+
+    updateAntigravityFileList();
+}
+
+function updateAntigravityFileList() {
+    const fileList = document.getElementById('antigravityFileList');
+    const fileListSection = document.getElementById('antigravityFileListSection');
+
+    if (antigravityUploadSelectedFiles.length === 0) {
+        fileListSection.classList.add('hidden');
+        return;
+    }
+
+    fileListSection.classList.remove('hidden');
+    fileList.innerHTML = '';
+
+    antigravityUploadSelectedFiles.forEach((file, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        const isZip = file.name.endsWith('.zip');
+        const fileIcon = isZip ? '📦' : '📄';
+        const fileType = isZip ? ' (ZIP压缩包)' : ' (JSON文件)';
+        fileItem.innerHTML = `
+            <div>
+                <span class="file-name">${fileIcon} ${file.name}</span>
+                <span class="file-size">(${formatFileSize(file.size)}${fileType})</span>
+            </div>
+            <button class="remove-btn" onclick="removeAntigravityFile(${index})">删除</button>
+        `;
+        fileList.appendChild(fileItem);
+    });
+}
+
+function removeAntigravityFile(index) {
+    antigravityUploadSelectedFiles.splice(index, 1);
+    updateAntigravityFileList();
+}
+
+function clearAntigravityFiles() {
+    antigravityUploadSelectedFiles = [];
+    updateAntigravityFileList();
+}
+
+async function uploadAntigravityFiles() {
+    if (antigravityUploadSelectedFiles.length === 0) {
+        showStatus('请选择要上传的文件', 'error');
+        return;
+    }
+
+    const progressSection = document.getElementById('antigravityUploadProgressSection');
+    const progressFill = document.getElementById('antigravityProgressFill');
+    const progressText = document.getElementById('antigravityProgressText');
+
+    progressSection.classList.remove('hidden');
+
+    const formData = new FormData();
+    antigravityUploadSelectedFiles.forEach(file => {
+        formData.append('files', file);
+    });
+
+    // 检查是否有ZIP文件，给用户提示
+    const hasZipFiles = antigravityUploadSelectedFiles.some(file => file.name.endsWith('.zip'));
+    if (hasZipFiles) {
+        showStatus('正在上传并解压ZIP文件...', 'info');
+    }
+
+    try {
+        const xhr = new XMLHttpRequest();
+
+        // 设置超时时间 (5分钟)
+        xhr.timeout = 300000;
+
+        xhr.upload.onprogress = function (event) {
+            if (event.lengthComputable) {
+                const percentComplete = (event.loaded / event.total) * 100;
+                progressFill.style.width = percentComplete + '%';
+                progressText.textContent = Math.round(percentComplete) + '%';
+            }
+        };
+
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    showStatus(`成功上传 ${data.uploaded_count} 个Antigravity文件`, 'success');
+                    clearAntigravityFiles();
+                    progressSection.classList.add('hidden');
+                    // 刷新Antigravity凭证列表
+                    refreshAntigravityCredsList();
+                } catch (e) {
+                    showStatus('上传失败: 服务器响应格式错误', 'error');
+                }
+            } else {
+                try {
+                    const error = JSON.parse(xhr.responseText);
+                    showStatus(`上传失败: ${error.detail || error.error || '未知错误'}`, 'error');
+                } catch (e) {
+                    showStatus(`上传失败: HTTP ${xhr.status} - ${xhr.statusText || '未知错误'}`, 'error');
+                }
+            }
+        };
+
+        xhr.onerror = function () {
+            const totalSize = antigravityUploadSelectedFiles.reduce((sum, file) => sum + file.size, 0);
+            console.error('Antigravity upload XHR error:', {
+                readyState: xhr.readyState,
+                status: xhr.status,
+                statusText: xhr.statusText,
+                responseText: xhr.responseText,
+                fileCount: antigravityUploadSelectedFiles.length,
+                totalSize: (totalSize / 1024 / 1024).toFixed(1) + 'MB'
+            });
+            showStatus(`上传失败：连接中断 - 可能原因：文件过多(${antigravityUploadSelectedFiles.length}个)或网络不稳定。建议分批上传。`, 'error');
+            progressSection.classList.add('hidden');
+        };
+
+        xhr.ontimeout = function () {
+            showStatus('上传失败：请求超时 - 文件处理时间过长，请减少文件数量或检查网络连接', 'error');
+            progressSection.classList.add('hidden');
+        };
+
+        xhr.open('POST', '/antigravity/upload');
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+        xhr.send(formData);
+
+    } catch (error) {
+        showStatus(`上传失败: ${error.message}`, 'error');
+    }
+}
+
+// =====================================================================
 // WebSocket日志相关变量和函数
 // =====================================================================
 
@@ -1666,7 +1870,8 @@ async function refreshCredsStatus() {
                     user_email: item.user_email,
                     cooldown_status: item.cooldown_status,
                     cooldown_remaining_seconds: item.cooldown_remaining_seconds,
-                    cooldown_until: item.cooldown_until
+                    cooldown_until: item.cooldown_until,
+                    model_cooldowns: item.model_cooldowns || {}
                 };
             }
 
@@ -1853,7 +2058,50 @@ function createCredCard(fullPath, credInfo) {
             timeDisplay = `${seconds}s`;
         }
 
-        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 冷却中: ${timeDisplay}</span>`;
+        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN')}">🕐 全局冷却: ${timeDisplay}</span>`;
+    }
+
+    // 添加模型级冷却状态显示
+    if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {
+        const currentTime = Date.now() / 1000;
+        const activeModelCooldowns = Object.entries(credInfo.model_cooldowns)
+            .filter(([model, until]) => until > currentTime)
+            .map(([model, until]) => {
+                const remainingSeconds = Math.max(0, Math.floor(until - currentTime));
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
+
+                let timeDisplay = '';
+                if (hours > 0) {
+                    timeDisplay = `${hours}h${minutes}m`;
+                } else if (minutes > 0) {
+                    timeDisplay = `${minutes}m`;
+                } else {
+                    timeDisplay = `${seconds}s`;
+                }
+
+                // 缩短模型名显示
+                const shortModel = model.replace('gemini-', '').replace('-exp', '').replace('2.0-', '2-').replace('1.5-', '1.5-');
+                return { model: shortModel, time: timeDisplay, fullModel: model };
+            });
+
+        if (activeModelCooldowns.length > 0) {
+            // 显示前2个模型，如果超过2个则显示"+N"
+            if (activeModelCooldowns.length <= 2) {
+                activeModelCooldowns.forEach(item => {
+                    statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="模型: ${item.fullModel}">🔧 ${item.model}: ${item.time}</span>`;
+                });
+            } else {
+                // 显示前2个 + 剩余数量
+                activeModelCooldowns.slice(0, 2).forEach(item => {
+                    statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="模型: ${item.fullModel}">🔧 ${item.model}: ${item.time}</span>`;
+                });
+                const remaining = activeModelCooldowns.length - 2;
+                const remainingModels = activeModelCooldowns.slice(2).map(item => `${item.fullModel}: ${item.time}`).join('\n');
+                statusBadges += `<span class="cooldown-badge" style="background-color: #17a2b8;" title="其他模型:\n${remainingModels}">+${remaining}</span>`;
+            }
+        }
     }
 
     // 为HTML ID生成安全的标识符

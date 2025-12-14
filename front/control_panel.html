@@ -336,6 +336,26 @@
             color: white;
         }
 
+        .model-cooldown-details {
+            background-color: #e3f2fd;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #1976d2;
+        }
+
+        .model-cooldown-item {
+            display: inline-block;
+            background-color: #64b5f6;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin: 2px;
+            font-size: 10px;
+        }
+
         .cred-actions {
             display: flex;
             gap: 5px;
@@ -1123,31 +1143,70 @@
             <!-- 批量上传标签页 -->
             <div id="uploadTab" class="tab-content">
                 <h3>批量上传认证文件</h3>
-                <p>支持上传多个JSON格式的认证文件到服务器</p>
+                <p>支持批量上传 GCLI 和 Antigravity 认证文件</p>
 
-                <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
-                    <p>点击选择文件或拖拽文件到此区域</p>
-                    <p style="color: #666; font-size: 14px;">支持 .json 和 .zip 格式文件</p>
-                    <p style="color: #888; font-size: 12px;">ZIP文件会自动解压提取其中的JSON凭证</p>
-                </div>
+                <!-- GCLI凭证上传区域 -->
+                <div style="margin-bottom: 30px; padding: 20px; border: 2px solid #e1e4e8; border-radius: 8px; background: #f8f9fa;">
+                    <h4 style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px;">📤 GCLI 凭证批量上传</h4>
 
-                <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;"
-                    onchange="handleFileSelect(event)" />
+                    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                        <p>点击选择文件或拖拽文件到此区域</p>
+                        <p style="color: #666; font-size: 14px;">支持 .json 和 .zip 格式文件</p>
+                        <p style="color: #888; font-size: 12px;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                    </div>
 
-                <div id="fileListSection" class="hidden">
-                    <h4>选择的文件：</h4>
-                    <div class="file-list" id="fileList"></div>
-                    <button class="btn" onclick="uploadFiles()">上传文件</button>
-                    <button class="btn" style="background-color: #6c757d;" onclick="clearFiles()">清空列表</button>
-                </div>
+                    <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;"
+                        onchange="handleFileSelect(event)" />
 
-                <div id="uploadProgressSection" class="hidden">
-                    <div class="upload-progress">
-                        <h4>上传进度：</h4>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    <div id="fileListSection" class="hidden">
+                        <h4>选择的文件：</h4>
+                        <div class="file-list" id="fileList"></div>
+                        <button class="btn" onclick="uploadFiles()">上传文件</button>
+                        <button class="btn" style="background-color: #6c757d;" onclick="clearFiles()">清空列表</button>
+                    </div>
+
+                    <div id="uploadProgressSection" class="hidden">
+                        <div class="upload-progress">
+                            <h4>上传进度：</h4>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                            </div>
+                            <p id="progressText">0%</p>
                         </div>
-                        <p id="progressText">0%</p>
+                    </div>
+                </div>
+
+                <!-- Antigravity凭证上传区域 -->
+                <div style="padding: 20px; border: 2px solid #e1e4e8; border-radius: 8px; background: #f8f9fa;">
+                    <h4 style="margin-top: 0; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 10px;">📤 Antigravity 凭证批量上传</h4>
+
+                    <div class="upload-area" style="border-color: #28a745;" onclick="document.getElementById('antigravityFileInput').click()"
+                        ondragover="event.preventDefault(); this.style.borderColor='#28a745'; this.style.backgroundColor='#e7f9e7';"
+                        ondragleave="this.style.borderColor='#ddd'; this.style.backgroundColor='#fafafa';"
+                        ondrop="handleAntigravityFileDrop(event)">
+                        <p>点击选择文件或拖拽文件到此区域</p>
+                        <p style="color: #666; font-size: 14px;">支持 .json 和 .zip 格式文件</p>
+                        <p style="color: #888; font-size: 12px;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                    </div>
+
+                    <input type="file" id="antigravityFileInput" multiple accept=".json,.zip" style="display: none;"
+                        onchange="handleAntigravityFileSelect(event)" />
+
+                    <div id="antigravityFileListSection" class="hidden">
+                        <h4>选择的文件：</h4>
+                        <div class="file-list" id="antigravityFileList"></div>
+                        <button class="btn" style="background-color: #28a745;" onclick="uploadAntigravityFiles()">上传文件</button>
+                        <button class="btn" style="background-color: #6c757d;" onclick="clearAntigravityFiles()">清空列表</button>
+                    </div>
+
+                    <div id="antigravityUploadProgressSection" class="hidden">
+                        <div class="upload-progress">
+                            <h4>上传进度：</h4>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="antigravityProgressFill" style="width: 0%"></div>
+                            </div>
+                            <p id="antigravityProgressText">0%</p>
+                        </div>
                     </div>
                 </div>
             </div>

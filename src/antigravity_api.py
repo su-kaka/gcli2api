@@ -5,6 +5,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Response
@@ -145,9 +146,14 @@ async def send_antigravity_request_stream(
     max_retries = await get_retry_429_max_retries()
     retry_interval = await get_retry_429_interval()
 
+    # 提取模型名称用于模型级 CD
+    model_name = request_body.get("model", "")
+
     for attempt in range(max_retries + 1):
-        # 获取可用凭证
-        cred_result = await credential_manager.get_valid_credential(is_antigravity=True)
+        # 获取可用凭证（传递模型名称）
+        cred_result = await credential_manager.get_valid_credential(
+            is_antigravity=True, model_key=model_name
+        )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
             raise Exception("No valid antigravity credentials available")
@@ -159,7 +165,7 @@ async def send_antigravity_request_stream(
             log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
             continue
 
-        log.info(f"[ANTIGRAVITY] Using credential: {current_file} (attempt {attempt + 1}/{max_retries + 1})")
+        log.info(f"[ANTIGRAVITY] Using credential: {current_file} (model={model_name}, attempt {attempt + 1}/{max_retries + 1})")
 
         # 构建请求头
         headers = build_antigravity_headers(access_token)
@@ -190,17 +196,26 @@ async def send_antigravity_request_stream(
                 error_text = error_body.decode('utf-8', errors='ignore')
                 log.error(f"[ANTIGRAVITY] API error ({response.status_code}): {error_text[:500]}")
 
-                # 记录错误
+                # 记录错误（使用模型级 CD）
                 cooldown_until = None
                 if response.status_code == 429:
-                    cooldown_until = parse_quota_reset_timestamp(response.headers)
+                    try:
+                        error_data = json.loads(error_text)
+                        cooldown_until = parse_quota_reset_timestamp(error_data)
+                        if cooldown_until:
+                            log.info(
+                                f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                            )
+                    except Exception as parse_err:
+                        log.debug(f"[ANTIGRAVITY] Failed to parse cooldown time: {parse_err}")
 
                 await credential_manager.record_api_call_result(
                     current_file,
                     False,
                     response.status_code,
                     cooldown_until=cooldown_until,
-                    is_antigravity=True
+                    is_antigravity=True,
+                    model_key=model_name  # 传递模型名称用于模型级 CD
                 )
 
                 # 检查自动封禁
@@ -254,9 +269,14 @@ async def send_antigravity_request_no_stream(
     max_retries = await get_retry_429_max_retries()
     retry_interval = await get_retry_429_interval()
 
+    # 提取模型名称用于模型级 CD
+    model_name = request_body.get("model", "")
+
     for attempt in range(max_retries + 1):
-        # 获取可用凭证
-        cred_result = await credential_manager.get_valid_credential(is_antigravity=True)
+        # 获取可用凭证（传递模型名称）
+        cred_result = await credential_manager.get_valid_credential(
+            is_antigravity=True, model_key=model_name
+        )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
             raise Exception("No valid antigravity credentials available")
@@ -268,7 +288,7 @@ async def send_antigravity_request_no_stream(
             log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
             continue
 
-        log.info(f"[ANTIGRAVITY] Using credential: {current_file} (attempt {attempt + 1}/{max_retries + 1})")
+        log.info(f"[ANTIGRAVITY] Using credential: {current_file} (model={model_name}, attempt {attempt + 1}/{max_retries + 1})")
 
         # 构建请求头
         headers = build_antigravity_headers(access_token)
@@ -286,7 +306,7 @@ async def send_antigravity_request_no_stream(
             if response.status_code == 200:
                 log.info(f"[ANTIGRAVITY] Request successful with credential: {current_file}")
                 await credential_manager.record_api_call_result(
-                    current_file, True, is_antigravity=True
+                    current_file, True, is_antigravity=True, model_key=model_name
                 )
                 response_data = response.json()
                 return response_data, current_file, credential_data
@@ -295,17 +315,26 @@ async def send_antigravity_request_no_stream(
             error_body = response.text
             log.error(f"[ANTIGRAVITY] API error ({response.status_code}): {error_body[:500]}")
 
-            # 记录错误
+            # 记录错误（使用模型级 CD）
             cooldown_until = None
             if response.status_code == 429:
-                cooldown_until = parse_quota_reset_timestamp(response.headers)
+                try:
+                    error_data = json.loads(error_body)
+                    cooldown_until = parse_quota_reset_timestamp(error_data)
+                    if cooldown_until:
+                        log.info(
+                            f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                        )
+                except Exception as parse_err:
+                    log.debug(f"[ANTIGRAVITY] Failed to parse cooldown time: {parse_err}")
 
             await credential_manager.record_api_call_result(
                 current_file,
                 False,
                 response.status_code,
                 cooldown_until=cooldown_until,
-                is_antigravity=True
+                is_antigravity=True,
+                model_key=model_name  # 传递模型名称用于模型级 CD
             )
 
             # 检查自动封禁
