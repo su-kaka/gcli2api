@@ -164,20 +164,17 @@ class LoginRequest(BaseModel):
 
 class AuthStartRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
     use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
 class AuthCallbackRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
     use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
 class AuthCallbackUrlRequest(BaseModel):
     callback_url: str  # OAuth回调完整URL
     project_id: Optional[str] = None  # 可选的项目ID
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
     use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
@@ -274,22 +271,17 @@ async def login(request: LoginRequest):
 
 @router.post("/auth/start")
 async def start_auth(request: AuthStartRequest, token: str = Depends(verify_token)):
-    """开始认证流程，支持自动检测项目ID和批量获取所有项目"""
+    """开始认证流程，支持自动检测项目ID"""
     try:
-        # 检查是否为批量项目模式
-        if request.get_all_projects:
-            log.info("用户请求批量获取所有项目的凭证...")
-            project_id = None  # 批量模式下不指定单个项目ID
-        else:
-            # 如果没有提供项目ID，尝试自动检测
-            project_id = request.project_id
-            if not project_id:
-                log.info("用户未提供项目ID，后续将使用自动检测...")
+        # 如果没有提供项目ID，尝试自动检测
+        project_id = request.project_id
+        if not project_id:
+            log.info("用户未提供项目ID，后续将使用自动检测...")
 
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         result = await create_auth_url(
-            project_id, user_session, get_all_projects=request.get_all_projects, use_antigravity=request.use_antigravity
+            project_id, user_session, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
@@ -299,7 +291,6 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
                     "state": result["state"],
                     "auto_project_detection": result.get("auto_project_detection", False),
                     "detected_project_id": result.get("detected_project_id"),
-                    "get_all_projects": request.get_all_projects,
                 }
             )
         else:
@@ -314,38 +305,28 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
 
 @router.post("/auth/callback")
 async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verify_token)):
-    """处理认证回调，支持自动检测项目ID和批量获取所有项目"""
+    """处理认证回调，支持自动检测项目ID"""
     try:
         # 项目ID现在是可选的，在回调处理中进行自动检测
         project_id = request.project_id
-        get_all_projects = request.get_all_projects
 
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         # 异步等待OAuth回调完成
         result = await asyncio_complete_auth_flow(
-            project_id, user_session, get_all_projects=get_all_projects, use_antigravity=request.use_antigravity
+            project_id, user_session, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
-            if get_all_projects and result.get("multiple_credentials"):
-                # 批量认证成功，返回多个凭证信息
-                return JSONResponse(
-                    content={
-                        "multiple_credentials": result["multiple_credentials"],
-                        "message": "批量认证成功，已为多个项目保存凭证",
-                    }
-                )
-            else:
-                # 单项目认证成功
-                return JSONResponse(
-                    content={
-                        "credentials": result["credentials"],
-                        "file_path": result["file_path"],
-                        "message": "认证成功，凭证已保存",
-                        "auto_detected_project": result.get("auto_detected_project", False),
-                    }
-                )
+            # 单项目认证成功
+            return JSONResponse(
+                content={
+                    "credentials": result["credentials"],
+                    "file_path": result["file_path"],
+                    "message": "认证成功，凭证已保存",
+                    "auto_detected_project": result.get("auto_detected_project", False),
+                }
+            )
         else:
             # 如果需要手动项目ID或项目选择，在响应中标明
             if result.get("requires_manual_project_id"):
@@ -376,7 +357,7 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
 
 @router.post("/auth/callback-url")
 async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
-    """从回调URL直接完成认证，支持批量获取所有项目"""
+    """从回调URL直接完成认证"""
     try:
         # 验证URL格式
         if not request.callback_url or not request.callback_url.startswith(("http://", "https://")):
@@ -384,28 +365,19 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
 
         # 从回调URL完成认证
         result = await complete_auth_flow_from_callback_url(
-            request.callback_url, request.project_id, get_all_projects=request.get_all_projects, use_antigravity=request.use_antigravity
+            request.callback_url, request.project_id, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
-            if request.get_all_projects and result.get("multiple_credentials"):
-                # 批量认证成功，返回多个凭证信息
-                return JSONResponse(
-                    content={
-                        "multiple_credentials": result["multiple_credentials"],
-                        "message": "从回调URL批量认证成功，已为多个项目保存凭证",
-                    }
-                )
-            else:
-                # 单项目认证成功
-                return JSONResponse(
-                    content={
-                        "credentials": result["credentials"],
-                        "file_path": result["file_path"],
-                        "message": "从回调URL认证成功，凭证已保存",
-                        "auto_detected_project": result.get("auto_detected_project", False),
-                    }
-                )
+            # 单项目认证成功
+            return JSONResponse(
+                content={
+                    "credentials": result["credentials"],
+                    "file_path": result["file_path"],
+                    "message": "从回调URL认证成功，凭证已保存",
+                    "auto_detected_project": result.get("auto_detected_project", False),
+                }
+            )
         else:
             # 处理各种错误情况
             if result.get("requires_manual_project_id"):
