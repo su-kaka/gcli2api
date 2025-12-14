@@ -209,8 +209,9 @@ function getAuthHeaders() {
 // =====================================================================
 
 async function startAuth() {
-    const projectId = document.getElementById('projectId').value.trim();
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
+    const projectId = document.getElementById('projectId')?.value?.trim() || '';
+    const getAllProjectsEl = document.getElementById('getAllProjectsCreds');
+    const getAllProjects = getAllProjectsEl ? getAllProjectsEl.checked : false;
     // 项目ID现在是可选的
     currentProjectId = projectId || null;
 
@@ -271,7 +272,8 @@ async function getCredentials() {
     }
 
     const btn = document.getElementById('getCredsBtn');
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
+    const getAllProjectsEl = document.getElementById('getAllProjectsCreds');
+    const getAllProjects = getAllProjectsEl ? getAllProjectsEl.checked : false;
     btn.disabled = true;
     btn.textContent = getAllProjects ? '并发批量获取所有项目凭证中...' : '等待OAuth回调中...';
 
@@ -424,7 +426,8 @@ function toggleCallbackUrlSection() {
 async function processCallbackUrl() {
     const callbackUrlInput = document.getElementById('callbackUrlInput');
     const callbackUrl = callbackUrlInput.value.trim();
-    const getAllProjects = document.getElementById('getAllProjectsCreds').checked;
+    const getAllProjectsEl = document.getElementById('getAllProjectsCreds');
+    const getAllProjects = getAllProjectsEl ? getAllProjectsEl.checked : false;
 
     if (!callbackUrl) {
         showStatus('请输入回调URL', 'error');
