@@ -1091,7 +1091,7 @@
                     </p>
                 </div>
 
-                <button class="btn" id="getAntigravityAuthBtn" onclick="startAntigravityAuth()">获取 Antigravity 认证链接</button>
+                <button class="btn" id="getAntigravityAuthBtn">获取 Antigravity 认证链接</button>
 
                 <div id="antigravityAuthUrlSection" class="hidden">
                     <h3>Antigravity 认证链接：</h3>
@@ -1106,6 +1106,59 @@
                             <li>关闭 OAuth 窗口，返回本页面</li>
                             <li>点击下方"获取凭证"按钮完成流程</li>
                         </ol>
+                    </div>
+
+                    <!-- 快捷回调URL输入选项 -->
+                    <div class="form-group"
+                        style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
+                        <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;"
+                            onclick="toggleAntigravityCallbackUrlSection()">
+                            <span style="font-weight: bold; color: #0066cc;">🚀 无法回源？试试快捷方式</span>
+                            <span id="antigravityCallbackUrlToggleIcon"
+                                style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
+                        </div>
+                        <div id="antigravityCallbackUrlSection" style="display: none;">
+                            <div
+                                style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                                <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚
+                                    适用场景：</div>
+                                <ul
+                                    style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
+                                    <li>云服务器、VPS等非本地环境</li>
+                                    <li>防火墙阻止了8080端口访问</li>
+                                    <li>网络环境无法正常回源到localhost</li>
+                                    <li>Docker容器内运行，端口映射问题</li>
+                                </ul>
+                            </div>
+                            <div style="color: #666; font-size: 13px; margin-bottom: 12px; line-height: 1.6;">
+                                <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
+                                完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
+                                <code
+                                    style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
+                                    http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
+                                </code>
+                            </div>
+                            <div
+                                style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+                                <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋
+                                    使用步骤：</div>
+                                <ol
+                                    style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
+                                    <li>点击上方认证链接，完成Google授权</li>
+                                    <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
+                                    <li>粘贴到下方输入框，点击获取凭证即可</li>
+                                </ol>
+                            </div>
+                            <div class="input-group">
+                                <input type="url" id="antigravityCallbackUrlInput"
+                                    placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..."
+                                    style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
+                            </div>
+                            <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
+                                onclick="processAntigravityCallbackUrl()">
+                                从回调URL获取凭证
+                            </button>
+                        </div>
                     </div>
 
                     <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity 凭证</button>

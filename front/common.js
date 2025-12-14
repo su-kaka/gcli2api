@@ -493,6 +493,97 @@ function downloadAntigravityCredentials() {
     window.URL.revokeObjectURL(url);
 }
 
+// 切换 Antigravity 回调 URL 区域显示/隐藏
+function toggleAntigravityCallbackUrlSection() {
+    const section = document.getElementById('antigravityCallbackUrlSection');
+    const icon = document.getElementById('antigravityCallbackUrlToggleIcon');
+
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+        icon.textContent = '▲';
+    } else {
+        section.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        icon.textContent = '▼';
+    }
+}
+
+// 从回调 URL 处理 Antigravity 认证
+async function processAntigravityCallbackUrl() {
+    const callbackUrlInput = document.getElementById('antigravityCallbackUrlInput');
+    const callbackUrl = callbackUrlInput.value.trim();
+
+    if (!callbackUrl) {
+        showStatus('请输入回调URL', 'error');
+        return;
+    }
+
+    // 简单验证URL格式
+    if (!callbackUrl.startsWith('http://') && !callbackUrl.startsWith('https://')) {
+        showStatus('请输入有效的URL（以http://或https://开头）', 'error');
+        return;
+    }
+
+    // 检查是否包含必要参数
+    if (!callbackUrl.includes('code=') || !callbackUrl.includes('state=')) {
+        showStatus('❌ 这不是有效的回调URL！请确保：\n1. 已完成Google OAuth授权\n2. 复制的是浏览器地址栏的完整URL\n3. URL包含code和state参数', 'error');
+        return;
+    }
+
+    showStatus('正在从回调URL获取 Antigravity 凭证...', 'info');
+
+    try {
+        const response = await fetch('/auth/callback-url', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                callback_url: callbackUrl,
+                use_antigravity: true
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.credentials) {
+            // 处理认证结果
+            showStatus(result.message || '从回调URL获取 Antigravity 凭证成功！', 'success');
+
+            // 显示凭证内容
+            const credentialsSection = document.getElementById('antigravityCredsSection');
+            const credentialsContent = document.getElementById('antigravityCredsContent');
+
+            credentialsContent.textContent = JSON.stringify(result.credentials, null, 2);
+            credentialsSection.classList.remove('hidden');
+
+        } else if (result.requires_manual_project_id) {
+            showStatus('需要手动指定项目ID，Antigravity 模式下需要有效的项目配置', 'error');
+        } else if (result.requires_project_selection) {
+            let projectOptions = '<br><strong>可用项目：</strong><br>';
+            result.available_projects.forEach(project => {
+                projectOptions += `• ${project.name} (ID: ${project.projectId})<br>`;
+            });
+            showStatus('检测到多个项目：' + projectOptions, 'error');
+        } else {
+            showStatus(result.error || '从回调URL获取 Antigravity 凭证失败', 'error');
+        }
+
+        // 清空输入框
+        callbackUrlInput.value = '';
+
+        // 刷新凭证列表（如果有）
+        setTimeout(() => {
+            if (typeof refreshAntigravityCredsStatus === 'function') {
+                refreshAntigravityCredsStatus();
+            }
+        }, 1000);
+
+    } catch (error) {
+        console.error('从回调URL获取 Antigravity 凭证时出错:', error);
+        showStatus(`从回调URL获取 Antigravity 凭证失败: ${error.message}`, 'error');
+    }
+}
+
 // Antigravity 凭证管理相关变量
 let antigravityCredsData = {};
 let filteredAntigravityCredsData = {};
@@ -3123,6 +3214,12 @@ window.onload = async function () {
 
     // 启动冷却倒计时自动更新（每秒更新一次）
     startCooldownTimer();
+
+    // 添加 Antigravity 认证按钮事件监听器
+    const antigravityAuthBtn = document.getElementById('getAntigravityAuthBtn');
+    if (antigravityAuthBtn) {
+        antigravityAuthBtn.addEventListener('click', startAntigravityAuth);
+    }
 };
 
 // 拖拽功能 - 初始化
