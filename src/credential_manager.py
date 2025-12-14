@@ -154,6 +154,15 @@ class CredentialManager:
             await self._storage_adapter.store_credential(credential_name, credential_data)
             log.info(f"Credential added/updated: {credential_name}")
 
+    async def add_antigravity_credential(self, credential_name: str, credential_data: Dict[str, Any]):
+        """
+        新增或更新一个Antigravity凭证
+        存储层会自动处理轮换顺序
+        """
+        async with self._operation_lock:
+            await self._storage_adapter.store_credential(credential_name, credential_data, is_antigravity=True)
+            log.info(f"Antigravity credential added/updated: {credential_name}")
+
     async def remove_credential(self, credential_name: str) -> bool:
         """删除一个凭证"""
         async with self._operation_lock:
