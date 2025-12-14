@@ -294,63 +294,25 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
      - `x-goog-api-key: your_api_password` 
      - URL parameter: `?key=your_api_password`
 
-## 💾 Distributed Storage Mode
+## 💾 Data Storage Mode
 
-### 🌟 Storage Backend Priority
+### 🌟 Storage Backend Support
 
-gcli2api supports multiple storage backends, automatically selecting by priority: **Redis > Postgres > MongoDB > Local Files**
+gcli2api supports two storage backends: **Local SQLite (Default)** and **MongoDB (Cloud Distributed Storage)**
 
-### ⚡ Redis Distributed Storage Mode
+### 📁 Local SQLite Storage (Default)
 
-### ⚙️ Enable Redis Mode
+**Default Storage Method**
+- No configuration required, works out of the box
+- Data is stored in a local SQLite database
+- Suitable for single-machine deployment and personal use
+- Automatically creates and manages database files
 
-**Step 1: Configure Redis Connection**
-```bash
-# Local Redis
-export REDIS_URI="redis://localhost:6379"
+### 🍃 MongoDB Cloud Storage Mode
 
-# Redis with password
-export REDIS_URI="redis://:password@localhost:6379"
+**Cloud Distributed Storage Solution**
 
-# SSL connection (recommended for production)
-export REDIS_URI="rediss://default:password@host:6380"
-
-# Upstash Redis (free cloud service)
-export REDIS_URI="rediss://default:token@your-host.upstash.io:6379"
-
-# Optional: Custom database index (default: 0)
-export REDIS_DATABASE="1"
-```
-
-**Step 2: Start Application**
-```bash
-# Application will automatically detect Redis configuration and prioritize Redis storage
-python web.py
-```
-
-### 🐘 Postgres Distributed Storage Mode
-
-If Redis is not configured, or you prefer a relational database, gcli2api also supports Postgres (it is checked after Redis and before MongoDB).
-
-⚙️ Enable Postgres Mode
-
-Step 1: Configure Postgres DSN
-```bash
-# Example DSN:
-export POSTGRES_DSN="postgresql://user:password@localhost:5432/gcli2api"
-```
-
-Step 2: Start Application
-```bash
-# Application will detect POSTGRES_DSN and use Postgres when Redis is not available
-python web.py
-```
-
-### 🍃 MongoDB Distributed Storage Mode
-
-### 🌟 Alternative Storage Solution
-
-If Redis is not configured, gcli2api will attempt to use **MongoDB storage mode**.
+When multi-instance deployment or cloud storage is needed, MongoDB storage mode can be enabled.
 
 ### ⚙️ Enable MongoDB Mode
 
@@ -459,7 +421,7 @@ asyncio.run(test())
 # If migration is interrupted, re-run
 python mongodb_setup.py migrate
 
-# To rollback to file mode, remove MONGODB_URI environment variable
+# To rollback to local SQLite mode, remove MONGODB_URI environment variable
 unset MONGODB_URI
 # Then export data from MongoDB
 python mongodb_setup.py export
@@ -570,16 +532,13 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `LOG_LEVEL`: Log level (DEBUG/INFO/WARNING/ERROR, default: INFO)
 - `LOG_FILE`: Log file path (default: gcli2api.log)
 
-**Storage Configuration (by priority)**
+**Storage Configuration**
 
-**Redis Configuration (Highest Priority)**
-- `REDIS_URI`: Redis connection string (enables Redis mode when set)
-  - Local: `redis://localhost:6379`
-  - With password: `redis://:password@host:6379`
-  - SSL: `rediss://default:password@host:6380`
-- `REDIS_DATABASE`: Redis database index (0-15, default: 0)
+**SQLite Configuration (Default)**
+- No configuration required, automatically uses local SQLite database
+- Database files are automatically created in the project directory
 
-**MongoDB Configuration (Second Priority)**
+**MongoDB Configuration (Optional Cloud Storage)**
 - `MONGODB_URI`: MongoDB connection string (enables MongoDB mode when set)
 - `MONGODB_DATABASE`: MongoDB database name (default: gcli2api)
 

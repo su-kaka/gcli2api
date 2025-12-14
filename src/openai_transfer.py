@@ -11,9 +11,11 @@ from typing import Any, Dict, List, Tuple, Union
 from pypinyin import Style, lazy_pinyin
 
 from config import (
+    get_compatibility_mode_enabled,
+)
+from src.utils import (
     DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
-    get_compatibility_mode_enabled,
     get_thinking_budget,
     is_search_model,
     should_include_thoughts,

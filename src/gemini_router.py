@@ -14,6 +14,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
     get_anti_truncation_max_attempts,
+)
+from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
     get_base_model_name,
@@ -218,9 +220,6 @@ async def generate_content(
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
 
-    # 增加调用计数
-    await cred_mgr.increment_call_count()
-
     # 构建Google API payload
     try:
         api_payload = build_gemini_payload_from_native(request_data, real_model)
@@ -326,9 +325,6 @@ async def stream_generate_content(
     if not credential_result:
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    # 增加调用计数
-    await cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -452,9 +448,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
-
-            # 增加调用计数
-            await cred_mgr.increment_call_count()
 
             # 构建Google API payload
             try:

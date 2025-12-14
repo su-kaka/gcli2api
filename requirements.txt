@@ -9,6 +9,5 @@ toml>=0.10.2
 PyJWT>=2.10.1
 oauthlib>=3.3.1
 motor>=3.7.1
-redis>=6.4.0
-asyncpg>=0.30.0
+aiosqlite>=0.20.0
 pypinyin>=0.51.0

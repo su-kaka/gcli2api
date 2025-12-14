@@ -309,65 +309,25 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
      - `x-goog-api-key: your_api_password` 
      - URL 参数：`?key=your_api_password`
 
-## 💾 分布式存储模式
+## 💾 数据存储模式
 
-### 🌟 存储后端优先级
+### 🌟 存储后端支持
 
-gcli2api 支持多种存储后端，按优先级自动选择：**Redis > Postgres > MongoDB > 本地文件**
+gcli2api 支持两种存储后端：**本地 SQLite（默认）** 和 **MongoDB（云端分布式存储）**
 
-### ⚡ Redis 分布式存储模式
+### 📁 本地 SQLite 存储（默认）
 
-### ⚙️ 启用 Redis 模式
+**默认存储方式**
+- 无需配置，开箱即用
+- 数据存储在本地 SQLite 数据库中
+- 适合单机部署和个人使用
+- 自动创建和管理数据库文件
 
-**步骤 1: 配置 Redis 连接**
-```bash
-# 本地 Redis
-export REDIS_URI="redis://localhost:6379"
+### 🍃 MongoDB 云端存储模式
 
-# 带密码的 Redis
-export REDIS_URI="redis://:password@localhost:6379"
+**云端分布式存储方案**
 
-# SSL 连接（推荐生产环境）
-export REDIS_URI="rediss://default:password@host:6380"
-
-# Upstash Redis（免费云服务）
-export REDIS_URI="rediss://default:token@your-host.upstash.io:6379"
-
-# 可选：自定义数据库索引（默认: 0）
-export REDIS_DATABASE="1"
-```
-
-**步骤 2: 启动应用**
-```bash
-# 应用会自动检测 Redis 配置并优先使用 Redis 存储
-python web.py
-```
-
-### 🐘 Postgres 分布式存储模式
-
-如果未配置 Redis，或者你希望使用关系型数据库作为主要存储方案，gcli2api 也支持 Postgres（位于 Redis 之后，优先于 MongoDB）。
-
-⚙️ 启用 Postgres 模式
-
-步骤 1: 配置 Postgres 连接
-```bash
-# 使用标准 DSN（示例）
-export POSTGRES_DSN="postgresql://user:password@localhost:5432/gcli2api"
-
-# 也可以使用 socket 或其他 DSN 格式，取决于你的部署方式
-```
-
-步骤 2: 启动应用
-```bash
-# 应用会自动检测 POSTGRES_DSN 并在 Redis 未启用时优先使用 Postgres 存储
-python web.py
-```
-
-### 🍃 MongoDB 分布式存储模式
-
-### 🌟 备选存储方案
-
-如果未配置 Redis，gcli2api 将尝试使用 **MongoDB 存储模式**，
+当需要多实例部署或云端存储时，可以启用 MongoDB 存储模式。
 
 ### ⚙️ 启用 MongoDB 模式
 
@@ -550,16 +510,13 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
 - `LOG_FILE`: 日志文件路径（默认：gcli2api.log）
 
-**存储配置（按优先级）**
+**存储配置**
 
-**Redis 配置（最高优先级）**
-- `REDIS_URI`: Redis 连接字符串（设置后启用 Redis 模式）
-  - 本地：`redis://localhost:6379`
-  - 带密码：`redis://:password@host:6379`
-  - SSL：`rediss://default:password@host:6380`
-- `REDIS_DATABASE`: Redis 数据库索引（0-15，默认：0）
+**SQLite 配置（默认）**
+- 无需配置，自动使用本地 SQLite 数据库
+- 数据库文件自动创建在项目目录
 
-**MongoDB 配置（第二优先级）**
+**MongoDB 配置（可选云端存储）**
 - `MONGODB_URI`: MongoDB 连接字符串（设置后启用 MongoDB 模式）
 - `MONGODB_DATABASE`: MongoDB 数据库名称（默认：gcli2api）
 
