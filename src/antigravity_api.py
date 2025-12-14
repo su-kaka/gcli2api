@@ -20,7 +20,7 @@ from config import (
 from log import log
 
 from .credential_manager import CredentialManager
-from .httpx_client import create_streaming_client_with_kwargs, http_client
+from .httpx_client import create_streaming_client_with_kwargs, post_async
 from .utils import parse_quota_reset_timestamp
 
 
@@ -295,7 +295,7 @@ async def send_antigravity_request_no_stream(
 
         try:
             # 发送非流式请求
-            response = await http_client.post(
+            response = await post_async(
                 f"{ANTIGRAVITY_URL}/v1internal:generateContent",
                 json=request_body,
                 headers=headers,
@@ -361,12 +361,12 @@ async def send_antigravity_request_no_stream(
 
 async def fetch_available_models(
     credential_manager: CredentialManager,
-) -> List[str]:
+) -> List[Dict[str, Any]]:
     """
-    获取可用模型列表
+    获取可用模型列表，返回符合 OpenAI API 规范的格式
 
     Returns:
-        模型名称列表
+        模型列表，格式: [{"id": "model_name", "object": "model", "created": timestamp, "owned_by": "google"}]
     """
     # 获取可用凭证
     cred_result = await credential_manager.get_valid_credential(is_antigravity=True)
@@ -385,20 +385,42 @@ async def fetch_available_models(
     headers = build_antigravity_headers(access_token)
 
     try:
-        # 发送请求
-        response = await http_client.get(
+        # 使用 POST 请求获取模型列表（根据 buildAxiosConfig，method 是 POST）
+        response = await post_async(
             f"{ANTIGRAVITY_URL}/v1internal:fetchAvailableModels",
+            json={},  # 空的请求体
             headers=headers,
             timeout=30.0,
         )
 
         if response.status_code == 200:
             data = response.json()
-            # 提取模型名称
-            models = data.get("models", [])
-            model_names = [model.get("name", "") for model in models if model.get("name")]
-            log.info(f"[ANTIGRAVITY] Fetched {len(model_names)} available models")
-            return model_names
+            log.debug(f"[ANTIGRAVITY] Raw models response: {json.dumps(data, ensure_ascii=False)[:500]}")
+
+            # 转换为 OpenAI 格式的模型列表
+            model_list = []
+            current_timestamp = int(datetime.now(timezone.utc).timestamp())
+
+            if 'models' in data and isinstance(data['models'], dict):
+                # 遍历模型字典
+                for model_id in data['models'].keys():
+                    model_list.append({
+                        'id': model_id,
+                        'object': 'model',
+                        'created': current_timestamp,
+                        'owned_by': 'google'
+                    })
+
+            # 添加额外的 claude-opus-4-5 模型
+            model_list.append({
+                'id': 'claude-opus-4-5',
+                'object': 'model',
+                'created': current_timestamp,
+                'owned_by': 'google'
+            })
+
+            log.info(f"[ANTIGRAVITY] Fetched {len(model_list)} available models")
+            return model_list
         else:
             log.error(f"[ANTIGRAVITY] Failed to fetch models ({response.status_code}): {response.text[:500]}")
             return []

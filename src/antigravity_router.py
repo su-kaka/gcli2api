@@ -574,13 +574,13 @@ async def list_models():
         # 获取凭证管理器
         cred_mgr = await get_credential_manager()
 
-        # 从 Antigravity API 获取模型列表
+        # 从 Antigravity API 获取模型列表（返回 OpenAI 格式的字典列表）
         models = await fetch_available_models(cred_mgr)
 
         if not models:
             # 如果获取失败，返回默认模型列表
             log.warning("[ANTIGRAVITY] Failed to fetch models from API, using fallback list")
-            models = [
+            fallback_models = [
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-5-thinking",
                 "claude-opus-4-5",
@@ -590,13 +590,15 @@ async def list_models():
                 "gemini-3-pro",
                 "gemini-3-pro-image",
             ]
+            return ModelList(data=[Model(id=m) for m in fallback_models])
 
-        return ModelList(data=[Model(id=m) for m in models])
+        # models 已经是 OpenAI 格式的字典列表，直接转换为 Model 对象
+        return ModelList(data=[Model(**m) for m in models])
 
     except Exception as e:
         log.error(f"[ANTIGRAVITY] Error fetching models: {e}")
         # 返回默认模型列表作为后备
-        models = [
+        fallback_models = [
             "claude-sonnet-4-5",
             "claude-sonnet-4-5-thinking",
             "claude-opus-4-5",
@@ -606,7 +608,7 @@ async def list_models():
             "gemini-3-pro",
             "gemini-3-pro-image",
         ]
-        return ModelList(data=[Model(id=m) for m in models])
+        return ModelList(data=[Model(id=m) for m in fallback_models])
 
 
 @router.post("/antigravity/v1/chat/completions")
