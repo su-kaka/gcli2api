@@ -1,6 +1,5 @@
 """
-凭证管理器 - 激进重构版
-使用 SQL 智能查询替代 Python 内存队列，真正发挥数据库优势
+凭证管理器
 """
 
 import asyncio
@@ -43,39 +42,42 @@ class CredentialManager:
         self._initialized = False
         log.debug("Credential manager closed")
 
-    async def get_valid_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+    async def get_valid_credential(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
         每次随机选择一个可用的凭证（未禁用、未冷却）
+
+        Args:
+            is_antigravity: 是否获取 antigravity 凭证（默认 False）
         """
         async with self._operation_lock:
             # 使用 SQL 随机查询获取可用凭证
             if hasattr(self._storage_adapter._backend, 'get_next_available_credential'):
                 # SQLite 后端：直接用智能 SQL（已经是随机选择）
-                result = await self._storage_adapter._backend.get_next_available_credential()
+                result = await self._storage_adapter._backend.get_next_available_credential(is_antigravity=is_antigravity)
                 if result:
                     filename, credential_data = result
                     # Token 刷新检查
                     if await self._should_refresh_token(credential_data):
-                        log.debug(f"Token需要刷新 - 文件: {filename}")
-                        refreshed_data = await self._refresh_token(credential_data, filename)
+                        log.debug(f"Token需要刷新 - 文件: {filename} (antigravity={is_antigravity})")
+                        refreshed_data = await self._refresh_token(credential_data, filename, is_antigravity=is_antigravity)
                         if refreshed_data:
                             credential_data = refreshed_data
-                            log.debug(f"Token刷新成功: {filename}")
+                            log.debug(f"Token刷新成功: {filename} (antigravity={is_antigravity})")
                         else:
-                            log.error(f"Token刷新失败: {filename}")
+                            log.error(f"Token刷新失败: {filename} (antigravity={is_antigravity})")
                             return None
                     return filename, credential_data
                 return None
             else:
                 # MongoDB/Postgres 后端：使用传统方法（随机选择）
-                return await self._get_valid_credential_traditional()
+                return await self._get_valid_credential_traditional(is_antigravity=is_antigravity)
 
-    async def _get_valid_credential_traditional(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+    async def _get_valid_credential_traditional(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
         """传统方式获取凭证（用于 MongoDB/Postgres 后端）- 随机选择"""
         import random
 
-        all_creds = await self._storage_adapter.list_credentials()
+        all_creds = await self._storage_adapter.list_credentials(is_antigravity=is_antigravity)
         if not all_creds:
             return None
 
@@ -85,22 +87,22 @@ class CredentialManager:
         for filename in all_creds:
             try:
                 # 检查冷却期
-                if await self._is_credential_in_cooldown(filename):
+                if await self._is_credential_in_cooldown(filename, is_antigravity=is_antigravity):
                     continue
 
                 # 检查禁用状态
-                state = await self._storage_adapter.get_credential_state(filename)
+                state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
                 if state.get("disabled", False):
                     continue
 
                 # 加载凭证
-                credential_data = await self._storage_adapter.get_credential(filename)
+                credential_data = await self._storage_adapter.get_credential(filename, is_antigravity=is_antigravity)
                 if not credential_data:
                     continue
 
                 # Token 刷新
                 if await self._should_refresh_token(credential_data):
-                    refreshed_data = await self._refresh_token(credential_data, filename)
+                    refreshed_data = await self._refresh_token(credential_data, filename, is_antigravity=is_antigravity)
                     if refreshed_data:
                         credential_data = refreshed_data
                     else:
@@ -109,7 +111,7 @@ class CredentialManager:
                 return filename, credential_data
 
             except Exception as e:
-                log.error(f"Error checking credential {filename}: {e}")
+                log.error(f"Error checking credential {filename} (antigravity={is_antigravity}): {e}")
                 continue
 
         return None
@@ -134,31 +136,31 @@ class CredentialManager:
                 log.error(f"Error removing credential {credential_name}: {e}")
                 return False
 
-    async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any]):
+    async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any], is_antigravity: bool = False):
         """更新凭证状态"""
         try:
             success = await self._storage_adapter.update_credential_state(
-                credential_name, state_updates
+                credential_name, state_updates, is_antigravity=is_antigravity
             )
             if success:
-                log.debug(f"Updated credential state: {credential_name}")
+                log.debug(f"Updated credential state: {credential_name} (antigravity={is_antigravity})")
             else:
-                log.warning(f"Failed to update credential state: {credential_name}")
+                log.warning(f"Failed to update credential state: {credential_name} (antigravity={is_antigravity})")
             return success
         except Exception as e:
             log.error(f"Error updating credential state {credential_name}: {e}")
             return False
 
-    async def set_cred_disabled(self, credential_name: str, disabled: bool):
+    async def set_cred_disabled(self, credential_name: str, disabled: bool, is_antigravity: bool = False):
         """设置凭证的启用/禁用状态"""
         async with self._operation_lock:
             try:
                 success = await self.update_credential_state(
-                    credential_name, {"disabled": disabled}
+                    credential_name, {"disabled": disabled}, is_antigravity=is_antigravity
                 )
                 if success:
                     action = "disabled" if disabled else "enabled"
-                    log.info(f"Credential {action}: {credential_name}")
+                    log.info(f"Credential {action}: {credential_name} (antigravity={is_antigravity})")
                 return success
             except Exception as e:
                 log.error(f"Error setting credential disabled state {credential_name}: {e}")
@@ -216,18 +218,19 @@ class CredentialManager:
             log.error(f"Error getting credentials summary: {e}")
             return []
 
-    async def _is_credential_in_cooldown(self, credential_name: str) -> bool:
+    async def _is_credential_in_cooldown(self, credential_name: str, is_antigravity: bool = False) -> bool:
         """
         检查凭证是否在冷却期内（内部方法，调用者需要持有适当的锁）
 
         Args:
             credential_name: 凭证名称
+            is_antigravity: 是否为 antigravity 凭证
 
         Returns:
             True表示在冷却期，False表示已过冷却期或无冷却
         """
         try:
-            state = await self._storage_adapter.get_credential_state(credential_name)
+            state = await self._storage_adapter.get_credential_state(credential_name, is_antigravity=is_antigravity)
             cooldown_until = state.get("cooldown_until")
 
             if cooldown_until is None:
@@ -289,7 +292,7 @@ class CredentialManager:
                 # 直接调用不加锁的更新方法（调用者已经持有operation_lock）
                 try:
                     await self._storage_adapter.update_credential_state(
-                        credential_name, {"cooldown_until": None}
+                        credential_name, {"cooldown_until": None}, is_antigravity=is_antigravity
                     )
                 except Exception as clear_err:
                     log.warning(f"清除冷却状态失败 {credential_name}: {clear_err}")
@@ -333,7 +336,7 @@ class CredentialManager:
 
     async def record_api_call_result(
         self, credential_name: str, success: bool, error_code: Optional[int] = None,
-        cooldown_until: Optional[float] = None
+        cooldown_until: Optional[float] = None, is_antigravity: bool = False
     ):
         """
         记录API调用结果
@@ -343,6 +346,7 @@ class CredentialManager:
             success: 是否成功
             error_code: 错误码（如果失败）
             cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
+            is_antigravity: 是否为 antigravity 凭证
         """
         try:
             state_updates = {}
@@ -354,7 +358,7 @@ class CredentialManager:
                 state_updates["cooldown_until"] = None
             elif error_code:
                 # 记录错误码
-                current_state = await self._storage_adapter.get_credential_state(credential_name)
+                current_state = await self._storage_adapter.get_credential_state(credential_name, is_antigravity=is_antigravity)
                 error_codes = current_state.get("error_codes", [])
 
                 if error_code not in error_codes:
@@ -374,7 +378,7 @@ class CredentialManager:
                     )
 
             if state_updates:
-                await self.update_credential_state(credential_name, state_updates)
+                await self.update_credential_state(credential_name, state_updates, is_antigravity=is_antigravity)
 
         except Exception as e:
             log.error(f"Error recording API call result for {credential_name}: {e}")
@@ -435,7 +439,7 @@ class CredentialManager:
             return True
 
     async def _refresh_token(
-        self, credential_data: Dict[str, Any], filename: str
+        self, credential_data: Dict[str, Any], filename: str, is_antigravity: bool = False
     ) -> Optional[Dict[str, Any]]:
         """刷新token并更新存储"""
         try:
@@ -444,17 +448,17 @@ class CredentialManager:
 
             # 检查是否可以刷新
             if not creds.refresh_token:
-                log.error(f"没有refresh_token，无法刷新: {filename}")
+                log.error(f"没有refresh_token，无法刷新: {filename} (antigravity={is_antigravity})")
                 # 自动禁用没有refresh_token的凭证
                 try:
-                    await self.update_credential_state(filename, {"disabled": True})
+                    await self.update_credential_state(filename, {"disabled": True}, is_antigravity=is_antigravity)
                     log.warning(f"凭证已自动禁用（缺少refresh_token）: {filename}")
                 except Exception as e:
                     log.error(f"禁用凭证失败 {filename}: {e}")
                 return None
 
             # 刷新token
-            log.debug(f"正在刷新token: {filename}")
+            log.debug(f"正在刷新token: {filename} (antigravity={is_antigravity})")
             await creds.refresh()
 
             # 更新凭证数据
@@ -467,14 +471,14 @@ class CredentialManager:
                 credential_data["expiry"] = creds.expires_at.isoformat()
 
             # 保存到存储
-            await self._storage_adapter.store_credential(filename, credential_data)
-            log.info(f"Token刷新成功并已保存: {filename}")
+            await self._storage_adapter.store_credential(filename, credential_data, is_antigravity=is_antigravity)
+            log.info(f"Token刷新成功并已保存: {filename} (antigravity={is_antigravity})")
 
             return credential_data
 
         except Exception as e:
             error_msg = str(e)
-            log.error(f"Token刷新失败 {filename}: {error_msg}")
+            log.error(f"Token刷新失败 {filename} (antigravity={is_antigravity}): {error_msg}")
 
             # 尝试提取HTTP状态码（TokenError可能携带status_code属性）
             status_code = None
@@ -488,14 +492,14 @@ class CredentialManager:
                 log.warning(f"检测到凭证永久失效 (HTTP {status_code}): {filename}")
                 # 记录失效状态
                 if status_code:
-                    await self.record_api_call_result(filename, False, status_code)
+                    await self.record_api_call_result(filename, False, status_code, is_antigravity=is_antigravity)
                 else:
-                    await self.record_api_call_result(filename, False, 400)
+                    await self.record_api_call_result(filename, False, 400, is_antigravity=is_antigravity)
 
                 # 禁用失效凭证
                 try:
                     # 直接禁用该凭证（随机选择机制会自动跳过它）
-                    disabled_ok = await self.update_credential_state(filename, {"disabled": True})
+                    disabled_ok = await self.update_credential_state(filename, {"disabled": True}, is_antigravity=is_antigravity)
                     if disabled_ok:
                         log.warning(f"永久失效凭证已禁用: {filename}")
                     else:

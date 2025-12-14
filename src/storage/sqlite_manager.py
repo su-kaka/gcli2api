@@ -305,22 +305,26 @@ class SQLiteManager:
 
     # ============ SQL 方法 ============
 
-    async def get_next_available_credential(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+    async def get_next_available_credential(self, is_antigravity: bool = False) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
         - 未冷却（或冷却期已过）
         - 随机选择
+
+        Args:
+            is_antigravity: 是否获取 antigravity 凭证（默认 False）
         """
         self._ensure_initialized()
 
         try:
+            table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                async with db.execute("""
+                async with db.execute(f"""
                     SELECT filename, credential_data, id
-                    FROM credentials
+                    FROM {table_name}
                     WHERE disabled = 0
                       AND (cooldown_until IS NULL OR cooldown_until < ?)
                     ORDER BY RANDOM()
@@ -336,7 +340,7 @@ class SQLiteManager:
                 return None
 
         except Exception as e:
-            log.error(f"Error getting next available credential: {e}")
+            log.error(f"Error getting next available credential (antigravity={is_antigravity}): {e}")
             return None
 
     async def rotate_and_update_credential(self, filename: str, increment_call: bool = True):
