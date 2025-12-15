@@ -1,6 +1,6 @@
 # GeminiCLI to API
 
-**将 GeminiCLI 转换为 OpenAI 和 GEMINI API 接口**
+**将 GeminiCLI 和 antigravity 转换为 OpenAI 和 GEMINI API 接口**
 
 [![CI](https://github.com/su-kaka/gcli2api/workflows/CI/badge.svg)](https://github.com/su-kaka/gcli2api/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -541,29 +541,6 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 **MongoDB 配置（可选云端存储）**
 - `MONGODB_URI`: MongoDB 连接字符串（设置后启用 MongoDB 模式）
 - `MONGODB_DATABASE`: MongoDB 数据库名称（默认：gcli2api）
-
-**凭证配置**
-
-支持使用 `GCLI_CREDS_*` 环境变量导入多个凭证：
-
-#### 凭证环境变量使用示例
-
-**方式 1：编号格式**
-```bash
-export GCLI_CREDS_1='{"client_id":"your-client-id","client_secret":"your-secret","refresh_token":"your-token","token_uri":"https://oauth2.googleapis.com/token","project_id":"your-project"}'
-export GCLI_CREDS_2='{"client_id":"...","project_id":"..."}'
-```
-
-**方式 2：项目名格式**
-```bash
-export GCLI_CREDS_myproject='{"client_id":"...","project_id":"myproject",...}'
-export GCLI_CREDS_project2='{"client_id":"...","project_id":"project2",...}'
-```
-
-**启用自动加载**
-```bash
-export AUTO_LOAD_ENV_CREDS=true  # 程序启动时自动导入环境变量凭证
-```
 
 **Docker 使用示例**
 ```bash

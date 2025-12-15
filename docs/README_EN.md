@@ -1,6 +1,6 @@
 # GeminiCLI to API
 
-**Convert GeminiCLI to OpenAI and GEMINI API interfaces**
+**Convert GeminiCLI antigravity to OpenAI and GEMINI API interfaces**
 
 [![CI](https://github.com/su-kaka/gcli2api/workflows/CI/badge.svg)](https://github.com/su-kaka/gcli2api/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -563,29 +563,6 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 **MongoDB Configuration (Optional Cloud Storage)**
 - `MONGODB_URI`: MongoDB connection string (enables MongoDB mode when set)
 - `MONGODB_DATABASE`: MongoDB database name (default: gcli2api)
-
-**Credential Configuration**
-
-Support importing multiple credentials using `GCLI_CREDS_*` environment variables:
-
-#### Credential Environment Variable Usage Examples
-
-**Method 1: Numbered Format**
-```bash
-export GCLI_CREDS_1='{"client_id":"your-client-id","client_secret":"your-secret","refresh_token":"your-token","token_uri":"https://oauth2.googleapis.com/token","project_id":"your-project"}'
-export GCLI_CREDS_2='{"client_id":"...","project_id":"..."}'
-```
-
-**Method 2: Project Name Format**
-```bash
-export GCLI_CREDS_myproject='{"client_id":"...","project_id":"myproject",...}'
-export GCLI_CREDS_project2='{"client_id":"...","project_id":"project2",...}'
-```
-
-**Enable Automatic Loading**
-```bash
-export AUTO_LOAD_ENV_CREDS=true  # Automatically import environment variable credentials at program startup
-```
 
 **Docker Usage Example**
 ```bash
