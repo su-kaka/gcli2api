@@ -247,9 +247,10 @@ def convert_openai_tools_to_antigravity(tools: Optional[List[Any]]) -> Optional[
         if tool_type == "function":
             function = getattr(tool, "function", None)
             if function:
-                func_name = getattr(function, "name", "")
-                func_desc = getattr(function, "description", "")
-                func_params = getattr(function, "parameters", {})
+                func_name = function.get("name")
+                assert func_name is not None, "Function name is required"
+                func_desc = function.get("description", "")
+                func_params = function.get("parameters", {})
 
                 # 转换为字典（如果是 Pydantic 模型）
                 if hasattr(func_params, "dict"):
