@@ -331,7 +331,14 @@ function createUploadManager(type) {
         type: type,
         selectedFiles: [],
 
-        getElementId: (suffix) => isAntigravity ? `antigravity${suffix}` : suffix,
+        getElementId: (suffix) => {
+            // 普通上传的ID首字母小写,如 fileList
+            // Antigravity的ID是 antigravity + 首字母大写,如 antigravityFileList
+            if (isAntigravity) {
+                return 'antigravity' + suffix.charAt(0).toUpperCase() + suffix.slice(1);
+            }
+            return suffix.charAt(0).toLowerCase() + suffix.slice(1);
+        },
 
         handleFileSelect(event) {
             this.addFiles(Array.from(event.target.files));
@@ -356,6 +363,11 @@ function createUploadManager(type) {
         updateFileList() {
             const list = document.getElementById(this.getElementId('FileList'));
             const section = document.getElementById(this.getElementId('FileListSection'));
+
+            if (!list || !section) {
+                console.warn('File list elements not found:', this.getElementId('FileList'));
+                return;
+            }
 
             if (this.selectedFiles.length === 0) {
                 section.classList.add('hidden');
@@ -431,7 +443,6 @@ function createUploadManager(type) {
                             showStatus(`成功上传 ${data.uploaded_count} 个${isAntigravity ? 'Antigravity' : ''}文件`, 'success');
                             this.clearFiles();
                             progressSection.classList.add('hidden');
-                            if (isAntigravity) AppState.antigravityCreds.refresh();
                         } catch (e) {
                             showStatus('上传失败: 服务器响应格式错误', 'error');
                         }
