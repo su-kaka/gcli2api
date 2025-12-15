@@ -784,7 +784,7 @@ async function startAuth() {
         const requestBody = projectId ? { project_id: projectId } : {};
         showStatus(projectId ? '使用指定的项目ID生成认证链接...' : '将尝试自动检测项目ID，正在生成认证链接...', 'info');
 
-        const response = await fetch('/auth/start', {
+        const response = await fetch('./auth/start', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -828,7 +828,7 @@ async function getCredentials() {
 
         const requestBody = AppState.currentProjectId ? { project_id: AppState.currentProjectId } : {};
 
-        const response = await fetch('/auth/callback', {
+        const response = await fetch('./auth/callback', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -1046,7 +1046,7 @@ async function processCallbackUrl() {
     try {
         const projectId = document.getElementById('projectId')?.value.trim() || null;
 
-        const response = await fetch('/auth/callback-url', {
+        const response = await fetch('./auth/callback-url', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ callback_url: callbackUrl, project_id: projectId })
@@ -1540,7 +1540,7 @@ async function loadEnvCredentials() {
     try {
         showStatus('正在从环境变量导入凭证...', 'info');
 
-        const response = await fetch('/auth/load-env-creds', {
+        const response = await fetch('./auth/load-env-creds', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -1570,7 +1570,7 @@ async function clearEnvCredentials() {
     try {
         showStatus('正在清除环境变量凭证文件...', 'info');
 
-        const response = await fetch('/auth/env-creds', {
+        const response = await fetch('./auth/env-creds', {
             method: 'DELETE',
             headers: getAuthHeaders()
         });
@@ -1696,7 +1696,7 @@ async function saveConfig() {
             anti_truncation_max_attempts: getInt('antiTruncationMaxAttempts', 3)
         };
 
-        const response = await fetch('/config/save', {
+        const response = await fetch('./config/save', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ config })
@@ -1849,7 +1849,7 @@ async function resetSingleUsageStats(filename) {
     if (!confirm(`确定要重置 ${filename} 的使用统计吗？`)) return;
 
     try {
-        const response = await fetch('/usage/reset', {
+        const response = await fetch('./usage/reset', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ filename })
@@ -1872,7 +1872,7 @@ async function resetAllUsageStats() {
     if (!confirm('确定要重置所有文件的使用统计吗？此操作不可恢复！')) return;
 
     try {
-        const response = await fetch('/usage/reset', {
+        const response = await fetch('./usage/reset', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({})
