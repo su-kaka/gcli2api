@@ -1082,7 +1082,6 @@ async function processCallbackUrl() {
         }
 
         document.getElementById('callbackUrlInput').value = '';
-        setTimeout(() => { if (typeof refreshCredsStatus === 'function') refreshCredsStatus(); }, 1000);
     } catch (error) {
         showStatus(`从回调URL获取凭证失败: ${error.message}`, 'error');
     }
@@ -1126,7 +1125,6 @@ async function processAntigravityCallbackUrl() {
         }
 
         document.getElementById('antigravityCallbackUrlInput').value = '';
-        setTimeout(() => AppState.antigravityCreds.refresh(), 1000);
     } catch (error) {
         showStatus(`从回调URL获取 Antigravity 凭证失败: ${error.message}`, 'error');
     }
