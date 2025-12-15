@@ -26,7 +26,7 @@ from .google_oauth_api import (
 )
 from .storage_adapter import get_storage_adapter
 
-# OAuth Configuration
+# OAuth Configuration - 标准模式
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 CLIENT_SECRET = "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"
 SCOPES = [
@@ -35,6 +35,20 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
+# Antigravity OAuth Configuration
+ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+ANTIGRAVITY_CLIENT_SECRET = "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"
+ANTIGRAVITY_SCOPES = [
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/cclog',
+    'https://www.googleapis.com/auth/experimentsandconfigs'
+]
+
+# 统一的 Token URL（两种模式相同）
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+
 # 回调服务器配置
 CALLBACK_HOST = "localhost"
 
@@ -42,6 +56,84 @@ CALLBACK_HOST = "localhost"
 async def get_callback_port():
     """获取OAuth回调端口"""
     return int(await get_config_value("oauth_callback_port", "8080", "OAUTH_CALLBACK_PORT"))
+
+
+def _prepare_credentials_data(credentials: Credentials, project_id: str, is_antigravity: bool = False) -> Dict[str, Any]:
+    """准备凭证数据字典（统一函数）"""
+    if is_antigravity:
+        creds_data = {
+            "client_id": ANTIGRAVITY_CLIENT_ID,
+            "client_secret": ANTIGRAVITY_CLIENT_SECRET,
+            "token": credentials.access_token,
+            "refresh_token": credentials.refresh_token,
+            "scopes": ANTIGRAVITY_SCOPES,
+            "token_uri": TOKEN_URL,
+            "project_id": project_id,
+        }
+    else:
+        creds_data = {
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "token": credentials.access_token,
+            "refresh_token": credentials.refresh_token,
+            "scopes": SCOPES,
+            "token_uri": TOKEN_URL,
+            "project_id": project_id,
+        }
+
+    if credentials.expires_at:
+        if credentials.expires_at.tzinfo is None:
+            expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
+        else:
+            expiry_utc = credentials.expires_at
+        creds_data["expiry"] = expiry_utc.isoformat()
+
+    return creds_data
+
+
+def _generate_random_project_id() -> str:
+    """生成随机project_id（antigravity模式使用）"""
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+
+
+def _cleanup_auth_flow_server(state: str):
+    """清理认证流程的服务器资源"""
+    if state in auth_flows:
+        flow_data_to_clean = auth_flows[state]
+        try:
+            if flow_data_to_clean.get("server"):
+                server = flow_data_to_clean["server"]
+                port = flow_data_to_clean.get("callback_port")
+                async_shutdown_server(server, port)
+        except Exception as e:
+            log.debug(f"关闭服务器时出错: {e}")
+        del auth_flows[state]
+
+
+class _OAuthLibPatcher:
+    """oauthlib参数验证补丁的上下文管理器"""
+    def __init__(self):
+        import oauthlib.oauth2.rfc6749.parameters
+        self.module = oauthlib.oauth2.rfc6749.parameters
+        self.original_validate = None
+
+    def __enter__(self):
+        self.original_validate = self.module.validate_token_parameters
+
+        def patched_validate(params):
+            try:
+                return self.original_validate(params)
+            except Warning:
+                pass
+
+        self.module.validate_token_parameters = patched_validate
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.original_validate:
+            self.module.validate_token_parameters = self.original_validate
 
 
 # 全局状态管理 - 严格限制大小
@@ -161,7 +253,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 async def create_auth_url(
-    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False
+    project_id: Optional[str] = None, user_session: str = None, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
     try:
@@ -188,12 +280,20 @@ async def create_auth_url(
             }
 
         # 创建OAuth流程
-        # Commented out unused client_config
+        # 根据模式选择配置
+        if use_antigravity:
+            client_id = ANTIGRAVITY_CLIENT_ID
+            client_secret = ANTIGRAVITY_CLIENT_SECRET
+            scopes = ANTIGRAVITY_SCOPES
+        else:
+            client_id = CLIENT_ID
+            client_secret = CLIENT_SECRET
+            scopes = SCOPES
 
         flow = Flow(
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-            scopes=SCOPES,
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
             redirect_uri=callback_url,
         )
 
@@ -236,7 +336,7 @@ async def create_auth_url(
             "completed": False,
             "created_at": time.time(),
             "auto_project_detection": project_id is None,  # 标记是否需要自动检测项目ID
-            "get_all_projects": get_all_projects,  # 是否为所有项目获取凭证
+            "use_antigravity": use_antigravity,  # 是否使用antigravity模式
         }
 
         # 清理过期的流程（30分钟）
@@ -357,121 +457,82 @@ async def complete_auth_flow(
             auth_code = flow_data["code"]
 
         # 使用认证代码获取凭证
-        import oauthlib.oauth2.rfc6749.parameters
-
-        original_validate = oauthlib.oauth2.rfc6749.parameters.validate_token_parameters
-
-        def patched_validate(params):
+        with _OAuthLibPatcher():
             try:
-                return original_validate(params)
-            except Warning:
-                pass
+                credentials = await flow.exchange_code(auth_code)
+                # credentials 已经在 exchange_code 中获得
 
-        oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
+                # 如果需要自动检测项目ID且没有提供项目ID
+                if flow_data.get("auto_project_detection", False) and not project_id:
+                    log.info("尝试通过API获取用户项目列表...")
+                    log.info(f"使用的token: {credentials.access_token[:20]}...")
+                    log.info(f"Token过期时间: {credentials.expires_at}")
+                    user_projects = await get_user_projects(credentials)
 
-        try:
-            credentials = await flow.exchange_code(auth_code)
-            # credentials 已经在 exchange_code 中获得
-
-            # 如果需要自动检测项目ID且没有提供项目ID
-            if flow_data.get("auto_project_detection", False) and not project_id:
-                log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.access_token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expires_at}")
-                user_projects = await get_user_projects(credentials)
-
-                if user_projects:
-                    # 如果只有一个项目，自动使用
-                    if len(user_projects) == 1:
-                        project_id = user_projects[0].get("projectId")
-                        if project_id:
-                            flow_data["project_id"] = project_id
-                            log.info(f"自动选择唯一项目: {project_id}")
-                    # 如果有多个项目，尝试选择默认项目
-                    else:
-                        project_id = await select_default_project(user_projects)
-                        if project_id:
-                            flow_data["project_id"] = project_id
-                            log.info(f"自动选择默认项目: {project_id}")
+                    if user_projects:
+                        # 如果只有一个项目，自动使用
+                        if len(user_projects) == 1:
+                            project_id = user_projects[0].get("projectId")
+                            if project_id:
+                                flow_data["project_id"] = project_id
+                                log.info(f"自动选择唯一项目: {project_id}")
+                        # 如果有多个项目，尝试选择默认项目
                         else:
-                            # 返回项目列表让用户选择
-                            return {
-                                "success": False,
-                                "error": "请从以下项目中选择一个",
-                                "requires_project_selection": True,
-                                "available_projects": [
-                                    {
-                                        "projectId": p.get("projectId"),
-                                        "name": p.get("displayName") or p.get("projectId"),
-                                        "projectNumber": p.get("projectNumber"),
-                                    }
-                                    for p in user_projects
-                                ],
-                            }
-                else:
-                    # 如果无法获取项目列表，提示手动输入
+                            project_id = await select_default_project(user_projects)
+                            if project_id:
+                                flow_data["project_id"] = project_id
+                                log.info(f"自动选择默认项目: {project_id}")
+                            else:
+                                # 返回项目列表让用户选择
+                                return {
+                                    "success": False,
+                                    "error": "请从以下项目中选择一个",
+                                    "requires_project_selection": True,
+                                    "available_projects": [
+                                        {
+                                            "projectId": p.get("projectId"),
+                                            "name": p.get("displayName") or p.get("projectId"),
+                                            "projectNumber": p.get("projectNumber"),
+                                        }
+                                        for p in user_projects
+                                    ],
+                                }
+                    else:
+                        # 如果无法获取项目列表，提示手动输入
+                        return {
+                            "success": False,
+                            "error": "无法获取您的项目列表，请手动指定项目ID",
+                            "requires_manual_project_id": True,
+                        }
+
+                # 如果仍然没有项目ID，返回错误
+                if not project_id:
                     return {
                         "success": False,
-                        "error": "无法获取您的项目列表，请手动指定项目ID",
+                        "error": "缺少项目ID，请指定项目ID",
                         "requires_manual_project_id": True,
                     }
 
-            # 如果仍然没有项目ID，返回错误
-            if not project_id:
+                # 保存凭证
+                saved_filename = await save_credentials(credentials, project_id)
+
+                # 准备返回的凭证数据
+                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=False)
+
+                # 清理使用过的流程
+                _cleanup_auth_flow_server(state)
+
+                log.info("OAuth认证成功，凭证已保存")
                 return {
-                    "success": False,
-                    "error": "缺少项目ID，请指定项目ID",
-                    "requires_manual_project_id": True,
+                    "success": True,
+                    "credentials": creds_data,
+                    "file_path": saved_filename,
+                    "auto_detected_project": flow_data.get("auto_project_detection", False),
                 }
 
-            # 保存凭证
-            saved_filename = await save_credentials(credentials, project_id)
-
-            # 准备返回的凭证数据
-            creds_data = {
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "token": credentials.access_token,
-                "refresh_token": credentials.refresh_token,
-                "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "project_id": project_id,
-            }
-
-            if credentials.expires_at:
-                if credentials.expires_at.tzinfo is None:
-                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
-                else:
-                    expiry_utc = credentials.expires_at
-                creds_data["expiry"] = expiry_utc.isoformat()
-
-            # 清理使用过的流程
-            if state in auth_flows:
-                flow_data_to_clean = auth_flows[state]
-                # 快速关闭服务器
-                try:
-                    if flow_data_to_clean.get("server"):
-                        server = flow_data_to_clean["server"]
-                        port = flow_data_to_clean.get("callback_port")
-                        async_shutdown_server(server, port)
-                except Exception as e:
-                    log.debug(f"启动异步关闭服务器时出错: {e}")
-
-                del auth_flows[state]
-
-            log.info("OAuth认证成功，凭证已保存")
-            return {
-                "success": True,
-                "credentials": creds_data,
-                "file_path": saved_filename,
-                "auto_detected_project": flow_data.get("auto_project_detection", False),
-            }
-
-        except Exception as e:
-            log.error(f"获取凭证失败: {e}")
-            return {"success": False, "error": f"获取凭证失败: {str(e)}"}
-        finally:
-            oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = original_validate
+            except Exception as e:
+                log.error(f"获取凭证失败: {e}")
+                return {"success": False, "error": f"获取凭证失败: {str(e)}"}
 
     except Exception as e:
         log.error(f"完成认证流程失败: {e}")
@@ -479,7 +540,7 @@ async def complete_auth_flow(
 
 
 async def asyncio_complete_auth_flow(
-    project_id: Optional[str] = None, user_session: str = None, get_all_projects: bool = False
+    project_id: Optional[str] = None, user_session: str = None, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
     try:
@@ -596,229 +657,124 @@ async def asyncio_complete_auth_flow(
         log.info(f"开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
 
         # 使用认证代码获取凭证
-        import oauthlib.oauth2.rfc6749.parameters
-
-        original_validate = oauthlib.oauth2.rfc6749.parameters.validate_token_parameters
-
-        def patched_validate(params):
+        with _OAuthLibPatcher():
             try:
-                return original_validate(params)
-            except Warning:
-                pass
+                log.info("调用flow.exchange_code...")
+                credentials = await flow.exchange_code(auth_code)
+                log.info(
+                    f"成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}..."
+                )
 
-        oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = patched_validate
+                log.info(
+                    f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}"
+                )
 
-        try:
-            log.info("调用flow.exchange_code...")
-            credentials = await flow.exchange_code(auth_code)
-            log.info(
-                f"成功获取凭证，token前缀: {credentials.access_token[:20] if credentials.access_token else 'None'}..."
-            )
+                # 检查是否为antigravity模式
+                is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
+                if is_antigravity:
+                    log.info("Antigravity模式：生成随机project_id...")
+                    project_id = _generate_random_project_id()
+                    log.info(f"生成的随机project_id: {project_id}")
 
-            log.info(
-                f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}"
-            )
+                    # 保存antigravity凭证
+                    saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
 
-            # 检查是否为批量获取所有项目模式
-            if flow_data.get("get_all_projects", False) or get_all_projects:
-                log.info("批量模式：为所有项目并发获取凭证...")
-                user_projects = await get_user_projects(credentials)
-
-                if user_projects:
-
-                    async def process_single_project(project_info):
-                        """并发处理单个项目的凭证获取"""
-                        project_id_current = project_info.get("projectId")
-                        project_name = project_info.get("displayName") or project_id_current
-
-                        try:
-                            log.info(f"为项目 {project_name} ({project_id_current}) 启用API服务...")
-                            await enable_required_apis(credentials, project_id_current)
-
-                            # 保存凭证
-                            saved_filename = await save_credentials(credentials, project_id_current)
-
-                            log.info(f"成功为项目 {project_name} 保存凭证")
-                            return {
-                                "status": "success",
-                                "project_id": project_id_current,
-                                "project_name": project_name,
-                                "file_path": saved_filename,
-                            }
-
-                        except Exception as e:
-                            log.error(
-                                f"为项目 {project_name} ({project_id_current}) 处理凭证失败: {e}"
-                            )
-                            return {
-                                "status": "failed",
-                                "project_id": project_id_current,
-                                "project_name": project_name,
-                                "error": str(e),
-                            }
-
-                    # 并发处理所有项目
-                    log.info(f"开始并发处理 {len(user_projects)} 个项目...")
-                    tasks = [process_single_project(project_info) for project_info in user_projects]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    # 整理结果
-                    multiple_results = {"success": [], "failed": []}
-                    for result in results:
-                        if isinstance(result, Exception):
-                            log.error(f"并发处理项目时发生异常: {result}")
-                            multiple_results["failed"].append(
-                                {
-                                    "project_id": "unknown",
-                                    "project_name": "unknown",
-                                    "error": f"处理异常: {str(result)}",
-                                }
-                            )
-                        elif result["status"] == "success":
-                            multiple_results["success"].append(
-                                {
-                                    "project_id": result["project_id"],
-                                    "project_name": result["project_name"],
-                                    "file_path": result["file_path"],
-                                }
-                            )
-                        else:  # failed
-                            multiple_results["failed"].append(
-                                {
-                                    "project_id": result["project_id"],
-                                    "project_name": result["project_name"],
-                                    "error": result["error"],
-                                }
-                            )
+                    # 准备返回的凭证数据
+                    creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=True)
 
                     # 清理使用过的流程
-                    if state in auth_flows:
-                        flow_data_to_clean = auth_flows[state]
-                        try:
-                            if flow_data_to_clean.get("server"):
-                                server = flow_data_to_clean["server"]
-                                port = flow_data_to_clean.get("callback_port")
-                                async_shutdown_server(server, port)
-                        except Exception as e:
-                            log.debug(f"启动异步关闭服务器时出错: {e}")
-                        del auth_flows[state]
+                    _cleanup_auth_flow_server(state)
 
-                    log.info(
-                        f"批量并发认证完成：成功 {len(multiple_results['success'])} 个，失败 {len(multiple_results['failed'])} 个"
-                    )
-                    return {"success": True, "multiple_credentials": multiple_results}
-                else:
-                    return {"success": False, "error": "无法获取您的项目列表，批量认证失败"}
+                    log.info("Antigravity OAuth认证成功，凭证已保存")
+                    return {
+                        "success": True,
+                        "credentials": creds_data,
+                        "file_path": saved_filename,
+                        "auto_detected_project": False,
+                        "is_antigravity": True,
+                    }
 
-            # 如果需要自动检测项目ID且没有提供项目ID（单项目模式）
-            elif flow_data.get("auto_project_detection", False) and not project_id:
-                log.info("尝试通过API获取用户项目列表...")
-                log.info(f"使用的token: {credentials.access_token[:20]}...")
-                log.info(f"Token过期时间: {credentials.expires_at}")
-                user_projects = await get_user_projects(credentials)
+                # 如果需要自动检测项目ID且没有提供项目ID（单项目模式）
+                if flow_data.get("auto_project_detection", False) and not project_id:
+                    log.info("尝试通过API获取用户项目列表...")
+                    log.info(f"使用的token: {credentials.access_token[:20]}...")
+                    log.info(f"Token过期时间: {credentials.expires_at}")
+                    user_projects = await get_user_projects(credentials)
 
-                if user_projects:
-                    # 如果只有一个项目，自动使用
-                    if len(user_projects) == 1:
-                        project_id = user_projects[0].get("projectId")
-                        if project_id:
-                            flow_data["project_id"] = project_id
-                            log.info(f"自动选择唯一项目: {project_id}")
-                            # 自动启用必需的API服务
-                            log.info("正在自动启用必需的API服务...")
-                            await enable_required_apis(credentials, project_id)
-                    # 如果有多个项目，尝试选择默认项目
-                    else:
-                        project_id = await select_default_project(user_projects)
-                        if project_id:
-                            flow_data["project_id"] = project_id
-                            log.info(f"自动选择默认项目: {project_id}")
-                            # 自动启用必需的API服务
-                            log.info("正在自动启用必需的API服务...")
-                            await enable_required_apis(credentials, project_id)
+                    if user_projects:
+                        # 如果只有一个项目，自动使用
+                        if len(user_projects) == 1:
+                            project_id = user_projects[0].get("projectId")
+                            if project_id:
+                                flow_data["project_id"] = project_id
+                                log.info(f"自动选择唯一项目: {project_id}")
+                                # 自动启用必需的API服务
+                                log.info("正在自动启用必需的API服务...")
+                                await enable_required_apis(credentials, project_id)
+                        # 如果有多个项目，尝试选择默认项目
                         else:
-                            # 返回项目列表让用户选择
-                            return {
-                                "success": False,
-                                "error": "请从以下项目中选择一个",
-                                "requires_project_selection": True,
-                                "available_projects": [
-                                    {
-                                        "projectId": p.get("projectId"),
-                                        "name": p.get("displayName") or p.get("projectId"),
-                                        "projectNumber": p.get("projectNumber"),
-                                    }
-                                    for p in user_projects
-                                ],
-                            }
-                else:
-                    # 如果无法获取项目列表，提示手动输入
+                            project_id = await select_default_project(user_projects)
+                            if project_id:
+                                flow_data["project_id"] = project_id
+                                log.info(f"自动选择默认项目: {project_id}")
+                                # 自动启用必需的API服务
+                                log.info("正在自动启用必需的API服务...")
+                                await enable_required_apis(credentials, project_id)
+                            else:
+                                # 返回项目列表让用户选择
+                                return {
+                                    "success": False,
+                                    "error": "请从以下项目中选择一个",
+                                    "requires_project_selection": True,
+                                    "available_projects": [
+                                        {
+                                            "projectId": p.get("projectId"),
+                                            "name": p.get("displayName") or p.get("projectId"),
+                                            "projectNumber": p.get("projectNumber"),
+                                        }
+                                        for p in user_projects
+                                    ],
+                                }
+                    else:
+                        # 如果无法获取项目列表，提示手动输入
+                        return {
+                            "success": False,
+                            "error": "无法获取您的项目列表，请手动指定项目ID",
+                            "requires_manual_project_id": True,
+                        }
+                elif project_id:
+                    # 如果已经有项目ID（手动提供或环境检测），也尝试启用API服务
+                    log.info("正在为已提供的项目ID自动启用必需的API服务...")
+                    await enable_required_apis(credentials, project_id)
+
+                # 如果仍然没有项目ID，返回错误
+                if not project_id:
                     return {
                         "success": False,
-                        "error": "无法获取您的项目列表，请手动指定项目ID",
+                        "error": "缺少项目ID，请指定项目ID",
                         "requires_manual_project_id": True,
                     }
-            elif project_id:
-                # 如果已经有项目ID（手动提供或环境检测），也尝试启用API服务
-                log.info("正在为已提供的项目ID自动启用必需的API服务...")
-                await enable_required_apis(credentials, project_id)
 
-            # 如果仍然没有项目ID，返回错误
-            if not project_id:
+                # 保存凭证
+                saved_filename = await save_credentials(credentials, project_id)
+
+                # 准备返回的凭证数据
+                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=False)
+
+                # 清理使用过的流程
+                _cleanup_auth_flow_server(state)
+
+                log.info("OAuth认证成功，凭证已保存")
                 return {
-                    "success": False,
-                    "error": "缺少项目ID，请指定项目ID",
-                    "requires_manual_project_id": True,
+                    "success": True,
+                    "credentials": creds_data,
+                    "file_path": saved_filename,
+                    "auto_detected_project": flow_data.get("auto_project_detection", False),
                 }
 
-            # 保存凭证
-            saved_filename = await save_credentials(credentials, project_id)
-
-            # 准备返回的凭证数据
-            creds_data = {
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "token": credentials.access_token,
-                "refresh_token": credentials.refresh_token,
-                "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "project_id": project_id,
-            }
-
-            if credentials.expires_at:
-                if credentials.expires_at.tzinfo is None:
-                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
-                else:
-                    expiry_utc = credentials.expires_at
-                creds_data["expiry"] = expiry_utc.isoformat()
-
-            # 清理使用过的流程
-            if state in auth_flows:
-                flow_data_to_clean = auth_flows[state]
-                # 快速关闭服务器
-                try:
-                    if flow_data_to_clean.get("server"):
-                        server = flow_data_to_clean["server"]
-                        port = flow_data_to_clean.get("callback_port")
-                        async_shutdown_server(server, port)
-                except Exception as e:
-                    log.debug(f"启动异步关闭服务器时出错: {e}")
-
-                del auth_flows[state]
-
-            log.info("OAuth认证成功，凭证已保存")
-            return {
-                "success": True,
-                "credentials": creds_data,
-                "file_path": saved_filename,
-                "auto_detected_project": flow_data.get("auto_project_detection", False),
-            }
-
-        except Exception as e:
-            log.error(f"获取凭证失败: {e}")
-            return {"success": False, "error": f"获取凭证失败: {str(e)}"}
-        finally:
-            oauthlib.oauth2.rfc6749.parameters.validate_token_parameters = original_validate
+            except Exception as e:
+                log.error(f"获取凭证失败: {e}")
+                return {"success": False, "error": f"获取凭证失败: {str(e)}"}
 
     except Exception as e:
         log.error(f"异步完成认证流程失败: {e}")
@@ -826,7 +782,7 @@ async def asyncio_complete_auth_flow(
 
 
 async def complete_auth_flow_from_callback_url(
-    callback_url: str, project_id: Optional[str] = None, get_all_projects: bool = False
+    callback_url: str, project_id: Optional[str] = None, use_antigravity: bool = False
 ) -> Dict[str, Any]:
     """从回调URL直接完成认证流程，无需启动本地服务器"""
     try:
@@ -864,103 +820,30 @@ async def complete_auth_flow_from_callback_url(
             credentials = await flow.exchange_code(code)
             log.info("成功获取访问令牌")
 
-            # 检查是否为批量获取所有项目模式
-            if get_all_projects:
-                log.info("批量模式：从回调URL为所有项目并发获取凭证...")
-                try:
-                    projects = await get_user_projects(credentials)
-                    if projects:
+            # 检查是否为antigravity模式
+            is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
+            if is_antigravity:
+                log.info("Antigravity模式（从回调URL）：生成随机project_id...")
+                project_id = _generate_random_project_id()
+                log.info(f"生成的随机project_id: {project_id}")
 
-                        async def process_single_project(project_info):
-                            """并发处理单个项目的凭证获取"""
-                            project_id_current = project_info.get("projectId")
-                            project_name = project_info.get("displayName") or project_id_current
+                # 保存antigravity凭证
+                saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
 
-                            try:
-                                log.info(
-                                    f"为项目 {project_name} ({project_id_current}) 启用API服务..."
-                                )
-                                await enable_required_apis(credentials, project_id_current)
+                # 准备返回的凭证数据
+                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=True)
 
-                                # 保存凭证
-                                saved_filename = await save_credentials(
-                                    credentials, project_id_current
-                                )
+                # 清理使用过的流程
+                _cleanup_auth_flow_server(state)
 
-                                log.info(f"成功为项目 {project_name} 保存凭证")
-                                return {
-                                    "status": "success",
-                                    "project_id": project_id_current,
-                                    "project_name": project_name,
-                                    "file_path": saved_filename,
-                                }
-
-                            except Exception as e:
-                                log.error(
-                                    f"为项目 {project_name} ({project_id_current}) 处理凭证失败: {e}"
-                                )
-                                return {
-                                    "status": "failed",
-                                    "project_id": project_id_current,
-                                    "project_name": project_name,
-                                    "error": str(e),
-                                }
-
-                        # 并发处理所有项目
-                        log.info(f"开始并发处理 {len(projects)} 个项目...")
-                        tasks = [process_single_project(project_info) for project_info in projects]
-                        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                        # 整理结果
-                        multiple_results = {"success": [], "failed": []}
-                        for result in results:
-                            if isinstance(result, Exception):
-                                log.error(f"并发处理项目时发生异常: {result}")
-                                multiple_results["failed"].append(
-                                    {
-                                        "project_id": "unknown",
-                                        "project_name": "unknown",
-                                        "error": f"处理异常: {str(result)}",
-                                    }
-                                )
-                            elif result["status"] == "success":
-                                multiple_results["success"].append(
-                                    {
-                                        "project_id": result["project_id"],
-                                        "project_name": result["project_name"],
-                                        "file_path": result["file_path"],
-                                    }
-                                )
-                            else:  # failed
-                                multiple_results["failed"].append(
-                                    {
-                                        "project_id": result["project_id"],
-                                        "project_name": result["project_name"],
-                                        "error": result["error"],
-                                    }
-                                )
-
-                        # 清理使用过的流程
-                        if state in auth_flows:
-                            flow_data_to_clean = auth_flows[state]
-                            try:
-                                if flow_data_to_clean.get("server"):
-                                    server = flow_data_to_clean["server"]
-                                    port = flow_data_to_clean.get("callback_port")
-                                    async_shutdown_server(server, port)
-                            except Exception as e:
-                                log.debug(f"关闭服务器时出错: {e}")
-                            del auth_flows[state]
-
-                        log.info(
-                            f"从回调URL批量并发认证完成：成功 {len(multiple_results['success'])} 个，失败 {len(multiple_results['failed'])} 个"
-                        )
-                        return {"success": True, "multiple_credentials": multiple_results}
-                    else:
-                        return {"success": False, "error": "无法获取您的项目列表，批量认证失败"}
-                except Exception as e:
-                    log.error(f"批量获取项目列表失败: {e}")
-                    return {"success": False, "error": f"批量获取项目列表失败: {str(e)}"}
+                log.info("从回调URL完成Antigravity OAuth认证成功，凭证已保存")
+                return {
+                    "success": True,
+                    "credentials": creds_data,
+                    "file_path": saved_filename,
+                    "auto_detected_project": False,
+                    "is_antigravity": True,
+                }
 
             # 单项目模式的项目ID处理逻辑
             detected_project_id = None
@@ -1013,36 +896,10 @@ async def complete_auth_flow_from_callback_url(
             saved_filename = await save_credentials(credentials, detected_project_id)
 
             # 准备返回的凭证数据
-            creds_data = {
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "token": credentials.access_token,
-                "refresh_token": credentials.refresh_token,
-                "scopes": SCOPES,
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "project_id": detected_project_id,
-            }
-
-            if credentials.expires_at:
-                if credentials.expires_at.tzinfo is None:
-                    expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
-                else:
-                    expiry_utc = credentials.expires_at
-                creds_data["expiry"] = expiry_utc.isoformat()
+            creds_data = _prepare_credentials_data(credentials, detected_project_id, is_antigravity=False)
 
             # 清理使用过的流程
-            if state in auth_flows:
-                flow_data_to_clean = auth_flows[state]
-                # 快速关闭服务器（如果有）
-                try:
-                    if flow_data_to_clean.get("server"):
-                        server = flow_data_to_clean["server"]
-                        port = flow_data_to_clean.get("callback_port")
-                        async_shutdown_server(server, port)
-                except Exception as e:
-                    log.debug(f"关闭服务器时出错: {e}")
-
-                del auth_flows[state]
+            _cleanup_auth_flow_server(state)
 
             log.info("从回调URL完成OAuth认证成功，凭证已保存")
             return {
@@ -1061,33 +918,23 @@ async def complete_auth_flow_from_callback_url(
         return {"success": False, "error": str(e)}
 
 
-async def save_credentials(creds: Credentials, project_id: str) -> str:
+async def save_credentials(creds: Credentials, project_id: str, is_antigravity: bool = False) -> str:
     """通过统一存储系统保存凭证"""
     # 生成文件名（使用project_id和时间戳）
     timestamp = int(time.time())
-    filename = f"{project_id}-{timestamp}.json"
+
+    # antigravity模式使用特殊前缀
+    if is_antigravity:
+        filename = f"ag_{project_id}-{timestamp}.json"
+    else:
+        filename = f"{project_id}-{timestamp}.json"
 
     # 准备凭证数据
-    creds_data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "token": creds.access_token,
-        "refresh_token": creds.refresh_token,
-        "scopes": SCOPES,
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "project_id": project_id,
-    }
-
-    if creds.expires_at:
-        if creds.expires_at.tzinfo is None:
-            expiry_utc = creds.expires_at.replace(tzinfo=timezone.utc)
-        else:
-            expiry_utc = creds.expires_at
-        creds_data["expiry"] = expiry_utc.isoformat()
+    creds_data = _prepare_credentials_data(creds, project_id, is_antigravity)
 
     # 通过存储适配器保存
     storage_adapter = await get_storage_adapter()
-    success = await storage_adapter.store_credential(filename, creds_data)
+    success = await storage_adapter.store_credential(filename, creds_data, is_antigravity=is_antigravity)
 
     if success:
         # 创建默认状态记录
@@ -1098,8 +945,8 @@ async def save_credentials(creds: Credentials, project_id: str) -> str:
                 "last_success": time.time(),
                 "user_email": None,
             }
-            await storage_adapter.update_credential_state(filename, default_state)
-            log.info(f"凭证和状态已保存到: {filename}")
+            await storage_adapter.update_credential_state(filename, default_state, is_antigravity=is_antigravity)
+            log.info(f"凭证和状态已保存到: {filename} (antigravity={is_antigravity})")
         except Exception as e:
             log.warning(f"创建默认状态记录失败 {filename}: {e}")
 

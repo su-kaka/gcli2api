@@ -164,18 +164,18 @@ class LoginRequest(BaseModel):
 
 class AuthStartRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
 class AuthCallbackRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
 class AuthCallbackUrlRequest(BaseModel):
     callback_url: str  # OAuth回调完整URL
     project_id: Optional[str] = None  # 可选的项目ID
-    get_all_projects: Optional[bool] = False  # 是否为所有项目获取凭证
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
 
 
 class CredFileActionRequest(BaseModel):
@@ -271,22 +271,17 @@ async def login(request: LoginRequest):
 
 @router.post("/auth/start")
 async def start_auth(request: AuthStartRequest, token: str = Depends(verify_token)):
-    """开始认证流程，支持自动检测项目ID和批量获取所有项目"""
+    """开始认证流程，支持自动检测项目ID"""
     try:
-        # 检查是否为批量项目模式
-        if request.get_all_projects:
-            log.info("用户请求批量获取所有项目的凭证...")
-            project_id = None  # 批量模式下不指定单个项目ID
-        else:
-            # 如果没有提供项目ID，尝试自动检测
-            project_id = request.project_id
-            if not project_id:
-                log.info("用户未提供项目ID，后续将使用自动检测...")
+        # 如果没有提供项目ID，尝试自动检测
+        project_id = request.project_id
+        if not project_id:
+            log.info("用户未提供项目ID，后续将使用自动检测...")
 
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         result = await create_auth_url(
-            project_id, user_session, get_all_projects=request.get_all_projects
+            project_id, user_session, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
@@ -296,7 +291,6 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
                     "state": result["state"],
                     "auto_project_detection": result.get("auto_project_detection", False),
                     "detected_project_id": result.get("detected_project_id"),
-                    "get_all_projects": request.get_all_projects,
                 }
             )
         else:
@@ -311,38 +305,28 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_toke
 
 @router.post("/auth/callback")
 async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verify_token)):
-    """处理认证回调，支持自动检测项目ID和批量获取所有项目"""
+    """处理认证回调，支持自动检测项目ID"""
     try:
         # 项目ID现在是可选的，在回调处理中进行自动检测
         project_id = request.project_id
-        get_all_projects = request.get_all_projects
 
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         # 异步等待OAuth回调完成
         result = await asyncio_complete_auth_flow(
-            project_id, user_session, get_all_projects=get_all_projects
+            project_id, user_session, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
-            if get_all_projects and result.get("multiple_credentials"):
-                # 批量认证成功，返回多个凭证信息
-                return JSONResponse(
-                    content={
-                        "multiple_credentials": result["multiple_credentials"],
-                        "message": "批量认证成功，已为多个项目保存凭证",
-                    }
-                )
-            else:
-                # 单项目认证成功
-                return JSONResponse(
-                    content={
-                        "credentials": result["credentials"],
-                        "file_path": result["file_path"],
-                        "message": "认证成功，凭证已保存",
-                        "auto_detected_project": result.get("auto_detected_project", False),
-                    }
-                )
+            # 单项目认证成功
+            return JSONResponse(
+                content={
+                    "credentials": result["credentials"],
+                    "file_path": result["file_path"],
+                    "message": "认证成功，凭证已保存",
+                    "auto_detected_project": result.get("auto_detected_project", False),
+                }
+            )
         else:
             # 如果需要手动项目ID或项目选择，在响应中标明
             if result.get("requires_manual_project_id"):
@@ -373,7 +357,7 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
 
 @router.post("/auth/callback-url")
 async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_token)):
-    """从回调URL直接完成认证，支持批量获取所有项目"""
+    """从回调URL直接完成认证"""
     try:
         # 验证URL格式
         if not request.callback_url or not request.callback_url.startswith(("http://", "https://")):
@@ -381,28 +365,19 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
 
         # 从回调URL完成认证
         result = await complete_auth_flow_from_callback_url(
-            request.callback_url, request.project_id, get_all_projects=request.get_all_projects
+            request.callback_url, request.project_id, use_antigravity=request.use_antigravity
         )
 
         if result["success"]:
-            if request.get_all_projects and result.get("multiple_credentials"):
-                # 批量认证成功，返回多个凭证信息
-                return JSONResponse(
-                    content={
-                        "multiple_credentials": result["multiple_credentials"],
-                        "message": "从回调URL批量认证成功，已为多个项目保存凭证",
-                    }
-                )
-            else:
-                # 单项目认证成功
-                return JSONResponse(
-                    content={
-                        "credentials": result["credentials"],
-                        "file_path": result["file_path"],
-                        "message": "从回调URL认证成功，凭证已保存",
-                        "auto_detected_project": result.get("auto_detected_project", False),
-                    }
-                )
+            # 单项目认证成功
+            return JSONResponse(
+                content={
+                    "credentials": result["credentials"],
+                    "file_path": result["file_path"],
+                    "message": "从回调URL认证成功，凭证已保存",
+                    "auto_detected_project": result.get("auto_detected_project", False),
+                }
+            )
         else:
             # 处理各种错误情况
             if result.get("requires_manual_project_id"):
@@ -442,6 +417,58 @@ async def check_auth_status(project_id: str, token: str = Depends(verify_token))
     except Exception as e:
         log.error(f"检查认证状态失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 工具函数 (Helper Functions)
+# =============================================================================
+
+
+def calculate_cooldown_status(cooldown_until: Optional[float]) -> tuple:
+    """计算冷却状态
+
+    Returns:
+        (cooldown_status, cooldown_remaining_seconds)
+    """
+    if not cooldown_until:
+        return "ready", 0
+
+    current_time = time.time()
+    if current_time < cooldown_until:
+        return "cooling", int(cooldown_until - current_time)
+    return "ready", 0
+
+
+def get_env_locked_keys() -> set:
+    """获取被环境变量锁定的配置键集合"""
+    env_locked_keys = set()
+    env_mappings = {
+        "CODE_ASSIST_ENDPOINT": "code_assist_endpoint",
+        "CREDENTIALS_DIR": "credentials_dir",
+        "PROXY": "proxy",
+        "OAUTH_PROXY_URL": "oauth_proxy_url",
+        "GOOGLEAPIS_PROXY_URL": "googleapis_proxy_url",
+        "RESOURCE_MANAGER_API_URL": "resource_manager_api_url",
+        "SERVICE_USAGE_API_URL": "service_usage_api_url",
+        "AUTO_BAN": "auto_ban_enabled",
+        "RETRY_429_MAX_RETRIES": "retry_429_max_retries",
+        "RETRY_429_ENABLED": "retry_429_enabled",
+        "RETRY_429_INTERVAL": "retry_429_interval",
+        "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
+        "COMPATIBILITY_MODE": "compatibility_mode_enabled",
+        "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
+        "HOST": "host",
+        "PORT": "port",
+        "API_PASSWORD": "api_password",
+        "PANEL_PASSWORD": "panel_password",
+        "PASSWORD": "password",
+    }
+
+    for env_key, config_key in env_mappings.items():
+        if os.getenv(env_key):
+            env_locked_keys.add(config_key)
+
+    return env_locked_keys
 
 
 async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
@@ -496,133 +523,382 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
         raise HTTPException(status_code=500, detail=f"处理ZIP文件失败: {str(e)}")
 
 
+async def upload_credentials_common(
+    files: List[UploadFile], is_antigravity: bool = False
+) -> JSONResponse:
+    """批量上传凭证文件的通用函数"""
+    cred_type = "Antigravity" if is_antigravity else "普通"
+
+    if not files:
+        raise HTTPException(status_code=400, detail="请选择要上传的文件")
+
+    # 检查文件数量限制
+    if len(files) > 100:
+        raise HTTPException(
+            status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个"
+        )
+
+    files_data = []
+    for file in files:
+        # 检查文件类型：支持JSON和ZIP
+        if file.filename.endswith(".zip"):
+            zip_files_data = await extract_json_files_from_zip(file)
+            files_data.extend(zip_files_data)
+            log.info(f"从ZIP文件 {file.filename} 中提取了 {len(zip_files_data)} 个JSON文件")
+
+        elif file.filename.endswith(".json"):
+            # 处理单个JSON文件 - 流式读取
+            content_chunks = []
+            while True:
+                chunk = await file.read(8192)
+                if not chunk:
+                    break
+                content_chunks.append(chunk)
+
+            content = b"".join(content_chunks)
+            try:
+                content_str = content.decode("utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=400, detail=f"文件 {file.filename} 编码格式不支持"
+                )
+
+            files_data.append({"filename": file.filename, "content": content_str})
+        else:
+            raise HTTPException(
+                status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
+            )
+
+    await ensure_credential_manager_initialized()
+
+    batch_size = 1000
+    all_results = []
+    total_success = 0
+
+    for i in range(0, len(files_data), batch_size):
+        batch_files = files_data[i : i + batch_size]
+
+        async def process_single_file(file_data):
+            try:
+                filename = file_data["filename"]
+                content_str = file_data["content"]
+                credential_data = json.loads(content_str)
+
+                # 根据凭证类型调用不同的添加方法
+                if is_antigravity:
+                    await credential_manager.add_antigravity_credential(filename, credential_data)
+                else:
+                    await credential_manager.add_credential(filename, credential_data)
+
+                log.debug(f"成功上传{cred_type}凭证文件: {filename}")
+                return {"filename": filename, "status": "success", "message": "上传成功"}
+
+            except json.JSONDecodeError as e:
+                return {
+                    "filename": file_data["filename"],
+                    "status": "error",
+                    "message": f"JSON格式错误: {str(e)}",
+                }
+            except Exception as e:
+                return {
+                    "filename": file_data["filename"],
+                    "status": "error",
+                    "message": f"处理失败: {str(e)}",
+                }
+
+        log.info(f"开始并发处理 {len(batch_files)} 个{cred_type}文件...")
+        concurrent_tasks = [process_single_file(file_data) for file_data in batch_files]
+        batch_results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
+
+        processed_results = []
+        batch_uploaded_count = 0
+        for result in batch_results:
+            if isinstance(result, Exception):
+                processed_results.append(
+                    {
+                        "filename": "unknown",
+                        "status": "error",
+                        "message": f"处理异常: {str(result)}",
+                    }
+                )
+            else:
+                processed_results.append(result)
+                if result["status"] == "success":
+                    batch_uploaded_count += 1
+
+        all_results.extend(processed_results)
+        total_success += batch_uploaded_count
+
+        batch_num = (i // batch_size) + 1
+        total_batches = (len(files_data) + batch_size - 1) // batch_size
+        log.info(
+            f"批次 {batch_num}/{total_batches} 完成: 成功 "
+            f"{batch_uploaded_count}/{len(batch_files)} 个{cred_type}文件"
+        )
+
+    if total_success > 0:
+        return JSONResponse(
+            content={
+                "uploaded_count": total_success,
+                "total_count": len(files_data),
+                "results": all_results,
+                "message": f"批量上传完成: 成功 {total_success}/{len(files_data)} 个{cred_type}文件",
+            }
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"没有{cred_type}文件上传成功")
+
+
+async def get_creds_status_common(
+    offset: int, limit: int, status_filter: str, is_antigravity: bool = False
+) -> JSONResponse:
+    """获取凭证文件状态的通用函数"""
+    # 验证分页参数
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset 必须大于等于 0")
+    if limit not in [20, 50, 100]:
+        raise HTTPException(status_code=400, detail="limit 只能是 20、50 或 100")
+    if status_filter not in ["all", "enabled", "disabled"]:
+        raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
+
+    await ensure_credential_manager_initialized()
+
+    storage_adapter = await get_storage_adapter()
+    backend_info = await storage_adapter.get_backend_info()
+    backend_type = backend_info.get("backend_type", "unknown")
+
+    # 优先使用高性能的分页摘要查询（SQLite专用）
+    if hasattr(storage_adapter._backend, 'get_credentials_summary'):
+        result = await storage_adapter._backend.get_credentials_summary(
+            offset=offset,
+            limit=limit,
+            status_filter=status_filter,
+            is_antigravity=is_antigravity
+        )
+
+        creds_list = []
+        for summary in result["items"]:
+            cooldown_status, cooldown_remaining_seconds = calculate_cooldown_status(
+                summary.get("cooldown_until")
+            )
+
+            cred_info = {
+                "filename": os.path.basename(summary["filename"]),
+                "user_email": summary["user_email"],
+                "disabled": summary["disabled"],
+                "error_codes": summary["error_codes"],
+                "last_success": summary["last_success"],
+                "cooldown_status": cooldown_status,
+                "cooldown_remaining_seconds": cooldown_remaining_seconds,
+                "backend_type": backend_type,
+                "model_cooldowns": summary.get("model_cooldowns", {}),
+            }
+
+            if summary.get("cooldown_until"):
+                cred_info["cooldown_until"] = summary["cooldown_until"]
+
+            creds_list.append(cred_info)
+
+        return JSONResponse(content={
+            "items": creds_list,
+            "total": result["total"],
+            "offset": offset,
+            "limit": limit,
+            "has_more": (offset + limit) < result["total"],
+        })
+
+    # 回退到传统方式（MongoDB/其他后端）
+    all_credentials = await storage_adapter.list_credentials(is_antigravity=is_antigravity)
+    all_states = await storage_adapter.get_all_credential_states(is_antigravity=is_antigravity)
+
+    # 应用状态筛选
+    filtered_credentials = []
+    for filename in all_credentials:
+        file_status = all_states.get(filename, {"disabled": False})
+        is_disabled = file_status.get("disabled", False)
+
+        if status_filter == "all":
+            filtered_credentials.append(filename)
+        elif status_filter == "enabled" and not is_disabled:
+            filtered_credentials.append(filename)
+        elif status_filter == "disabled" and is_disabled:
+            filtered_credentials.append(filename)
+
+    total_count = len(filtered_credentials)
+    paginated_credentials = filtered_credentials[offset:offset + limit]
+
+    creds_list = []
+    for filename in paginated_credentials:
+        file_status = all_states.get(filename, {
+            "error_codes": [],
+            "disabled": False,
+            "last_success": time.time(),
+            "user_email": None,
+        })
+
+        cooldown_status, cooldown_remaining_seconds = calculate_cooldown_status(
+            file_status.get("cooldown_until")
+        )
+
+        cred_info = {
+            "filename": os.path.basename(filename),
+            "user_email": file_status.get("user_email"),
+            "disabled": file_status.get("disabled", False),
+            "error_codes": file_status.get("error_codes", []),
+            "last_success": file_status.get("last_success", time.time()),
+            "cooldown_status": cooldown_status,
+            "cooldown_remaining_seconds": cooldown_remaining_seconds,
+            "backend_type": backend_type,
+            "model_cooldowns": file_status.get("model_cooldowns", {}),
+        }
+
+        if file_status.get("cooldown_until"):
+            cred_info["cooldown_until"] = file_status["cooldown_until"]
+
+        creds_list.append(cred_info)
+
+    return JSONResponse(content={
+        "items": creds_list,
+        "total": total_count,
+        "offset": offset,
+        "limit": limit,
+        "has_more": (offset + limit) < total_count,
+    })
+
+
+async def download_all_creds_common(is_antigravity: bool = False) -> Response:
+    """打包下载所有凭证文件的通用函数"""
+    cred_type = "Antigravity" if is_antigravity else "普通"
+    zip_filename = "antigravity_credentials.zip" if is_antigravity else "credentials.zip"
+
+    storage_adapter = await get_storage_adapter()
+    credential_filenames = await storage_adapter.list_credentials(is_antigravity=is_antigravity)
+
+    if not credential_filenames:
+        raise HTTPException(status_code=404, detail=f"没有找到{cred_type}凭证文件")
+
+    log.info(f"开始打包 {len(credential_filenames)} 个{cred_type}凭证文件...")
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        success_count = 0
+        for idx, filename in enumerate(credential_filenames, 1):
+            try:
+                credential_data = await storage_adapter.get_credential(filename, is_antigravity=is_antigravity)
+                if credential_data:
+                    content = json.dumps(credential_data, ensure_ascii=False, indent=2)
+                    zip_file.writestr(os.path.basename(filename), content)
+                    success_count += 1
+
+                    if idx % 10 == 0:
+                        log.debug(f"打包进度: {idx}/{len(credential_filenames)}")
+
+            except Exception as e:
+                log.warning(f"处理{cred_type}凭证文件 {filename} 时出错: {e}")
+                continue
+
+    log.info(f"打包完成: 成功 {success_count}/{len(credential_filenames)} 个文件")
+
+    zip_buffer.seek(0)
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"},
+    )
+
+
+async def fetch_user_email_common(filename: str, is_antigravity: bool = False) -> JSONResponse:
+    """获取指定凭证文件用户邮箱的通用函数"""
+    await ensure_credential_manager_initialized()
+
+    filename_only = os.path.basename(filename)
+    if not filename_only.endswith(".json"):
+        raise HTTPException(status_code=404, detail="无效的文件名")
+
+    storage_adapter = await get_storage_adapter()
+    credential_data = await storage_adapter.get_credential(filename_only, is_antigravity=is_antigravity)
+    if not credential_data:
+        raise HTTPException(status_code=404, detail="凭证文件不存在")
+
+    email = await credential_manager.get_or_fetch_user_email(filename_only, is_antigravity=is_antigravity)
+
+    if email:
+        return JSONResponse(
+            content={
+                "filename": filename_only,
+                "user_email": email,
+                "message": "成功获取用户邮箱",
+            }
+        )
+    else:
+        return JSONResponse(
+            content={
+                "filename": filename_only,
+                "user_email": None,
+                "message": "无法获取用户邮箱，可能凭证已过期或权限不足",
+            },
+            status_code=400,
+        )
+
+
+async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONResponse:
+    """刷新所有凭证文件用户邮箱的通用函数"""
+    await ensure_credential_manager_initialized()
+
+    storage_adapter = await get_storage_adapter()
+    credential_filenames = await storage_adapter.list_credentials(is_antigravity=is_antigravity)
+
+    results = []
+    success_count = 0
+
+    for filename in credential_filenames:
+        try:
+            email = await credential_manager.get_or_fetch_user_email(filename, is_antigravity=is_antigravity)
+            if email:
+                success_count += 1
+                results.append({
+                    "filename": os.path.basename(filename),
+                    "user_email": email,
+                    "success": True,
+                })
+            else:
+                results.append({
+                    "filename": os.path.basename(filename),
+                    "user_email": None,
+                    "success": False,
+                    "error": "无法获取邮箱",
+                })
+        except Exception as e:
+            results.append({
+                "filename": os.path.basename(filename),
+                "user_email": None,
+                "success": False,
+                "error": str(e),
+            })
+
+    return JSONResponse(
+        content={
+            "success_count": success_count,
+            "total_count": len(credential_filenames),
+            "results": results,
+            "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址",
+        }
+    )
+
+
+# =============================================================================
+# 路由处理函数 (Route Handlers)
+# =============================================================================
+
+
 @router.post("/auth/upload")
 async def upload_credentials(
     files: List[UploadFile] = File(...), token: str = Depends(verify_token)
 ):
     """批量上传认证文件"""
     try:
-        if not files:
-            raise HTTPException(status_code=400, detail="请选择要上传的文件")
-
-        # 检查文件数量限制
-        if len(files) > 100:
-            raise HTTPException(
-                status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个"
-            )
-
-        files_data = []
-        for file in files:
-            # 检查文件类型：支持JSON和ZIP
-            if file.filename.endswith(".zip"):
-                # 处理ZIP文件
-                zip_files_data = await extract_json_files_from_zip(file)
-                files_data.extend(zip_files_data)
-                log.info(f"从ZIP文件 {file.filename} 中提取了 {len(zip_files_data)} 个JSON文件")
-
-            elif file.filename.endswith(".json"):
-                # 处理单个JSON文件
-                # 流式读取文件内容
-                content_chunks = []
-                while True:
-                    chunk = await file.read(8192)  # 8KB chunks
-                    if not chunk:
-                        break
-                    content_chunks.append(chunk)
-
-                content = b"".join(content_chunks)
-                try:
-                    content_str = content.decode("utf-8")
-                except UnicodeDecodeError:
-                    raise HTTPException(
-                        status_code=400, detail=f"文件 {file.filename} 编码格式不支持"
-                    )
-
-                files_data.append({"filename": file.filename, "content": content_str})
-            else:
-                raise HTTPException(
-                    status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
-                )
-
-        # 读取完 files_data 后，改为通过 CredentialManager 写入
-        await ensure_credential_manager_initialized()
-
-        batch_size = 1000
-        all_results = []
-        total_success = 0
-
-        for i in range(0, len(files_data), batch_size):
-            batch_files = files_data[i : i + batch_size]
-
-            async def process_single_file(file_data):
-                """处理单个文件的并发函数"""
-                try:
-                    filename = file_data["filename"]
-                    content_str = file_data["content"]
-
-                    credential_data = json.loads(content_str)
-
-                    # 使用 CredentialManager 统一新增/更新凭证
-                    await credential_manager.add_credential(filename, credential_data)
-
-                    log.debug(f"成功上传凭证文件: {filename}")
-                    return {"filename": filename, "status": "success", "message": "上传成功"}
-
-                except json.JSONDecodeError as e:
-                    return {
-                        "filename": file_data["filename"],
-                        "status": "error",
-                        "message": f"JSON格式错误: {str(e)}",
-                    }
-                except Exception as e:
-                    return {
-                        "filename": file_data["filename"],
-                        "status": "error",
-                        "message": f"处理失败: {str(e)}",
-                    }
-
-            log.info(f"开始并发处理 {len(batch_files)} 个文件...")
-            concurrent_tasks = [process_single_file(file_data) for file_data in batch_files]
-            batch_results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
-
-            processed_results = []
-            batch_uploaded_count = 0
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    processed_results.append(
-                        {
-                            "filename": "unknown",
-                            "status": "error",
-                            "message": f"处理异常: {str(result)}",
-                        }
-                    )
-                else:
-                    processed_results.append(result)
-                    if result["status"] == "success":
-                        batch_uploaded_count += 1
-
-            all_results.extend(processed_results)
-            total_success += batch_uploaded_count
-
-            batch_num = (i // batch_size) + 1
-            total_batches = (len(files_data) + batch_size - 1) // batch_size
-            log.info(
-                f"批次 {batch_num}/{total_batches} 完成: 成功 "
-                f"{batch_uploaded_count}/{len(batch_files)} 个文件"
-            )
-
-        if total_success > 0:
-            return JSONResponse(
-                content={
-                    "uploaded_count": total_success,
-                    "total_count": len(files_data),
-                    "results": all_results,
-                    "message": f"批量上传完成: 成功 {total_success}/{len(files_data)} 个文件",
-                }
-            )
-        else:
-            raise HTTPException(status_code=400, detail="没有文件上传成功")
-
+        return await upload_credentials_common(files, is_antigravity=False)
     except HTTPException:
         raise
     except Exception as e:
@@ -649,119 +925,7 @@ async def get_creds_status(
         包含凭证列表、总数、分页信息的响应
     """
     try:
-        # 验证分页参数
-        if offset < 0:
-            raise HTTPException(status_code=400, detail="offset 必须大于等于 0")
-        if limit not in [20, 50, 100]:
-            raise HTTPException(status_code=400, detail="limit 只能是 20、50 或 100")
-        if status_filter not in ["all", "enabled", "disabled"]:
-            raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
-
-        await ensure_credential_manager_initialized()
-
-        storage_adapter = await get_storage_adapter()
-        backend_info = await storage_adapter.get_backend_info()
-        backend_type = backend_info.get("backend_type", "unknown")
-
-        # 优先使用高性能的分页摘要查询（SQLite专用）
-        if hasattr(storage_adapter._backend, 'get_credentials_summary'):
-            result = await storage_adapter._backend.get_credentials_summary(
-                offset=offset,
-                limit=limit,
-                status_filter=status_filter
-            )
-
-            creds_list = []
-            for summary in result["items"]:
-                filename = summary["filename"]
-                cred_info = {
-                    "filename": os.path.basename(filename),
-                    "user_email": summary["user_email"],
-                    "disabled": summary["disabled"],
-                    "error_codes": summary["error_codes"],
-                    "last_success": summary["last_success"],
-                    "cooldown_status": summary["cooldown_status"],
-                    "cooldown_remaining_seconds": summary["cooldown_remaining_seconds"],
-                    "backend_type": backend_type,
-                }
-
-                if summary["cooldown_until"]:
-                    cred_info["cooldown_until"] = summary["cooldown_until"]
-
-                creds_list.append(cred_info)
-
-            return JSONResponse(content={
-                "items": creds_list,
-                "total": result["total"],
-                "offset": offset,
-                "limit": limit,
-                "has_more": (offset + limit) < result["total"],
-            })
-
-        # 回退到传统方式（MongoDB/其他后端）- 手动分页和筛选
-        all_credentials = await storage_adapter.list_credentials()
-        all_states = await credential_manager.get_creds_status()
-
-        # 应用状态筛选
-        filtered_credentials = []
-        for filename in all_credentials:
-            file_status = all_states.get(filename, {"disabled": False})
-            is_disabled = file_status.get("disabled", False)
-
-            if status_filter == "all":
-                filtered_credentials.append(filename)
-            elif status_filter == "enabled" and not is_disabled:
-                filtered_credentials.append(filename)
-            elif status_filter == "disabled" and is_disabled:
-                filtered_credentials.append(filename)
-
-        total_count = len(filtered_credentials)
-        paginated_credentials = filtered_credentials[offset:offset + limit]
-
-        creds_list = []
-        for filename in paginated_credentials:
-            file_status = all_states.get(filename, {
-                "error_codes": [],
-                "disabled": False,
-                "last_success": time.time(),
-                "user_email": None,
-            })
-
-            # 计算冷却状态
-            cooldown_until = file_status.get("cooldown_until")
-            cooldown_status = "ready"
-            cooldown_remaining_seconds = 0
-
-            if cooldown_until:
-                current_time = time.time()
-                if current_time < cooldown_until:
-                    cooldown_status = "cooling"
-                    cooldown_remaining_seconds = int(cooldown_until - current_time)
-
-            cred_info = {
-                "filename": os.path.basename(filename),
-                "user_email": file_status.get("user_email"),
-                "disabled": file_status.get("disabled", False),
-                "error_codes": file_status.get("error_codes", []),
-                "last_success": file_status.get("last_success", time.time()),
-                "cooldown_status": cooldown_status,
-                "cooldown_remaining_seconds": cooldown_remaining_seconds,
-                "backend_type": backend_type,
-            }
-
-            if cooldown_until:
-                cred_info["cooldown_until"] = cooldown_until
-
-            creds_list.append(cred_info)
-
-        return JSONResponse(content={
-            "items": creds_list,
-            "total": total_count,
-            "offset": offset,
-            "limit": limit,
-            "has_more": (offset + limit) < total_count,
-        })
-
+        return await get_creds_status_common(offset, limit, status_filter, is_antigravity=False)
     except HTTPException:
         raise
     except Exception as e:
@@ -1032,42 +1196,7 @@ async def download_cred_file(filename: str, token: str = Depends(verify_token)):
 async def fetch_user_email(filename: str, token: str = Depends(verify_token)):
     """获取指定凭证文件的用户邮箱地址"""
     try:
-        await ensure_credential_manager_initialized()
-
-        # 标准化文件名（只保留文件名部分）
-        import os
-
-        filename_only = os.path.basename(filename)
-        if not filename_only.endswith(".json"):
-            raise HTTPException(status_code=404, detail="无效的文件名")
-
-        # 检查凭证是否存在于存储系统中
-        storage_adapter = await get_storage_adapter()
-        credential_data = await storage_adapter.get_credential(filename_only)
-        if not credential_data:
-            raise HTTPException(status_code=404, detail="凭证文件不存在")
-
-        # 获取用户邮箱（使用凭证名称而不是文件路径）
-        email = await credential_manager.get_or_fetch_user_email(filename_only)
-
-        if email:
-            return JSONResponse(
-                content={
-                    "filename": filename_only,
-                    "user_email": email,
-                    "message": "成功获取用户邮箱",
-                }
-            )
-        else:
-            return JSONResponse(
-                content={
-                    "filename": filename_only,
-                    "user_email": None,
-                    "message": "无法获取用户邮箱，可能凭证已过期或权限不足",
-                },
-                status_code=400,
-            )
-
+        return await fetch_user_email_common(filename, is_antigravity=False)
     except HTTPException:
         raise
     except Exception as e:
@@ -1079,57 +1208,7 @@ async def fetch_user_email(filename: str, token: str = Depends(verify_token)):
 async def refresh_all_user_emails(token: str = Depends(verify_token)):
     """刷新所有凭证文件的用户邮箱地址"""
     try:
-        await ensure_credential_manager_initialized()
-
-        # 获取存储适配器
-        storage_adapter = await get_storage_adapter()
-
-        # 获取所有凭证文件
-        credential_filenames = await storage_adapter.list_credentials()
-
-        results = []
-        success_count = 0
-
-        for filename in credential_filenames:
-            try:
-                email = await credential_manager.get_or_fetch_user_email(filename)
-                if email:
-                    success_count += 1
-                    results.append(
-                        {
-                            "filename": os.path.basename(filename),
-                            "user_email": email,
-                            "success": True,
-                        }
-                    )
-                else:
-                    results.append(
-                        {
-                            "filename": os.path.basename(filename),
-                            "user_email": None,
-                            "success": False,
-                            "error": "无法获取邮箱",
-                        }
-                    )
-            except Exception as e:
-                results.append(
-                    {
-                        "filename": os.path.basename(filename),
-                        "user_email": None,
-                        "success": False,
-                        "error": str(e),
-                    }
-                )
-
-        return JSONResponse(
-            content={
-                "success_count": success_count,
-                "total_count": len(credential_filenames),
-                "results": results,
-                "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址",
-            }
-        )
-
+        return await refresh_all_user_emails_common(is_antigravity=False)
     except Exception as e:
         log.error(f"批量获取用户邮箱失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1142,52 +1221,7 @@ async def download_all_creds(token: str = Depends(verify_token)):
     只在实际下载时才加载完整凭证内容，最大化性能
     """
     try:
-        # 获取存储适配器
-        storage_adapter = await get_storage_adapter()
-
-        # 只获取凭证文件名列表（不加载数据）
-        credential_filenames = await storage_adapter.list_credentials()
-
-        if not credential_filenames:
-            raise HTTPException(status_code=404, detail="没有找到凭证文件")
-
-        log.info(f"开始打包 {len(credential_filenames)} 个凭证文件...")
-
-        # 创建内存中的ZIP文件
-        zip_buffer = io.BytesIO()
-
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            # 按需逐个加载并打包凭证
-            success_count = 0
-            for idx, filename in enumerate(credential_filenames, 1):
-                try:
-                    # 只在需要时才加载单个凭证数据
-                    credential_data = await storage_adapter.get_credential(filename)
-                    if credential_data:
-                        # 转换为JSON字符串
-                        content = json.dumps(credential_data, ensure_ascii=False, indent=2)
-
-                        # 添加到ZIP文件中
-                        zip_file.writestr(os.path.basename(filename), content)
-                        success_count += 1
-
-                        # 每处理10个文件记录一次进度
-                        if idx % 10 == 0:
-                            log.debug(f"打包进度: {idx}/{len(credential_filenames)}")
-
-                except Exception as e:
-                    log.warning(f"处理凭证文件 {filename} 时出错: {e}")
-                    continue
-
-        log.info(f"打包完成: 成功 {success_count}/{len(credential_filenames)} 个文件")
-
-        zip_buffer.seek(0)
-        return Response(
-            content=zip_buffer.getvalue(),
-            media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=credentials.zip"},
-        )
-
+        return await download_all_creds_common(is_antigravity=False)
     except HTTPException:
         raise
     except Exception as e:
@@ -1201,11 +1235,8 @@ async def get_config(token: str = Depends(verify_token)):
     try:
         await ensure_credential_manager_initialized()
 
-        # 导入配置相关模块
-
         # 读取当前配置（包括环境变量和TOML文件中的配置）
         current_config = {}
-        env_locked = []
 
         # 基础配置
         current_config["code_assist_endpoint"] = await config.get_code_assist_endpoint()
@@ -1218,38 +1249,9 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["resource_manager_api_url"] = await config.get_resource_manager_api_url()
         current_config["service_usage_api_url"] = await config.get_service_usage_api_url()
 
-        # 检查环境变量锁定状态
-        if os.getenv("CODE_ASSIST_ENDPOINT"):
-            env_locked.append("code_assist_endpoint")
-        if os.getenv("CREDENTIALS_DIR"):
-            env_locked.append("credentials_dir")
-        if os.getenv("PROXY"):
-            env_locked.append("proxy")
-        if os.getenv("OAUTH_PROXY_URL"):
-            env_locked.append("oauth_proxy_url")
-        if os.getenv("GOOGLEAPIS_PROXY_URL"):
-            env_locked.append("googleapis_proxy_url")
-        if os.getenv("RESOURCE_MANAGER_API_URL"):
-            env_locked.append("resource_manager_api_url")
-        if os.getenv("SERVICE_USAGE_API_URL"):
-            env_locked.append("service_usage_api_url")
-
         # 自动封禁配置
         current_config["auto_ban_enabled"] = await config.get_auto_ban_enabled()
         current_config["auto_ban_error_codes"] = await config.get_auto_ban_error_codes()
-
-        # 检查环境变量锁定状态
-        if os.getenv("AUTO_BAN"):
-            env_locked.append("auto_ban_enabled")
-
-        # 从存储系统读取配置
-        storage_adapter = await get_storage_adapter()
-        storage_config = await storage_adapter.get_all_config()
-
-        # 合并存储系统配置（不覆盖环境变量）
-        for key, value in storage_config.items():
-            if key not in env_locked:
-                current_config[key] = value
 
         # 429重试配置
         current_config["retry_429_max_retries"] = await config.get_retry_429_max_retries()
@@ -1257,9 +1259,7 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["retry_429_interval"] = await config.get_retry_429_interval()
 
         # 抗截断配置
-        current_config["anti_truncation_max_attempts"] = (
-            await config.get_anti_truncation_max_attempts()
-        )
+        current_config["anti_truncation_max_attempts"] = await config.get_anti_truncation_max_attempts()
 
         # 兼容性配置
         current_config["compatibility_mode_enabled"] = await config.get_compatibility_mode_enabled()
@@ -1274,31 +1274,19 @@ async def get_config(token: str = Depends(verify_token)):
         current_config["panel_password"] = await config.get_panel_password()
         current_config["password"] = await config.get_server_password()
 
-        # 检查其他环境变量锁定状态
-        if os.getenv("RETRY_429_MAX_RETRIES"):
-            env_locked.append("retry_429_max_retries")
-        if os.getenv("RETRY_429_ENABLED"):
-            env_locked.append("retry_429_enabled")
-        if os.getenv("RETRY_429_INTERVAL"):
-            env_locked.append("retry_429_interval")
-        if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
-            env_locked.append("anti_truncation_max_attempts")
-        if os.getenv("COMPATIBILITY_MODE"):
-            env_locked.append("compatibility_mode_enabled")
-        if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
-            env_locked.append("return_thoughts_to_frontend")
-        if os.getenv("HOST"):
-            env_locked.append("host")
-        if os.getenv("PORT"):
-            env_locked.append("port")
-        if os.getenv("API_PASSWORD"):
-            env_locked.append("api_password")
-        if os.getenv("PANEL_PASSWORD"):
-            env_locked.append("panel_password")
-        if os.getenv("PASSWORD"):
-            env_locked.append("password")
+        # 从存储系统读取配置
+        storage_adapter = await get_storage_adapter()
+        storage_config = await storage_adapter.get_all_config()
 
-        return JSONResponse(content={"config": current_config, "env_locked": env_locked})
+        # 获取环境变量锁定的配置键
+        env_locked_keys = get_env_locked_keys()
+
+        # 合并存储系统配置（不覆盖环境变量）
+        for key, value in storage_config.items():
+            if key not in env_locked_keys:
+                current_config[key] = value
+
+        return JSONResponse(content={"config": current_config, "env_locked": list(env_locked_keys)})
 
     except Exception as e:
         log.error(f"获取配置失败: {e}")
@@ -1379,54 +1367,16 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_to
             if not isinstance(new_config["password"], str):
                 raise HTTPException(status_code=400, detail="访问密码必须是字符串")
 
-        # 只更新不被环境变量锁定的配置项
-        env_locked_keys = set()
-        if os.getenv("CODE_ASSIST_ENDPOINT"):
-            env_locked_keys.add("code_assist_endpoint")
-        if os.getenv("CREDENTIALS_DIR"):
-            env_locked_keys.add("credentials_dir")
-        if os.getenv("PROXY"):
-            env_locked_keys.add("proxy")
-        if os.getenv("OAUTH_PROXY_URL"):
-            env_locked_keys.add("oauth_proxy_url")
-        if os.getenv("GOOGLEAPIS_PROXY_URL"):
-            env_locked_keys.add("googleapis_proxy_url")
-        if os.getenv("AUTO_BAN"):
-            env_locked_keys.add("auto_ban_enabled")
-        if os.getenv("RETRY_429_MAX_RETRIES"):
-            env_locked_keys.add("retry_429_max_retries")
-        if os.getenv("RETRY_429_ENABLED"):
-            env_locked_keys.add("retry_429_enabled")
-        if os.getenv("RETRY_429_INTERVAL"):
-            env_locked_keys.add("retry_429_interval")
-        if os.getenv("ANTI_TRUNCATION_MAX_ATTEMPTS"):
-            env_locked_keys.add("anti_truncation_max_attempts")
-        if os.getenv("COMPATIBILITY_MODE"):
-            env_locked_keys.add("compatibility_mode_enabled")
-        if os.getenv("RETURN_THOUGHTS_TO_FRONTEND"):
-            env_locked_keys.add("return_thoughts_to_frontend")
-        if os.getenv("HOST"):
-            env_locked_keys.add("host")
-        if os.getenv("PORT"):
-            env_locked_keys.add("port")
-        if os.getenv("API_PASSWORD"):
-            env_locked_keys.add("api_password")
-        if os.getenv("PANEL_PASSWORD"):
-            env_locked_keys.add("panel_password")
-        if os.getenv("PASSWORD"):
-            env_locked_keys.add("password")
+        # 获取环境变量锁定的配置键
+        env_locked_keys = get_env_locked_keys()
 
         # 直接使用存储适配器保存配置
         storage_adapter = await get_storage_adapter()
         for key, value in new_config.items():
             if key not in env_locked_keys:
                 await storage_adapter.set_config(key, value)
-                if key == "password":
-                    log.debug(f"设置password字段为: {value}")
-                elif key == "api_password":
-                    log.debug(f"设置api_password字段为: {value}")
-                elif key == "panel_password":
-                    log.debug(f"设置panel_password字段为: {value}")
+                if key in ("password", "api_password", "panel_password"):
+                    log.debug(f"设置{key}字段为: {value}")
 
         # 重新加载配置缓存（关键！）
         await config.reload_config()
@@ -1645,3 +1595,177 @@ async def websocket_logs(websocket: WebSocket):
         log.error(f"WebSocket logs error: {e}")
     finally:
         manager.disconnect(websocket)
+
+
+# ============ Antigravity 凭证管理路由 ============
+
+@router.post("/antigravity/upload")
+async def upload_antigravity_credentials(
+    files: List[UploadFile] = File(...), token: str = Depends(verify_token)
+):
+    """批量上传Antigravity认证文件"""
+    try:
+        return await upload_credentials_common(files, is_antigravity=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"批量上传Antigravity文件失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/antigravity/creds/status")
+async def get_antigravity_creds_status(
+    token: str = Depends(verify_token),
+    offset: int = 0,
+    limit: int = 50,
+    status_filter: str = "all"
+):
+    """
+    获取Antigravity凭证文件的状态（轻量级摘要，不包含完整凭证数据，支持分页和状态筛选）
+
+    Args:
+        offset: 跳过的记录数（默认0）
+        limit: 每页返回的记录数（默认50，可选：20, 50, 100）
+        status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
+
+    Returns:
+        包含凭证列表、总数、分页信息的响应
+    """
+    try:
+        return await get_creds_status_common(offset, limit, status_filter, is_antigravity=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取Antigravity凭证状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/antigravity/creds/action")
+async def antigravity_cred_action(request: CredFileActionRequest, token: str = Depends(verify_token)):
+    """对 antigravity 凭证执行操作（启用/禁用/删除）"""
+    try:
+        storage_adapter = await get_storage_adapter()
+        filename = request.filename
+        action = request.action
+
+        if action == "enable":
+            await storage_adapter.update_credential_state(filename, {"disabled": False}, is_antigravity=True)
+            return JSONResponse(content={"success": True, "message": f"已启用凭证: {filename}"})
+        elif action == "disable":
+            await storage_adapter.update_credential_state(filename, {"disabled": True}, is_antigravity=True)
+            return JSONResponse(content={"success": True, "message": f"已禁用凭证: {filename}"})
+        elif action == "delete":
+            success = await storage_adapter.delete_credential(filename, is_antigravity=True)
+            if success:
+                return JSONResponse(content={"success": True, "message": f"已删除凭证: {filename}"})
+            else:
+                raise HTTPException(status_code=500, detail="删除失败")
+        else:
+            raise HTTPException(status_code=400, detail=f"未知操作: {action}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Antigravity 凭证操作失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/antigravity/creds/download/{filename}")
+async def download_antigravity_cred(filename: str, token: str = Depends(verify_token)):
+    """下载 antigravity 凭证文件"""
+    try:
+        storage_adapter = await get_storage_adapter()
+        credential_data = await storage_adapter.get_credential(filename, is_antigravity=True)
+
+        if not credential_data:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        json_content = json.dumps(credential_data, indent=2, ensure_ascii=False)
+
+        return Response(
+            content=json_content,
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"下载 antigravity 凭证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/antigravity/creds/batch-action")
+async def antigravity_batch_action(request: CredFileBatchActionRequest, token: str = Depends(verify_token)):
+    """批量操作 antigravity 凭证"""
+    try:
+        storage_adapter = await get_storage_adapter()
+        filenames = request.filenames
+        action = request.action
+
+        results = []
+        for filename in filenames:
+            try:
+                if action == "enable":
+                    await storage_adapter.update_credential_state(filename, {"disabled": False}, is_antigravity=True)
+                    results.append({"filename": filename, "success": True})
+                elif action == "disable":
+                    await storage_adapter.update_credential_state(filename, {"disabled": True}, is_antigravity=True)
+                    results.append({"filename": filename, "success": True})
+                elif action == "delete":
+                    success = await storage_adapter.delete_credential(filename, is_antigravity=True)
+                    results.append({"filename": filename, "success": success})
+                else:
+                    results.append({"filename": filename, "success": False, "error": "未知操作"})
+            except Exception as e:
+                results.append({"filename": filename, "success": False, "error": str(e)})
+
+        success_count = sum(1 for r in results if r.get("success"))
+        return JSONResponse(content={
+            "success": True,
+            "success_count": success_count,
+            "total": len(filenames),
+            "succeeded": success_count,
+            "failed": len(filenames) - success_count,
+            "results": results
+        })
+    except Exception as e:
+        log.error(f"批量操作 antigravity 凭证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/antigravity/creds/fetch-email/{filename}")
+async def fetch_antigravity_user_email(filename: str, token: str = Depends(verify_token)):
+    """获取指定Antigravity凭证文件的用户邮箱地址"""
+    try:
+        return await fetch_user_email_common(filename, is_antigravity=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取Antigravity用户邮箱失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/antigravity/creds/refresh-all-emails")
+async def refresh_all_antigravity_user_emails(token: str = Depends(verify_token)):
+    """刷新所有Antigravity凭证文件的用户邮箱地址"""
+    try:
+        return await refresh_all_user_emails_common(is_antigravity=True)
+    except Exception as e:
+        log.error(f"批量获取Antigravity用户邮箱失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/antigravity/creds/download-all")
+async def download_all_antigravity_creds(token: str = Depends(verify_token)):
+    """
+    打包下载所有Antigravity凭证文件（流式处理，按需加载每个凭证数据）
+    只在实际下载时才加载完整凭证内容，最大化性能
+    """
+    try:
+        return await download_all_creds_common(is_antigravity=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"打包下载Antigravity凭证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

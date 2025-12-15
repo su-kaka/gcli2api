@@ -94,7 +94,7 @@
 ### 🎛️ Web 管理控制台
 
 **全功能 Web 界面**
-- OAuth 认证流程管理
+- OAuth 认证流程管理（支持 GCLI 和 Antigravity 双模式）
 - 凭证文件上传、下载、管理
 - 实时日志查看（WebSocket）
 - 系统配置管理
@@ -102,10 +102,11 @@
 - 移动端适配界面
 
 **批量操作支持**
-- ZIP 文件批量上传凭证
+- ZIP 文件批量上传凭证（GCLI 和 Antigravity）
 - 批量启用/禁用/删除凭证
 - 批量获取用户邮箱
 - 批量配置管理
+- 统一批量上传界面管理所有凭证类型
 
 ### 📈 使用统计和监控
 
@@ -296,6 +297,8 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 1. 访问 `http://127.0.0.1:7861/auth` （默认端口，可通过 PORT 环境变量修改）
 2. 完成 OAuth 认证流程（默认密码：`pwd`，可通过环境变量修改）
+   - **GCLI 模式**：用于获取 Google Cloud Gemini API 凭证
+   - **Antigravity 模式**：用于获取 Google Antigravity API 凭证
 3. 配置客户端：
 
 **OpenAI 兼容客户端：**
@@ -306,8 +309,27 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
    - **端点地址**：`http://127.0.0.1:7861`
    - **认证方式**：
      - `Authorization: Bearer your_api_password`
-     - `x-goog-api-key: your_api_password` 
+     - `x-goog-api-key: your_api_password`
      - URL 参数：`?key=your_api_password`
+
+### 🌟 双认证模式支持
+
+**GCLI 认证模式**
+- 标准的 Google Cloud Gemini API 认证
+- 支持 OAuth2.0 认证流程
+- 自动启用必需的 Google Cloud API
+
+**Antigravity 认证模式**
+- Google Antigravity API 专用认证
+- 独立的凭证管理系统
+- 支持批量上传和管理
+- 与 GCLI 凭证完全隔离
+
+**统一管理界面**
+- 在"批量上传"标签页中可一次性管理两种凭证
+- 上半部分：GCLI 凭证批量上传（蓝色主题）
+- 下半部分：Antigravity 凭证批量上传（绿色主题）
+- 各自独立的凭证管理标签页
 
 ## 💾 数据存储模式
 
@@ -683,19 +705,31 @@ for part in response.candidates[0].content.parts:
 
 **认证端点**
 - `POST /auth/login` - 用户登录
-- `POST /auth/start` - 开始 OAuth 认证
+- `POST /auth/start` - 开始 GCLI OAuth 认证
+- `POST /auth/antigravity/start` - 开始 Antigravity OAuth 认证
 - `POST /auth/callback` - 处理 OAuth 回调
 - `GET /auth/status/{project_id}` - 检查认证状态
+- `GET /auth/antigravity/credentials` - 获取 Antigravity 凭证
 
-**凭证管理端点**
-- `GET /creds/status` - 获取所有凭证状态
-- `POST /creds/action` - 单个凭证操作（启用/禁用/删除）
-- `POST /creds/batch-action` - 批量凭证操作
-- `POST /auth/upload` - 批量上传凭证文件（支持 ZIP）
-- `GET /creds/download/{filename}` - 下载凭证文件
-- `GET /creds/download-all` - 打包下载所有凭证
-- `POST /creds/fetch-email/{filename}` - 获取用户邮箱
-- `POST /creds/refresh-all-emails` - 批量刷新用户邮箱
+**GCLI 凭证管理端点**
+- `GET /creds/status` - 获取所有 GCLI 凭证状态
+- `POST /creds/action` - 单个 GCLI 凭证操作（启用/禁用/删除）
+- `POST /creds/batch-action` - 批量 GCLI 凭证操作
+- `POST /auth/upload` - 批量上传 GCLI 凭证文件（支持 ZIP）
+- `GET /creds/download/{filename}` - 下载 GCLI 凭证文件
+- `GET /creds/download-all` - 打包下载所有 GCLI 凭证
+- `POST /creds/fetch-email/{filename}` - 获取 GCLI 用户邮箱
+- `POST /creds/refresh-all-emails` - 批量刷新 GCLI 用户邮箱
+
+**Antigravity 凭证管理端点**
+- `GET /antigravity/creds/status` - 获取所有 Antigravity 凭证状态
+- `POST /antigravity/creds/action` - 单个 Antigravity 凭证操作（启用/禁用/删除）
+- `POST /antigravity/creds/batch-action` - 批量 Antigravity 凭证操作
+- `POST /antigravity/auth/upload` - 批量上传 Antigravity 凭证文件（支持 ZIP）
+- `GET /antigravity/creds/download/{filename}` - 下载 Antigravity 凭证文件
+- `GET /antigravity/creds/download-all` - 打包下载所有 Antigravity 凭证
+- `POST /antigravity/creds/fetch-email/{filename}` - 获取 Antigravity 用户邮箱
+- `POST /antigravity/creds/refresh-all-emails` - 批量刷新 Antigravity 用户邮箱
 
 **配置管理端点**
 - `GET /config/get` - 获取当前配置

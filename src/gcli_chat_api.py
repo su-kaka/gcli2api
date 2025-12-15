@@ -27,6 +27,7 @@ from src.utils import (
     get_thinking_budget,
     is_search_model,
     should_include_thoughts,
+    get_model_group,
 )
 from log import log
 
@@ -213,10 +214,15 @@ async def send_gemini_request(
     if not credential_manager:
         return _create_error_response("Credential manager not provided", 500)
 
+    # 获取模型组（用于分组 CD）
+    model_group = get_model_group(model_name)
+
     for attempt in range(max_retries + 1):
-        # 每次请求都获取新的凭证
+        # 每次请求都获取新的凭证（传递模型组）
         try:
-            credential_result = await credential_manager.get_valid_credential()
+            credential_result = await credential_manager.get_valid_credential(
+                is_antigravity=False, model_key=model_group
+            )
             if not credential_result:
                 return _create_error_response("No valid credentials available", 500)
 
@@ -270,10 +276,10 @@ async def send_gemini_request(
                                 f"Google API returned status {resp.status_code} (STREAMING) - no response details available"
                             )
 
-                        # 记录API调用错误
+                        # 记录API调用错误（使用模型组 CD）
                         if credential_manager and current_file:
                             await credential_manager.record_api_call_result(
-                                current_file, False, resp.status_code, cooldown_until
+                                current_file, False, resp.status_code, cooldown_until, model_key=model_group
                             )
 
                         # 清理资源
@@ -327,6 +333,7 @@ async def send_gemini_request(
                             credential_manager,
                             payload.get("model", ""),
                             current_file,
+                            model_group,  # 传递模型组
                         )
 
                 except Exception as e:
@@ -345,7 +352,7 @@ async def send_gemini_request(
                     # === 修改：统一处理所有非200状态码，沿用429行为 ===
                     if resp.status_code == 200:
                         return await _handle_non_streaming_response(
-                            resp, credential_manager, payload.get("model", ""), current_file
+                            resp, credential_manager, payload.get("model", ""), current_file, model_group
                         )
 
                     # 记录错误
@@ -366,9 +373,9 @@ async def send_gemini_request(
                             log.debug(f"[NON-STREAMING] Failed to parse cooldown time: {parse_err}")
 
                     if credential_manager and current_file:
-                        # 保留 429 的统计码不变
+                        # 保留 429 的统计码不变（使用模型组 CD）
                         await credential_manager.record_api_call_result(
-                            current_file, False, 429 if status == 429 else status, cooldown_until
+                            current_file, False, 429 if status == 429 else status, cooldown_until, model_key=model_group
                         )
 
                     # 使用统一的错误处理和重试逻辑
@@ -421,6 +428,7 @@ def _handle_streaming_response_managed(
     credential_manager: CredentialManager = None,
     model_name: str = "",
     current_file: str = None,
+    model_group: str = None,
 ) -> StreamingResponse:
     """Handle streaming response with complete resource lifecycle management."""
 
@@ -473,10 +481,10 @@ def _handle_streaming_response_managed(
                 else:
                     log.error(f"Google API returned status {resp.status_code} (STREAMING)")
 
-            # 记录API调用错误
+            # 记录API调用错误（使用模型组 CD）
             if credential_manager and current_file:
                 await credential_manager.record_api_call_result(
-                    current_file, False, resp.status_code, cooldown_until
+                    current_file, False, resp.status_code, cooldown_until, model_key=model_group
                 )
 
             # 处理429和自动封禁
@@ -509,10 +517,12 @@ def _handle_streaming_response_managed(
                 if not chunk or not chunk.startswith("data: "):
                     continue
 
-                # 记录第一次成功响应
+                # 记录第一次成功响应（使用模型组 CD）
                 if not success_recorded:
                     if current_file and credential_manager:
-                        await credential_manager.record_api_call_result(current_file, True)
+                        await credential_manager.record_api_call_result(
+                            current_file, True, model_key=model_group
+                        )
                     success_recorded = True
 
                 payload = chunk[len("data: ") :]
@@ -559,13 +569,16 @@ async def _handle_non_streaming_response(
     credential_manager: CredentialManager = None,
     model_name: str = "",
     current_file: str = None,
+    model_group: str = None,
 ) -> Response:
     """Handle non-streaming response from Google API."""
     if resp.status_code == 200:
         try:
-            # 记录成功响应
+            # 记录成功响应（使用模型组 CD）
             if current_file and credential_manager:
-                await credential_manager.record_api_call_result(current_file, True)
+                await credential_manager.record_api_call_result(
+                    current_file, True, model_key=model_group
+                )
 
             raw = await resp.aread()
             google_api_response = raw.decode("utf-8")
@@ -640,9 +653,11 @@ async def _handle_non_streaming_response(
             else:
                 log.error(f"Google API returned status {resp.status_code} (NON-STREAMING)")
 
-        # 记录API调用错误
+        # 记录API调用错误（使用模型组 CD）
         if credential_manager and current_file:
-            await credential_manager.record_api_call_result(current_file, False, resp.status_code, cooldown_until)
+            await credential_manager.record_api_call_result(
+                current_file, False, resp.status_code, cooldown_until, model_key=model_group
+            )
 
         # 处理429和自动封禁
         if resp.status_code == 429:

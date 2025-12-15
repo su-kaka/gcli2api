@@ -26,7 +26,7 @@ from log import log
 
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_chat_api import send_gemini_request
+from .gcli_chat_api import send_gemini_request
 from .models import ChatCompletionRequest, Model, ModelList
 from .openai_transfer import (
     _convert_usage_metadata,

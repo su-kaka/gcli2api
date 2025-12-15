@@ -92,7 +92,7 @@ This is a strict anti-commercial open source license. Please refer to the [LICEN
 ### 🎛️ Web Management Console
 
 **Full-featured Web Interface**
-- OAuth authentication flow management
+- OAuth authentication flow management (supports GCLI and Antigravity dual modes)
 - Credential file upload, download, and management
 - Real-time log viewing (WebSocket)
 - System configuration management
@@ -100,10 +100,11 @@ This is a strict anti-commercial open source license. Please refer to the [LICEN
 - Mobile-friendly interface
 
 **Batch Operation Support**
-- ZIP file batch credential upload
+- ZIP file batch credential upload (GCLI and Antigravity)
 - Batch enable/disable/delete credentials
 - Batch user email retrieval
 - Batch configuration management
+- Unified batch upload interface for all credential types
 
 ### 📈 Usage Statistics and Monitoring
 
@@ -281,6 +282,8 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 1. Visit `http://127.0.0.1:7861/auth` (default port, modifiable via PORT environment variable)
 2. Complete OAuth authentication flow (default password: `pwd`, modifiable via environment variables)
+   - **GCLI Mode**: For obtaining Google Cloud Gemini API credentials
+   - **Antigravity Mode**: For obtaining Google Antigravity API credentials
 3. Configure client:
 
 **OpenAI Compatible Client:**
@@ -291,8 +294,27 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
    - **Endpoint Address**: `http://127.0.0.1:7861`
    - **Authentication Methods**:
      - `Authorization: Bearer your_api_password`
-     - `x-goog-api-key: your_api_password` 
+     - `x-goog-api-key: your_api_password`
      - URL parameter: `?key=your_api_password`
+
+### 🌟 Dual Authentication Mode Support
+
+**GCLI Authentication Mode**
+- Standard Google Cloud Gemini API authentication
+- Supports OAuth2.0 authentication flow
+- Automatically enables required Google Cloud APIs
+
+**Antigravity Authentication Mode**
+- Dedicated authentication for Google Antigravity API
+- Independent credential management system
+- Supports batch upload and management
+- Completely isolated from GCLI credentials
+
+**Unified Management Interface**
+- Manage both credential types in the "Batch Upload" tab
+- Upper section: GCLI credential batch upload (blue theme)
+- Lower section: Antigravity credential batch upload (green theme)
+- Separate credential management tabs for each type
 
 ## 💾 Data Storage Mode
 
@@ -667,19 +689,31 @@ curl -X POST "http://127.0.0.1:7861/v1/models/gemini-2.5-pro:streamGenerateConte
 
 **Authentication Endpoints**
 - `POST /auth/login` - User login
-- `POST /auth/start` - Start OAuth authentication
+- `POST /auth/start` - Start GCLI OAuth authentication
+- `POST /auth/antigravity/start` - Start Antigravity OAuth authentication
 - `POST /auth/callback` - Handle OAuth callback
 - `GET /auth/status/{project_id}` - Check authentication status
+- `GET /auth/antigravity/credentials` - Get Antigravity credentials
 
-**Credential Management Endpoints**
-- `GET /creds/status` - Get all credential statuses
-- `POST /creds/action` - Single credential operation (enable/disable/delete)
-- `POST /creds/batch-action` - Batch credential operations
-- `POST /auth/upload` - Batch upload credential files (supports ZIP)
-- `GET /creds/download/{filename}` - Download credential file
-- `GET /creds/download-all` - Package download all credentials
-- `POST /creds/fetch-email/{filename}` - Get user email
-- `POST /creds/refresh-all-emails` - Batch refresh user emails
+**GCLI Credential Management Endpoints**
+- `GET /creds/status` - Get all GCLI credential statuses
+- `POST /creds/action` - Single GCLI credential operation (enable/disable/delete)
+- `POST /creds/batch-action` - Batch GCLI credential operations
+- `POST /auth/upload` - Batch upload GCLI credential files (supports ZIP)
+- `GET /creds/download/{filename}` - Download GCLI credential file
+- `GET /creds/download-all` - Package download all GCLI credentials
+- `POST /creds/fetch-email/{filename}` - Get GCLI user email
+- `POST /creds/refresh-all-emails` - Batch refresh GCLI user emails
+
+**Antigravity Credential Management Endpoints**
+- `GET /antigravity/creds/status` - Get all Antigravity credential statuses
+- `POST /antigravity/creds/action` - Single Antigravity credential operation (enable/disable/delete)
+- `POST /antigravity/creds/batch-action` - Batch Antigravity credential operations
+- `POST /antigravity/auth/upload` - Batch upload Antigravity credential files (supports ZIP)
+- `GET /antigravity/creds/download/{filename}` - Download Antigravity credential file
+- `GET /antigravity/creds/download-all` - Package download all Antigravity credentials
+- `POST /antigravity/creds/fetch-email/{filename}` - Get Antigravity user email
+- `POST /antigravity/creds/refresh-all-emails` - Batch refresh Antigravity user emails
 
 **Configuration Management Endpoints**
 - `GET /config/get` - Get current configuration
