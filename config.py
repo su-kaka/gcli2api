@@ -376,6 +376,25 @@ async def get_service_usage_api_url() -> str:
     )
 
 
+async def get_antigravity_api_url() -> str:
+    """
+    Get Antigravity API URL setting.
+
+    用于Google Antigravity API的URL。
+
+    Environment variable: ANTIGRAVITY_API_URL
+    TOML config key: antigravity_api_url
+    Default: https://daily-cloudcode-pa.sandbox.googleapis.com
+    """
+    return str(
+        await get_config_value(
+            "antigravity_api_url",
+            "https://daily-cloudcode-pa.sandbox.googleapis.com",
+            "ANTIGRAVITY_API_URL",
+        )
+    )
+
+
 # MongoDB Configuration
 async def get_mongodb_uri() -> str:
     """

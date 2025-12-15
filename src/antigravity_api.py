@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import Response
 
 from config import (
+    get_antigravity_api_url,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
     get_retry_429_enabled,
@@ -25,7 +26,7 @@ from .utils import parse_quota_reset_timestamp
 
 
 # Antigravity API 配置
-ANTIGRAVITY_URL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+# ANTIGRAVITY_URL 现在通过 get_antigravity_api_url() 动态获取
 ANTIGRAVITY_HOST = "daily-cloudcode-pa.sandbox.googleapis.com"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
@@ -173,12 +174,13 @@ async def send_antigravity_request_stream(
         try:
             # 发送流式请求
             client = await create_streaming_client_with_kwargs()
+            antigravity_url = await get_antigravity_api_url()
 
             try:
                 # 使用stream方法但不在async with块中消费数据
                 stream_ctx = client.stream(
                     "POST",
-                    f"{ANTIGRAVITY_URL}/v1internal:streamGenerateContent?alt=sse",
+                    f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse",
                     json=request_body,
                     headers=headers,
                 )
@@ -295,8 +297,9 @@ async def send_antigravity_request_no_stream(
 
         try:
             # 发送非流式请求
+            antigravity_url = await get_antigravity_api_url()
             response = await post_async(
-                f"{ANTIGRAVITY_URL}/v1internal:generateContent",
+                f"{antigravity_url}/v1internal:generateContent",
                 json=request_body,
                 headers=headers,
                 timeout=300.0,
@@ -386,8 +389,9 @@ async def fetch_available_models(
 
     try:
         # 使用 POST 请求获取模型列表（根据 buildAxiosConfig，method 是 POST）
+        antigravity_url = await get_antigravity_api_url()
         response = await post_async(
-            f"{ANTIGRAVITY_URL}/v1internal:fetchAvailableModels",
+            f"{antigravity_url}/v1internal:fetchAvailableModels",
             json={},  # 空的请求体
             headers=headers,
             timeout=30.0,

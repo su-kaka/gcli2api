@@ -1634,6 +1634,7 @@ function populateConfigForm() {
     setConfigField('googleapisProxyUrl', c.googleapis_proxy_url || '');
     setConfigField('resourceManagerApiUrl', c.resource_manager_api_url || '');
     setConfigField('serviceUsageApiUrl', c.service_usage_api_url || '');
+    setConfigField('antigravityApiUrl', c.antigravity_api_url || '');
 
     document.getElementById('autoBanEnabled').checked = Boolean(c.auto_ban_enabled);
     setConfigField('autoBanErrorCodes', (c.auto_ban_error_codes || []).join(','));
@@ -1684,6 +1685,7 @@ async function saveConfig() {
             googleapis_proxy_url: getValue('googleapisProxyUrl'),
             resource_manager_api_url: getValue('resourceManagerApiUrl'),
             service_usage_api_url: getValue('serviceUsageApiUrl'),
+            antigravity_api_url: getValue('antigravityApiUrl'),
             auto_ban_enabled: getChecked('autoBanEnabled'),
             auto_ban_error_codes: getValue('autoBanErrorCodes').split(',')
                 .map(c => parseInt(c.trim())).filter(c => !isNaN(c)),
@@ -1733,7 +1735,8 @@ const mirrorUrls = {
     oauthProxyUrl: 'https://gcli-api.sukaka.top/oauth2',
     googleapisProxyUrl: 'https://gcli-api.sukaka.top/googleapis',
     resourceManagerApiUrl: 'https://gcli-api.sukaka.top/cloudresourcemanager',
-    serviceUsageApiUrl: 'https://gcli-api.sukaka.top/serviceusage'
+    serviceUsageApiUrl: 'https://gcli-api.sukaka.top/serviceusage',
+    antigravityApiUrl: 'https://gcli-api.sukaka.top/daily-cloudcode-pa'
 };
 
 const officialUrls = {
@@ -1741,7 +1744,8 @@ const officialUrls = {
     oauthProxyUrl: 'https://oauth2.googleapis.com',
     googleapisProxyUrl: 'https://www.googleapis.com',
     resourceManagerApiUrl: 'https://cloudresourcemanager.googleapis.com',
-    serviceUsageApiUrl: 'https://serviceusage.googleapis.com'
+    serviceUsageApiUrl: 'https://serviceusage.googleapis.com',
+    antigravityApiUrl: 'https://daily-cloudcode-pa.sandbox.googleapis.com'
 };
 
 function useMirrorUrls() {
