@@ -70,7 +70,7 @@ async function login() {
 
     try {
         console.log('Sending login request...');
-        const response = await fetch('/auth/login', {
+        const response = await fetch('./auth/login', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -113,7 +113,7 @@ async function autoLogin() {
 
     try {
         // 验证 token 是否仍然有效 - 尝试获取配置
-        const response = await fetch('/config/get', {
+        const response = await fetch('./config/get', {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -233,7 +233,7 @@ async function startAuth() {
             showStatus('将尝试自动检测项目ID，正在生成认证链接...', 'info');
         }
 
-        const response = await fetch('/auth/start', {
+        const response = await fetch('./auth/start', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -292,7 +292,7 @@ async function getCredentials() {
             requestBody.get_all_projects = true;
         }
 
-        const response = await fetch('/auth/callback', {
+        const response = await fetch('./auth/callback', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -457,7 +457,7 @@ async function processCallbackUrl() {
         const projectIdInput = document.getElementById('projectId');
         const projectId = projectIdInput ? projectIdInput.value.trim() : null;
 
-        const response = await fetch('/auth/callback-url', {
+        const response = await fetch('./auth/callback-url', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({
@@ -724,7 +724,8 @@ function connectWebSocket() {
 
     try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/auth/logs/stream`;
+        const wsPath = new URL('./auth/logs/stream', window.location.href).href;
+        const wsUrl = wsPath.replace(/^http/, 'ws');
 
         document.getElementById('connectionStatusText').textContent = '连接中...';
         document.getElementById('logConnectionStatus').className = 'status info';
@@ -797,7 +798,7 @@ function clearLogsDisplay() {
 async function downloadLogs() {
     try {
         // 调用后端API下载日志文件
-        const response = await fetch('/auth/logs/download', {
+        const response = await fetch('./auth/logs/download', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -845,7 +846,7 @@ async function downloadLogs() {
 async function clearLogs() {
     try {
         // 调用后端API清空日志文件
-        const response = await fetch('/auth/logs/clear', {
+        const response = await fetch('./auth/logs/clear', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -907,7 +908,7 @@ async function refreshCredsStatus() {
         // 构建分页和筛选参数
         const offset = (currentPage - 1) * pageSize;
         const statusFilter = currentStatusFilter;
-        const response = await fetch(`/creds/status?offset=${offset}&limit=${pageSize}&status_filter=${statusFilter}`, {
+        const response = await fetch(`./creds/status?offset=${offset}&limit=${pageSize}&status_filter=${statusFilter}`, {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -1205,7 +1206,7 @@ async function credAction(filename, action) {
 
         console.log('Request body:', requestBody);
 
-        const response = await fetch('/creds/action', {
+        const response = await fetch('./creds/action', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -1248,7 +1249,7 @@ async function toggleCredDetails(pathId) {
 
             try {
                 // 从服务器获取完整内容
-                const response = await fetch(`/creds/detail/${encodeURIComponent(filename)}`, {
+                const response = await fetch(`./creds/detail/${encodeURIComponent(filename)}`, {
                     method: 'GET',
                     headers: getAuthHeaders()
                 });
@@ -1270,7 +1271,7 @@ async function toggleCredDetails(pathId) {
 
 async function downloadCred(filename) {
     try {
-        const response = await fetch(`/creds/download/${filename}`, {
+        const response = await fetch(`./creds/download/${filename}`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${authToken}`
@@ -1300,7 +1301,7 @@ async function downloadCred(filename) {
 
 async function downloadAllCreds() {
     try {
-        const response = await fetch('/creds/download-all', {
+        const response = await fetch('./creds/download-all', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${authToken}`
@@ -1442,7 +1443,7 @@ async function batchAction(action) {
             filenames: selectedFiles
         };
 
-        const response = await fetch('/creds/batch-action', {
+        const response = await fetch('./creds/batch-action', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(requestBody)
@@ -1476,7 +1477,7 @@ async function fetchUserEmail(filename) {
     try {
         showStatus('正在获取用户邮箱...', 'info');
 
-        const response = await fetch(`/creds/fetch-email/${encodeURIComponent(filename)}`, {
+        const response = await fetch(`./creds/fetch-email/${encodeURIComponent(filename)}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -1507,7 +1508,7 @@ async function refreshAllEmails() {
 
         showStatus('正在刷新所有用户邮箱...', 'info');
 
-        const response = await fetch('/creds/refresh-all-emails', {
+        const response = await fetch('./creds/refresh-all-emails', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -1542,7 +1543,7 @@ async function checkEnvCredsStatus() {
         envStatusLoading.style.display = 'block';
         envStatusContent.classList.add('hidden');
 
-        const response = await fetch('/auth/env-creds-status', {
+        const response = await fetch('./auth/env-creds-status', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -1591,7 +1592,7 @@ async function loadEnvCredentials() {
     try {
         showStatus('正在从环境变量导入凭证...', 'info');
 
-        const response = await fetch('/auth/load-env-creds', {
+        const response = await fetch('./auth/load-env-creds', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -1623,7 +1624,7 @@ async function clearEnvCredentials() {
     try {
         showStatus('正在清除环境变量凭证文件...', 'info');
 
-        const response = await fetch('/auth/env-creds', {
+        const response = await fetch('./auth/env-creds', {
             method: 'DELETE',
             headers: getAuthHeaders()
         });
@@ -1655,7 +1656,7 @@ async function loadConfig() {
         configLoading.style.display = 'block';
         configForm.classList.add('hidden');
 
-        const response = await fetch('/config/get', {
+        const response = await fetch('./config/get', {
             method: 'GET',
             headers: getAuthHeaders()
         });
@@ -1795,7 +1796,7 @@ async function saveConfig() {
             anti_truncation_max_attempts: getElementIntValue('antiTruncationMaxAttempts', 3)
         };
 
-        const response = await fetch('/config/save', {
+        const response = await fetch('./config/save', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ config: config })
@@ -1844,11 +1845,11 @@ async function refreshUsageStats() {
 
         // 获取所有文件的使用统计
         const [statsResponse, aggregatedResponse] = await Promise.all([
-            fetch('/usage/stats', {
+            fetch('./usage/stats', {
                 method: 'GET',
                 headers: getAuthHeaders()
             }),
-            fetch('/usage/aggregated', {
+            fetch('./usage/aggregated', {
                 method: 'GET',
                 headers: getAuthHeaders()
             })
@@ -1940,7 +1941,7 @@ async function resetSingleUsageStats(filename) {
     }
 
     try {
-        const response = await fetch('/usage/reset', {
+        const response = await fetch('./usage/reset', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({ filename: filename })
@@ -1966,7 +1967,7 @@ async function resetAllUsageStats() {
     }
 
     try {
-        const response = await fetch('/usage/reset', {
+        const response = await fetch('./usage/reset', {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify({})  // 不提供filename表示重置所有
