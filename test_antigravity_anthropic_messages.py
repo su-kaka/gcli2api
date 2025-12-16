@@ -1,7 +1,11 @@
 import json
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from src.antigravity_api import build_antigravity_request_body, send_antigravity_request_no_stream
 from src.anthropic_converter import (
     clean_json_schema,
     convert_anthropic_request_to_antigravity_components,
@@ -37,6 +41,54 @@ def test_clean_json_schema_会追加校验信息到描述():
     assert "maxLength: 5" in desc
     assert "minLength" not in cleaned["properties"]["q"]
     assert "maxLength" not in cleaned["properties"]["q"]
+
+
+def test_clean_json_schema_type_数组包含null_会降级为单值():
+    schema = {
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": ["string", "null"],
+                "description": "可空字符串",
+            },
+            "kind": {
+                "type": ["null", "string"],
+                "description": "顺序可能为 null 在前",
+            },
+        },
+        "additionalProperties": False,
+    }
+
+    cleaned = clean_json_schema(schema)
+    assert cleaned["properties"]["mode"]["type"] == "string"
+    assert cleaned["properties"]["mode"]["nullable"] is True
+    assert cleaned["properties"]["kind"]["type"] == "string"
+    assert cleaned["properties"]["kind"]["nullable"] is True
+
+
+def test_clean_json_schema_type_数组在深层items_properties_也会被处理():
+    schema = {
+        "type": "object",
+        "properties": {
+            "rows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": ["string", "null"]},
+                        "count": {"type": ["null", "integer"]},
+                    },
+                },
+            }
+        },
+    }
+
+    cleaned = clean_json_schema(schema)
+    row_props = cleaned["properties"]["rows"]["items"]["properties"]
+    assert row_props["name"]["type"] == "string"
+    assert row_props["name"]["nullable"] is True
+    assert row_props["count"]["type"] == "integer"
+    assert row_props["count"]["nullable"] is True
 
 
 def test_convert_messages_to_contents_支持多种内容块():
@@ -88,6 +140,52 @@ def test_convert_request_components_模型映射对齐_converter_py():
     components = convert_anthropic_request_to_antigravity_components(payload)
     assert components["model"] == "claude-sonnet-4-5"
     assert "thinkingConfig" not in components["generation_config"]
+
+
+def test_convert_request_components_tools_schema_不会包含type数组_避免下游400():
+    def assert_no_type_array(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == "type":
+                    assert not isinstance(v, list)
+                assert_no_type_array(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                assert_no_type_array(item)
+
+    payload = {
+        "model": "claude-opus-4-5-20251101",
+        "max_tokens": 8,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "ask_followup_question",
+                "description": "test",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": ["string", "null"]},
+                        "follow_up": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "mode": {"type": ["null", "string"]},
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        ],
+    }
+
+    components = convert_anthropic_request_to_antigravity_components(payload)
+    assert components["tools"]
+    params = components["tools"][0]["functionDeclarations"][0]["parameters"]
+    assert_no_type_array(params)
+    assert params["properties"]["mode"]["nullable"] is True
+    assert params["properties"]["follow_up"]["items"]["properties"]["mode"]["nullable"] is True
 
 
 def test_reorganize_tool_messages_会把_tool_result_移动到_tool_use_之后():
@@ -211,3 +309,152 @@ async def test_streaming_事件序列包含必要事件():
     assert "content_block_stop" in events
     assert events[-2] == "message_delta"
     assert events[-1] == "message_stop"
+
+
+@pytest.mark.asyncio
+async def test_tools_schema_type数组_会在下游请求前被归一化_避免模拟下游400():
+    """
+    这里用一个本地 mock Antigravity 服务模拟“下游遇到 type 为数组直接 400”的行为，
+    用于验证修复确实会在下游请求前消除 `type: [...]` 结构。
+    """
+
+    def has_type_array(obj) -> bool:
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == "type" and isinstance(v, list):
+                    return True
+                if has_type_array(v):
+                    return True
+            return False
+        if isinstance(obj, list):
+            return any(has_type_array(i) for i in obj)
+        return False
+
+    received = {"ok": False, "saw_tools": False}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("content-length", "0") or "0")
+            body = self.rfile.read(length).decode("utf-8", errors="ignore")
+            try:
+                payload = json.loads(body)
+            except Exception:
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            tools = (payload.get("request") or {}).get("tools") or []
+            received["saw_tools"] = bool(tools)
+
+            bad = False
+            for tool in tools:
+                for decl in (tool.get("functionDeclarations") or []) if isinstance(tool, dict) else []:
+                    params = decl.get("parameters") if isinstance(decl, dict) else None
+                    if has_type_array(params):
+                        bad = True
+                        break
+                if bad:
+                    break
+
+            if bad:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps(
+                        {
+                            "error": {
+                                "code": 400,
+                                "message": "Invalid JSON payload received: type is array",
+                            }
+                        }
+                    ).encode("utf-8")
+                )
+                return
+
+            received["ok"] = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "response": {
+                            "candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}],
+                            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+                        }
+                    }
+                ).encode("utf-8")
+            )
+
+        def log_message(self, format, *args):  # noqa: A002
+            # 测试中不输出 http.server 的默认日志，避免噪音
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    old_url = os.environ.get("ANTIGRAVITY_API_URL")
+    os.environ["ANTIGRAVITY_API_URL"] = f"http://{host}:{port}"
+
+    class FakeCredentialManager:
+        async def get_valid_credential(self, *, is_antigravity: bool, model_key: str = ""):
+            return "fake.json", {"access_token": "token", "projectId": "p", "sessionId": "s"}
+
+        async def record_api_call_result(self, *args, **kwargs):
+            return None
+
+        async def set_cred_disabled(self, *args, **kwargs):
+            return None
+
+    try:
+        payload = {
+            "model": "claude-opus-4-5-20251101",
+            "max_tokens": 8,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "ask_followup_question",
+                    "description": "test",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"mode": {"type": ["string", "null"]}},
+                        "required": ["mode"],
+                        "additionalProperties": False,
+                    },
+                }
+            ],
+        }
+        components = convert_anthropic_request_to_antigravity_components(payload)
+        request_body = build_antigravity_request_body(
+            contents=components["contents"],
+            model=components["model"],
+            project_id="p",
+            session_id="s",
+            system_instruction=components["system_instruction"],
+            tools=components["tools"],
+            generation_config=components["generation_config"],
+        )
+
+        # 明确断言：null 联合类型已转换为 nullable
+        params = request_body["request"]["tools"][0]["functionDeclarations"][0]["parameters"]
+        assert params["properties"]["mode"]["type"] == "string"
+        assert params["properties"]["mode"]["nullable"] is True
+
+        response_data, _, _ = await send_antigravity_request_no_stream(
+            request_body, FakeCredentialManager()
+        )
+
+        assert response_data["response"]["candidates"][0]["content"]["parts"][0]["text"] == "ok"
+        assert received["saw_tools"] is True
+        assert received["ok"] is True
+    finally:
+        if old_url is None:
+            os.environ.pop("ANTIGRAVITY_API_URL", None)
+        else:
+            os.environ["ANTIGRAVITY_API_URL"] = old_url
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

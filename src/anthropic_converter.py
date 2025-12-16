@@ -130,6 +130,23 @@ def clean_json_schema(schema: Any) -> Any:
         if key in fields_to_remove or key in validation_fields:
             continue
 
+        if key == "type" and isinstance(value, list):
+            # Roo/Anthropic SDK 常见写法：type: ["string", "null"]
+            # 下游（Proto 风格 Schema）通常要求 type 为单值字段，并使用 nullable 表达可空。
+            has_null = any(
+                isinstance(t, str) and t.strip() and t.strip().lower() == "null" for t in value
+            )
+            non_null_types = [
+                t.strip()
+                for t in value
+                if isinstance(t, str) and t.strip() and t.strip().lower() != "null"
+            ]
+
+            cleaned[key] = non_null_types[0] if non_null_types else "string"
+            if has_null:
+                cleaned["nullable"] = True
+            continue
+
         if key == "description" and validations:
             cleaned[key] = f"{value} ({', '.join(validations)})"
         elif isinstance(value, dict):
