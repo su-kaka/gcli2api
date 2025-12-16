@@ -306,6 +306,12 @@ async def anthropic_messages(
 
     log.info(f"[ANTHROPIC] /messages 模型映射: upstream={model} -> downstream={components['model']}")
 
+    estimated_input_tokens = 0
+    try:
+        estimated_input_tokens = _estimate_input_tokens_from_components(components)
+    except Exception as e:
+        log.debug(f"[ANTHROPIC] 输入 token 估算失败，回退为0: {e}")
+
     request_body = build_antigravity_request_body(
         contents=components["contents"],
         model=components["model"],
@@ -332,6 +338,7 @@ async def anthropic_messages(
                     response.aiter_lines(),
                     model=str(model),
                     message_id=message_id,
+                    initial_input_tokens=estimated_input_tokens,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
                 ):

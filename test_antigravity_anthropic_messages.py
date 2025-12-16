@@ -14,7 +14,10 @@ from src.anthropic_converter import (
     reorganize_tool_messages,
 )
 from src.anthropic_streaming import antigravity_sse_to_anthropic_sse
-from src.antigravity_anthropic_router import _convert_antigravity_response_to_anthropic_message
+from src.antigravity_anthropic_router import (
+    _convert_antigravity_response_to_anthropic_message,
+    _estimate_input_tokens_from_components,
+)
 
 
 def test_clean_json_schema_会追加校验信息到描述():
@@ -309,6 +312,37 @@ async def test_streaming_事件序列包含必要事件():
     assert "content_block_stop" in events
     assert events[-2] == "message_delta"
     assert events[-1] == "message_stop"
+
+
+@pytest.mark.asyncio
+async def test_streaming_message_start_会注入估算_input_tokens():
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 8,
+        "messages": [{"role": "user", "content": "你好，世界"}],
+    }
+    components = convert_anthropic_request_to_antigravity_components(payload)
+    estimated_input_tokens = _estimate_input_tokens_from_components(components)
+    assert estimated_input_tokens > 0
+
+    async def gen():
+        if False:
+            yield ""
+
+    chunks = []
+    async for chunk in antigravity_sse_to_anthropic_sse(
+        gen(),
+        model="m",
+        message_id="msg1",
+        initial_input_tokens=estimated_input_tokens,
+    ):
+        chunks.append(chunk.decode("utf-8"))
+
+    first = chunks[0]
+    lines = [l for l in first.splitlines() if l.strip()]
+    assert lines[0] == "event: message_start"
+    data = json.loads(lines[1].split("data: ", 1)[1])
+    assert data["message"]["usage"]["input_tokens"] == estimated_input_tokens
 
 
 @pytest.mark.asyncio

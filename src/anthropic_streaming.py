@@ -75,6 +75,7 @@ async def antigravity_sse_to_anthropic_sse(
     *,
     model: str,
     message_id: str,
+    initial_input_tokens: int = 0,
     credential_manager: Any = None,
     credential_name: Optional[str] = None,
 ) -> AsyncIterator[bytes]:
@@ -83,6 +84,11 @@ async def antigravity_sse_to_anthropic_sse(
     """
     state = _StreamingState(message_id=message_id, model=model)
     success_recorded = False
+
+    try:
+        initial_input_tokens_int = max(0, int(initial_input_tokens or 0))
+    except Exception:
+        initial_input_tokens_int = 0
 
     yield _sse_event(
         "message_start",
@@ -96,7 +102,7 @@ async def antigravity_sse_to_anthropic_sse(
                 "content": [],
                 "stop_reason": None,
                 "stop_sequence": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "usage": {"input_tokens": initial_input_tokens_int, "output_tokens": 0},
             },
         },
     )
