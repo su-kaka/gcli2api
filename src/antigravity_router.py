@@ -1073,7 +1073,7 @@ async def gemini_generate_content(
 
     # 发送非流式请求
     try:
-        response_data = await send_antigravity_request_no_stream(
+        response_data, cred_name, cred_data = await send_antigravity_request_no_stream(
             request_body, cred_mgr
         )
 
