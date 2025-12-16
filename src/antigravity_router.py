@@ -1,6 +1,6 @@
 """
-Antigravity Router - Handles OpenAI format requests and converts to Antigravity API
-处理 OpenAI 格式请求并转换为 Antigravity API 格式
+Antigravity Router - Handles OpenAI and Gemini format requests and converts to Antigravity API
+处理 OpenAI 和 Gemini 格式请求并转换为 Antigravity API 格式
 """
 
 import json
@@ -9,7 +9,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -50,6 +50,44 @@ async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(secur
     if token != password:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
     return token
+
+
+async def authenticate_gemini_flexible(
+    request: Request,
+    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
+    key: Optional[str] = Query(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
+) -> str:
+    """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
+    from config import get_api_password
+
+    password = await get_api_password()
+
+    # 尝试从URL参数key获取（Google官方标准方式）
+    if key:
+        log.debug("Using URL parameter key authentication")
+        if key == password:
+            return key
+
+    # 尝试从Authorization头获取（兼容旧方式）
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # 移除 "Bearer " 前缀
+        log.debug("Using Bearer token authentication")
+        if token == password:
+            return token
+
+    # 尝试从x-goog-api-key头获取（新标准方式）
+    if x_goog_api_key:
+        log.debug("Using x-goog-api-key authentication")
+        if x_goog_api_key == password:
+            return x_goog_api_key
+
+    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
+    )
 
 
 # 模型名称映射
@@ -211,6 +249,25 @@ def openai_messages_to_antigravity_contents(messages: List[Any]) -> List[Dict[st
                 }
             }]
             contents.append({"role": "user", "parts": parts})
+
+    return contents
+
+
+def gemini_contents_to_antigravity_contents(gemini_contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    将 Gemini 原生 contents 格式转换为 Antigravity contents 格式
+    Gemini 和 Antigravity 的 contents 格式基本一致，只需要做少量调整
+    """
+    contents = []
+
+    for content in gemini_contents:
+        role = content.get("role", "user")
+        parts = content.get("parts", [])
+
+        contents.append({
+            "role": role,
+            "parts": parts
+        })
 
     return contents
 
@@ -629,6 +686,76 @@ def convert_antigravity_response_to_openai(
     }
 
 
+def convert_antigravity_response_to_gemini(
+    response_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    将 Antigravity 非流式响应转换为 Gemini 格式
+    Antigravity 的响应格式与 Gemini 非常相似，只需要提取 response 字段
+    """
+    # Antigravity 响应格式: {"response": {...}}
+    # Gemini 响应格式: {...}
+    return response_data.get("response", response_data)
+
+
+async def convert_antigravity_stream_to_gemini(
+    response: Any,
+    stream_ctx: Any,
+    client: Any,
+    credential_manager: Any,
+    credential_name: str
+):
+    """
+    将 Antigravity 流式响应转换为 Gemini 格式的 SSE 流
+    """
+    success_recorded = False
+
+    try:
+        async for line in response.aiter_lines():
+            if not line or not line.startswith("data: "):
+                continue
+
+            # 记录第一次成功响应
+            if not success_recorded:
+                if credential_name and credential_manager:
+                    await credential_manager.record_api_call_result(credential_name, True, is_antigravity=True)
+                success_recorded = True
+
+            # 解析 SSE 数据
+            try:
+                data = json.loads(line[6:])  # 去掉 "data: " 前缀
+            except:
+                continue
+
+            # Antigravity 流式响应格式: {"response": {...}}
+            # Gemini 流式响应格式: {...}
+            gemini_data = data.get("response", data)
+
+            # 发送 Gemini 格式的数据
+            yield f"data: {json.dumps(gemini_data)}\n\n"
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY GEMINI] Streaming error: {e}")
+        error_response = {
+            "error": {
+                "message": str(e),
+                "code": 500,
+                "status": "INTERNAL"
+            }
+        }
+        yield f"data: {json.dumps(error_response)}\n\n"
+    finally:
+        # 确保清理所有资源
+        try:
+            await stream_ctx.__aexit__(None, None, None)
+        except Exception as e:
+            log.debug(f"[ANTIGRAVITY GEMINI] Error closing stream context: {e}")
+        try:
+            await client.aclose()
+        except Exception as e:
+            log.debug(f"[ANTIGRAVITY GEMINI] Error closing client: {e}")
+
+
 @router.get("/antigravity/v1/models", response_model=ModelList)
 async def list_models():
     """返回 OpenAI 格式的模型列表 - 动态从 Antigravity API 获取"""
@@ -777,3 +904,277 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
     except Exception as e:
         log.error(f"[ANTIGRAVITY] Request failed: {e}")
         raise HTTPException(status_code=500, detail=f"Antigravity API request failed: {str(e)}")
+
+
+# ==================== Gemini 格式 API 端点 ====================
+
+@router.get("/antigravity/v1beta/models")
+@router.get("/antigravity/v1/models")
+async def gemini_list_models(api_key: str = Depends(authenticate_gemini_flexible)):
+    """返回 Gemini 格式的模型列表 - 动态从 Antigravity API 获取"""
+    from src.credential_manager import get_credential_manager
+    from .antigravity_api import fetch_available_models
+
+    try:
+        # 获取凭证管理器
+        cred_mgr = await get_credential_manager()
+
+        # 从 Antigravity API 获取模型列表（返回 OpenAI 格式的字典列表）
+        models = await fetch_available_models(cred_mgr)
+
+        if not models:
+            # 如果获取失败，返回空列表
+            log.warning("[ANTIGRAVITY GEMINI] Failed to fetch models from API, returning empty list")
+            return JSONResponse(content={"models": []})
+
+        # 将 OpenAI 格式转换为 Gemini 格式
+        gemini_models = []
+        for model in models:
+            model_id = model.get("id", "")
+            gemini_models.append({
+                "name": f"models/{model_id}",
+                "version": "001",
+                "displayName": model_id,
+                "description": f"Antigravity API - {model_id}",
+                "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
+            })
+
+        return JSONResponse(content={"models": gemini_models})
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY GEMINI] Error fetching models: {e}")
+        # 返回空列表
+        return JSONResponse(content={"models": []})
+
+
+@router.post("/antigravity/v1beta/models/{model:path}:generateContent")
+@router.post("/antigravity/v1/models/{model:path}:generateContent")
+async def gemini_generate_content(
+    model: str = Path(..., description="Model name"),
+    request: Request = None,
+    api_key: str = Depends(authenticate_gemini_flexible),
+):
+    """处理 Gemini 格式的非流式内容生成请求（通过 Antigravity API）"""
+    log.debug(f"[ANTIGRAVITY GEMINI] Non-streaming request for model: {model}")
+
+    # 获取原始请求数据
+    try:
+        request_data = await request.json()
+    except Exception as e:
+        log.error(f"Failed to parse JSON request: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+
+    # 验证必要字段
+    if "contents" not in request_data or not request_data["contents"]:
+        raise HTTPException(status_code=400, detail="Missing required field: contents")
+
+    # 健康检查
+    if (
+        len(request_data["contents"]) == 1
+        and request_data["contents"][0].get("role") == "user"
+        and request_data["contents"][0].get("parts", [{}])[0].get("text") == "Hi"
+    ):
+        return JSONResponse(
+            content={
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "antigravity API 正常工作中"}], "role": "model"},
+                        "finishReason": "STOP",
+                        "index": 0,
+                    }
+                ]
+            }
+        )
+
+    # 获取凭证管理器
+    from src.credential_manager import get_credential_manager
+    cred_mgr = await get_credential_manager()
+
+    # 提取模型名称（移除 "models/" 前缀）
+    if model.startswith("models/"):
+        model = model[7:]
+
+    # 模型名称映射
+    actual_model = model_mapping(model)
+    enable_thinking = is_thinking_model(model)
+
+    log.info(f"[ANTIGRAVITY GEMINI] Request: model={model} -> {actual_model}, thinking={enable_thinking}")
+
+    # 转换 Gemini contents 为 Antigravity contents
+    try:
+        contents = gemini_contents_to_antigravity_contents(request_data["contents"])
+    except Exception as e:
+        log.error(f"Failed to convert Gemini contents: {e}")
+        raise HTTPException(status_code=500, detail=f"Message conversion failed: {str(e)}")
+
+    # 提取 Gemini generationConfig
+    gemini_config = request_data.get("generationConfig", {})
+
+    # 转换为 Antigravity generation_config
+    parameters = {
+        "temperature": gemini_config.get("temperature"),
+        "top_p": gemini_config.get("topP"),
+        "top_k": gemini_config.get("topK"),
+        "max_tokens": gemini_config.get("maxOutputTokens"),
+    }
+    # 过滤 None 值
+    parameters = {k: v for k, v in parameters.items() if v is not None}
+
+    generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
+
+    # 获取凭证信息（用于 projectId 和 sessionId）
+    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    if not cred_result:
+        log.error("当前无可用 antigravity 凭证")
+        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
+
+    _, credential_data = cred_result
+    project_id = credential_data.get("projectId", "default-project")
+    session_id = credential_data.get("sessionId", f"session-{uuid.uuid4().hex}")
+
+    # 处理 systemInstruction
+    system_instruction = None
+    if "systemInstruction" in request_data:
+        system_instruction = request_data["systemInstruction"]
+
+    # 处理 tools
+    antigravity_tools = None
+    if "tools" in request_data:
+        # Gemini 和 Antigravity 的 tools 格式基本一致
+        antigravity_tools = request_data["tools"]
+
+    # 构建 Antigravity 请求体
+    request_body = build_antigravity_request_body(
+        contents=contents,
+        model=actual_model,
+        project_id=project_id,
+        session_id=session_id,
+        system_instruction=system_instruction,
+        tools=antigravity_tools,
+        generation_config=generation_config,
+    )
+
+    # 发送非流式请求
+    try:
+        response_data = await send_antigravity_request_no_stream(
+            request_body, cred_mgr
+        )
+
+        # 转换并返回 Gemini 格式响应
+        gemini_response = convert_antigravity_response_to_gemini(response_data)
+        return JSONResponse(content=gemini_response)
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY GEMINI] Request failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Antigravity API request failed: {str(e)}")
+
+
+@router.post("/antigravity/v1beta/models/{model:path}:streamGenerateContent")
+@router.post("/antigravity/v1/models/{model:path}:streamGenerateContent")
+async def gemini_stream_generate_content(
+    model: str = Path(..., description="Model name"),
+    request: Request = None,
+    api_key: str = Depends(authenticate_gemini_flexible),
+):
+    """处理 Gemini 格式的流式内容生成请求（通过 Antigravity API）"""
+    log.debug(f"[ANTIGRAVITY GEMINI] Streaming request for model: {model}")
+
+    # 获取原始请求数据
+    try:
+        request_data = await request.json()
+    except Exception as e:
+        log.error(f"Failed to parse JSON request: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+
+    # 验证必要字段
+    if "contents" not in request_data or not request_data["contents"]:
+        raise HTTPException(status_code=400, detail="Missing required field: contents")
+
+    # 获取凭证管理器
+    from src.credential_manager import get_credential_manager
+    cred_mgr = await get_credential_manager()
+
+    # 提取模型名称（移除 "models/" 前缀）
+    if model.startswith("models/"):
+        model = model[7:]
+
+    # 模型名称映射
+    actual_model = model_mapping(model)
+    enable_thinking = is_thinking_model(model)
+
+    log.info(f"[ANTIGRAVITY GEMINI] Stream request: model={model} -> {actual_model}, thinking={enable_thinking}")
+
+    # 转换 Gemini contents 为 Antigravity contents
+    try:
+        contents = gemini_contents_to_antigravity_contents(request_data["contents"])
+    except Exception as e:
+        log.error(f"Failed to convert Gemini contents: {e}")
+        raise HTTPException(status_code=500, detail=f"Message conversion failed: {str(e)}")
+
+    # 提取 Gemini generationConfig
+    gemini_config = request_data.get("generationConfig", {})
+
+    # 转换为 Antigravity generation_config
+    parameters = {
+        "temperature": gemini_config.get("temperature"),
+        "top_p": gemini_config.get("topP"),
+        "top_k": gemini_config.get("topK"),
+        "max_tokens": gemini_config.get("maxOutputTokens"),
+    }
+    # 过滤 None 值
+    parameters = {k: v for k, v in parameters.items() if v is not None}
+
+    generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
+
+    # 获取凭证信息（用于 projectId 和 sessionId）
+    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    if not cred_result:
+        log.error("当前无可用 antigravity 凭证")
+        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
+
+    _, credential_data = cred_result
+    project_id = credential_data.get("projectId", "default-project")
+    session_id = credential_data.get("sessionId", f"session-{uuid.uuid4().hex}")
+
+    # 处理 systemInstruction
+    system_instruction = None
+    if "systemInstruction" in request_data:
+        system_instruction = request_data["systemInstruction"]
+
+    # 处理 tools
+    antigravity_tools = None
+    if "tools" in request_data:
+        # Gemini 和 Antigravity 的 tools 格式基本一致
+        antigravity_tools = request_data["tools"]
+
+    # 构建 Antigravity 请求体
+    request_body = build_antigravity_request_body(
+        contents=contents,
+        model=actual_model,
+        project_id=project_id,
+        session_id=session_id,
+        system_instruction=system_instruction,
+        tools=antigravity_tools,
+        generation_config=generation_config,
+    )
+
+    # 发送流式请求
+    try:
+        resources, cred_name, cred_data = await send_antigravity_request_stream(
+            request_body, cred_mgr
+        )
+        # resources 是一个元组: (response, stream_ctx, client)
+        response, stream_ctx, client = resources
+
+        # 转换并返回流式响应
+        return StreamingResponse(
+            convert_antigravity_stream_to_gemini(
+                response, stream_ctx, client, cred_mgr, cred_name
+            ),
+            media_type="text/event-stream"
+        )
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY GEMINI] Stream request failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Antigravity API request failed: {str(e)}")
+

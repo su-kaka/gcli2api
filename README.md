@@ -45,6 +45,11 @@
 - **Gemini 原生端点**：`/v1/models/{model}:generateContent` 和 `streamGenerateContent`
   - 支持完整的 Gemini 原生 API 规范
   - 多种认证方式：Bearer Token、x-goog-api-key 头部、URL 参数 key
+- **Antigravity API 支持**：同时支持 OpenAI 和 Gemini 格式
+  - OpenAI 格式端点：`/antigravity/v1/chat/completions`
+  - Gemini 格式端点：`/antigravity/v1/models/{model}:generateContent` 和 `streamGenerateContent`
+  - 支持所有 Antigravity 模型（Claude、Gemini 等）
+  - 自动模型名称映射和思维模式检测
 
 ### 🔐 认证和安全管理
 
@@ -108,7 +113,7 @@
 **详细使用统计**
 - 按凭证文件统计调用次数
 - Gemini 2.5 Pro 模型专项统计
-- 每日配额管理（UTC+7 重置）
+- 每日配额管理
 - 聚合统计和分析
 - 自定义每日限制配置
 
@@ -141,16 +146,9 @@
 ### 🔄 环境变量和配置管理
 
 **灵活的配置方式**
-- TOML 配置文件支持
 - 环境变量配置
 - 热配置更新（部分配置项）
 - 配置锁定（环境变量优先级）
-
-**环境变量凭证支持**
-- `GCLI_CREDS_*` 格式环境变量导入
-- 自动加载环境变量凭证
-- Base64 编码凭证支持
-- Docker 容器友好
 
 ## 支持的模型
 
@@ -559,11 +557,11 @@ docker run -d --name gcli2api \
 
 ### API 使用方式
 
-本服务支持两套完整的 API 端点：
+本服务支持三套完整的 API 端点：
 
-#### 1. OpenAI 兼容端点
+#### 1. OpenAI 兼容端点（GCLI）
 
-**端点：** `/v1/chat/completions`  
+**端点：** `/v1/chat/completions`
 **认证：** `Authorization: Bearer your_api_password`
 
 支持两种请求格式，会自动检测并处理：
@@ -595,15 +593,15 @@ docker run -d --name gcli2api \
 }
 ```
 
-#### 2. Gemini 原生端点
+#### 2. Gemini 原生端点（GCLI）
 
-**非流式端点：** `/v1/models/{model}:generateContent`  
-**流式端点：** `/v1/models/{model}:streamGenerateContent`  
+**非流式端点：** `/v1/models/{model}:generateContent`
+**流式端点：** `/v1/models/{model}:streamGenerateContent`
 **模型列表：** `/v1/models`
 
 **认证方式（任选一种）：**
 - `Authorization: Bearer your_api_password`
-- `x-goog-api-key: your_api_password`  
+- `x-goog-api-key: your_api_password`
 - URL 参数：`?key=your_api_password`
 
 **请求示例：**
@@ -627,6 +625,69 @@ curl -X POST "http://127.0.0.1:7861/v1/models/gemini-2.5-pro:streamGenerateConte
     ]
   }'
 ```
+
+#### 3. Antigravity API 端点
+
+**支持双格式：OpenAI 和 Gemini**
+
+##### Antigravity OpenAI 格式端点
+
+**端点：** `/antigravity/v1/chat/completions`
+**认证：** `Authorization: Bearer your_api_password`
+
+**请求示例：**
+```bash
+curl -X POST "http://127.0.0.1:7861/antigravity/v1/chat/completions" \
+  -H "Authorization: Bearer your_api_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ],
+    "stream": true
+  }'
+```
+
+##### Antigravity Gemini 格式端点
+
+**非流式端点：** `/antigravity/v1/models/{model}:generateContent`
+**流式端点：** `/antigravity/v1/models/{model}:streamGenerateContent`
+
+**认证方式（任选一种）：**
+- `Authorization: Bearer your_api_password`
+- `x-goog-api-key: your_api_password`
+- URL 参数：`?key=your_api_password`
+
+**请求示例：**
+```bash
+# Gemini 格式非流式请求
+curl -X POST "http://127.0.0.1:7861/antigravity/v1/models/claude-sonnet-4-5:generateContent" \
+  -H "x-goog-api-key: your_api_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello"}]}
+    ],
+    "generationConfig": {
+      "temperature": 0.7
+    }
+  }'
+
+# Gemini 格式流式请求
+curl -X POST "http://127.0.0.1:7861/antigravity/v1/models/gemini-2.5-flash:streamGenerateContent?key=your_api_password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello"}]}
+    ]
+  }'
+```
+
+**支持的 Antigravity 模型：**
+- Claude 系列：`claude-sonnet-4-5`、`claude-opus-4-5` 等
+- Gemini 系列：`gemini-2.5-flash`、`gemini-2.5-pro` 等
+- 自动支持思维模型（thinking models）
 
 **Gemini 原生banana：**
 ```python
