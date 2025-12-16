@@ -362,6 +362,30 @@ async def convert_antigravity_stream_to_openai(
     created = int(time.time())
 
     try:
+        def build_content_chunk(content: str) -> str:
+            chunk = {
+                "id": request_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": content},
+                    "finish_reason": None
+                }]
+            }
+            return f"data: {json.dumps(chunk)}\n\n"
+
+        def flush_thinking_buffer() -> Optional[str]:
+            if not state["thinking_started"]:
+                return None
+            state["thinking_buffer"] += "\n</think>\n"
+            thinking_block = state["thinking_buffer"]
+            state["content_buffer"] += thinking_block
+            state["thinking_buffer"] = ""
+            state["thinking_started"] = False
+            return thinking_block
+
         async for line in response.aiter_lines():
             if not line or not line.startswith("data: "):
                 continue
@@ -389,14 +413,42 @@ async def convert_antigravity_stream_to_openai(
                         state["thinking_started"] = True
                     state["thinking_buffer"] += part.get("text", "")
 
+                # 处理图片数据 (inlineData)
+                elif "inlineData" in part:
+                    # 如果之前在思考，先结束思考
+                    thinking_block = flush_thinking_buffer()
+                    if thinking_block:
+                        yield build_content_chunk(thinking_block)
+
+                    # 提取图片数据
+                    inline_data = part["inlineData"]
+                    mime_type = inline_data.get("mimeType", "image/png")
+                    base64_data = inline_data.get("data", "")
+
+                    # 转换为 Markdown 格式的图片
+                    image_markdown = f"\n\n![生成的图片](data:{mime_type};base64,{base64_data})\n\n"
+                    state["content_buffer"] += image_markdown
+
+                    # 发送图片块
+                    chunk = {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": image_markdown},
+                            "finish_reason": None
+                        }]
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n"
+
                 # 处理普通文本
                 elif "text" in part:
                     # 如果之前在思考，先结束思考
-                    if state["thinking_started"]:
-                        state["thinking_buffer"] += "\n</think>\n"
-                        state["content_buffer"] += state["thinking_buffer"]
-                        state["thinking_buffer"] = ""
-                        state["thinking_started"] = False
+                    thinking_block = flush_thinking_buffer()
+                    if thinking_block:
+                        yield build_content_chunk(thinking_block)
 
                     # 添加文本内容
                     text = part.get("text", "")
@@ -424,6 +476,10 @@ async def convert_antigravity_stream_to_openai(
             # 检查是否结束
             finish_reason = data.get("response", {}).get("candidates", [{}])[0].get("finishReason")
             if finish_reason:
+                thinking_block = flush_thinking_buffer()
+                if thinking_block:
+                    yield build_content_chunk(thinking_block)
+
                 # 发送工具调用
                 if state["tool_calls"]:
                     chunk = {
@@ -512,6 +568,14 @@ def convert_antigravity_response_to_openai(
         # 处理思考内容
         if part.get("thought") is True:
             thinking_content += part.get("text", "")
+
+        # 处理图片数据 (inlineData)
+        elif "inlineData" in part:
+            inline_data = part["inlineData"]
+            mime_type = inline_data.get("mimeType", "image/png")
+            base64_data = inline_data.get("data", "")
+            # 转换为 Markdown 格式的图片
+            content += f"\n\n![生成的图片](data:{mime_type};base64,{base64_data})\n\n"
 
         # 处理普通文本
         elif "text" in part:
