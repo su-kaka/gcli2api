@@ -657,8 +657,8 @@ async def get_creds_status_common(
     # 验证分页参数
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset 必须大于等于 0")
-    if limit not in [20, 50, 100]:
-        raise HTTPException(status_code=400, detail="limit 只能是 20、50 或 100")
+    if limit not in [20, 50, 100, 200, 500, 1000]:
+        raise HTTPException(status_code=400, detail="limit 只能是 20、50、100、200、500 或 1000")
     if status_filter not in ["all", "enabled", "disabled"]:
         raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
 
@@ -919,7 +919,7 @@ async def get_creds_status(
 
     Args:
         offset: 跳过的记录数（默认0）
-        limit: 每页返回的记录数（默认50，可选：20, 50, 100）
+        limit: 每页返回的记录数（默认50，可选：20, 50, 100, 200, 500, 1000）
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
 
     Returns:
@@ -1627,7 +1627,7 @@ async def get_antigravity_creds_status(
 
     Args:
         offset: 跳过的记录数（默认0）
-        limit: 每页返回的记录数（默认50，可选：20, 50, 100）
+        limit: 每页返回的记录数（默认50，可选：20, 50, 100, 200, 500, 1000）
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
 
     Returns:
