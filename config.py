@@ -393,35 +393,3 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
-
-
-# MongoDB Configuration
-async def get_mongodb_uri() -> str:
-    """
-    Get MongoDB connection URI setting.
-
-    MongoDB连接URI，用于分布式部署时的数据存储。
-    设置此项后将不再使用本地/creds和TOML文件。
-
-    Environment variable: MONGODB_URI
-    TOML config key: mongodb_uri
-    Default: None (使用本地文件存储)
-
-    示例格式:
-    - mongodb://username:password@localhost:27017/database
-    - mongodb+srv://username:password@cluster.mongodb.net/database
-    """
-    return str(await get_config_value("mongodb_uri", "", "MONGODB_URI"))
-
-
-async def get_mongodb_database() -> str:
-    """
-    Get MongoDB database name setting.
-
-    MongoDB数据库名称。
-
-    Environment variable: MONGODB_DATABASE
-    TOML config key: mongodb_database
-    Default: gcli2api
-    """
-    return str(await get_config_value("mongodb_database", "gcli2api", "MONGODB_DATABASE"))
