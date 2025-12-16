@@ -425,21 +425,6 @@ async def check_auth_status(project_id: str, token: str = Depends(verify_token))
 # =============================================================================
 
 
-def calculate_cooldown_status(cooldown_until: Optional[float]) -> tuple:
-    """计算冷却状态
-
-    Returns:
-        (cooldown_status, cooldown_remaining_seconds)
-    """
-    if not cooldown_until:
-        return "ready", 0
-
-    current_time = time.time()
-    if current_time < cooldown_until:
-        return "cooling", int(cooldown_until - current_time)
-    return "ready", 0
-
-
 def get_env_locked_keys() -> set:
     """获取被环境变量锁定的配置键集合"""
     env_locked_keys = set()
@@ -679,24 +664,15 @@ async def get_creds_status_common(
 
         creds_list = []
         for summary in result["items"]:
-            cooldown_status, cooldown_remaining_seconds = calculate_cooldown_status(
-                summary.get("cooldown_until")
-            )
-
             cred_info = {
                 "filename": os.path.basename(summary["filename"]),
                 "user_email": summary["user_email"],
                 "disabled": summary["disabled"],
                 "error_codes": summary["error_codes"],
                 "last_success": summary["last_success"],
-                "cooldown_status": cooldown_status,
-                "cooldown_remaining_seconds": cooldown_remaining_seconds,
                 "backend_type": backend_type,
                 "model_cooldowns": summary.get("model_cooldowns", {}),
             }
-
-            if summary.get("cooldown_until"):
-                cred_info["cooldown_until"] = summary["cooldown_until"]
 
             creds_list.append(cred_info)
 
@@ -737,24 +713,15 @@ async def get_creds_status_common(
             "user_email": None,
         })
 
-        cooldown_status, cooldown_remaining_seconds = calculate_cooldown_status(
-            file_status.get("cooldown_until")
-        )
-
         cred_info = {
             "filename": os.path.basename(filename),
             "user_email": file_status.get("user_email"),
             "disabled": file_status.get("disabled", False),
             "error_codes": file_status.get("error_codes", []),
             "last_success": file_status.get("last_success", time.time()),
-            "cooldown_status": cooldown_status,
-            "cooldown_remaining_seconds": cooldown_remaining_seconds,
             "backend_type": backend_type,
             "model_cooldowns": file_status.get("model_cooldowns", {}),
         }
-
-        if file_status.get("cooldown_until"):
-            cred_info["cooldown_until"] = file_status["cooldown_until"]
 
         creds_list.append(cred_info)
 
@@ -966,29 +933,14 @@ async def get_cred_detail(filename: str, token: str = Depends(verify_token)):
                 "user_email": None,
             }
 
-        # 计算冷却状态
-        cooldown_until = file_status.get("cooldown_until")
-        cooldown_status = "ready"
-        cooldown_remaining_seconds = 0
-
-        if cooldown_until:
-            current_time = time.time()
-            if current_time < cooldown_until:
-                cooldown_status = "cooling"
-                cooldown_remaining_seconds = int(cooldown_until - current_time)
-
         result = {
             "status": file_status,
             "content": credential_data,
             "filename": os.path.basename(filename),
             "backend_type": backend_type,
             "user_email": file_status.get("user_email"),
-            "cooldown_status": cooldown_status,
-            "cooldown_remaining_seconds": cooldown_remaining_seconds,
+            "model_cooldowns": file_status.get("model_cooldowns", {}),
         }
-
-        if cooldown_until:
-            result["cooldown_until"] = cooldown_until
 
         if backend_type == "file" and os.path.exists(filename):
             result.update({

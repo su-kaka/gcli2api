@@ -25,7 +25,6 @@ class SQLiteManager:
         "disabled",
         "last_success",
         "user_email",
-        "cooldown_until",
         "model_cooldowns",
     }
 
@@ -101,7 +100,6 @@ class SQLiteManager:
                 error_codes TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
-                cooldown_until REAL,
 
                 -- 模型级 CD 支持 (JSON: {model_key: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
@@ -128,7 +126,6 @@ class SQLiteManager:
                 error_codes TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
-                cooldown_until REAL,
 
                 -- 模型级 CD 支持 (JSON: {model_name: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
@@ -149,10 +146,6 @@ class SQLiteManager:
             ON credentials(disabled)
         """)
         await db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cooldown
-            ON credentials(cooldown_until)
-        """)
-        await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_rotation_order
             ON credentials(rotation_order)
         """)
@@ -161,10 +154,6 @@ class SQLiteManager:
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_ag_disabled
             ON antigravity_credentials(disabled)
-        """)
-        await db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ag_cooldown
-            ON antigravity_credentials(cooldown_until)
         """)
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_ag_rotation_order
@@ -250,7 +239,6 @@ class SQLiteManager:
                     error_codes = json.dumps(section_data.get("error_codes", []))
                     last_success = section_data.get("last_success", time.time())
                     user_email = section_data.get("user_email")
-                    cooldown_until = section_data.get("cooldown_until")
 
                     credentials_to_insert.append((
                         filename,
@@ -259,7 +247,6 @@ class SQLiteManager:
                         error_codes,
                         last_success,
                         user_email,
-                        cooldown_until,
                         len(credentials_to_insert),  # rotation_order
                     ))
 
@@ -267,8 +254,8 @@ class SQLiteManager:
                 await db.executemany("""
                     INSERT INTO credentials
                     (filename, credential_data, disabled, error_codes,
-                     last_success, user_email, cooldown_until, rotation_order)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     last_success, user_email, rotation_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, credentials_to_insert)
 
                 # 迁移配置
@@ -355,7 +342,6 @@ class SQLiteManager:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
-        - 未冷却（或冷却期已过）
         - 如果提供了 model_key，还会检查模型级冷却
         - 随机选择
 
@@ -374,14 +360,13 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                # 获取所有候选凭证（未禁用且全局未冷却）
+                # 获取所有候选凭证（未禁用）
                 async with db.execute(f"""
                     SELECT filename, credential_data, model_cooldowns
                     FROM {table_name}
                     WHERE disabled = 0
-                      AND (cooldown_until IS NULL OR cooldown_until < ?)
                     ORDER BY RANDOM()
-                """, (current_time,)) as cursor:
+                """) as cursor:
                     rows = await cursor.fetchall()
 
                     # 如果没有提供 model_key，使用第一个可用凭证
@@ -434,29 +419,17 @@ class SQLiteManager:
 
     async def check_and_clear_cooldowns(self) -> int:
         """
-        批量清除已过期的冷却期
+        批量清除已过期的模型级冷却
         返回清除的数量
         """
         self._ensure_initialized()
 
         try:
-            async with aiosqlite.connect(self._db_path) as db:
-                current_time = time.time()
-
-                cursor = await db.execute("""
-                    UPDATE credentials
-                    SET cooldown_until = NULL
-                    WHERE cooldown_until IS NOT NULL
-                      AND cooldown_until < ?
-                """, (current_time,))
-
-                count = cursor.rowcount
-                await db.commit()
-
-                if count > 0:
-                    log.debug(f"Cleared {count} expired cooldowns")
-
-                return count
+            # 直接调用模型级冷却清理方法
+            cleared = 0
+            cleared += await self.clear_expired_model_cooldowns(is_antigravity=False)
+            cleared += await self.clear_expired_model_cooldowns(is_antigravity=True)
+            return cleared
 
         except Exception as e:
             log.error(f"Error clearing cooldowns: {e}")
@@ -474,7 +447,7 @@ class SQLiteManager:
                 # 检查凭证是否存在
                 async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email,
-                           cooldown_until, rotation_order, call_count
+                           rotation_order, call_count
                     FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     existing = await cursor.fetchone()
@@ -613,20 +586,19 @@ class SQLiteManager:
             table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
                 async with db.execute(f"""
-                    SELECT disabled, error_codes, last_success, user_email, cooldown_until, model_cooldowns
+                    SELECT disabled, error_codes, last_success, user_email, model_cooldowns
                     FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
 
                     if row:
                         error_codes_json = row[1] or '[]'
-                        model_cooldowns_json = row[5] or '{}'
+                        model_cooldowns_json = row[4] or '{}'
                         return {
                             "disabled": bool(row[0]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[2] or time.time(),
                             "user_email": row[3],
-                            "cooldown_until": row[4],
                             "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
@@ -636,7 +608,6 @@ class SQLiteManager:
                         "error_codes": [],
                         "last_success": time.time(),
                         "user_email": None,
-                        "cooldown_until": None,
                         "model_cooldowns": {},
                     }
 
@@ -653,7 +624,7 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 async with db.execute(f"""
                     SELECT filename, disabled, error_codes, last_success,
-                           user_email, cooldown_until, model_cooldowns
+                           user_email, model_cooldowns
                     FROM {table_name}
                 """) as cursor:
                     rows = await cursor.fetchall()
@@ -664,7 +635,7 @@ class SQLiteManager:
                     for row in rows:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
-                        model_cooldowns_json = row[6] or '{}'
+                        model_cooldowns_json = row[5] or '{}'
                         model_cooldowns = json.loads(model_cooldowns_json)
 
                         # 自动过滤掉已过期的模型CD
@@ -679,7 +650,6 @@ class SQLiteManager:
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[3] or time.time(),
                             "user_email": row[4],
-                            "cooldown_until": row[5],
                             "model_cooldowns": model_cooldowns,
                         }
 
@@ -735,7 +705,7 @@ class SQLiteManager:
                 if limit is not None:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, cooldown_until, rotation_order, model_cooldowns
+                               user_email, rotation_order, model_cooldowns
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -745,7 +715,7 @@ class SQLiteManager:
                 else:
                     query = f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, cooldown_until, rotation_order, model_cooldowns
+                               user_email, rotation_order, model_cooldowns
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -762,8 +732,7 @@ class SQLiteManager:
                     for row in rows:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
-                        cooldown_until = row[5]
-                        model_cooldowns_json = row[7] or '{}'
+                        model_cooldowns_json = row[6] or '{}'
                         model_cooldowns = json.loads(model_cooldowns_json)
 
                         # 自动过滤掉已过期的模型CD
@@ -773,24 +742,13 @@ class SQLiteManager:
                                 if v > current_time
                             }
 
-                        # 计算冷却状态
-                        cooldown_status = "ready"
-                        cooldown_remaining_seconds = 0
-                        if cooldown_until:
-                            if current_time < cooldown_until:
-                                cooldown_status = "cooling"
-                                cooldown_remaining_seconds = int(cooldown_until - current_time)
-
                         summaries.append({
                             "filename": filename,
                             "disabled": bool(row[1]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[3] or current_time,
                             "user_email": row[4],
-                            "cooldown_until": cooldown_until,
-                            "cooldown_status": cooldown_status,
-                            "cooldown_remaining_seconds": cooldown_remaining_seconds,
-                            "rotation_order": row[6],
+                            "rotation_order": row[5],
                             "model_cooldowns": model_cooldowns,
                         })
 

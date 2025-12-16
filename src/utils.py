@@ -228,48 +228,23 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     }
     """
     try:
-        error = error_response.get("error", {})
-        details = error.get("details", [])
+        details = error_response.get("error", {}).get("details", [])
 
         for detail in details:
-            # 查找包含quota重置信息的detail
             if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                metadata = detail.get("metadata", {})
-                reset_timestamp_str = metadata.get("quotaResetTimeStamp")
+                reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
 
                 if reset_timestamp_str:
-                    # 解析ISO 8601格式的时间戳
-                    # 支持格式: "2025-11-30T14:57:24Z" 或 "2025-11-30T14:57:24+00:00"
                     if reset_timestamp_str.endswith("Z"):
                         reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
 
                     reset_dt = datetime.fromisoformat(reset_timestamp_str)
-
-                    # 确保时区信息
                     if reset_dt.tzinfo is None:
                         reset_dt = reset_dt.replace(tzinfo=timezone.utc)
 
-                    # 转换为Unix时间戳（使用UTC时间计算，避免本地时区影响）
-                    # 方法1：先转为UTC，再计算时间戳
-                    reset_dt_utc = reset_dt.astimezone(timezone.utc)
-                    # 方法2：使用 datetime(1970,1,1, tzinfo=utc) 作为基准计算
-                    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-                    return (reset_dt_utc - epoch).total_seconds()
-
-            # 也尝试从RetryInfo中提取延迟时间（作为备用）
-            elif detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
-                retry_delay_str = detail.get("retryDelay")
-                if retry_delay_str:
-                    # 解析延迟时间格式: "47941.209649640s"
-                    if retry_delay_str.endswith("s"):
-                        try:
-                            delay_seconds = float(retry_delay_str[:-1])
-                            return time.time() + delay_seconds
-                        except (ValueError, TypeError):
-                            pass
+                    return reset_dt.astimezone(timezone.utc).timestamp()
 
         return None
 
-    except Exception as e:
-        # 解析失败时不抛出异常，返回None
+    except Exception:
         return None

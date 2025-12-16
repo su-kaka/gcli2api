@@ -111,9 +111,6 @@ function createCredsManager(type) {
                                 last_success: item.last_success,
                             },
                             user_email: item.user_email,
-                            cooldown_status: item.cooldown_status,
-                            cooldown_remaining_seconds: item.cooldown_remaining_seconds,
-                            cooldown_until: item.cooldown_until,
                             model_cooldowns: item.model_cooldowns || {}
                         };
                     });
@@ -536,13 +533,6 @@ function createCredCard(credInfo, manager) {
         }
     } else {
         statusBadges += '<span class="status-badge" style="background-color: #28a745; color: white;">无错误</span>';
-    }
-
-    // 全局冷却状态
-    if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_remaining_seconds) {
-        const timeDisplay = formatCooldownTime(credInfo.cooldown_remaining_seconds);
-        const cooldownTime = new Date(credInfo.cooldown_until * 1000).toLocaleString('zh-CN');
-        statusBadges += `<span class="cooldown-badge" title="冷却截止时间: ${cooldownTime}">🕐 全局冷却: ${timeDisplay}</span>`;
     }
 
     // 模型级冷却状态
@@ -1927,18 +1917,15 @@ function stopCooldownTimer() {
 function updateCooldownDisplays() {
     let needsRefresh = false;
 
+    // 检查模型级冷却是否过期
     for (const credInfo of Object.values(AppState.creds.data)) {
-        if (credInfo.cooldown_status === 'cooling' && credInfo.cooldown_until) {
+        if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {
             const currentTime = Date.now() / 1000;
-            const remainingSeconds = Math.max(0, Math.floor(credInfo.cooldown_until - currentTime));
+            const hasExpiredCooldowns = Object.entries(credInfo.model_cooldowns).some(([, until]) => until <= currentTime);
 
-            credInfo.cooldown_remaining_seconds = remainingSeconds;
-
-            if (remainingSeconds <= 0) {
-                credInfo.cooldown_status = 'ready';
-                credInfo.cooldown_until = null;
-                credInfo.cooldown_remaining_seconds = 0;
+            if (hasExpiredCooldowns) {
                 needsRefresh = true;
+                break;
             }
         }
     }
@@ -1948,6 +1935,7 @@ function updateCooldownDisplays() {
         return;
     }
 
+    // 更新模型级冷却的显示
     document.querySelectorAll('.cooldown-badge').forEach(badge => {
         const card = badge.closest('.cred-card');
         const filenameEl = card?.querySelector('.cred-filename');
@@ -1956,10 +1944,21 @@ function updateCooldownDisplays() {
         const filename = filenameEl.textContent;
         const credInfo = Object.values(AppState.creds.data).find(c => c.filename === filename);
 
-        if (credInfo && credInfo.cooldown_status === 'cooling') {
-            const remaining = credInfo.cooldown_remaining_seconds || 0;
-            if (remaining > 0) {
-                badge.innerHTML = `🕐 冷却中: ${formatCooldownTime(remaining)}`;
+        if (credInfo && credInfo.model_cooldowns) {
+            const currentTime = Date.now() / 1000;
+            const titleMatch = badge.getAttribute('title')?.match(/模型: (.+)/);
+            if (titleMatch) {
+                const model = titleMatch[1];
+                const cooldownUntil = credInfo.model_cooldowns[model];
+                if (cooldownUntil) {
+                    const remaining = Math.max(0, Math.floor(cooldownUntil - currentTime));
+                    if (remaining > 0) {
+                        const shortModel = model.replace('gemini-', '').replace('-exp', '')
+                            .replace('2.0-', '2-').replace('1.5-', '1.5-');
+                        const timeDisplay = formatCooldownTime(remaining).replace(/s$/, '').replace(/ /g, '');
+                        badge.innerHTML = `🔧 ${shortModel}: ${timeDisplay}`;
+                    }
+                }
             }
         }
     });

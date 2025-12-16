@@ -103,13 +103,13 @@ class CredentialManager:
 
         for filename in all_creds:
             try:
-                # 检查冷却期
-                if await self._is_credential_in_cooldown(filename, is_antigravity=is_antigravity):
+                # 检查禁用状态
+                state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
+                if state.get("disabled", False):
                     continue
 
                 # 如果提供了 model_key，检查模型级冷却
                 if model_key:
-                    state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
                     model_cooldowns = state.get("model_cooldowns", {})
                     model_cooldown = model_cooldowns.get(model_key)
 
@@ -118,11 +118,6 @@ class CredentialManager:
                         if current_time < model_cooldown:
                             # 该模型仍在冷却中
                             continue
-
-                # 检查禁用状态
-                state = await self._storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
-                if state.get("disabled", False):
-                    continue
 
                 # 加载凭证
                 credential_data = await self._storage_adapter.get_credential(filename, is_antigravity=is_antigravity)
@@ -230,24 +225,13 @@ class CredentialManager:
             current_time = time.time()
 
             for filename, state in all_states.items():
-                cooldown_until = state.get("cooldown_until")
-                cooldown_status = "ready"
-                cooldown_remaining_seconds = 0
-
-                if cooldown_until:
-                    if current_time < cooldown_until:
-                        cooldown_status = "cooling"
-                        cooldown_remaining_seconds = int(cooldown_until - current_time)
-
                 summaries.append({
                     "filename": filename,
                     "disabled": state.get("disabled", False),
                     "error_codes": state.get("error_codes", []),
                     "last_success": state.get("last_success", current_time),
                     "user_email": state.get("user_email"),
-                    "cooldown_until": cooldown_until,
-                    "cooldown_status": cooldown_status,
-                    "cooldown_remaining_seconds": cooldown_remaining_seconds,
+                    "model_cooldowns": state.get("model_cooldowns", {}),
                 })
 
             return summaries
@@ -255,91 +239,6 @@ class CredentialManager:
         except Exception as e:
             log.error(f"Error getting credentials summary: {e}")
             return []
-
-    async def _is_credential_in_cooldown(self, credential_name: str, is_antigravity: bool = False) -> bool:
-        """
-        检查凭证是否在冷却期内（内部方法，调用者需要持有适当的锁）
-
-        Args:
-            credential_name: 凭证名称
-            is_antigravity: 是否为 antigravity 凭证
-
-        Returns:
-            True表示在冷却期，False表示已过冷却期或无冷却
-        """
-        try:
-            state = await self._storage_adapter.get_credential_state(credential_name, is_antigravity=is_antigravity)
-            cooldown_until = state.get("cooldown_until")
-
-            if cooldown_until is None:
-                return False
-
-            # 检查 cooldown_until 的类型和值
-            log.debug(
-                f"[冷却期检查] 凭证: {credential_name}, "
-                f"cooldown_until类型: {type(cooldown_until)}, "
-                f"cooldown_until值: {cooldown_until}"
-            )
-
-            # 如果是字符串（ISO格式），需要转换为时间戳
-            if isinstance(cooldown_until, str):
-                try:
-                    # 解析ISO格式时间
-                    if cooldown_until.endswith("Z"):
-                        cooldown_until = cooldown_until.replace("Z", "+00:00")
-                    reset_dt = datetime.fromisoformat(cooldown_until)
-                    if reset_dt.tzinfo is None:
-                        reset_dt = reset_dt.replace(tzinfo=timezone.utc)
-
-                    # 转换为Unix时间戳（避免本地时区影响）
-                    reset_dt_utc = reset_dt.astimezone(timezone.utc)
-                    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-                    cooldown_until = (reset_dt_utc - epoch).total_seconds()
-
-                    log.debug(
-                        f"[冷却期检查] 将ISO时间转换为时间戳: {cooldown_until}"
-                    )
-                except Exception as parse_err:
-                    log.error(
-                        f"[冷却期检查] 解析ISO时间失败 {credential_name}: {parse_err}, "
-                        f"原始值: {cooldown_until}"
-                    )
-                    return False
-
-            # time.time() 返回的是正确的 UTC 时间戳
-            current_time = time.time()
-            log.debug(
-                f"[冷却期检查] 当前时间: {current_time} "
-                f"({datetime.fromtimestamp(current_time, timezone.utc).isoformat()}), "
-                f"冷却截止: {cooldown_until} "
-                f"({datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()})"
-            )
-
-            if current_time < cooldown_until:
-                remaining = cooldown_until - current_time
-                remaining_minutes = int(remaining / 60)
-                log.info(
-                    f"凭证 {credential_name} 仍在冷却期，"
-                    f"剩余时间: {remaining_minutes}分{int(remaining % 60)}秒 "
-                    f"(截止时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()})"
-                )
-                return True
-            else:
-                # 冷却期已过，清除冷却状态
-                log.info(f"凭证 {credential_name} 冷却期已过，恢复可用")
-                # 直接调用不加锁的更新方法（调用者已经持有operation_lock）
-                try:
-                    await self._storage_adapter.update_credential_state(
-                        credential_name, {"cooldown_until": None}, is_antigravity=is_antigravity
-                    )
-                except Exception as clear_err:
-                    log.warning(f"清除冷却状态失败 {credential_name}: {clear_err}")
-                return False
-
-        except Exception as e:
-            log.error(f"检查凭证冷却状态失败 {credential_name}: {e}")
-            # 出错时默认认为不在冷却期
-            return False
 
     async def get_or_fetch_user_email(self, credential_name: str, is_antigravity: bool = False) -> Optional[str]:
         """获取或获取用户邮箱地址"""
@@ -390,14 +289,14 @@ class CredentialManager:
             error_code: 错误码（如果失败）
             cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
             is_antigravity: 是否为 antigravity 凭证
-            model_key: 模型键（如果提供，则设置模型级冷却而非全局冷却）
+            model_key: 模型键（用于设置模型级冷却）
         """
         try:
             state_updates = {}
 
             if success:
                 state_updates["last_success"] = time.time()
-                # 清除错误码和冷却时间（如果之前有的话）
+                # 清除错误码
                 state_updates["error_codes"] = []
 
                 # 如果提供了 model_key，清除该模型的冷却
@@ -406,9 +305,6 @@ class CredentialManager:
                         await self._storage_adapter._backend.set_model_cooldown(
                             credential_name, model_key, None, is_antigravity=is_antigravity
                         )
-                else:
-                    # 清除全局冷却
-                    state_updates["cooldown_until"] = None
 
             elif error_code:
                 # 记录错误码
@@ -423,23 +319,14 @@ class CredentialManager:
 
                 state_updates["error_codes"] = error_codes
 
-                # 如果提供了冷却时间，记录到状态中
-                if cooldown_until is not None:
-                    if model_key:
-                        # 设置模型级冷却
-                        if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
-                            await self._storage_adapter._backend.set_model_cooldown(
-                                credential_name, model_key, cooldown_until, is_antigravity=is_antigravity
-                            )
-                            log.info(
-                                f"设置模型级冷却: {credential_name}, model_key={model_key}, "
-                                f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
-                            )
-                    else:
-                        # 设置全局冷却
-                        state_updates["cooldown_until"] = cooldown_until
+                # 如果提供了冷却时间和模型键，设置模型级冷却
+                if cooldown_until is not None and model_key:
+                    if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
+                        await self._storage_adapter._backend.set_model_cooldown(
+                            credential_name, model_key, cooldown_until, is_antigravity=is_antigravity
+                        )
                         log.info(
-                            f"设置凭证冷却: {credential_name}, "
+                            f"设置模型级冷却: {credential_name}, model_key={model_key}, "
                             f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
                         )
 
