@@ -69,6 +69,72 @@ def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, st
     return str(project_id), str(session_id)
 
 
+def _estimate_input_tokens_from_components(components: Dict[str, Any]) -> int:
+    """
+    估算输入 token 数（用于 /messages/count_tokens）。
+
+    该实现与 `src/gemini_router.py` 的 countTokens 思路一致：基于文本长度做近似估算。
+    这不是精确 tokenizer，但可以满足 claude-cli 这类客户端的预检需求，避免因 404 触发 fallback。
+    """
+    approx_tokens = 0
+
+    def add_text(text: str) -> None:
+        nonlocal approx_tokens
+        if not text:
+            return
+        approx_tokens += max(1, len(text) // 4)
+
+    system_instruction = components.get("system_instruction")
+    if isinstance(system_instruction, dict):
+        for part in system_instruction.get("parts", []) or []:
+            if isinstance(part, dict) and "text" in part:
+                add_text(str(part.get("text", "")))
+
+    for content in components.get("contents", []) or []:
+        if not isinstance(content, dict):
+            continue
+        for part in content.get("parts", []) or []:
+            if not isinstance(part, dict):
+                continue
+            if "text" in part:
+                add_text(str(part.get("text", "")))
+            elif "functionCall" in part:
+                fc = part.get("functionCall", {}) or {}
+                add_text(str(fc.get("name") or ""))
+                try:
+                    add_text(json.dumps(fc.get("args", {}) or {}, ensure_ascii=False, separators=(",", ":")))
+                except Exception:
+                    add_text(str(fc.get("args")))
+            elif "functionResponse" in part:
+                fr = part.get("functionResponse", {}) or {}
+                add_text(str(fr.get("name") or ""))
+                try:
+                    add_text(
+                        json.dumps(fr.get("response", {}) or {}, ensure_ascii=False, separators=(",", ":"))
+                    )
+                except Exception:
+                    add_text(str(fr.get("response")))
+
+    for tool in components.get("tools", []) or []:
+        if not isinstance(tool, dict):
+            continue
+        for decl in tool.get("functionDeclarations", []) or []:
+            if not isinstance(decl, dict):
+                continue
+            add_text(str(decl.get("name") or ""))
+            add_text(str(decl.get("description") or ""))
+            try:
+                add_text(
+                    json.dumps(
+                        decl.get("parameters", {}) or {}, ensure_ascii=False, separators=(",", ":")
+                    )
+                )
+            except Exception:
+                add_text(str(decl.get("parameters")))
+
+    return int(approx_tokens)
+
+
 def _convert_antigravity_response_to_anthropic_message(
     response_data: Dict[str, Any],
     *,
@@ -173,6 +239,17 @@ async def anthropic_messages(
     max_tokens = payload.get("max_tokens")
     messages = payload.get("messages")
     stream = bool(payload.get("stream", False))
+    thinking_present = "thinking" in payload
+    thinking_value = payload.get("thinking")
+    thinking_summary = None
+    if thinking_present:
+        if isinstance(thinking_value, dict):
+            thinking_summary = {
+                "type": thinking_value.get("type"),
+                "budget_tokens": thinking_value.get("budget_tokens"),
+            }
+        else:
+            thinking_summary = thinking_value
 
     if not model or max_tokens is None or not isinstance(messages, list):
         return _anthropic_error(
@@ -180,6 +257,20 @@ async def anthropic_messages(
             message="缺少必填字段：model / max_tokens / messages",
             error_type="invalid_request_error",
         )
+
+    try:
+        client_host = request.client.host if request.client else "unknown"
+        client_port = request.client.port if request.client else "unknown"
+    except Exception:
+        client_host = "unknown"
+        client_port = "unknown"
+
+    user_agent = request.headers.get("user-agent", "")
+    log.info(
+        f"[ANTHROPIC] /messages 收到请求: client={client_host}:{client_port}, model={model}, "
+        f"stream={stream}, messages={len(messages)}, thinking_present={thinking_present}, "
+        f"thinking={thinking_summary}, ua={user_agent}"
+    )
 
     if len(messages) == 1 and messages[0].get("role") == "user" and messages[0].get("content") == "Hi":
         return JSONResponse(
@@ -212,6 +303,8 @@ async def anthropic_messages(
         return _anthropic_error(
             status_code=400, message="请求转换失败", error_type="invalid_request_error"
         )
+
+    log.info(f"[ANTHROPIC] /messages 模型映射: upstream={model} -> downstream={components['model']}")
 
     request_body = build_antigravity_request_body(
         contents=components["contents"],
@@ -266,3 +359,82 @@ async def anthropic_messages(
         response_data, model=str(model), message_id=request_id
     )
     return JSONResponse(content=anthropic_response)
+
+
+@router.post("/antigravity/v1/messages/count_tokens")
+async def anthropic_messages_count_tokens(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    """
+    Anthropic Messages API 兼容的 token 计数端点（用于 claude-cli 等客户端预检）。
+
+    返回结构尽量贴近 Anthropic：`{"input_tokens": <int>}`。
+    """
+    from config import get_api_password
+
+    password = await get_api_password()
+    token = _extract_api_token(request, credentials)
+    if token != password:
+        return _anthropic_error(status_code=403, message="密码错误", error_type="authentication_error")
+
+    try:
+        payload = await request.json()
+    except Exception as e:
+        return _anthropic_error(
+            status_code=400, message=f"JSON 解析失败: {str(e)}", error_type="invalid_request_error"
+        )
+
+    if not isinstance(payload, dict):
+        return _anthropic_error(
+            status_code=400, message="请求体必须为 JSON object", error_type="invalid_request_error"
+        )
+
+    if not payload.get("model") or not isinstance(payload.get("messages"), list):
+        return _anthropic_error(
+            status_code=400,
+            message="缺少必填字段：model / messages",
+            error_type="invalid_request_error",
+        )
+
+    try:
+        client_host = request.client.host if request.client else "unknown"
+        client_port = request.client.port if request.client else "unknown"
+    except Exception:
+        client_host = "unknown"
+        client_port = "unknown"
+
+    thinking_present = "thinking" in payload
+    thinking_value = payload.get("thinking")
+    thinking_summary = None
+    if thinking_present:
+        if isinstance(thinking_value, dict):
+            thinking_summary = {
+                "type": thinking_value.get("type"),
+                "budget_tokens": thinking_value.get("budget_tokens"),
+            }
+        else:
+            thinking_summary = thinking_value
+
+    user_agent = request.headers.get("user-agent", "")
+    log.info(
+        f"[ANTHROPIC] /messages/count_tokens 收到请求: client={client_host}:{client_port}, "
+        f"model={payload.get('model')}, messages={len(payload.get('messages') or [])}, "
+        f"thinking_present={thinking_present}, thinking={thinking_summary}, ua={user_agent}"
+    )
+
+    try:
+        components = convert_anthropic_request_to_antigravity_components(payload)
+    except Exception as e:
+        log.error(f"[ANTHROPIC] count_tokens 请求转换失败: {e}")
+        return _anthropic_error(
+            status_code=400, message="请求转换失败", error_type="invalid_request_error"
+        )
+
+    log.info(
+        f"[ANTHROPIC] /messages/count_tokens 模型映射: upstream={payload.get('model')} "
+        f"-> downstream={components['model']}"
+    )
+
+    input_tokens = _estimate_input_tokens_from_components(components)
+    return JSONResponse(content={"input_tokens": input_tokens})

@@ -6,6 +6,8 @@ from src.anthropic_converter import (
     clean_json_schema,
     convert_anthropic_request_to_antigravity_components,
     convert_messages_to_contents,
+    map_claude_model_to_gemini,
+    reorganize_tool_messages,
 )
 from src.anthropic_streaming import antigravity_sse_to_anthropic_sse
 from src.antigravity_anthropic_router import _convert_antigravity_response_to_anthropic_message
@@ -44,6 +46,8 @@ def test_convert_messages_to_contents_支持多种内容块():
             "content": [
                 {"type": "text", "text": "你好"},
                 {"type": "thinking", "thinking": "思考中", "signature": "sig1"},
+                # 缺少 signature 的 thinking 应被丢弃（否则下游可能报 thinking.signature 必填）
+                {"type": "thinking", "thinking": "无签名思考"},
                 {
                     "type": "image",
                     "source": {
@@ -83,6 +87,64 @@ def test_convert_request_components_模型映射对齐_converter_py():
     payload = {"model": "claude-3-5-sonnet-20241022", "max_tokens": 8, "messages": []}
     components = convert_anthropic_request_to_antigravity_components(payload)
     assert components["model"] == "claude-sonnet-4-5"
+    assert "thinkingConfig" not in components["generation_config"]
+
+
+def test_reorganize_tool_messages_会把_tool_result_移动到_tool_use_之后():
+    contents = [
+        {"role": "user", "parts": [{"text": "hi"}]},
+        {"role": "model", "parts": [{"functionCall": {"id": "t1", "name": "tool", "args": {"x": 1}}}]},
+        {"role": "model", "parts": [{"text": "（中间插入的assistant文本）"}]},
+        {"role": "user", "parts": [{"functionResponse": {"id": "t1", "name": "tool", "response": {"output": "ok"}}}]},
+    ]
+
+    new_contents = reorganize_tool_messages(contents)
+    # 期望 tool_result 紧跟 tool_use
+    assert new_contents[1]["parts"][0].get("functionCall", {}).get("id") == "t1"
+    assert new_contents[2]["parts"][0].get("functionResponse", {}).get("id") == "t1"
+
+
+def test_model_mapping_支持_claude_cli_版本化模型名():
+    assert map_claude_model_to_gemini("claude-opus-4-5-20251101") == "claude-opus-4-5-thinking"
+    assert map_claude_model_to_gemini("claude-sonnet-4-5-20251001") == "claude-sonnet-4-5"
+    assert map_claude_model_to_gemini("claude-haiku-4-5-20251001") == "gemini-2.5-flash"
+    assert map_claude_model_to_gemini(" claude-opus-4-5-20251101 ") == "claude-opus-4-5-thinking"
+
+
+def test_thinking_null_不会启用_thinkingConfig():
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 128,
+        "thinking": None,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    components = convert_anthropic_request_to_antigravity_components(payload)
+    assert "thinkingConfig" not in components["generation_config"]
+
+
+def test_thinking_enabled_但无历史_thinking_blocks_不会下发_thinkingConfig():
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 128,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    components = convert_anthropic_request_to_antigravity_components(payload)
+    assert "thinkingConfig" in components["generation_config"]
+
+
+def test_thinking_enabled_但最后一条_assistant_不以_thinking_开头_会跳过_thinkingConfig():
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 128,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
+        ],
+    }
+    components = convert_anthropic_request_to_antigravity_components(payload)
+    assert "thinkingConfig" not in components["generation_config"]
 
 
 def test_antigravity_response_to_anthropic_message_映射_stop_reason_usage():
@@ -149,4 +211,3 @@ async def test_streaming_事件序列包含必要事件():
     assert "content_block_stop" in events
     assert events[-2] == "message_delta"
     assert events[-1] == "message_stop"
-
