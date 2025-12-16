@@ -237,9 +237,13 @@ async def send_gemini_request(
         try:
             if is_streaming:
                 # 流式请求处理 - 使用httpx_client模块的统一配置
-                client = await create_streaming_client_with_kwargs()
+                client = None
+                stream_ctx = None
+                resp = None
 
                 try:
+                    client = await create_streaming_client_with_kwargs()
+
                     # 使用stream方法但不在async with块中消费数据
                     stream_ctx = client.stream(
                         "POST", target_url, content=final_post_data, headers=headers
@@ -282,12 +286,18 @@ async def send_gemini_request(
                                 current_file, False, resp.status_code, cooldown_until, model_key=model_group
                             )
 
-                        # 清理资源
+                        # 清理资源 - 确保按正确顺序清理
                         try:
-                            await stream_ctx.__aexit__(None, None, None)
-                        except Exception:
-                            pass
-                        await client.aclose()
+                            if stream_ctx:
+                                await stream_ctx.__aexit__(None, None, None)
+                        except Exception as cleanup_err:
+                            log.debug(f"Error cleaning up stream_ctx: {cleanup_err}")
+                        finally:
+                            try:
+                                if client:
+                                    await client.aclose()
+                            except Exception as cleanup_err:
+                                log.debug(f"Error closing client: {cleanup_err}")
 
                         # 使用统一的错误处理和重试逻辑
                         should_retry = await _handle_error_with_retry(
@@ -337,11 +347,18 @@ async def send_gemini_request(
                         )
 
                 except Exception as e:
-                    # 清理资源
+                    # 清理资源 - 确保按正确顺序清理
                     try:
-                        await client.aclose()
-                    except Exception:
-                        pass
+                        if stream_ctx:
+                            await stream_ctx.__aexit__(None, None, None)
+                    except Exception as cleanup_err:
+                        log.debug(f"Error cleaning up stream_ctx in exception handler: {cleanup_err}")
+                    finally:
+                        try:
+                            if client:
+                                await client.aclose()
+                        except Exception as cleanup_err:
+                            log.debug(f"Error closing client in exception handler: {cleanup_err}")
                     raise e
 
             else:
@@ -436,14 +453,18 @@ def _handle_streaming_response_managed(
     if resp.status_code != 200:
         # 立即清理资源并返回错误
         async def cleanup_and_error():
+            # 清理资源 - 按正确顺序：先关闭stream，再关闭client
             try:
-                await stream_ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
-            try:
-                await client.aclose()
-            except Exception:
-                pass
+                if stream_ctx:
+                    await stream_ctx.__aexit__(None, None, None)
+            except Exception as cleanup_err:
+                log.debug(f"Error cleaning up stream_ctx: {cleanup_err}")
+            finally:
+                try:
+                    if client:
+                        await client.aclose()
+                except Exception as cleanup_err:
+                    log.debug(f"Error closing client: {cleanup_err}")
 
             # 获取响应内容用于详细错误显示
             response_content = ""
@@ -510,7 +531,8 @@ def _handle_streaming_response_managed(
     # 正常流式响应处理，确保资源在流结束时被清理
     async def managed_stream_generator():
         success_recorded = False
-        managed_stream_generator._chunk_count = 0  # 初始化chunk计数器
+        chunk_count = 0  # 使用局部变量代替函数属性
+        bytes_transferred = 0  # 跟踪传输的字节数
         return_thoughts = await get_return_thoughts_to_frontend()  # 获取配置
         try:
             async for chunk in resp.aiter_lines():
@@ -533,14 +555,18 @@ def _handle_streaming_response_managed(
                         # 如果配置为不返回思维链，则过滤
                         if not return_thoughts:
                             data = _filter_thoughts_from_response(data)
-                        yield f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+                        chunk_data = f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+                        yield chunk_data
                         await asyncio.sleep(0)  # 让其他协程有机会运行
 
-                        # 定期释放内存（每100个chunk）
-                        if hasattr(managed_stream_generator, "_chunk_count"):
-                            managed_stream_generator._chunk_count += 1
-                            if managed_stream_generator._chunk_count % 100 == 0:
-                                gc.collect()
+                        # 基于传输字节数触发GC，而不是chunk数量
+                        # 每传输约10MB数据时触发一次GC
+                        chunk_count += 1
+                        bytes_transferred += len(chunk_data)
+                        if bytes_transferred > 10 * 1024 * 1024:  # 10MB
+                            gc.collect()
+                            bytes_transferred = 0
+                            log.debug(f"Triggered GC after {chunk_count} chunks (~10MB transferred)")
                     else:
                         yield f"data: {json.dumps(obj, separators=(',', ':'))}\n\n".encode()
                 except json.JSONDecodeError:
@@ -551,15 +577,18 @@ def _handle_streaming_response_managed(
             err = {"error": {"message": str(e), "type": "api_error", "code": 500}}
             yield f"data: {json.dumps(err)}\n\n".encode()
         finally:
-            # 确保清理所有资源
+            # 确保清理所有资源 - 按正确顺序：先关闭stream，再关闭client
             try:
-                await stream_ctx.__aexit__(None, None, None)
+                if stream_ctx:
+                    await stream_ctx.__aexit__(None, None, None)
             except Exception as e:
                 log.debug(f"Error closing stream context: {e}")
-            try:
-                await client.aclose()
-            except Exception as e:
-                log.debug(f"Error closing client: {e}")
+            finally:
+                try:
+                    if client:
+                        await client.aclose()
+                except Exception as e:
+                    log.debug(f"Error closing client: {e}")
 
     return StreamingResponse(managed_stream_generator(), media_type="text/event-stream")
 

@@ -49,7 +49,11 @@ class HttpxClientManager:
         try:
             yield client
         finally:
-            await client.aclose()
+            # 确保无论发生什么都关闭客户端
+            try:
+                await client.aclose()
+            except Exception as e:
+                log.warning(f"Error closing streaming client: {e}")
 
 
 # 全局HTTP客户端管理器实例
@@ -203,6 +207,11 @@ async def get_streaming_post_context(
 
 
 async def create_streaming_client_with_kwargs(**kwargs) -> httpx.AsyncClient:
-    """创建用于流式处理的独立客户端实例（手动管理生命周期）"""
+    """
+    创建用于流式处理的独立客户端实例（手动管理生命周期）
+
+    警告：调用者必须确保调用 client.aclose() 来释放资源
+    建议使用 get_streaming_client() 上下文管理器代替此方法
+    """
     client_kwargs = await http_client.get_client_kwargs(timeout=None, **kwargs)
     return httpx.AsyncClient(**client_kwargs)

@@ -5,7 +5,6 @@ Gemini Router - Handles native Gemini format API requests
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
@@ -25,7 +24,7 @@ from src.utils import (
 from log import log
 
 from .anti_truncation import apply_anti_truncation_to_stream
-from .credential_manager import CredentialManager
+from .credential_manager import get_credential_manager
 from .gcli_chat_api import build_gemini_payload_from_native, send_gemini_request
 from .openai_transfer import _extract_content_and_reasoning
 from .task_manager import create_managed_task
@@ -33,19 +32,6 @@ from .task_manager import create_managed_task
 # 创建路由器
 router = APIRouter()
 security = HTTPBearer()
-
-# 全局凭证管理器实例
-credential_manager = None
-
-
-@asynccontextmanager
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    yield credential_manager
 
 
 async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
@@ -209,9 +195,6 @@ async def generate_content(
             }
         )
 
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-
     cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
@@ -314,10 +297,7 @@ async def stream_generate_content(
     # 对于假流式模型，返回假流式响应
     if use_fake_streaming:
         return await fake_stream_response_gemini(request_data, real_model)
-
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-
+    
     cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
@@ -429,9 +409,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
 
     async def gemini_stream_generator():
         try:
-            # 获取凭证管理器
-            from src.credential_manager import get_credential_manager
-
             cred_mgr = await get_credential_manager()
 
             # 获取有效凭证
