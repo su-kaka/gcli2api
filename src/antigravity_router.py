@@ -21,7 +21,19 @@ from .antigravity_api import (
     send_antigravity_request_stream,
 )
 from .credential_manager import CredentialManager
-from .models import ChatCompletionRequest, Model, ModelList
+from .models import (
+    ChatCompletionRequest,
+    GeminiContent,
+    GeminiGenerationConfig,
+    GeminiPart,
+    Model,
+    ModelList,
+    OpenAIChatCompletionChoice,
+    OpenAIChatCompletionResponse,
+    OpenAIChatMessage,
+    OpenAIToolCall,
+    OpenAIToolFunction,
+)
 
 # 创建路由器
 router = APIRouter()
@@ -336,9 +348,10 @@ def generate_generation_config(
     model_name: str
 ) -> Dict[str, Any]:
     """
-    生成 Antigravity generationConfig
+    生成 Antigravity generationConfig，使用 GeminiGenerationConfig 模型
     """
-    config = {
+    # 构建基础配置
+    config_dict = {
         "candidateCount": 1,
         "stopSequences": [
             "<|user|>",
@@ -346,53 +359,53 @@ def generate_generation_config(
             "<|context_request|>",
             "<|endoftext|>",
             "<|end_of_turn|>"
-        ]
+        ],
+        "topK": parameters.get("top_k", 50),  # 默认值 50
     }
 
-    # 添加温度参数
+    # 添加可选参数
     if "temperature" in parameters:
-        config["temperature"] = parameters["temperature"]
+        config_dict["temperature"] = parameters["temperature"]
 
-    # 添加 topP
     if "top_p" in parameters:
-        config["topP"] = parameters["top_p"]
+        config_dict["topP"] = parameters["top_p"]
 
-    # 添加 topK
-    if "top_k" in parameters:
-        config["topK"] = parameters["top_k"]
-    else:
-        config["topK"] = 50  # 默认值
-
-    # 添加 maxOutputTokens
     if "max_tokens" in parameters:
-        config["maxOutputTokens"] = parameters["max_tokens"]
+        config_dict["maxOutputTokens"] = parameters["max_tokens"]
 
     # 思考模型配置
     if enable_thinking:
-        config["thinkingConfig"] = {
+        config_dict["thinkingConfig"] = {
             "includeThoughts": True,
             "thinkingBudget": 1024
         }
 
         # Claude 思考模型：删除 topP 参数
         if "claude" in model_name.lower():
-            config.pop("topP", None)
+            config_dict.pop("topP", None)
 
-    return config
+    # 使用 GeminiGenerationConfig 模型进行验证
+    try:
+        config = GeminiGenerationConfig(**config_dict)
+        return config.model_dump(exclude_none=True)
+    except Exception as e:
+        log.warning(f"[ANTIGRAVITY] Failed to validate generation config: {e}, using dict directly")
+        return config_dict
 
 
 def convert_to_openai_tool_call(function_call: Dict[str, Any]) -> Dict[str, Any]:
     """
-    将 Antigravity functionCall 转换为 OpenAI tool_call
+    将 Antigravity functionCall 转换为 OpenAI tool_call，使用 OpenAIToolCall 模型
     """
-    return {
-        "id": function_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
-        "type": "function",
-        "function": {
-            "name": function_call.get("name", ""),
-            "arguments": json.dumps(function_call.get("args", {}))
-        }
-    }
+    tool_call = OpenAIToolCall(
+        id=function_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
+        type="function",
+        function=OpenAIToolFunction(
+            name=function_call.get("name", ""),
+            arguments=json.dumps(function_call.get("args", {}))
+        )
+    )
+    return tool_call.model_dump()
 
 
 async def convert_antigravity_stream_to_openai(
@@ -619,7 +632,7 @@ def convert_antigravity_response_to_openai(
 
     content = ""
     thinking_content = ""
-    tool_calls = []
+    tool_calls_list = []
 
     for part in parts:
         # 处理思考内容
@@ -640,24 +653,22 @@ def convert_antigravity_response_to_openai(
 
         # 处理工具调用
         elif "functionCall" in part:
-            tool_calls.append(convert_to_openai_tool_call(part["functionCall"]))
+            tool_calls_list.append(convert_to_openai_tool_call(part["functionCall"]))
 
     # 拼接思考内容
     if thinking_content:
         content = f"<think>\n{thinking_content}\n</think>\n{content}"
 
-    # 构建 OpenAI 响应
-    message = {
-        "role": "assistant",
-        "content": content
-    }
-
-    if tool_calls:
-        message["tool_calls"] = tool_calls
+    # 使用 OpenAIChatMessage 模型构建消息
+    message = OpenAIChatMessage(
+        role="assistant",
+        content=content,
+        tool_calls=tool_calls_list if tool_calls_list else None
+    )
 
     # 确定 finish_reason
     finish_reason = "stop"
-    if tool_calls:
+    if tool_calls_list:
         finish_reason = "tool_calls"
 
     finish_reason_raw = response_data.get("response", {}).get("candidates", [{}])[0].get("finishReason")
@@ -672,18 +683,24 @@ def convert_antigravity_response_to_openai(
         "total_tokens": usage_metadata.get("totalTokenCount", 0)
     }
 
-    return {
-        "id": request_id,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "message": message,
-            "finish_reason": finish_reason
-        }],
-        "usage": usage
-    }
+    # 使用 OpenAIChatCompletionChoice 模型
+    choice = OpenAIChatCompletionChoice(
+        index=0,
+        message=message,
+        finish_reason=finish_reason
+    )
+
+    # 使用 OpenAIChatCompletionResponse 模型
+    response = OpenAIChatCompletionResponse(
+        id=request_id,
+        object="chat.completion",
+        created=int(time.time()),
+        model=model,
+        choices=[choice],
+        usage=usage
+    )
+
+    return response.model_dump()
 
 
 def convert_antigravity_response_to_gemini(

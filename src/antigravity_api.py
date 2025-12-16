@@ -22,6 +22,7 @@ from log import log
 
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, post_async
+from .models import Model
 from .utils import parse_quota_reset_timestamp
 
 
@@ -369,7 +370,7 @@ async def fetch_available_models(
     获取可用模型列表，返回符合 OpenAI API 规范的格式
 
     Returns:
-        模型列表，格式: [{"id": "model_name", "object": "model", "created": timestamp, "owned_by": "google"}]
+        模型列表，格式为字典列表（用于兼容现有代码）
     """
     # 获取可用凭证
     cred_result = await credential_manager.get_valid_credential(is_antigravity=True)
@@ -401,27 +402,29 @@ async def fetch_available_models(
             data = response.json()
             log.debug(f"[ANTIGRAVITY] Raw models response: {json.dumps(data, ensure_ascii=False)[:500]}")
 
-            # 转换为 OpenAI 格式的模型列表
+            # 转换为 OpenAI 格式的模型列表，使用 Model 类
             model_list = []
             current_timestamp = int(datetime.now(timezone.utc).timestamp())
 
             if 'models' in data and isinstance(data['models'], dict):
                 # 遍历模型字典
                 for model_id in data['models'].keys():
-                    model_list.append({
-                        'id': model_id,
-                        'object': 'model',
-                        'created': current_timestamp,
-                        'owned_by': 'google'
-                    })
+                    model = Model(
+                        id=model_id,
+                        object='model',
+                        created=current_timestamp,
+                        owned_by='google'
+                    )
+                    model_list.append(model.model_dump())
 
             # 添加额外的 claude-opus-4-5 模型
-            model_list.append({
-                'id': 'claude-opus-4-5',
-                'object': 'model',
-                'created': current_timestamp,
-                'owned_by': 'google'
-            })
+            claude_opus_model = Model(
+                id='claude-opus-4-5',
+                object='model',
+                created=current_timestamp,
+                owned_by='google'
+            )
+            model_list.append(claude_opus_model.model_dump())
 
             log.info(f"[ANTIGRAVITY] Fetched {len(model_list)} available models")
             return model_list
