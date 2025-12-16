@@ -82,9 +82,6 @@ async def authenticate_gemini_flexible(
         detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
     )
 
-
-@router.get("/v1/v1beta/models")
-@router.get("/v1/v1/models")
 @router.get("/v1beta/models")
 @router.get("/v1/models")
 async def list_gemini_models():
@@ -115,9 +112,6 @@ async def list_gemini_models():
 
     return JSONResponse(content={"models": gemini_models})
 
-
-@router.post("/v1/v1beta/models/{model:path}:generateContent")
-@router.post("/v1/v1/models/{model:path}:generateContent")
 @router.post("/v1beta/models/{model:path}:generateContent")
 @router.post("/v1/models/{model:path}:generateContent")
 async def generate_content(
@@ -238,9 +232,6 @@ async def generate_content(
         else:
             raise HTTPException(status_code=500, detail="Response processing failed")
 
-
-@router.post("/v1/v1beta/models/{model:path}:streamGenerateContent")
-@router.post("/v1/v1/models/{model:path}:streamGenerateContent")
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/v1/models/{model:path}:streamGenerateContent")
 async def stream_generate_content(
@@ -328,9 +319,6 @@ async def stream_generate_content(
     # 直接返回流式响应
     return response
 
-
-@router.post("/v1/v1beta/models/{model:path}:countTokens")
-@router.post("/v1/v1/models/{model:path}:countTokens")
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
@@ -371,9 +359,6 @@ async def count_tokens(
     # 返回Gemini格式的响应
     return JSONResponse(content={"totalTokens": total_tokens})
 
-
-@router.get("/v1/v1beta/models/{model:path}")
-@router.get("/v1/v1/models/{model:path}")
 @router.get("/v1beta/models/{model:path}")
 @router.get("/v1/models/{model:path}")
 async def get_model_info(
