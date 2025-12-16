@@ -192,49 +192,6 @@ class MongoDBManager:
             log.error(f"Error getting next available credential (antigravity={is_antigravity}, model_key={model_key}): {e}")
             return None
 
-    async def rotate_and_update_credential(self, filename: str, increment_call: bool = True, is_antigravity: bool = False):
-        """
-        轮换凭证并更新统计
-        - 将当前凭证的 rotation_order 设为最大值+1（移到队尾）
-        - 可选：增加 call_count
-        - 一次事务完成
-        """
-        self._ensure_initialized()
-
-        try:
-            collection_name = self._get_collection_name(is_antigravity)
-            collection = self._db[collection_name]
-
-            # 获取当前最大 rotation_order
-            max_doc = await collection.find_one({}, sort=[("rotation_order", -1)])
-            max_order = (max_doc["rotation_order"] + 1) if max_doc else 0
-
-            # 更新凭证
-            update_data = {
-                "rotation_order": max_order,
-                "updated_at": time.time()
-            }
-
-            if increment_call:
-                await collection.update_one(
-                    {"filename": filename},
-                    {
-                        "$set": update_data,
-                        "$inc": {"call_count": 1}
-                    }
-                )
-            else:
-                await collection.update_one(
-                    {"filename": filename},
-                    {"$set": update_data}
-                )
-
-            log.debug(f"Rotated credential: {filename} to order {max_order}")
-
-        except Exception as e:
-            log.error(f"Error rotating credential {filename}: {e}")
-            raise
-
     async def get_available_credentials_list(self, is_antigravity: bool = False) -> List[str]:
         """
         获取所有可用凭证列表
@@ -476,15 +433,26 @@ class MongoDBManager:
             cursor = collection.find({})
 
             states = {}
+            current_time = time.time()
+
             async for doc in cursor:
                 filename = doc["filename"]
+                model_cooldowns = doc.get("model_cooldowns", {})
+
+                # 自动过滤掉已过期的模型CD
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if v > current_time
+                    }
+
                 states[filename] = {
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
                     "last_success": doc.get("last_success", time.time()),
                     "user_email": doc.get("user_email"),
                     "cooldown_until": doc.get("cooldown_until"),
-                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                    "model_cooldowns": model_cooldowns,
                 }
 
             return states
@@ -539,6 +507,14 @@ class MongoDBManager:
 
             async for doc in cursor:
                 cooldown_until = doc.get("cooldown_until")
+                model_cooldowns = doc.get("model_cooldowns", {})
+
+                # 自动过滤掉已过期的模型CD
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if v > current_time
+                    }
 
                 # 计算冷却状态
                 cooldown_status = "ready"
@@ -558,7 +534,7 @@ class MongoDBManager:
                     "cooldown_status": cooldown_status,
                     "cooldown_remaining_seconds": cooldown_remaining_seconds,
                     "rotation_order": doc.get("rotation_order", 0),
-                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                    "model_cooldowns": model_cooldowns,
                 })
 
             return {

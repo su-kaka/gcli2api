@@ -409,48 +409,6 @@ class SQLiteManager:
             log.error(f"Error getting next available credential (antigravity={is_antigravity}, model_key={model_key}): {e}")
             return None
 
-    async def rotate_and_update_credential(self, filename: str, increment_call: bool = True):
-        """
-        轮换凭证并更新统计
-        - 将当前凭证的 rotation_order 设为最大值+1（移到队尾）
-        - 可选：增加 call_count
-        - 一次事务完成
-        """
-        self._ensure_initialized()
-
-        try:
-            async with aiosqlite.connect(self._db_path) as db:
-                # 获取当前最大 rotation_order
-                async with db.execute("""
-                    SELECT MAX(rotation_order) FROM credentials
-                """) as cursor:
-                    row = await cursor.fetchone()
-                    max_order = row[0] if row[0] is not None else 0
-
-                # 更新凭证
-                if increment_call:
-                    await db.execute("""
-                        UPDATE credentials
-                        SET rotation_order = ?,
-                            call_count = call_count + 1,
-                            updated_at = unixepoch()
-                        WHERE filename = ?
-                    """, (max_order + 1, filename))
-                else:
-                    await db.execute("""
-                        UPDATE credentials
-                        SET rotation_order = ?,
-                            updated_at = unixepoch()
-                        WHERE filename = ?
-                    """, (max_order + 1, filename))
-
-                await db.commit()
-                log.debug(f"Rotated credential: {filename} to order {max_order + 1}")
-
-        except Exception as e:
-            log.error(f"Error rotating credential {filename}: {e}")
-            raise
-
     async def get_available_credentials_list(self) -> List[str]:
         """
         获取所有可用凭证列表
@@ -701,17 +659,28 @@ class SQLiteManager:
                     rows = await cursor.fetchall()
 
                     states = {}
+                    current_time = time.time()
+
                     for row in rows:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
                         model_cooldowns_json = row[6] or '{}'
+                        model_cooldowns = json.loads(model_cooldowns_json)
+
+                        # 自动过滤掉已过期的模型CD
+                        if model_cooldowns:
+                            model_cooldowns = {
+                                k: v for k, v in model_cooldowns.items()
+                                if v > current_time
+                            }
+
                         states[filename] = {
                             "disabled": bool(row[1]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[3] or time.time(),
                             "user_email": row[4],
                             "cooldown_until": row[5],
-                            "model_cooldowns": json.loads(model_cooldowns_json),
+                            "model_cooldowns": model_cooldowns,
                         }
 
                     return states
@@ -795,6 +764,14 @@ class SQLiteManager:
                         error_codes_json = row[2] or '[]'
                         cooldown_until = row[5]
                         model_cooldowns_json = row[7] or '{}'
+                        model_cooldowns = json.loads(model_cooldowns_json)
+
+                        # 自动过滤掉已过期的模型CD
+                        if model_cooldowns:
+                            model_cooldowns = {
+                                k: v for k, v in model_cooldowns.items()
+                                if v > current_time
+                            }
 
                         # 计算冷却状态
                         cooldown_status = "ready"
@@ -814,7 +791,7 @@ class SQLiteManager:
                             "cooldown_status": cooldown_status,
                             "cooldown_remaining_seconds": cooldown_remaining_seconds,
                             "rotation_order": row[6],
-                            "model_cooldowns": json.loads(model_cooldowns_json),
+                            "model_cooldowns": model_cooldowns,
                         })
 
                     return {
