@@ -35,9 +35,7 @@ from .auth import (
     asyncio_complete_auth_flow,
     complete_auth_flow_from_callback_url,
     create_auth_url,
-    generate_auth_token,
     get_auth_status,
-    verify_auth_token,
     verify_password,
 )
 from .credential_manager import CredentialManager
@@ -192,10 +190,13 @@ class ConfigSaveRequest(BaseModel):
     config: dict
 
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """验证认证令牌"""
-    if not verify_auth_token(credentials.credentials):
-        raise HTTPException(status_code=401, detail="无效的认证令牌")
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """验证控制面板密码（直接验证，不使用token）"""
+    from config import get_panel_password
+
+    password = await get_panel_password()
+    if credentials.credentials != password:
+        raise HTTPException(status_code=401, detail="密码错误")
     return credentials.credentials
 
 
@@ -255,11 +256,11 @@ async def serve_control_panel(request: Request):
 
 @router.post("/auth/login")
 async def login(request: LoginRequest):
-    """用户登录"""
+    """用户登录（简化版：直接返回密码作为token）"""
     try:
         if await verify_password(request.password):
-            token = generate_auth_token()
-            return JSONResponse(content={"token": token, "message": "登录成功"})
+            # 直接使用密码作为token，简化认证流程
+            return JSONResponse(content={"token": request.password, "message": "登录成功"})
         else:
             raise HTTPException(status_code=401, detail="密码错误")
     except HTTPException:
