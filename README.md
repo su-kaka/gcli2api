@@ -541,7 +541,6 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 docker run -d --name gcli2api \
   -e PASSWORD=mypassword \
   -e PORT=7861 \
-  -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
   ghcr.io/su-kaka/gcli2api:latest
 
 # 使用分离密码
@@ -549,7 +548,6 @@ docker run -d --name gcli2api \
   -e API_PASSWORD=my_api_password \
   -e PANEL_PASSWORD=my_panel_password \
   -e PORT=7861 \
-  -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
   ghcr.io/su-kaka/gcli2api:latest
 ```
 
