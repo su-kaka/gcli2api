@@ -371,6 +371,13 @@ def generate_generation_config(
     if "max_tokens" in parameters:
         config_dict["maxOutputTokens"] = parameters["max_tokens"]
 
+    # 图片生成相关参数
+    if "response_modalities" in parameters:
+        config_dict["response_modalities"] = parameters["response_modalities"]
+
+    if "image_config" in parameters:
+        config_dict["image_config"] = parameters["image_config"]
+
     # 思考模型配置
     if enable_thinking:
         config_dict["thinkingConfig"] = {
@@ -1031,6 +1038,9 @@ async def gemini_generate_content(
         "top_p": gemini_config.get("topP"),
         "top_k": gemini_config.get("topK"),
         "max_tokens": gemini_config.get("maxOutputTokens"),
+        # 图片生成相关参数
+        "response_modalities": gemini_config.get("response_modalities"),
+        "image_config": gemini_config.get("image_config"),
     }
     # 过滤 None 值
     parameters = {k: v for k, v in parameters.items() if v is not None}
@@ -1135,6 +1145,9 @@ async def gemini_stream_generate_content(
         "top_p": gemini_config.get("topP"),
         "top_k": gemini_config.get("topK"),
         "max_tokens": gemini_config.get("maxOutputTokens"),
+        # 图片生成相关参数
+        "response_modalities": gemini_config.get("response_modalities"),
+        "image_config": gemini_config.get("image_config"),
     }
     # 过滤 None 值
     parameters = {k: v for k, v in parameters.items() if v is not None}
