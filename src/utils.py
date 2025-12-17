@@ -62,8 +62,6 @@ BASE_MODELS = [
     "gemini-3-pro-preview",
 ]
 
-PUBLIC_API_MODELS = ["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"]
-
 
 # ====================== Model Helper Functions ======================
 
@@ -158,9 +156,6 @@ def get_available_models(router_type: str = "openai") -> List[str]:
     for base_model in BASE_MODELS:
         # 基础模型
         models.append(base_model)
-
-        if base_model in PUBLIC_API_MODELS:
-            continue
 
         # 假流式模型 (前缀格式)
         models.append(f"假流式/{base_model}")
