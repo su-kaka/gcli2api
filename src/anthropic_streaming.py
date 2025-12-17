@@ -156,13 +156,16 @@ async def antigravity_sse_to_anthropic_sse(
                     continue
 
                 if "text" in part:
+                    text = part.get("text", "")
+                    if isinstance(text, str) and not text.strip():
+                        continue
+
                     if state._current_block_type != "text":
                         stop_evt = state.close_block_if_open()
                         if stop_evt:
                             yield stop_evt
                         yield state.open_text_block()
 
-                    text = part.get("text", "")
                     if text:
                         yield _sse_event(
                             "content_block_delta",

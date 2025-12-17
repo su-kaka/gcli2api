@@ -315,6 +315,45 @@ async def test_streaming_事件序列包含必要事件():
 
 
 @pytest.mark.asyncio
+async def test_streaming_空文本part_不会产生空text块_避免污染thinking索引():
+    antigravity_lines = [
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":""},{"thought":true,"text":"A"}]}}]}}',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"B"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}',
+    ]
+
+    async def gen():
+        for l in antigravity_lines:
+            yield l
+
+    chunks = []
+    async for chunk in antigravity_sse_to_anthropic_sse(gen(), model="m", message_id="msg1"):
+        chunks.append(chunk.decode("utf-8"))
+
+    def parse_event(chunk_str: str):
+        lines = [l for l in chunk_str.splitlines() if l.strip()]
+        assert lines[0].startswith("event: ")
+        assert lines[1].startswith("data: ")
+        event = lines[0].split("event: ", 1)[1].strip()
+        data = json.loads(lines[1].split("data: ", 1)[1])
+        return event, data
+
+    parsed = [parse_event(c) for c in chunks]
+
+    assert not any(
+        event == "content_block_start"
+        and data.get("index") == 0
+        and (data.get("content_block") or {}).get("type") == "text"
+        for event, data in parsed
+    )
+
+    starts = [(event, data) for event, data in parsed if event == "content_block_start"]
+    assert starts[0][1]["index"] == 0
+    assert starts[0][1]["content_block"]["type"] == "thinking"
+    assert starts[1][1]["index"] == 1
+    assert starts[1][1]["content_block"]["type"] == "text"
+
+
+@pytest.mark.asyncio
 async def test_streaming_message_start_会注入估算_input_tokens():
     payload = {
         "model": "claude-3-5-sonnet-20241022",
