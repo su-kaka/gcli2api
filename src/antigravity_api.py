@@ -8,8 +8,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import Response
-
 from config import (
     get_antigravity_api_url,
     get_auto_ban_enabled,
@@ -24,18 +22,6 @@ from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, post_async
 from .models import Model
 from .utils import ANTIGRAVITY_HOST, ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
-
-
-def _create_error_response(message: str, status_code: int = 500) -> Response:
-    """Create standardized error response."""
-    return Response(
-        content=json.dumps(
-            {"error": {"message": message, "type": "api_error", "code": status_code}}
-        ),
-        status_code=status_code,
-        media_type="application/json",
-    )
-
 
 async def _check_should_auto_ban(status_code: int) -> bool:
     """检查是否应该触发自动封禁"""
