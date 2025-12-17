@@ -3,9 +3,14 @@ import platform
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from config import get_api_password
-from fastapi import HTTPException, Header, Query, Request, status
+from config import get_api_password, get_panel_password
+from fastapi import Depends, HTTPException, Header, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from log import log
+
+# HTTP Bearer security scheme
+security = HTTPBearer()
+
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
 
 # ====================== OAuth Configuration ======================
@@ -464,3 +469,27 @@ async def authenticate_sdwebui_flexible(request: Request) -> str:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
     )
+
+
+# ====================== Panel Authentication Functions ======================
+
+async def verify_panel_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """
+    简化的控制面板密码验证函数
+
+    直接验证Bearer token是否等于控制面板密码
+
+    Args:
+        credentials: HTTPAuthorizationCredentials 自动注入
+
+    Returns:
+        验证通过的token
+
+    Raises:
+        HTTPException: 密码错误时抛出401异常
+    """
+
+    password = await get_panel_password()
+    if credentials.credentials != password:
+        raise HTTPException(status_code=401, detail="密码错误")
+    return credentials.credentials

@@ -253,3 +253,38 @@ class CredentialStatus(BaseModel):
     disabled: bool = False
     error_codes: List[int] = []
     last_success: Optional[str] = None
+
+
+# Web Routes Models
+class LoginRequest(BaseModel):
+    password: str
+
+
+class AuthStartRequest(BaseModel):
+    project_id: Optional[str] = None  # 现在是可选的
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class AuthCallbackRequest(BaseModel):
+    project_id: Optional[str] = None  # 现在是可选的
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class AuthCallbackUrlRequest(BaseModel):
+    callback_url: str  # OAuth回调完整URL
+    project_id: Optional[str] = None  # 可选的项目ID
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class CredFileActionRequest(BaseModel):
+    filename: str
+    action: str  # enable, disable, delete
+
+
+class CredFileBatchActionRequest(BaseModel):
+    action: str  # "enable", "disable", "delete"
+    filenames: List[str]  # 批量操作的文件名列表
+
+
+class ConfigSaveRequest(BaseModel):
+    config: dict
