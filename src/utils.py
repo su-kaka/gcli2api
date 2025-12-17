@@ -1,7 +1,6 @@
 import platform
-import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
