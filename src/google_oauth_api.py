@@ -531,14 +531,14 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
 async def fetch_project_id(access_token: str) -> Optional[str]:
     """
-    从 Antigravity API 获取 projectId
-    模仿 antigravity2api-nodejs 的 fetchProjectId 实现
+    从 Antigravity API 获取 project_id
+    模仿 antigravity2api-nodejs 的 project_id 实现
 
     Args:
         access_token: Google OAuth access token
 
     Returns:
-        projectId 字符串，如果获取失败返回 None
+        project_id 字符串，如果获取失败返回 None
     """
     from config import get_antigravity_api_url
 
@@ -556,7 +556,7 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
         request_url = f"{antigravity_url}/v1internal:loadCodeAssist"
         request_body = {"metadata": {"ideType": "ANTIGRAVITY"}}
 
-        log.debug(f"[ANTIGRAVITY] Fetching projectId from: {request_url}")
+        log.debug(f"[ANTIGRAVITY] Fetching project_id from: {request_url}")
         log.debug(f"[ANTIGRAVITY] Request body: {request_body}")
         log.debug(f"[ANTIGRAVITY] Request headers: {dict(headers)}")
 
@@ -578,7 +578,7 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
 
             project_id = data.get("cloudaicompanionProject")
             if project_id:
-                log.info(f"[ANTIGRAVITY] Successfully fetched projectId: {project_id}")
+                log.info(f"[ANTIGRAVITY] Successfully fetched project_id: {project_id}")
                 return project_id
             else:
                 log.warning("[ANTIGRAVITY] loadCodeAssist returned no 'cloudaicompanionProject' field")
@@ -586,12 +586,12 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
                 log.warning("[ANTIGRAVITY] This may indicate: account has no quota, or API configuration issue")
                 return None
         else:
-            log.warning(f"[ANTIGRAVITY] Failed to fetch projectId: HTTP {response.status_code}")
+            log.warning(f"[ANTIGRAVITY] Failed to fetch project_id: HTTP {response.status_code}")
             log.warning(f"[ANTIGRAVITY] Response body: {response.text[:500]}")
             return None
 
     except Exception as e:
-        log.error(f"[ANTIGRAVITY] Error fetching projectId: {type(e).__name__}: {e}")
+        log.error(f"[ANTIGRAVITY] Error fetching project_id: {type(e).__name__}: {e}")
         import traceback
         log.debug(f"[ANTIGRAVITY] Traceback: {traceback.format_exc()}")
         return None

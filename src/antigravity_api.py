@@ -93,7 +93,7 @@ def build_antigravity_request_body(
         "userAgent": "antigravity",
         "request": {
             "contents": contents,
-            "sessionId": session_id,
+            "session_id": session_id,
         }
     }
 

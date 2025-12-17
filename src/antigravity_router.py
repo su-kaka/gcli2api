@@ -878,7 +878,7 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
 
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 projectId 和 sessionId）
+    # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
@@ -1053,7 +1053,7 @@ async def gemini_generate_content(
 
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 projectId 和 sessionId）
+    # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
@@ -1160,7 +1160,7 @@ async def gemini_stream_generate_content(
 
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 projectId 和 sessionId）
+    # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
