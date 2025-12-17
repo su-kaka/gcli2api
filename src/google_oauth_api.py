@@ -18,6 +18,7 @@ from config import (
 from log import log
 
 from .httpx_client import get_async, post_async
+from .utils import ANTIGRAVITY_HOST, ANTIGRAVITY_USER_AGENT
 
 
 class TokenError(Exception):
@@ -526,3 +527,71 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
         f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})"
     )
     return project_id
+
+
+async def fetch_project_id(access_token: str) -> Optional[str]:
+    """
+    从 Antigravity API 获取 projectId
+    模仿 antigravity2api-nodejs 的 fetchProjectId 实现
+
+    Args:
+        access_token: Google OAuth access token
+
+    Returns:
+        projectId 字符串，如果获取失败返回 None
+    """
+    from config import get_antigravity_api_url
+
+    # Use shared constants from utils
+    headers = {
+        'Host': ANTIGRAVITY_HOST,
+        'User-Agent': ANTIGRAVITY_USER_AGENT,
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip'
+    }
+
+    try:
+        antigravity_url = await get_antigravity_api_url()
+        request_url = f"{antigravity_url}/v1internal:loadCodeAssist"
+        request_body = {"metadata": {"ideType": "ANTIGRAVITY"}}
+
+        log.debug(f"[ANTIGRAVITY] Fetching projectId from: {request_url}")
+        log.debug(f"[ANTIGRAVITY] Request body: {request_body}")
+        log.debug(f"[ANTIGRAVITY] Request headers: {dict(headers)}")
+
+        response = await post_async(
+            request_url,
+            json=request_body,
+            headers=headers,
+            timeout=30.0,
+        )
+
+        log.debug(f"[ANTIGRAVITY] Response status: {response.status_code}")
+
+        if response.status_code == 200:
+            response_text = response.text
+            log.debug(f"[ANTIGRAVITY] Response body (first 500 chars): {response_text[:500]}")
+
+            data = response.json()
+            log.debug(f"[ANTIGRAVITY] Response JSON keys: {list(data.keys())}")
+
+            project_id = data.get("cloudaicompanionProject")
+            if project_id:
+                log.info(f"[ANTIGRAVITY] Successfully fetched projectId: {project_id}")
+                return project_id
+            else:
+                log.warning("[ANTIGRAVITY] loadCodeAssist returned no 'cloudaicompanionProject' field")
+                log.warning(f"[ANTIGRAVITY] Full response data: {data}")
+                log.warning("[ANTIGRAVITY] This may indicate: account has no quota, or API configuration issue")
+                return None
+        else:
+            log.warning(f"[ANTIGRAVITY] Failed to fetch projectId: HTTP {response.status_code}")
+            log.warning(f"[ANTIGRAVITY] Response body: {response.text[:500]}")
+            return None
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY] Error fetching projectId: {type(e).__name__}: {e}")
+        import traceback
+        log.debug(f"[ANTIGRAVITY] Traceback: {traceback.format_exc()}")
+        return None

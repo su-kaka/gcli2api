@@ -1,10 +1,16 @@
 import platform
 import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
+
+# ====================== Antigravity API Configuration ======================
+
+# Antigravity API Host and User-Agent (shared by antigravity_api.py and google_oauth_api.py)
+ANTIGRAVITY_HOST = "daily-cloudcode-pa.sandbox.googleapis.com"
+ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
 # ====================== Model Configuration ======================
 

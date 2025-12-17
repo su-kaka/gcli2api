@@ -23,13 +23,7 @@ from log import log
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, post_async
 from .models import Model
-from .utils import parse_quota_reset_timestamp
-
-
-# Antigravity API 配置
-# ANTIGRAVITY_URL 现在通过 get_antigravity_api_url() 动态获取
-ANTIGRAVITY_HOST = "daily-cloudcode-pa.sandbox.googleapis.com"
-ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
+from .utils import ANTIGRAVITY_HOST, ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
 
 
 def _create_error_response(message: str, status_code: int = 500) -> Response:

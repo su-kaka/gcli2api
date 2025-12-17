@@ -21,6 +21,7 @@ from .google_oauth_api import (
     Credentials,
     Flow,
     enable_required_apis,
+    fetch_project_id,
     get_user_projects,
     select_default_project,
 )
@@ -672,9 +673,15 @@ async def asyncio_complete_auth_flow(
                 # 检查是否为antigravity模式
                 is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
                 if is_antigravity:
-                    log.info("Antigravity模式：生成随机project_id...")
-                    project_id = _generate_random_project_id()
-                    log.info(f"生成的随机project_id: {project_id}")
+                    log.info("Antigravity模式：从API获取project_id...")
+                    # 使用API获取project_id
+                    project_id = await fetch_project_id(credentials.access_token)
+                    if project_id:
+                        log.info(f"成功从API获取project_id: {project_id}")
+                    else:
+                        log.warning("无法从API获取project_id，回退到随机生成")
+                        project_id = _generate_random_project_id()
+                        log.info(f"生成的随机project_id: {project_id}")
 
                     # 保存antigravity凭证
                     saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
@@ -823,9 +830,15 @@ async def complete_auth_flow_from_callback_url(
             # 检查是否为antigravity模式
             is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
             if is_antigravity:
-                log.info("Antigravity模式（从回调URL）：生成随机project_id...")
-                project_id = _generate_random_project_id()
-                log.info(f"生成的随机project_id: {project_id}")
+                log.info("Antigravity模式（从回调URL）：从API获取project_id...")
+                # 使用API获取project_id
+                project_id = await fetch_project_id(credentials.access_token)
+                if project_id:
+                    log.info(f"成功从API获取project_id: {project_id}")
+                else:
+                    log.warning("无法从API获取project_id，回退到随机生成")
+                    project_id = _generate_random_project_id()
+                    log.info(f"生成的随机project_id: {project_id}")
 
                 # 保存antigravity凭证
                 saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
