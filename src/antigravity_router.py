@@ -13,7 +13,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Requ
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from config import get_anti_truncation_max_attempts, get_api_password
 from log import log
+from src.utils import is_anti_truncation_model
 
 from .antigravity_api import (
     build_antigravity_request_body,
@@ -31,6 +33,9 @@ from .models import (
     OpenAIChatMessage,
     OpenAIToolCall,
     OpenAIToolFunction,
+)
+from .anti_truncation import (
+    apply_anti_truncation_to_stream,
 )
 
 # 创建路由器
@@ -53,7 +58,7 @@ async def get_credential_manager():
 
 async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """验证用户密码"""
-    from config import get_api_password
+
 
     password = await get_api_password()
     token = credentials.credentials
@@ -69,7 +74,6 @@ async def authenticate_gemini_flexible(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
 ) -> str:
     """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
-    from config import get_api_password
 
     password = await get_api_password()
 
@@ -801,8 +805,18 @@ async def list_models():
             log.warning("[ANTIGRAVITY] Failed to fetch models from API, returning empty list")
             return ModelList(data=[])
 
-        # models 已经是 OpenAI 格式的字典列表，直接转换为 Model 对象
-        return ModelList(data=[Model(**m) for m in models])
+        # models 已经是 OpenAI 格式的字典列表，扩展为包含抗截断版本
+        expanded_models = []
+        for model in models:
+            # 添加原始模型
+            expanded_models.append(Model(**model))
+
+            # 添加流式抗截断版本
+            anti_truncation_model = model.copy()
+            anti_truncation_model["id"] = f"流式抗截断/{model['id']}"
+            expanded_models.append(Model(**anti_truncation_model))
+
+        return ModelList(data=expanded_models)
 
     except Exception as e:
         log.error(f"[ANTIGRAVITY] Error fetching models: {e}")
@@ -851,11 +865,18 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
     stream = getattr(request_data, "stream", False)
     tools = getattr(request_data, "tools", None)
 
+    # 检测并处理抗截断模式
+    use_anti_truncation = is_anti_truncation_model(model)
+    if use_anti_truncation:
+        # 去掉 "流式抗截断/" 前缀
+        from src.utils import get_base_model_from_feature_model
+        model = get_base_model_from_feature_model(model)
+
     # 模型名称映射
     actual_model = model_mapping(model)
     enable_thinking = is_thinking_model(model)
 
-    log.info(f"[ANTIGRAVITY] Request: model={model} -> {actual_model}, stream={stream}, thinking={enable_thinking}")
+    log.info(f"[ANTIGRAVITY] Request: model={model} -> {actual_model}, stream={stream}, thinking={enable_thinking}, anti_truncation={use_anti_truncation}")
 
     # 转换消息格式
     try:
@@ -904,7 +925,29 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
     # 发送请求
     try:
         if stream:
-            # 流式请求
+            # 处理抗截断功能（仅流式传输时有效）
+            if use_anti_truncation:
+                log.info("[ANTIGRAVITY] 启用流式抗截断功能")
+                max_attempts = await get_anti_truncation_max_attempts()
+
+                # 包装请求函数以适配抗截断处理器
+                async def antigravity_request_func(payload):
+                    resources, cred_name, cred_data = await send_antigravity_request_stream(
+                        payload, cred_mgr
+                    )
+                    response, stream_ctx, client = resources
+                    return StreamingResponse(
+                        convert_antigravity_stream_to_openai(
+                            response, stream_ctx, client, model, request_id, cred_mgr, cred_name
+                        ),
+                        media_type="text/event-stream"
+                    )
+
+                return await apply_anti_truncation_to_stream(
+                    antigravity_request_func, request_body, max_attempts
+                )
+
+            # 流式请求（无抗截断）
             resources, cred_name, cred_data = await send_antigravity_request_stream(
                 request_body, cred_mgr
             )
@@ -955,15 +998,27 @@ async def gemini_list_models(api_key: str = Depends(authenticate_gemini_flexible
             log.warning("[ANTIGRAVITY GEMINI] Failed to fetch models from API, returning empty list")
             return JSONResponse(content={"models": []})
 
-        # 将 OpenAI 格式转换为 Gemini 格式
+        # 将 OpenAI 格式转换为 Gemini 格式，同时添加抗截断版本
         gemini_models = []
         for model in models:
             model_id = model.get("id", "")
+
+            # 添加原始模型
             gemini_models.append({
                 "name": f"models/{model_id}",
                 "version": "001",
                 "displayName": model_id,
                 "description": f"Antigravity API - {model_id}",
+                "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
+            })
+
+            # 添加流式抗截断版本
+            anti_truncation_id = f"流式抗截断/{model_id}"
+            gemini_models.append({
+                "name": f"models/{anti_truncation_id}",
+                "version": "001",
+                "displayName": anti_truncation_id,
+                "description": f"Antigravity API - {anti_truncation_id} (带流式抗截断功能)",
                 "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
             })
 
@@ -1021,6 +1076,13 @@ async def gemini_generate_content(
     # 提取模型名称（移除 "models/" 前缀）
     if model.startswith("models/"):
         model = model[7:]
+
+    # 检测并处理抗截断模式（虽然非流式不会使用，但要处理模型名）
+    use_anti_truncation = is_anti_truncation_model(model)
+    if use_anti_truncation:
+        # 去掉 "流式抗截断/" 前缀
+        from src.utils import get_base_model_from_feature_model
+        model = get_base_model_from_feature_model(model)
 
     # 模型名称映射
     actual_model = model_mapping(model)
@@ -1129,11 +1191,18 @@ async def gemini_stream_generate_content(
     if model.startswith("models/"):
         model = model[7:]
 
+    # 检测并处理抗截断模式
+    use_anti_truncation = is_anti_truncation_model(model)
+    if use_anti_truncation:
+        # 去掉 "流式抗截断/" 前缀
+        from src.utils import get_base_model_from_feature_model
+        model = get_base_model_from_feature_model(model)
+
     # 模型名称映射
     actual_model = model_mapping(model)
     enable_thinking = is_thinking_model(model)
 
-    log.info(f"[ANTIGRAVITY GEMINI] Stream request: model={model} -> {actual_model}, thinking={enable_thinking}")
+    log.info(f"[ANTIGRAVITY GEMINI] Stream request: model={model} -> {actual_model}, thinking={enable_thinking}, anti_truncation={use_anti_truncation}")
 
     # 转换 Gemini contents 为 Antigravity contents
     try:
@@ -1194,6 +1263,29 @@ async def gemini_stream_generate_content(
 
     # 发送流式请求
     try:
+        # 处理抗截断功能（仅流式传输时有效）
+        if use_anti_truncation:
+            log.info("[ANTIGRAVITY GEMINI] 启用流式抗截断功能")
+            max_attempts = await get_anti_truncation_max_attempts()
+
+            # 包装请求函数以适配抗截断处理器
+            async def antigravity_gemini_request_func(payload):
+                resources, cred_name, cred_data = await send_antigravity_request_stream(
+                    payload, cred_mgr
+                )
+                response, stream_ctx, client = resources
+                return StreamingResponse(
+                    convert_antigravity_stream_to_gemini(
+                        response, stream_ctx, client, cred_mgr, cred_name
+                    ),
+                    media_type="text/event-stream"
+                )
+
+            return await apply_anti_truncation_to_stream(
+                antigravity_gemini_request_func, request_body, max_attempts
+            )
+
+        # 流式请求（无抗截断）
         resources, cred_name, cred_data = await send_antigravity_request_stream(
             request_body, cred_mgr
         )
