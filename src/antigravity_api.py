@@ -32,6 +32,46 @@ ANTIGRAVITY_HOST = "daily-cloudcode-pa.sandbox.googleapis.com"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
 
+async def fetch_project_id(access_token: str) -> Optional[str]:
+    """
+    从 Antigravity API 获取 projectId
+    模仿 antigravity2api-nodejs 的 fetchProjectId 实现
+    
+    Args:
+        access_token: Google OAuth access token
+        
+    Returns:
+        projectId 字符串，如果获取失败返回 None
+    """
+    headers = build_antigravity_headers(access_token)
+    
+    try:
+        antigravity_url = await get_antigravity_api_url()
+        response = await post_async(
+            f"{antigravity_url}/v1internal:loadCodeAssist",
+            json={"metadata": {"ideType": "ANTIGRAVITY"}},
+            headers=headers,
+            timeout=30.0,
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            project_id = data.get("cloudaicompanionProject")
+            if project_id:
+                log.info(f"[ANTIGRAVITY] Fetched projectId: {project_id}")
+                return project_id
+            else:
+                log.warning("[ANTIGRAVITY] loadCodeAssist returned no projectId (account may not have quota)")
+                return None
+        else:
+            log.warning(f"[ANTIGRAVITY] Failed to fetch projectId: {response.status_code} - {response.text[:200]}")
+            return None
+        
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY] Error fetching projectId: {e}")
+        return None
+
+
 def _create_error_response(message: str, status_code: int = 500) -> Response:
     """Create standardized error response."""
     return Response(

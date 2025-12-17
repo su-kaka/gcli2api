@@ -4,6 +4,7 @@
 
 import asyncio
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -74,6 +75,13 @@ class CredentialManager:
                         else:
                             log.error(f"Token刷新失败: {filename} (antigravity={is_antigravity})")
                             return None
+                    
+                    # Antigravity 凭证：自动补全 projectId 和 sessionId
+                    if is_antigravity:
+                        credential_data = await self._ensure_antigravity_fields(
+                            filename, credential_data
+                        )
+                    
                     return filename, credential_data
                 return None
             else:
@@ -132,6 +140,12 @@ class CredentialManager:
                     else:
                         continue
 
+                # Antigravity 凭证：自动补全 projectId 和 sessionId
+                if is_antigravity:
+                    credential_data = await self._ensure_antigravity_fields(
+                        filename, credential_data
+                    )
+
                 return filename, credential_data
 
             except Exception as e:
@@ -139,6 +153,65 @@ class CredentialManager:
                 continue
 
         return None
+
+    async def _ensure_antigravity_fields(
+        self, filename: str, credential_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        确保 Antigravity 凭证包含必要的 projectId 和 sessionId 字段
+        
+        - projectId: 首次使用时从 API 获取，然后缓存到存储
+        - sessionId: 运行时生成，不缓存（与 antigravity2api-nodejs 一致）
+        
+        Args:
+            filename: 凭证文件名
+            credential_data: 凭证数据
+            
+        Returns:
+            更新后的凭证数据
+        """
+        need_save = False
+        
+        # 1. 如果没有 projectId，从 API 获取并缓存
+        if not credential_data.get("projectId"):
+            access_token = credential_data.get("access_token") or credential_data.get("token")
+            if access_token:
+                try:
+                    from .antigravity_api import fetch_project_id
+                    project_id = await fetch_project_id(access_token)
+                    if project_id:
+                        credential_data["projectId"] = project_id
+                        need_save = True
+                        log.info(f"[ANTIGRAVITY] projectId fetched and cached: {project_id[:50]}...")
+                    else:
+                        # 无资格时使用随机 projectId（与 nodejs 一致）
+                        random_project_id = f"projects/random-{uuid.uuid4().hex[:8]}/locations/global"
+                        credential_data["projectId"] = random_project_id
+                        need_save = True
+                        log.warning(f"[ANTIGRAVITY] No quota, using random projectId: {random_project_id}")
+                except Exception as e:
+                    log.error(f"[ANTIGRAVITY] Failed to fetch projectId: {e}")
+                    # 失败时也使用随机 projectId 以避免请求失败
+                    random_project_id = f"projects/fallback-{uuid.uuid4().hex[:8]}/locations/global"
+                    credential_data["projectId"] = random_project_id
+                    need_save = True
+        
+        # 2. 确保有 sessionId（运行时生成，不缓存，与 nodejs 一致）
+        if not credential_data.get("sessionId"):
+            credential_data["sessionId"] = f"session-{uuid.uuid4().hex}"
+            # sessionId 不需要持久化，每次运行时生成
+        
+        # 3. 如果有更新（仅 projectId），保存到存储
+        if need_save:
+            try:
+                await self._storage_adapter.store_credential(
+                    filename, credential_data, is_antigravity=True
+                )
+                log.debug(f"[ANTIGRAVITY] Credential updated with projectId: {filename}")
+            except Exception as e:
+                log.error(f"[ANTIGRAVITY] Failed to save credential: {e}")
+        
+        return credential_data
 
     async def add_credential(self, credential_name: str, credential_data: Dict[str, Any]):
         """
