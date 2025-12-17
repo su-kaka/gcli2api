@@ -8,13 +8,12 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from config import get_anti_truncation_max_attempts, get_api_password
+from config import get_anti_truncation_max_attempts
 from log import log
-from src.utils import is_anti_truncation_model
+from src.utils import is_anti_truncation_model, authenticate_bearer, authenticate_gemini_flexible, authenticate_sdwebui_flexible
 
 from .antigravity_api import (
     build_antigravity_request_body,
@@ -40,7 +39,6 @@ from .anti_truncation import (
 
 # 创建路由器
 router = APIRouter()
-security = HTTPBearer()
 
 # 全局凭证管理器实例
 credential_manager = None
@@ -53,54 +51,6 @@ async def get_credential_manager():
         credential_manager = CredentialManager()
         await credential_manager.initialize()
     return credential_manager
-
-
-async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    """验证用户密码"""
-
-
-    password = await get_api_password()
-    token = credentials.credentials
-    if token != password:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
-    return token
-
-
-async def authenticate_gemini_flexible(
-    request: Request,
-    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
-    key: Optional[str] = Query(None),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
-) -> str:
-    """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
-
-    password = await get_api_password()
-
-    # 尝试从URL参数key获取（Google官方标准方式）
-    if key:
-        log.debug("Using URL parameter key authentication")
-        if key == password:
-            return key
-
-    # 尝试从Authorization头获取（兼容旧方式）
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug("Using Bearer token authentication")
-        if token == password:
-            return token
-
-    # 尝试从x-goog-api-key头获取（新标准方式）
-    if x_goog_api_key:
-        log.debug("Using x-goog-api-key authentication")
-        if x_goog_api_key == password:
-            return x_goog_api_key
-
-    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
-    )
 
 
 # 模型名称映射
@@ -814,7 +764,10 @@ async def list_models():
 
 
 @router.post("/antigravity/v1/chat/completions")
-async def chat_completions(request: Request, token: str = Depends(authenticate)):
+async def chat_completions(
+    request: Request,
+    token: str = Depends(authenticate_bearer)
+):
     """
     处理 OpenAI 格式的聊天完成请求，转换为 Antigravity API
     """
@@ -1294,58 +1247,6 @@ async def gemini_stream_generate_content(
 
 
 # ==================== SD-WebUI 格式 API 端点 ====================
-
-async def authenticate_sdwebui_flexible(
-    request: Request,
-) -> str:
-    """SD-WebUI 灵活验证：支持 Authorization Basic/Bearer 或无认证"""
-    import base64
-
-    password = await get_api_password()
-
-    # 如果没有设置密码，允许无认证访问
-    if not password:
-        log.debug("No password set, allowing unauthenticated access")
-        return ""
-
-    # 尝试从 Authorization 头获取
-    auth_header = request.headers.get("authorization")
-
-    if auth_header:
-        # 支持 Bearer token 认证
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]  # 移除 "Bearer " 前缀
-            log.debug("Using Bearer token authentication")
-            if token == password:
-                return token
-
-        # 支持 Basic 认证
-        elif auth_header.startswith("Basic "):
-            try:
-                # 解码 Base64
-                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
-                decoded_bytes = base64.b64decode(encoded_credentials)
-                decoded_str = decoded_bytes.decode('utf-8')
-
-                # Basic 认证格式: username:password 或者只有 password
-                # SD-WebUI 可能只发送密码
-                if ':' in decoded_str:
-                    _, pwd = decoded_str.split(':', 1)
-                else:
-                    pwd = decoded_str
-
-                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
-                if pwd == password:
-                    return pwd
-            except Exception as e:
-                log.error(f"Failed to decode Basic auth: {e}")
-
-    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
-    )
-
 
 @router.get("/sdapi/v1/options")
 @router.get("/antigravity/sdapi/v1/options")

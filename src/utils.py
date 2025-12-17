@@ -1,8 +1,11 @@
+import base64
 import platform
 from datetime import datetime, timezone
 from typing import List, Optional
 
-
+from config import get_api_password
+from fastapi import HTTPException, Header, Query, Request, status
+from log import log
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
 
 # ====================== OAuth Configuration ======================
@@ -276,3 +279,188 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
     except Exception:
         return None
+
+
+# ====================== Authentication Functions ======================
+
+async def authenticate_bearer(
+    authorization: Optional[str] = Header(None)
+) -> str:
+    """
+    Bearer Token 认证
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        authorization: Authorization 头部值（自动注入）
+
+    Returns:
+        验证通过的token
+
+    Raises:
+        HTTPException: 认证失败时抛出401或403异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(token: str = Depends(authenticate_bearer)):
+            # token 已验证通过
+            pass
+    """
+
+    password = await get_api_password()
+
+    # 检查是否提供了 Authorization 头
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 检查是否是 Bearer token
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication scheme. Use 'Bearer <token>'",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 提取 token
+    token = authorization[7:]  # 移除 "Bearer " 前缀
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 验证 token
+    if token != password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="密码错误"
+        )
+
+    return token
+
+
+async def authenticate_gemini_flexible(
+    request: Request,
+    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
+    key: Optional[str] = Query(None)
+) -> str:
+    """
+    Gemini 灵活认证：支持 x-goog-api-key 头部、URL 参数 key 或 Authorization Bearer
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        request: FastAPI Request 对象
+        x_goog_api_key: x-goog-api-key 头部值（自动注入）
+        key: URL 参数 key（自动注入）
+
+    Returns:
+        验证通过的API密钥
+
+    Raises:
+        HTTPException: 认证失败时抛出400异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(api_key: str = Depends(authenticate_gemini_flexible)):
+            # api_key 已验证通过
+            pass
+    """
+
+    password = await get_api_password()
+
+    # 尝试从URL参数key获取（Google官方标准方式）
+    if key:
+        log.debug("Using URL parameter key authentication")
+        if key == password:
+            return key
+
+    # 尝试从Authorization头获取（兼容旧方式）
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # 移除 "Bearer " 前缀
+        log.debug("Using Bearer token authentication")
+        if token == password:
+            return token
+
+    # 尝试从x-goog-api-key头获取（新标准方式）
+    if x_goog_api_key:
+        log.debug("Using x-goog-api-key authentication")
+        if x_goog_api_key == password:
+            return x_goog_api_key
+
+    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
+    )
+
+
+async def authenticate_sdwebui_flexible(request: Request) -> str:
+    """
+    SD-WebUI 灵活认证：支持 Authorization Basic/Bearer
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        request: FastAPI Request 对象
+
+    Returns:
+        验证通过的密码
+
+    Raises:
+        HTTPException: 认证失败时抛出403异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(pwd: str = Depends(authenticate_sdwebui_flexible)):
+            # pwd 已验证通过
+            pass
+    """
+
+
+    password = await get_api_password()
+
+    # 尝试从 Authorization 头获取
+    auth_header = request.headers.get("authorization")
+
+    if auth_header:
+        # 支持 Bearer token 认证
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # 移除 "Bearer " 前缀
+            log.debug("Using Bearer token authentication")
+            if token == password:
+                return token
+
+        # 支持 Basic 认证
+        elif auth_header.startswith("Basic "):
+            try:
+                # 解码 Base64
+                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
+                decoded_bytes = base64.b64decode(encoded_credentials)
+                decoded_str = decoded_bytes.decode('utf-8')
+
+                # Basic 认证格式: username:password 或者只有 password
+                # SD-WebUI 可能只发送密码
+                if ':' in decoded_str:
+                    _, pwd = decoded_str.split(':', 1)
+                else:
+                    pwd = decoded_str
+
+                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
+                if pwd == password:
+                    return pwd
+            except Exception as e:
+                log.error(f"Failed to decode Basic auth: {e}")
+
+    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
+    )
