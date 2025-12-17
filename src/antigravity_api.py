@@ -12,6 +12,7 @@ from config import (
     get_antigravity_api_url,
     get_auto_ban_enabled,
     get_auto_ban_error_codes,
+    get_return_thoughts_to_frontend,
     get_retry_429_enabled,
     get_retry_429_interval,
     get_retry_429_max_retries,
@@ -114,6 +115,43 @@ def build_antigravity_request_body(
     return request_body
 
 
+async def _filter_thinking_from_stream(lines, return_thoughts: bool):
+    """过滤流式响应中的思维链（如果配置禁用）"""
+    async for line in lines:
+        if not line or not line.startswith("data: "):
+            yield line
+            continue
+
+        raw = line[6:].strip()
+        if raw == "[DONE]":
+            yield line
+            continue
+
+        if not return_thoughts:
+            try:
+                data = json.loads(raw)
+                response = data.get("response", {}) or {}
+                candidate = (response.get("candidates", []) or [{}])[0] or {}
+                parts = (candidate.get("content", {}) or {}).get("parts", []) or []
+
+                # 过滤掉思维链部分
+                filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]
+
+                # 如果过滤后为空，跳过这一行
+                if not filtered_parts and parts:
+                    continue
+
+                # 更新parts
+                if filtered_parts != parts:
+                    candidate["content"]["parts"] = filtered_parts
+                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
+                    continue
+            except Exception:
+                pass
+
+        yield line
+
+
 async def send_antigravity_request_stream(
     request_body: Dict[str, Any],
     credential_manager: CredentialManager,
@@ -171,8 +209,11 @@ async def send_antigravity_request_stream(
                 if response.status_code == 200:
                     log.info(f"[ANTIGRAVITY] Request successful with credential: {current_file}")
                     # 注意: 不在这里记录成功,在流式生成器中第一次收到数据时记录
-                    # 返回响应和资源管理对象,让调用者管理资源生命周期
-                    return (response, stream_ctx, client), current_file, credential_data
+                    # 获取配置并包装响应流，在源头过滤思维链
+                    return_thoughts = await get_return_thoughts_to_frontend()
+                    filtered_lines = _filter_thinking_from_stream(response.aiter_lines(), return_thoughts)
+                    # 返回过滤后的行生成器和资源管理对象,让调用者管理资源生命周期
+                    return (filtered_lines, stream_ctx, client), current_file, credential_data
 
                 # 处理错误
                 error_body = await response.aread()
@@ -293,6 +334,20 @@ async def send_antigravity_request_no_stream(
                     current_file, True, is_antigravity=True, model_key=model_name
                 )
                 response_data = response.json()
+
+                # 从源头过滤思维链
+                return_thoughts = await get_return_thoughts_to_frontend()
+                if not return_thoughts:
+                    try:
+                        candidate = (response_data.get("response", {}) or {}).get("candidates", [{}])[0] or {}
+                        parts = (candidate.get("content", {}) or {}).get("parts", []) or []
+                        # 过滤掉思维链部分
+                        filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]
+                        if filtered_parts != parts:
+                            candidate["content"]["parts"] = filtered_parts
+                    except Exception as e:
+                        log.debug(f"[ANTIGRAVITY] Failed to filter thinking from response: {e}")
+
                 return response_data, current_file, credential_data
 
             # 处理错误

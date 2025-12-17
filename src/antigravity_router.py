@@ -414,7 +414,7 @@ def convert_to_openai_tool_call(function_call: Dict[str, Any]) -> Dict[str, Any]
 
 
 async def convert_antigravity_stream_to_openai(
-    response: Any,
+    lines_generator: Any,
     stream_ctx: Any,
     client: Any,
     model: str,
@@ -425,6 +425,8 @@ async def convert_antigravity_stream_to_openai(
     """
     将 Antigravity 流式响应转换为 OpenAI 格式的 SSE 流
 
+    Args:
+        lines_generator: 行生成器 (已经过滤的 SSE 行)
     """
     state = {
         "thinking_started": False,
@@ -461,7 +463,7 @@ async def convert_antigravity_stream_to_openai(
             state["thinking_started"] = False
             return thinking_block
 
-        async for line in response.aiter_lines():
+        async for line in lines_generator:
             if not line or not line.startswith("data: "):
                 continue
 
@@ -721,7 +723,7 @@ def convert_antigravity_response_to_gemini(
 
 
 async def convert_antigravity_stream_to_gemini(
-    response: Any,
+    lines_generator: Any,
     stream_ctx: Any,
     client: Any,
     credential_manager: Any,
@@ -729,11 +731,14 @@ async def convert_antigravity_stream_to_gemini(
 ):
     """
     将 Antigravity 流式响应转换为 Gemini 格式的 SSE 流
+
+    Args:
+        lines_generator: 行生成器 (已经过滤的 SSE 行)
     """
     success_recorded = False
 
     try:
-        async for line in response.aiter_lines():
+        async for line in lines_generator:
             if not line or not line.startswith("data: "):
                 continue
 
@@ -907,6 +912,7 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
             response, stream_ctx, client = resources
 
             # 转换并返回流式响应,传递资源管理对象
+            # response 现在是 filtered_lines 生成器
             return StreamingResponse(
                 convert_antigravity_stream_to_openai(
                     response, stream_ctx, client, model, request_id, cred_mgr, cred_name
@@ -1195,6 +1201,7 @@ async def gemini_stream_generate_content(
         response, stream_ctx, client = resources
 
         # 转换并返回流式响应
+        # response 现在是 filtered_lines 生成器
         return StreamingResponse(
             convert_antigravity_stream_to_gemini(
                 response, stream_ctx, client, cred_mgr, cred_name

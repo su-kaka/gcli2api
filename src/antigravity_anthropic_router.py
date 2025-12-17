@@ -335,8 +335,9 @@ async def anthropic_messages(
 
         async def stream_generator():
             try:
+                # response 现在是 filtered_lines 生成器，直接使用
                 async for chunk in antigravity_sse_to_anthropic_sse(
-                    response.aiter_lines(),
+                    response,
                     model=str(model),
                     message_id=message_id,
                     initial_input_tokens=estimated_input_tokens,
