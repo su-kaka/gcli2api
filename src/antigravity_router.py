@@ -23,9 +23,7 @@ from .antigravity_api import (
 from .credential_manager import CredentialManager
 from .models import (
     ChatCompletionRequest,
-    GeminiContent,
     GeminiGenerationConfig,
-    GeminiPart,
     Model,
     ModelList,
     OpenAIChatCompletionChoice,
