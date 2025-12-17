@@ -5,7 +5,6 @@ python-dotenv>=1.1.1
 hypercorn>=0.17.3
 aiofiles>=24.1.0
 python-multipart>=0.0.20
-toml>=0.10.2
 PyJWT>=2.10.1
 oauthlib>=3.3.1
 motor>=3.7.1

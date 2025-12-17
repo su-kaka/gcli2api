@@ -5,13 +5,10 @@ SQLite 存储管理器
 import asyncio
 import json
 import os
-import shutil
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiofiles
 import aiosqlite
-import toml
 
 from log import log
 
@@ -55,9 +52,6 @@ class SQLiteManager:
                 # 确保目录存在
                 os.makedirs(self._credentials_dir, exist_ok=True)
 
-                # 检查数据库是否是新建的
-                is_new_db = not os.path.exists(self._db_path)
-
                 # 创建数据库和表
                 async with aiosqlite.connect(self._db_path) as db:
                     # 启用 WAL 模式（提升并发性能）
@@ -67,14 +61,7 @@ class SQLiteManager:
                     # 创建表
                     await self._create_tables(db)
 
-                    # 升级现有数据库（添加 model_cooldowns 字段）
-                    await self._upgrade_database(db)
-
                     await db.commit()
-
-                # 如果是新数据库，尝试从 TOML 迁移
-                if is_new_db:
-                    await self._migrate_from_toml()
 
                 # 加载配置到内存
                 await self._load_config_cache()
@@ -170,128 +157,6 @@ class SQLiteManager:
         """)
 
         log.debug("SQLite tables and indexes created")
-
-    async def _upgrade_database(self, db: aiosqlite.Connection):
-        """升级数据库结构（为现有数据库添加新字段）"""
-        try:
-            # 检查 credentials 表是否有 model_cooldowns 字段
-            async with db.execute("PRAGMA table_info(credentials)") as cursor:
-                columns = await cursor.fetchall()
-                column_names = [col[1] for col in columns]
-
-                if "model_cooldowns" not in column_names:
-                    log.info("Upgrading credentials table: adding model_cooldowns column")
-                    await db.execute("""
-                        ALTER TABLE credentials
-                        ADD COLUMN model_cooldowns TEXT DEFAULT '{}'
-                    """)
-                    log.info("Credentials table upgraded successfully")
-
-            # 检查 antigravity_credentials 表是否有 model_cooldowns 字段
-            async with db.execute("PRAGMA table_info(antigravity_credentials)") as cursor:
-                columns = await cursor.fetchall()
-                column_names = [col[1] for col in columns]
-
-                if "model_cooldowns" not in column_names:
-                    log.info("Upgrading antigravity_credentials table: adding model_cooldowns column")
-                    await db.execute("""
-                        ALTER TABLE antigravity_credentials
-                        ADD COLUMN model_cooldowns TEXT DEFAULT '{}'
-                    """)
-                    log.info("Antigravity credentials table upgraded successfully")
-
-        except Exception as e:
-            log.warning(f"Database upgrade skipped or failed: {e}")
-
-
-    async def _migrate_from_toml(self):
-        """从 TOML 文件迁移数据到 SQLite"""
-        creds_toml = os.path.join(self._credentials_dir, "creds.toml")
-        config_toml = os.path.join(self._credentials_dir, "config.toml")
-
-        if not os.path.exists(creds_toml):
-            log.debug("No creds.toml found, skipping migration")
-            return
-
-        try:
-            log.info("Starting migration from TOML to SQLite...")
-
-            # 读取 TOML 数据
-            async with aiofiles.open(creds_toml, "r", encoding="utf-8") as f:
-                content = await f.read()
-            toml_data = toml.loads(content)
-
-            if not toml_data:
-                log.info("TOML file is empty, skipping migration")
-                return
-
-            # 批量插入到数据库
-            async with aiosqlite.connect(self._db_path) as db:
-                credentials_to_insert = []
-
-                for filename, section_data in toml_data.items():
-                    # 分离凭证数据和状态数据
-                    credential_data = {k: v for k, v in section_data.items()
-                                     if k not in self.STATE_FIELDS}
-
-                    # 提取状态字段
-                    disabled = section_data.get("disabled", 0)
-                    error_codes = json.dumps(section_data.get("error_codes", []))
-                    last_success = section_data.get("last_success", time.time())
-                    user_email = section_data.get("user_email")
-
-                    credentials_to_insert.append((
-                        filename,
-                        json.dumps(credential_data),
-                        disabled,
-                        error_codes,
-                        last_success,
-                        user_email,
-                        len(credentials_to_insert),  # rotation_order
-                    ))
-
-                # 批量插入
-                await db.executemany("""
-                    INSERT INTO credentials
-                    (filename, credential_data, disabled, error_codes,
-                     last_success, user_email, rotation_order)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, credentials_to_insert)
-
-                # 迁移配置
-                if os.path.exists(config_toml):
-                    async with aiofiles.open(config_toml, "r", encoding="utf-8") as f:
-                        config_content = await f.read()
-                    config_data = toml.loads(config_content)
-
-                    config_to_insert = [
-                        (key, json.dumps(value))
-                        for key, value in config_data.items()
-                    ]
-
-                    await db.executemany("""
-                        INSERT INTO config (key, value)
-                        VALUES (?, ?)
-                    """, config_to_insert)
-
-                await db.commit()
-
-            log.info(f"Migration completed: {len(credentials_to_insert)} credentials migrated")
-
-            # 备份原始文件
-            backup_path = f"{creds_toml}.backup"
-            shutil.copy2(creds_toml, backup_path)
-            os.remove(creds_toml)
-            log.info(f"Original TOML backed up to {backup_path}")
-
-            if os.path.exists(config_toml):
-                config_backup = f"{config_toml}.backup"
-                shutil.copy2(config_toml, config_backup)
-                os.remove(config_toml)
-
-        except Exception as e:
-            log.error(f"Migration failed: {e}")
-            raise
 
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
