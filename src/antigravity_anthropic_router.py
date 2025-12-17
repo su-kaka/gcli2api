@@ -17,6 +17,7 @@ from .antigravity_api import (
 )
 from .anthropic_converter import convert_anthropic_request_to_antigravity_components
 from .anthropic_streaming import antigravity_sse_to_anthropic_sse
+from .token_estimator import estimate_input_tokens_from_components
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
@@ -71,68 +72,12 @@ def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, st
 
 def _estimate_input_tokens_from_components(components: Dict[str, Any]) -> int:
     """
-    估算输入 token 数（用于 /messages/count_tokens）。
+    估算输入 token 数（用于 /messages/count_tokens 与流式 message_start 初始 usage 展示）。
 
-    该实现与 `src/gemini_router.py` 的 countTokens 思路一致：基于文本长度做近似估算。
-    这不是精确 tokenizer，但可以满足 claude-cli 这类客户端的预检需求，避免因 404 触发 fallback。
+    该值是本地预估口径：当前实现基于 `tiktoken` 进行分词计数，并叠加少量结构化开销；
+    最终真实 token 仍以下游 `usageMetadata.promptTokenCount` 为准。
     """
-    approx_tokens = 0
-
-    def add_text(text: str) -> None:
-        nonlocal approx_tokens
-        if not text:
-            return
-        approx_tokens += max(1, len(text) // 4)
-
-    system_instruction = components.get("system_instruction")
-    if isinstance(system_instruction, dict):
-        for part in system_instruction.get("parts", []) or []:
-            if isinstance(part, dict) and "text" in part:
-                add_text(str(part.get("text", "")))
-
-    for content in components.get("contents", []) or []:
-        if not isinstance(content, dict):
-            continue
-        for part in content.get("parts", []) or []:
-            if not isinstance(part, dict):
-                continue
-            if "text" in part:
-                add_text(str(part.get("text", "")))
-            elif "functionCall" in part:
-                fc = part.get("functionCall", {}) or {}
-                add_text(str(fc.get("name") or ""))
-                try:
-                    add_text(json.dumps(fc.get("args", {}) or {}, ensure_ascii=False, separators=(",", ":")))
-                except Exception:
-                    add_text(str(fc.get("args")))
-            elif "functionResponse" in part:
-                fr = part.get("functionResponse", {}) or {}
-                add_text(str(fr.get("name") or ""))
-                try:
-                    add_text(
-                        json.dumps(fr.get("response", {}) or {}, ensure_ascii=False, separators=(",", ":"))
-                    )
-                except Exception:
-                    add_text(str(fr.get("response")))
-
-    for tool in components.get("tools", []) or []:
-        if not isinstance(tool, dict):
-            continue
-        for decl in tool.get("functionDeclarations", []) or []:
-            if not isinstance(decl, dict):
-                continue
-            add_text(str(decl.get("name") or ""))
-            add_text(str(decl.get("description") or ""))
-            try:
-                add_text(
-                    json.dumps(
-                        decl.get("parameters", {}) or {}, ensure_ascii=False, separators=(",", ":")
-                    )
-                )
-            except Exception:
-                add_text(str(decl.get("parameters")))
-
-    return int(approx_tokens)
+    return estimate_input_tokens_from_components(components)
 
 
 def _convert_antigravity_response_to_anthropic_message(

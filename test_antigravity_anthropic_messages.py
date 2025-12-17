@@ -18,6 +18,7 @@ from src.antigravity_anthropic_router import (
     _convert_antigravity_response_to_anthropic_message,
     _estimate_input_tokens_from_components,
 )
+from src.token_estimator import estimate_input_tokens_from_components_legacy
 
 
 def test_clean_json_schema_会追加校验信息到描述():
@@ -386,6 +387,35 @@ async def test_streaming_message_start_会注入估算_input_tokens():
     assert lines[0] == "event: message_start"
     data = json.loads(lines[1].split("data: ", 1)[1])
     assert data["message"]["usage"]["input_tokens"] == estimated_input_tokens
+
+
+def test_count_tokens_tiktoken_相比旧估算对中文与工具更不容易偏小():
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 64,
+        "messages": [{"role": "user", "content": "你" * 200}],
+        "tools": [
+            {
+                "name": "tool",
+                "description": "测试工具",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "q": {"type": "string", "description": "查询词，中文测试" * 50}
+                    },
+                    "required": ["q"],
+                },
+            }
+        ],
+    }
+    components = convert_anthropic_request_to_antigravity_components(payload)
+
+    estimated = _estimate_input_tokens_from_components(components)
+    legacy = estimate_input_tokens_from_components_legacy(components)
+
+    assert legacy > 0
+    assert estimated > 0
+    assert estimated >= legacy
 
 
 @pytest.mark.asyncio
