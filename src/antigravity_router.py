@@ -6,7 +6,6 @@ Antigravity Router - Handles OpenAI and Gemini format requests and converts to A
 import json
 import time
 import uuid
-from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
@@ -47,14 +46,13 @@ security = HTTPBearer()
 credential_manager = None
 
 
-@asynccontextmanager
 async def get_credential_manager():
     """获取全局凭证管理器实例"""
     global credential_manager
     if not credential_manager:
         credential_manager = CredentialManager()
         await credential_manager.initialize()
-    yield credential_manager
+    return credential_manager
 
 
 async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
@@ -1305,8 +1303,81 @@ async def gemini_stream_generate_content(
 
 # ==================== SD-WebUI 格式 API 端点 ====================
 
+async def authenticate_sdwebui_flexible(
+    request: Request,
+) -> str:
+    """SD-WebUI 灵活验证：支持 Authorization Basic/Bearer 或无认证"""
+    import base64
+
+    password = await get_api_password()
+
+    # 如果没有设置密码，允许无认证访问
+    if not password:
+        log.debug("No password set, allowing unauthenticated access")
+        return ""
+
+    # 尝试从 Authorization 头获取
+    auth_header = request.headers.get("authorization")
+
+    if auth_header:
+        # 支持 Bearer token 认证
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # 移除 "Bearer " 前缀
+            log.debug("Using Bearer token authentication")
+            if token == password:
+                return token
+
+        # 支持 Basic 认证
+        elif auth_header.startswith("Basic "):
+            try:
+                # 解码 Base64
+                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
+                decoded_bytes = base64.b64decode(encoded_credentials)
+                decoded_str = decoded_bytes.decode('utf-8')
+
+                # Basic 认证格式: username:password 或者只有 password
+                # SD-WebUI 可能只发送密码
+                if ':' in decoded_str:
+                    _, pwd = decoded_str.split(':', 1)
+                else:
+                    pwd = decoded_str
+
+                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
+                if pwd == password:
+                    return pwd
+            except Exception as e:
+                log.error(f"Failed to decode Basic auth: {e}")
+
+    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
+    )
+
+
+@router.get("/sdapi/v1/options")
+@router.get("/antigravity/sdapi/v1/options")
+async def sdwebui_get_options(_: str = Depends(authenticate_sdwebui_flexible)):
+    """返回 SD-WebUI 格式的配置选项"""
+    log.info("[ANTIGRAVITY SD-WebUI] Received options request")
+    # 返回基本的配置选项
+    return {
+        "sd_model_checkpoint": "gemini-3-pro-image",
+        "sd_checkpoint_hash": None,
+        "samples_save": True,
+        "samples_format": "png",
+        "save_images_add_number": True,
+        "grid_save": True,
+        "return_grid": True,
+        "enable_pnginfo": True,
+        "save_txt": False,
+        "CLIP_stop_at_last_layers": 1,
+    }
+
+
+@router.get("/sdapi/v1/sd-models")
 @router.get("/antigravity/sdapi/v1/sd-models")
-async def sdwebui_list_models(token: str = Depends(authenticate)):
+async def sdwebui_list_models(_: str = Depends(authenticate_sdwebui_flexible)):
     """返回 SD-WebUI 格式的模型列表 - 只包含带 image 关键词的模型"""
 
     try:
@@ -1342,8 +1413,9 @@ async def sdwebui_list_models(token: str = Depends(authenticate)):
         return []
 
 
+@router.post("/sdapi/v1/txt2img")
 @router.post("/antigravity/sdapi/v1/txt2img")
-async def sdwebui_txt2img(request: Request, token: str = Depends(authenticate)):
+async def sdwebui_txt2img(request: Request, _: str = Depends(authenticate_sdwebui_flexible)):
     """处理 SD-WebUI 格式的 txt2img 请求，转换为 Antigravity API"""
     # 获取原始请求数据
     try:

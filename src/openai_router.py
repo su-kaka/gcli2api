@@ -7,7 +7,6 @@ import asyncio
 import json
 import time
 import uuid
-from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -44,14 +43,13 @@ security = HTTPBearer()
 credential_manager = None
 
 
-@asynccontextmanager
 async def get_credential_manager():
     """获取全局凭证管理器实例"""
     global credential_manager
     if not credential_manager:
         credential_manager = CredentialManager()
         await credential_manager.initialize()
-    yield credential_manager
+    return credential_manager
 
 
 async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
