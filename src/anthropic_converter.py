@@ -78,6 +78,7 @@ def map_claude_model_to_gemini(claude_model: str) -> str:
         "gemini-2.5-pro",
         "gemini-3-pro-low",
         "gemini-3-pro-high",
+        "gemini-3-pro-image",
         "gemini-2.5-flash-lite",
         "gemini-2.5-flash-image",
         "claude-sonnet-4-5",

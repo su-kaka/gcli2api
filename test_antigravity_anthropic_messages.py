@@ -212,6 +212,10 @@ def test_model_mapping_支持_claude_cli_版本化模型名():
     assert map_claude_model_to_gemini(" claude-opus-4-5-20251101 ") == "claude-opus-4-5-thinking"
 
 
+def test_model_mapping_透传_antigravity_实际支持的_gemini_3_pro_image():
+    assert map_claude_model_to_gemini("gemini-3-pro-image") == "gemini-3-pro-image"
+
+
 def test_thinking_null_不会启用_thinkingConfig():
     payload = {
         "model": "claude-3-5-sonnet-20241022",
