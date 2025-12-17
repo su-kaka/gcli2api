@@ -26,32 +26,16 @@ from .google_oauth_api import (
     select_default_project,
 )
 from .storage_adapter import get_storage_adapter
-
-# OAuth Configuration - 标准模式
-CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
-CLIENT_SECRET = "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"
-SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-]
-
-# Antigravity OAuth Configuration
-ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-ANTIGRAVITY_CLIENT_SECRET = "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"
-ANTIGRAVITY_SCOPES = [
-    'https://www.googleapis.com/auth/cloud-platform',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/cclog',
-    'https://www.googleapis.com/auth/experimentsandconfigs'
-]
-
-# 统一的 Token URL（两种模式相同）
-TOKEN_URL = "https://oauth2.googleapis.com/token"
-
-# 回调服务器配置
-CALLBACK_HOST = "localhost"
+from .utils import (
+    ANTIGRAVITY_CLIENT_ID,
+    ANTIGRAVITY_CLIENT_SECRET,
+    ANTIGRAVITY_SCOPES,
+    CALLBACK_HOST,
+    CLIENT_ID,
+    CLIENT_SECRET,
+    SCOPES,
+    TOKEN_URL,
+)
 
 
 async def get_callback_port():
@@ -94,9 +78,8 @@ def _prepare_credentials_data(credentials: Credentials, project_id: str, is_anti
 
 def _generate_random_project_id() -> str:
     """生成随机project_id（antigravity模式使用）"""
-    import random
-    import string
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+    random_id = uuid.uuid4().hex[:8]
+    return f"projects/random-{random_id}/locations/global"
 
 
 def _cleanup_auth_flow_server(state: str):
