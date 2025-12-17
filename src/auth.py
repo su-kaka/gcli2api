@@ -40,7 +40,7 @@ from .utils import (
 
 async def get_callback_port():
     """获取OAuth回调端口"""
-    return int(await get_config_value("oauth_callback_port", "8080", "OAUTH_CALLBACK_PORT"))
+    return int(await get_config_value("oauth_callback_port", "11451", "OAUTH_CALLBACK_PORT"))
 
 
 def _prepare_credentials_data(credentials: Credentials, project_id: str, is_antigravity: bool = False) -> Dict[str, Any]:
