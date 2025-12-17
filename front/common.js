@@ -1198,7 +1198,7 @@ function toggleAntigravityFileSelection(filename) {
 }
 function toggleSelectAllAntigravity() {
     const checkbox = document.getElementById('selectAllAntigravityCheckbox');
-    const checkboxes = document.querySelectorAll('.antigravityfile-checkbox');
+    const checkboxes = document.querySelectorAll('.antigravityFile-checkbox');
 
     if (checkbox.checked) {
         checkboxes.forEach(cb => AppState.antigravityCreds.selectedFiles.add(cb.getAttribute('data-filename')));
