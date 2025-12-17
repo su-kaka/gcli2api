@@ -57,16 +57,8 @@ def _extract_api_token(
 
 
 def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, str]:
-    project_id = (
-        credential_data.get("projectId")
-        or credential_data.get("project_id")
-        or "default-project"
-    )
-    session_id = (
-        credential_data.get("sessionId")
-        or credential_data.get("session_id")
-        or f"session-{uuid.uuid4().hex}"
-    )
+    project_id = credential_data.get("project_id")
+    session_id = f"session-{uuid.uuid4().hex}"   
     return str(project_id), str(session_id)
 
 

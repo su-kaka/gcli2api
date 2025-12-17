@@ -885,8 +885,8 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
 
     _, credential_data = cred_result
-    project_id = credential_data.get("projectId", "default-project")
-    session_id = credential_data.get("sessionId", f"session-{uuid.uuid4().hex}")
+    project_id = credential_data.get("project_id", "default-project")
+    session_id = f"session-{uuid.uuid4().hex}"
 
     # 构建 Antigravity 请求体
     request_body = build_antigravity_request_body(
@@ -1060,8 +1060,8 @@ async def gemini_generate_content(
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
 
     _, credential_data = cred_result
-    project_id = credential_data.get("projectId", "default-project")
-    session_id = credential_data.get("sessionId", f"session-{uuid.uuid4().hex}")
+    project_id = credential_data.get("project_id", "default-project")
+    session_id = credential_data.get("session_id", f"session-{uuid.uuid4().hex}")
 
     # 处理 systemInstruction
     system_instruction = None
@@ -1167,8 +1167,8 @@ async def gemini_stream_generate_content(
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
 
     _, credential_data = cred_result
-    project_id = credential_data.get("projectId", "default-project")
-    session_id = credential_data.get("sessionId", f"session-{uuid.uuid4().hex}")
+    project_id = credential_data.get("project_id", "default-project")
+    session_id = credential_data.get("session_id", f"session-{uuid.uuid4().hex}")
 
     # 处理 systemInstruction
     system_instruction = None

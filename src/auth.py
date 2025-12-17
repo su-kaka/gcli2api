@@ -456,7 +456,7 @@ async def complete_auth_flow(
                     if user_projects:
                         # 如果只有一个项目，自动使用
                         if len(user_projects) == 1:
-                            project_id = user_projects[0].get("projectId")
+                            project_id = user_projects[0].get("project_id")
                             if project_id:
                                 flow_data["project_id"] = project_id
                                 log.info(f"自动选择唯一项目: {project_id}")
@@ -474,8 +474,8 @@ async def complete_auth_flow(
                                     "requires_project_selection": True,
                                     "available_projects": [
                                         {
-                                            "projectId": p.get("projectId"),
-                                            "name": p.get("displayName") or p.get("projectId"),
+                                            "project_id": p.get("project_id"),
+                                            "name": p.get("displayName") or p.get("project_id"),
                                             "projectNumber": p.get("projectNumber"),
                                         }
                                         for p in user_projects
@@ -694,7 +694,7 @@ async def asyncio_complete_auth_flow(
                     if user_projects:
                         # 如果只有一个项目，自动使用
                         if len(user_projects) == 1:
-                            project_id = user_projects[0].get("projectId")
+                            project_id = user_projects[0].get("project_id")
                             if project_id:
                                 flow_data["project_id"] = project_id
                                 log.info(f"自动选择唯一项目: {project_id}")
@@ -718,8 +718,8 @@ async def asyncio_complete_auth_flow(
                                     "requires_project_selection": True,
                                     "available_projects": [
                                         {
-                                            "projectId": p.get("projectId"),
-                                            "name": p.get("displayName") or p.get("projectId"),
+                                            "project_id": p.get("project_id"),
+                                            "name": p.get("displayName") or p.get("project_id"),
                                             "projectNumber": p.get("projectNumber"),
                                         }
                                         for p in user_projects
@@ -852,17 +852,17 @@ async def complete_auth_flow_from_callback_url(
                     if projects:
                         if len(projects) == 1:
                             # 只有一个项目，自动使用
-                            detected_project_id = projects[0]["projectId"]
+                            detected_project_id = projects[0]["project_id"]
                             auto_detected = True
                             log.info(f"自动检测到唯一项目ID: {detected_project_id}")
                         else:
                             # 多个项目，自动选择第一个
-                            detected_project_id = projects[0]["projectId"]
+                            detected_project_id = projects[0]["project_id"]
                             auto_detected = True
                             log.info(
                                 f"检测到{len(projects)}个项目，自动选择第一个: {detected_project_id}"
                             )
-                            log.debug(f"其他可用项目: {[p['projectId'] for p in projects[1:]]}")
+                            log.debug(f"其他可用项目: {[p['project_id'] for p in projects[1:]]}")
                     else:
                         # 没有项目访问权限
                         return {

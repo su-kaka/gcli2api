@@ -515,14 +515,14 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
     # 策略1：查找显示名称或项目ID包含"default"的项目
     for project in projects:
         display_name = project.get("displayName", "").lower()
-        project_id = project.get("projectId", "")
+        project_id = project.get("project_id", "")
         if "default" in display_name or "default" in project_id.lower():
             log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
             return project_id
 
     # 策略2：选择第一个项目
     first_project = projects[0]
-    project_id = first_project.get("projectId", "")
+    project_id = first_project.get("project_id", "")
     log.info(
         f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})"
     )

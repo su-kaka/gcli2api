@@ -63,7 +63,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
   const actualModelName = modelMapping(modelName);
 
   return {
-    project: token.projectId,
+    project: token.project_id,
     requestId: generateRequestId(),
     request: {
       contents: openaiMessageToAntigravity(openaiMessages),        // ①消息转换
@@ -514,8 +514,8 @@ function convertToToolCall(functionCall) {
       "refresh_token": "1//0gJp8K...",
       "expires_in": 3599,
       "timestamp": 1702300000000,
-      "projectId": "project-123456",
-      "sessionId": "session-xyz",
+      "project_id": "project-123456",
+      "session_id": "session-xyz",
       "enable": true
     }
   ]
@@ -535,9 +535,9 @@ async getToken() {
     token = await this.refreshToken(token);
   }
 
-  // 检查是否有 projectId（懒加载）
-  if (!token.projectId && !config.other.skipProjectIdFetch) {
-    token.projectId = await this.fetchProjectId(token);
+  // 检查是否有 project_id（懒加载）
+  if (!token.project_id && !config.other.skipProjectIdFetch) {
+    token.project_id = await this.fetchProjectId(token);
   }
 
   return token;
