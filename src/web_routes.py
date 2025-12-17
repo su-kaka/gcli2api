@@ -567,6 +567,8 @@ async def upload_credentials_common(
         async def process_single_file(file_data):
             try:
                 filename = file_data["filename"]
+                # 确保文件名只保存basename，避免路径问题
+                filename = os.path.basename(filename)
                 content_str = file_data["content"]
                 credential_data = json.loads(content_str)
 

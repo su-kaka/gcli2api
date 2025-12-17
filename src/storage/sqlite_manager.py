@@ -483,20 +483,31 @@ class SQLiteManager:
             return False
 
     async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
-        """获取凭证数据"""
+        """获取凭证数据，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
+                # 首先尝试精确匹配
                 async with db.execute(f"""
                     SELECT credential_data FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
-
                     if row:
                         return json.loads(row[0])
-                    return None
+
+                # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
+                async with db.execute(f"""
+                    SELECT credential_data FROM {table_name}
+                    WHERE filename LIKE '%' || ? OR filename = ?
+                """, (filename, filename)) as cursor:
+                    rows = await cursor.fetchall()
+                    # 优先返回完全匹配的，否则返回basename匹配的第一个
+                    for row in rows:
+                        return json.loads(row[0])
+
+                return None
 
         except Exception as e:
             log.error(f"Error getting credential {filename}: {e}")
@@ -520,25 +531,40 @@ class SQLiteManager:
             return []
 
     async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
-        """删除凭证"""
+        """删除凭证，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
-                await db.execute(f"""
+                # 首先尝试精确匹配删除
+                result = await db.execute(f"""
                     DELETE FROM {table_name} WHERE filename = ?
                 """, (filename,))
+                deleted_count = result.rowcount
+
+                # 如果精确匹配没有删除任何记录，尝试basename匹配
+                if deleted_count == 0:
+                    result = await db.execute(f"""
+                        DELETE FROM {table_name} WHERE filename LIKE '%' || ?
+                    """, (filename,))
+                    deleted_count = result.rowcount
+
                 await db.commit()
-                log.debug(f"Deleted credential: {filename} (antigravity={is_antigravity})")
-                return True
+
+                if deleted_count > 0:
+                    log.debug(f"Deleted {deleted_count} credential(s): {filename} (antigravity={is_antigravity})")
+                    return True
+                else:
+                    log.warning(f"No credential found to delete: {filename} (antigravity={is_antigravity})")
+                    return False
 
         except Exception as e:
             log.error(f"Error deleting credential {filename}: {e}")
             return False
 
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
-        """更新凭证状态"""
+        """更新凭证状态，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
@@ -566,25 +592,38 @@ class SQLiteManager:
             values.append(filename)
 
             async with aiosqlite.connect(self._db_path) as db:
-                await db.execute(f"""
+                # 首先尝试精确匹配更新
+                result = await db.execute(f"""
                     UPDATE {table_name}
                     SET {', '.join(set_clauses)}
                     WHERE filename = ?
                 """, values)
+                updated_count = result.rowcount
+
+                # 如果精确匹配没有更新任何记录，尝试basename匹配
+                if updated_count == 0:
+                    result = await db.execute(f"""
+                        UPDATE {table_name}
+                        SET {', '.join(set_clauses)}
+                        WHERE filename LIKE '%' || ?
+                    """, values)
+                    updated_count = result.rowcount
+
                 await db.commit()
-                return True
+                return updated_count > 0
 
         except Exception as e:
             log.error(f"Error updating credential state {filename}: {e}")
             return False
 
     async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
-        """获取凭证状态"""
+        """获取凭证状态，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(is_antigravity)
             async with aiosqlite.connect(self._db_path) as db:
+                # 首先尝试精确匹配
                 async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email, model_cooldowns
                     FROM {table_name} WHERE filename = ?
@@ -602,14 +641,32 @@ class SQLiteManager:
                             "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
-                    # 返回默认状态
-                    return {
-                        "disabled": False,
-                        "error_codes": [],
-                        "last_success": time.time(),
-                        "user_email": None,
-                        "model_cooldowns": {},
-                    }
+                # 如果精确匹配失败，尝试basename匹配
+                async with db.execute(f"""
+                    SELECT disabled, error_codes, last_success, user_email, model_cooldowns
+                    FROM {table_name} WHERE filename LIKE '%' || ?
+                """, (filename,)) as cursor:
+                    row = await cursor.fetchone()
+
+                    if row:
+                        error_codes_json = row[1] or '[]'
+                        model_cooldowns_json = row[4] or '{}'
+                        return {
+                            "disabled": bool(row[0]),
+                            "error_codes": json.loads(error_codes_json),
+                            "last_success": row[2] or time.time(),
+                            "user_email": row[3],
+                            "model_cooldowns": json.loads(model_cooldowns_json),
+                        }
+
+                # 返回默认状态
+                return {
+                    "disabled": False,
+                    "error_codes": [],
+                    "last_success": time.time(),
+                    "user_email": None,
+                    "model_cooldowns": {},
+                }
 
         except Exception as e:
             log.error(f"Error getting credential state {filename}: {e}")
