@@ -123,21 +123,13 @@ def model_mapping(model_name: str) -> str:
 
 def is_thinking_model(model_name: str) -> bool:
     """检测是否是思考模型"""
-    thinking_models = [
-        "gemini-2.5-pro",
-        "gemini-3-pro",
-        "claude-sonnet-4-5-thinking",
-        "claude-opus-4-5",  # 会被映射为 claude-opus-4-5-thinking
-    ]
-
     # 检查是否包含 -thinking 后缀
     if "-thinking" in model_name:
         return True
 
-    # 检查是否匹配特定模型
-    for thinking_model in thinking_models:
-        if model_name.startswith(thinking_model):
-            return True
+    # 检查是否包含 pro 关键词
+    if "pro" in model_name.lower():
+        return True
 
     return False
 
