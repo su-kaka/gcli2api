@@ -25,6 +25,32 @@ class SQLiteManager:
         "model_cooldowns",
     }
 
+    # 所有必需的列定义（用于自动校验和修复）
+    REQUIRED_COLUMNS = {
+        "credentials": [
+            ("disabled", "INTEGER DEFAULT 0"),
+            ("error_codes", "TEXT DEFAULT '[]'"),
+            ("last_success", "REAL"),
+            ("user_email", "TEXT"),
+            ("model_cooldowns", "TEXT DEFAULT '{}'"),
+            ("rotation_order", "INTEGER DEFAULT 0"),
+            ("call_count", "INTEGER DEFAULT 0"),
+            ("created_at", "REAL DEFAULT (unixepoch())"),
+            ("updated_at", "REAL DEFAULT (unixepoch())")
+        ],
+        "antigravity_credentials": [
+            ("disabled", "INTEGER DEFAULT 0"),
+            ("error_codes", "TEXT DEFAULT '[]'"),
+            ("last_success", "REAL"),
+            ("user_email", "TEXT"),
+            ("model_cooldowns", "TEXT DEFAULT '{}'"),
+            ("rotation_order", "INTEGER DEFAULT 0"),
+            ("call_count", "INTEGER DEFAULT 0"),
+            ("created_at", "REAL DEFAULT (unixepoch())"),
+            ("updated_at", "REAL DEFAULT (unixepoch())")
+        ]
+    }
+
     def __init__(self):
         self._db_path = None
         self._credentials_dir = None
@@ -58,6 +84,9 @@ class SQLiteManager:
                     await db.execute("PRAGMA journal_mode=WAL")
                     await db.execute("PRAGMA foreign_keys=ON")
 
+                    # 检查并自动修复数据库结构
+                    await self._ensure_schema_compatibility(db)
+
                     # 创建表
                     await self._create_tables(db)
 
@@ -72,6 +101,44 @@ class SQLiteManager:
             except Exception as e:
                 log.error(f"Error initializing SQLite: {e}")
                 raise
+
+    async def _ensure_schema_compatibility(self, db: aiosqlite.Connection) -> None:
+        """
+        确保数据库结构兼容，自动修复缺失的列
+        """
+        try:
+            # 检查每个表
+            for table_name, columns in self.REQUIRED_COLUMNS.items():
+                # 检查表是否存在
+                async with db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,)
+                ) as cursor:
+                    if not await cursor.fetchone():
+                        log.debug(f"Table {table_name} does not exist, will be created")
+                        continue
+
+                # 获取现有列
+                async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
+                    existing_columns = {row[1] for row in await cursor.fetchall()}
+
+                # 添加缺失的列
+                added_count = 0
+                for col_name, col_def in columns:
+                    if col_name not in existing_columns:
+                        try:
+                            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+                            log.info(f"Added missing column {table_name}.{col_name}")
+                            added_count += 1
+                        except Exception as e:
+                            log.error(f"Failed to add column {table_name}.{col_name}: {e}")
+
+                if added_count > 0:
+                    log.info(f"Table {table_name}: added {added_count} missing column(s)")
+
+        except Exception as e:
+            log.error(f"Error ensuring schema compatibility: {e}")
+            # 不抛出异常，允许继续初始化
 
     async def _create_tables(self, db: aiosqlite.Connection):
         """创建数据库表和索引"""
