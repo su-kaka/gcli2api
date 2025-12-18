@@ -10,3 +10,4 @@ oauthlib
 motor
 pypinyin
 aiosqlite
+tiktoken

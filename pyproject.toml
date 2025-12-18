@@ -30,6 +30,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "pypinyin>=0.51.0",
     "aiosqlite>=0.20.0",
+    "tiktoken>=0.12.0",
 ]
 
 [project.optional-dependencies]
