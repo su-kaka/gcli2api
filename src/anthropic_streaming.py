@@ -228,6 +228,45 @@ async def antigravity_sse_to_anthropic_sse(
                 if not isinstance(part, dict):
                     continue
 
+                if _anthropic_debug_enabled() and "thoughtSignature" in part:
+                    try:
+                        sig_val = part.get("thoughtSignature")
+                        sig_len = len(str(sig_val)) if sig_val is not None else 0
+                    except Exception:
+                        sig_len = -1
+                    log.info(
+                        "[ANTHROPIC][thinking_signature] 收到 thoughtSignature 字段: "
+                        f"current_block_type={state._current_block_type}, "
+                        f"current_index={state._current_block_index}, len={sig_len}"
+                    )
+
+                # 兼容：下游可能会把 thoughtSignature 单独作为一个空 part 发送（此时未必带 thought=true）。
+                # 只要当前处于 thinking 块且尚未记录 signature，就用 signature_delta 补发。
+                signature = part.get("thoughtSignature")
+                if (
+                    signature
+                    and state._current_block_type == "thinking"
+                    and not state._current_thinking_signature
+                ):
+                    evt = _sse_event(
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": state._current_block_index,
+                            "delta": {"type": "signature_delta", "signature": signature},
+                        },
+                    )
+                    state._current_thinking_signature = str(signature)
+                    if message_start_sent:
+                        ready_output.append(evt)
+                    else:
+                        enqueue(evt)
+                    if _anthropic_debug_enabled():
+                        log.info(
+                            "[ANTHROPIC][thinking_signature] 已输出 signature_delta: "
+                            f"index={state._current_block_index}"
+                        )
+
                 if part.get("thought") is True:
                     if state._current_block_type != "thinking":
                         stop_evt = state.close_block_if_open()
@@ -242,25 +281,6 @@ async def antigravity_sse_to_anthropic_sse(
                             ready_output.append(evt)
                         else:
                             enqueue(evt)
-                    else:
-                        # 兼容：thoughtSignature 可能在后续 chunk 才出现（甚至 text 为空）。
-                        # 参考 /mnt/d/pythonProject/amq2api-v2/gemini/handler.py 的思路：用 signature_delta 补发签名。
-                        signature = part.get("thoughtSignature")
-                        if signature and not state._current_thinking_signature:
-                            evt = _sse_event(
-                                "content_block_delta",
-                                {
-                                    "type": "content_block_delta",
-                                    "index": state._current_block_index,
-                                    "delta": {"type": "signature_delta", "signature": signature},
-                                },
-                            )
-                            state._current_thinking_signature = str(signature)
-                            if message_start_sent:
-                                ready_output.append(evt)
-                            else:
-                                enqueue(evt)
-
                     thinking_text = part.get("text", "")
                     if thinking_text:
                         evt = _sse_event(

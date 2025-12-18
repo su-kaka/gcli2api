@@ -678,7 +678,7 @@ async def test_streaming_message_delta_支持_candidate_level_usageMetadata():
 async def test_streaming_thoughtSignature_延迟到达_会输出_signature_delta():
     antigravity_lines = [
         'data: {"response":{"candidates":[{"content":{"parts":[{"thought":true,"text":"A"}]}}]}}',
-        'data: {"response":{"candidates":[{"content":{"parts":[{"thought":true,"text":"","thoughtSignature":"sigX"}]}}]}}',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"","thoughtSignature":"sigX"}]}}]}}',
         'data: {"response":{"candidates":[{"content":{"parts":[{"text":"B"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}',
     ]
 
