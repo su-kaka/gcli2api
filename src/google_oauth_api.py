@@ -19,7 +19,6 @@ from config import (
 from log import log
 
 from .httpx_client import get_async, post_async
-from .utils import ANTIGRAVITY_HOST, ANTIGRAVITY_USER_AGENT
 
 
 class TokenError(Exception):
@@ -532,21 +531,25 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
     return project_id
 
 
-async def fetch_project_id(access_token: str) -> Optional[str]:
+async def fetch_project_id(
+    access_token: str,
+    host: str,
+    user_agent: str
+) -> Optional[str]:
     """
-    从 Antigravity API 获取 project_id
-    模仿 antigravity2api-nodejs 的 project_id 实现
+    从 API 获取 project_id
 
     Args:
         access_token: Google OAuth access token
+        host: API host
+        user_agent: User-Agent header
 
     Returns:
         project_id 字符串，如果获取失败返回 None
     """
-    # Use shared constants from utils
     headers = {
-        'Host': ANTIGRAVITY_HOST,
-        'User-Agent': ANTIGRAVITY_USER_AGENT,
+        'Host': host,
+        'User-Agent': user_agent,
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
         'Accept-Encoding': 'gzip'
@@ -557,9 +560,9 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
         request_url = f"{antigravity_url}/v1internal:loadCodeAssist"
         request_body = {"metadata": {"ideType": "ANTIGRAVITY"}}
 
-        log.debug(f"[ANTIGRAVITY] Fetching project_id from: {request_url}")
-        log.debug(f"[ANTIGRAVITY] Request body: {request_body}")
-        log.debug(f"[ANTIGRAVITY] Request headers: {dict(headers)}")
+        log.debug(f"[fetch_project_id] Fetching project_id from: {request_url}")
+        log.debug(f"[fetch_project_id] Request body: {request_body}")
+        log.debug(f"[fetch_project_id] Request headers: {dict(headers)}")
 
         response = await post_async(
             request_url,
@@ -568,32 +571,32 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
             timeout=30.0,
         )
 
-        log.debug(f"[ANTIGRAVITY] Response status: {response.status_code}")
+        log.debug(f"[fetch_project_id] Response status: {response.status_code}")
 
         if response.status_code == 200:
             response_text = response.text
-            log.debug(f"[ANTIGRAVITY] Response body (complete): {response_text}")
+            log.debug(f"[fetch_project_id] Response body (complete): {response_text}")
 
             data = response.json()
-            log.debug(f"[ANTIGRAVITY] Response JSON keys: {list(data.keys())}")
-            log.debug(f"[ANTIGRAVITY] Full response data: {data}")
+            log.debug(f"[fetch_project_id] Response JSON keys: {list(data.keys())}")
+            log.debug(f"[fetch_project_id] Full response data: {data}")
 
             project_id = data.get("cloudaicompanionProject")
             if project_id:
-                log.info(f"[ANTIGRAVITY] Successfully fetched project_id: {project_id}")
+                log.info(f"[fetch_project_id] Successfully fetched project_id: {project_id}")
                 return project_id
             else:
-                log.warning("[ANTIGRAVITY] loadCodeAssist returned no 'cloudaicompanionProject' field")
-                log.warning(f"[ANTIGRAVITY] Full response data: {data}")
-                log.warning("[ANTIGRAVITY] This may indicate: account has no quota, or API configuration issue")
+                log.warning("[fetch_project_id] loadCodeAssist returned no 'cloudaicompanionProject' field")
+                log.warning(f"[fetch_project_id] Full response data: {data}")
+                log.warning("[fetch_project_id] This may indicate: account has no quota, or API configuration issue")
                 return None
         else:
-            log.warning(f"[ANTIGRAVITY] Failed to fetch project_id: HTTP {response.status_code}")
-            log.warning(f"[ANTIGRAVITY] Response body: {response.text[:500]}")
+            log.warning(f"[fetch_project_id] Failed to fetch project_id: HTTP {response.status_code}")
+            log.warning(f"[fetch_project_id] Response body: {response.text[:500]}")
             return None
 
     except Exception as e:
-        log.error(f"[ANTIGRAVITY] Error fetching project_id: {type(e).__name__}: {e}")
+        log.error(f"[fetch_project_id] Error fetching project_id: {type(e).__name__}: {e}")
         import traceback
-        log.debug(f"[ANTIGRAVITY] Traceback: {traceback.format_exc()}")
+        log.debug(f"[fetch_project_id] Traceback: {traceback.format_exc()}")
         return None
