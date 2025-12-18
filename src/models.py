@@ -124,6 +124,12 @@ class GeminiSystemInstruction(BaseModel):
     parts: List[GeminiPart]
 
 
+class GeminiImageConfig(BaseModel):
+    """图片生成配置"""
+    aspect_ratio: Optional[str] = None  # "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
+    image_size: Optional[str] = None  # "1K", "2K", "4K"
+
+
 class GeminiGenerationConfig(BaseModel):
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     topP: Optional[float] = Field(None, ge=0.0, le=1.0)
@@ -137,6 +143,9 @@ class GeminiGenerationConfig(BaseModel):
     frequencyPenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     presencePenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     thinkingConfig: Optional[Dict[str, Any]] = None
+    # 图片生成相关参数
+    response_modalities: Optional[List[str]] = None  # ["TEXT", "IMAGE"]
+    image_config: Optional[GeminiImageConfig] = None
 
 
 class GeminiSafetySetting(BaseModel):
@@ -244,3 +253,38 @@ class CredentialStatus(BaseModel):
     disabled: bool = False
     error_codes: List[int] = []
     last_success: Optional[str] = None
+
+
+# Web Routes Models
+class LoginRequest(BaseModel):
+    password: str
+
+
+class AuthStartRequest(BaseModel):
+    project_id: Optional[str] = None  # 现在是可选的
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class AuthCallbackRequest(BaseModel):
+    project_id: Optional[str] = None  # 现在是可选的
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class AuthCallbackUrlRequest(BaseModel):
+    callback_url: str  # OAuth回调完整URL
+    project_id: Optional[str] = None  # 可选的项目ID
+    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+
+
+class CredFileActionRequest(BaseModel):
+    filename: str
+    action: str  # enable, disable, delete
+
+
+class CredFileBatchActionRequest(BaseModel):
+    action: str  # "enable", "disable", "delete"
+    filenames: List[str]  # 批量操作的文件名列表
+
+
+class ConfigSaveRequest(BaseModel):
+    config: dict

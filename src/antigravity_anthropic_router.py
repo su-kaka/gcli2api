@@ -5,6 +5,7 @@ import os
 import time
 import uuid
 from typing import Any, Dict, Optional
+import json
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -219,16 +220,8 @@ def _extract_api_token(
 
 
 def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, str]:
-    project_id = (
-        credential_data.get("projectId")
-        or credential_data.get("project_id")
-        or "default-project"
-    )
-    session_id = (
-        credential_data.get("sessionId")
-        or credential_data.get("session_id")
-        or f"session-{uuid.uuid4().hex}"
-    )
+    project_id = credential_data.get("project_id")
+    session_id = f"session-{uuid.uuid4().hex}"   
     return str(project_id), str(session_id)
 
 
@@ -661,8 +654,9 @@ async def anthropic_messages(
 
         async def stream_generator():
             try:
+                # response 现在是 filtered_lines 生成器，直接使用
                 async for chunk in antigravity_sse_to_anthropic_sse(
-                    response.aiter_lines(),
+                    response,
                     model=str(model),
                     message_id=message_id,
                     initial_input_tokens=estimated_input_tokens_components,

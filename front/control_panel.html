@@ -1014,7 +1014,7 @@
                         <ol style="margin: 10px 0; padding-left: 20px;">
                             <li>点击上方认证链接，会在新窗口中打开Google OAuth页面</li>
                             <li>完成Google账号登录和授权</li>
-                            <li>授权成功后会跳转到localhost:8080显示成功页面</li>
+                            <li>授权成功后会跳转到localhost:11451显示成功页面</li>
                             <li>关闭OAuth窗口，返回本页面</li>
                             <li>点击下方"获取认证文件"按钮完成流程</li>
                         </ol>
@@ -1037,7 +1037,7 @@
                                 <ul
                                     style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
                                     <li>云服务器、VPS等非本地环境</li>
-                                    <li>防火墙阻止了8080端口访问</li>
+                                    <li>防火墙阻止了11451端口访问</li>
                                     <li>网络环境无法正常回源到localhost</li>
                                     <li>Docker容器内运行，端口映射问题</li>
                                 </ul>
@@ -1047,7 +1047,7 @@
                                 完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
                                 <code
                                     style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
-                                    http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
+                                    http://localhost:11451/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
                                 </code>
                             </div>
                             <div
@@ -1063,7 +1063,7 @@
                             </div>
                             <div class="input-group">
                                 <input type="url" id="callbackUrlInput"
-                                    placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..."
+                                    placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
                             </div>
                             <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
@@ -1125,7 +1125,7 @@
                                 <ul
                                     style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
                                     <li>云服务器、VPS等非本地环境</li>
-                                    <li>防火墙阻止了8080端口访问</li>
+                                    <li>防火墙阻止了11451端口访问</li>
                                     <li>网络环境无法正常回源到localhost</li>
                                     <li>Docker容器内运行，端口映射问题</li>
                                 </ul>
@@ -1135,7 +1135,7 @@
                                 完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
                                 <code
                                     style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
-                                    http://localhost:8080/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
+                                    http://localhost:11451/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
                                 </code>
                             </div>
                             <div
@@ -1151,7 +1151,7 @@
                             </div>
                             <div class="input-group">
                                 <input type="url" id="antigravityCallbackUrlInput"
-                                    placeholder="粘贴完整的回调URL，例如：http://localhost:8080/?state=xxx&code=xxx&scope=xxx..."
+                                    placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
                             </div>
                             <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
@@ -1463,7 +1463,7 @@
                             <div class="form-group">
                                 <label for="proxy">代理设置:</label>
                                 <input type="text" id="proxy" class="config-input"
-                                    placeholder="例如: http://proxy:8080 或 socks5://proxy:1080" />
+                                    placeholder="例如: http://proxy:11451 或 socks5://proxy:1080" />
                                 <small class="config-note">HTTP/HTTPS/SOCKS5Endpoint，留空表示不使用代理</small>
                             </div>
                         </div>

@@ -1,10 +1,51 @@
+import base64
 import platform
-import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from config import get_api_password, get_panel_password
+from fastapi import Depends, HTTPException, Header, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from log import log
+
+# HTTP Bearer security scheme
+security = HTTPBearer()
 
 CLI_VERSION = "0.1.5"  # Match current gemini-cli version
+
+# ====================== OAuth Configuration ======================
+
+# OAuth Configuration - 标准模式
+CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
+CLIENT_SECRET = "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"
+SCOPES = [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
+
+# Antigravity OAuth Configuration
+ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+ANTIGRAVITY_CLIENT_SECRET = "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"
+ANTIGRAVITY_SCOPES = [
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/cclog',
+    'https://www.googleapis.com/auth/experimentsandconfigs'
+]
+
+# 统一的 Token URL（两种模式相同）
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+# 回调服务器配置
+CALLBACK_HOST = "localhost"
+
+# ====================== API Configuration ======================
+
+STANDARD_USER_AGENT = "GeminiCLI/0.1.5 (Windows; AMD64)"
+
+ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
 # ====================== Model Configuration ======================
 
@@ -27,9 +68,8 @@ BASE_MODELS = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-3-pro-preview",
+    "gemini-3-flash-preview"
 ]
-
-PUBLIC_API_MODELS = ["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"]
 
 
 # ====================== Model Helper Functions ======================
@@ -125,9 +165,6 @@ def get_available_models(router_type: str = "openai") -> List[str]:
     for base_model in BASE_MODELS:
         # 基础模型
         models.append(base_model)
-
-        if base_model in PUBLIC_API_MODELS:
-            continue
 
         # 假流式模型 (前缀格式)
         models.append(f"假流式/{base_model}")
@@ -248,3 +285,212 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
     except Exception:
         return None
+
+
+# ====================== Authentication Functions ======================
+
+async def authenticate_bearer(
+    authorization: Optional[str] = Header(None)
+) -> str:
+    """
+    Bearer Token 认证
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        authorization: Authorization 头部值（自动注入）
+
+    Returns:
+        验证通过的token
+
+    Raises:
+        HTTPException: 认证失败时抛出401或403异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(token: str = Depends(authenticate_bearer)):
+            # token 已验证通过
+            pass
+    """
+
+    password = await get_api_password()
+
+    # 检查是否提供了 Authorization 头
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 检查是否是 Bearer token
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication scheme. Use 'Bearer <token>'",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 提取 token
+    token = authorization[7:]  # 移除 "Bearer " 前缀
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 验证 token
+    if token != password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="密码错误"
+        )
+
+    return token
+
+
+async def authenticate_gemini_flexible(
+    request: Request,
+    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
+    key: Optional[str] = Query(None)
+) -> str:
+    """
+    Gemini 灵活认证：支持 x-goog-api-key 头部、URL 参数 key 或 Authorization Bearer
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        request: FastAPI Request 对象
+        x_goog_api_key: x-goog-api-key 头部值（自动注入）
+        key: URL 参数 key（自动注入）
+
+    Returns:
+        验证通过的API密钥
+
+    Raises:
+        HTTPException: 认证失败时抛出400异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(api_key: str = Depends(authenticate_gemini_flexible)):
+            # api_key 已验证通过
+            pass
+    """
+
+    password = await get_api_password()
+
+    # 尝试从URL参数key获取（Google官方标准方式）
+    if key:
+        log.debug("Using URL parameter key authentication")
+        if key == password:
+            return key
+
+    # 尝试从Authorization头获取（兼容旧方式）
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # 移除 "Bearer " 前缀
+        log.debug("Using Bearer token authentication")
+        if token == password:
+            return token
+
+    # 尝试从x-goog-api-key头获取（新标准方式）
+    if x_goog_api_key:
+        log.debug("Using x-goog-api-key authentication")
+        if x_goog_api_key == password:
+            return x_goog_api_key
+
+    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
+    )
+
+
+async def authenticate_sdwebui_flexible(request: Request) -> str:
+    """
+    SD-WebUI 灵活认证：支持 Authorization Basic/Bearer
+
+    此函数可以直接用作 FastAPI 的 Depends 依赖
+
+    Args:
+        request: FastAPI Request 对象
+
+    Returns:
+        验证通过的密码
+
+    Raises:
+        HTTPException: 认证失败时抛出403异常
+
+    使用示例:
+        @router.post("/endpoint")
+        async def endpoint(pwd: str = Depends(authenticate_sdwebui_flexible)):
+            # pwd 已验证通过
+            pass
+    """
+
+
+    password = await get_api_password()
+
+    # 尝试从 Authorization 头获取
+    auth_header = request.headers.get("authorization")
+
+    if auth_header:
+        # 支持 Bearer token 认证
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # 移除 "Bearer " 前缀
+            log.debug("Using Bearer token authentication")
+            if token == password:
+                return token
+
+        # 支持 Basic 认证
+        elif auth_header.startswith("Basic "):
+            try:
+                # 解码 Base64
+                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
+                decoded_bytes = base64.b64decode(encoded_credentials)
+                decoded_str = decoded_bytes.decode('utf-8')
+
+                # Basic 认证格式: username:password 或者只有 password
+                # SD-WebUI 可能只发送密码
+                if ':' in decoded_str:
+                    _, pwd = decoded_str.split(':', 1)
+                else:
+                    pwd = decoded_str
+
+                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
+                if pwd == password:
+                    return pwd
+            except Exception as e:
+                log.error(f"Failed to decode Basic auth: {e}")
+
+    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
+    )
+
+
+# ====================== Panel Authentication Functions ======================
+
+async def verify_panel_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """
+    简化的控制面板密码验证函数
+
+    直接验证Bearer token是否等于控制面板密码
+
+    Args:
+        credentials: HTTPAuthorizationCredentials 自动注入
+
+    Returns:
+        验证通过的token
+
+    Raises:
+        HTTPException: 密码错误时抛出401异常
+    """
+
+    password = await get_panel_password()
+    if credentials.credentials != password:
+        raise HTTPException(status_code=401, detail="密码错误")
+    return credentials.credentials

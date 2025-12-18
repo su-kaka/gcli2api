@@ -22,7 +22,6 @@ from config import (
 )
 from src.utils import (
     DEFAULT_SAFETY_SETTINGS,
-    PUBLIC_API_MODELS,
     get_base_model_name,
     get_thinking_budget,
     is_search_model,
@@ -151,7 +150,7 @@ async def _handle_error_with_retry(
 
 
 async def _prepare_request_headers_and_payload(
-    payload: dict, credential_data: dict, use_public_api: bool, target_url: str
+    payload: dict, credential_data: dict, target_url: str
 ):
     """Prepare request headers and final payload from credential data."""
     token = credential_data.get("token") or credential_data.get("access_token", "")
@@ -159,10 +158,6 @@ async def _prepare_request_headers_and_payload(
         raise Exception("凭证中没有找到有效的访问令牌（token或access_token字段）")
 
     source_request = payload.get("request", {})
-    if use_public_api:
-        if "generationConfig" in source_request:
-            imageConfig = source_request["generationConfig"].get("imageConfig")
-            source_request["generationConfig"] = {"imageConfig": imageConfig} if imageConfig else {}
 
     # 内部API使用Bearer Token和项目ID
     headers = {
@@ -204,7 +199,6 @@ async def send_gemini_request(
     # 动态确定API端点和payload格式
     model_name = payload.get("model", "")
     base_model_name = get_base_model_name(model_name)
-    use_public_api = base_model_name in PUBLIC_API_MODELS
     action = "streamGenerateContent" if is_streaming else "generateContent"
     target_url = f"{await get_code_assist_endpoint()}/v1internal:{action}"
     if is_streaming:
@@ -228,7 +222,7 @@ async def send_gemini_request(
 
             current_file, credential_data = credential_result
             headers, final_payload, target_url = await _prepare_request_headers_and_payload(
-                payload, credential_data, use_public_api, target_url
+                payload, credential_data, target_url
             )
             # 预序列化payload
             final_post_data = json.dumps(final_payload)
@@ -369,7 +363,7 @@ async def send_gemini_request(
                     # === 修改：统一处理所有非200状态码，沿用429行为 ===
                     if resp.status_code == 200:
                         return await _handle_non_streaming_response(
-                            resp, credential_manager, payload.get("model", ""), current_file, model_group
+                            resp, credential_manager, current_file, model_group
                         )
 
                     # 记录错误
@@ -596,7 +590,6 @@ def _handle_streaming_response_managed(
 async def _handle_non_streaming_response(
     resp,
     credential_manager: CredentialManager = None,
-    model_name: str = "",
     current_file: str = None,
     model_group: str = None,
 ) -> Response:

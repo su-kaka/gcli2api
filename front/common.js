@@ -850,7 +850,7 @@ async function getCredentials() {
         } else if (data.requires_project_selection && data.available_projects) {
             let projectOptions = "请选择一个项目：\n\n";
             data.available_projects.forEach((project, index) => {
-                projectOptions += `${index + 1}. ${project.name} (${project.projectId})\n`;
+                projectOptions += `${index + 1}. ${project.name} (${project.project_id})\n`;
             });
             projectOptions += `\n请输入序号 (1-${data.available_projects.length}):`;
 
@@ -858,7 +858,7 @@ async function getCredentials() {
             const projectIndex = parseInt(selection) - 1;
 
             if (projectIndex >= 0 && projectIndex < data.available_projects.length) {
-                AppState.currentProjectId = data.available_projects[projectIndex].projectId;
+                AppState.currentProjectId = data.available_projects[projectIndex].project_id;
                 btn.textContent = '重新尝试获取认证文件';
                 showStatus(`使用选择的项目重新尝试...`, 'info');
                 setTimeout(() => getCredentials(), 1000);
@@ -1064,7 +1064,7 @@ async function processCallbackUrl() {
         } else if (result.requires_project_selection) {
             let msg = '<br><strong>可用项目：</strong><br>';
             result.available_projects.forEach(p => {
-                msg += `• ${p.name} (ID: ${p.projectId})<br>`;
+                msg += `• ${p.name} (ID: ${p.project_id})<br>`;
             });
             showStatus('检测到多个项目，请在高级选项中指定项目ID：' + msg, 'error');
         } else {
@@ -1198,7 +1198,7 @@ function toggleAntigravityFileSelection(filename) {
 }
 function toggleSelectAllAntigravity() {
     const checkbox = document.getElementById('selectAllAntigravityCheckbox');
-    const checkboxes = document.querySelectorAll('.antigravityfile-checkbox');
+    const checkboxes = document.querySelectorAll('.antigravityFile-checkbox');
 
     if (checkbox.checked) {
         checkboxes.forEach(cb => AppState.antigravityCreds.selectedFiles.add(cb.getAttribute('data-filename')));
