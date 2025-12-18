@@ -16,6 +16,25 @@ def _anthropic_debug_enabled() -> bool:
     return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_non_whitespace_text(value: Any) -> bool:
+    """
+    判断文本是否包含“非空白”内容。
+
+    说明：下游（Antigravity/Claude 兼容层）会对纯 text 内容块做校验：
+    - text 不能为空字符串
+    - text 不能仅由空白字符（空格/换行/制表等）组成
+
+    因此这里统一把仅空白的 text part 过滤掉，以避免 400：
+    `messages: text content blocks must contain non-whitespace text`。
+    """
+    if value is None:
+        return False
+    try:
+        return bool(str(value).strip())
+    except Exception:
+        return False
+
+
 def get_thinking_config(thinking: Optional[Union[bool, Dict[str, Any]]]) -> Dict[str, Any]:
     """
     根据 Anthropic/Claude 请求的 thinking 参数生成下游 thinkingConfig。
@@ -78,6 +97,7 @@ def map_claude_model_to_gemini(claude_model: str) -> str:
         "gemini-2.5-pro",
         "gemini-3-pro-low",
         "gemini-3-pro-high",
+        "gemini-3-pro-image",
         "gemini-2.5-flash-lite",
         "gemini-2.5-flash-image",
         "claude-sonnet-4-5",
@@ -110,6 +130,41 @@ def clean_json_schema(schema: Any) -> Any:
     if not isinstance(schema, dict):
         return schema
 
+    # 下游（Antigravity/Vertex/Gemini）对 tool parameters 的 JSON Schema 支持范围很窄，
+    # 一些标准字段会直接触发 400（例如 $ref / exclusiveMinimum）。
+    #
+    # 这里参考 `src/openai_transfer.py::_clean_schema_for_gemini` 的名单，做一次统一剔除，
+    # 以保证 Anthropic tools -> 下游 functionDeclarations 的兼容性。
+    unsupported_keys = {
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "definitions",
+        "title",
+        "example",
+        "examples",
+        "readOnly",
+        "writeOnly",
+        "default",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "additionalItems",
+        "contains",
+        "patternProperties",
+        "dependencies",
+        "propertyNames",
+        "if",
+        "then",
+        "else",
+        "contentEncoding",
+        "contentMediaType",
+    }
+
     validation_fields = {
         "minLength": "minLength",
         "maxLength": "maxLength",
@@ -118,7 +173,7 @@ def clean_json_schema(schema: Any) -> Any:
         "minItems": "minItems",
         "maxItems": "maxItems",
     }
-    fields_to_remove = {"$schema", "additionalProperties"}
+    fields_to_remove = {"additionalProperties"}
 
     validations: List[str] = []
     for field, label in validation_fields.items():
@@ -127,7 +182,7 @@ def clean_json_schema(schema: Any) -> Any:
 
     cleaned: Dict[str, Any] = {}
     for key, value in schema.items():
-        if key in fields_to_remove or key in validation_fields:
+        if key in unsupported_keys or key in fields_to_remove or key in validation_fields:
             continue
 
         if key == "type" and isinstance(value, list):
@@ -158,6 +213,11 @@ def clean_json_schema(schema: Any) -> Any:
 
     if validations and "description" not in cleaned:
         cleaned["description"] = f"Validation: {', '.join(validations)}"
+
+    # 与 `src/openai_transfer.py::_clean_schema_for_gemini` 保持一致：
+    # 如果有 properties 但没有显式 type，则补齐为 object，避免下游校验失败。
+    if "properties" in cleaned and "type" not in cleaned:
+        cleaned["type"] = "object"
 
     return cleaned
 
@@ -222,11 +282,13 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
 
         parts: List[Dict[str, Any]] = []
         if isinstance(raw_content, str):
-            parts = [{"text": raw_content}]
+            if _is_non_whitespace_text(raw_content):
+                parts = [{"text": str(raw_content)}]
         elif isinstance(raw_content, list):
             for item in raw_content:
                 if not isinstance(item, dict):
-                    parts.append({"text": str(item)})
+                    if _is_non_whitespace_text(item):
+                        parts.append({"text": str(item)})
                     continue
 
                 item_type = item.get("type")
@@ -238,8 +300,11 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
                     if not signature:
                         continue
 
+                    thinking_text = item.get("thinking", "")
+                    if thinking_text is None:
+                        thinking_text = ""
                     part: Dict[str, Any] = {
-                        "text": item.get("thinking", ""),
+                        "text": str(thinking_text),
                         "thought": True,
                         "thoughtSignature": signature,
                     }
@@ -255,13 +320,15 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
                         thinking_text = item.get("data", "")
                     parts.append(
                         {
-                            "text": thinking_text,
+                            "text": str(thinking_text or ""),
                             "thought": True,
                             "thoughtSignature": signature,
                         }
                     )
                 elif item_type == "text":
-                    parts.append({"text": item.get("text", "")})
+                    text = item.get("text", "")
+                    if _is_non_whitespace_text(text):
+                        parts.append({"text": str(text)})
                 elif item_type == "image":
                     source = item.get("source", {}) or {}
                     if source.get("type") == "base64":
@@ -297,7 +364,12 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
                 else:
                     parts.append({"text": json.dumps(item, ensure_ascii=False)})
         else:
-            parts = [{"text": str(raw_content)}]
+            if _is_non_whitespace_text(raw_content):
+                parts = [{"text": str(raw_content)}]
+
+        # 避免产生空 parts（下游可能会报错），直接跳过该条空消息。
+        if not parts:
+            continue
 
         contents.append({"role": gemini_role, "parts": parts})
 
@@ -366,13 +438,17 @@ def build_system_instruction(system: Any) -> Optional[Dict[str, Any]]:
 
     parts: List[Dict[str, Any]] = []
     if isinstance(system, str):
-        parts.append({"text": system})
+        if _is_non_whitespace_text(system):
+            parts.append({"text": str(system)})
     elif isinstance(system, list):
         for item in system:
             if isinstance(item, dict) and item.get("type") == "text":
-                parts.append({"text": item.get("text", "")})
+                text = item.get("text", "")
+                if _is_non_whitespace_text(text):
+                    parts.append({"text": str(text)})
     else:
-        parts.append({"text": str(system)})
+        if _is_non_whitespace_text(system):
+            parts.append({"text": str(system)})
 
     if not parts:
         return None
