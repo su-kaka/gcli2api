@@ -5,98 +5,32 @@ Gemini Router - Handles native Gemini format API requests
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
     get_anti_truncation_max_attempts,
+)
+from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
     get_base_model_name,
     is_anti_truncation_model,
     is_fake_streaming_model,
+    authenticate_gemini_flexible,
 )
 from log import log
 
 from .anti_truncation import apply_anti_truncation_to_stream
-from .credential_manager import CredentialManager
-from .google_chat_api import build_gemini_payload_from_native, send_gemini_request
+from .credential_manager import get_credential_manager
+from .gcli_chat_api import build_gemini_payload_from_native, send_gemini_request
 from .openai_transfer import _extract_content_and_reasoning
 from .task_manager import create_managed_task
 
 # 创建路由器
 router = APIRouter()
-security = HTTPBearer()
 
-# 全局凭证管理器实例
-credential_manager = None
-
-
-@asynccontextmanager
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    yield credential_manager
-
-
-async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    """验证用户密码（Bearer Token方式）"""
-    from config import get_api_password
-
-    password = await get_api_password()
-    token = credentials.credentials
-    if token != password:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
-    return token
-
-
-async def authenticate_gemini_flexible(
-    request: Request,
-    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
-    key: Optional[str] = Query(None),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
-) -> str:
-    """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
-    from config import get_api_password
-
-    password = await get_api_password()
-
-    # 尝试从URL参数key获取（Google官方标准方式）
-    if key:
-        log.debug("Using URL parameter key authentication")
-        if key == password:
-            return key
-
-    # 尝试从Authorization头获取（兼容旧方式）
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug("Using Bearer token authentication")
-        if token == password:
-            return token
-
-    # 尝试从x-goog-api-key头获取（新标准方式）
-    if x_goog_api_key:
-        log.debug("Using x-goog-api-key authentication")
-        if x_goog_api_key == password:
-            return x_goog_api_key
-
-    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
-    )
-
-
-@router.get("/v1/v1beta/models")
-@router.get("/v1/v1/models")
 @router.get("/v1beta/models")
 @router.get("/v1/models")
 async def list_gemini_models():
@@ -127,9 +61,6 @@ async def list_gemini_models():
 
     return JSONResponse(content={"models": gemini_models})
 
-
-@router.post("/v1/v1beta/models/{model:path}:generateContent")
-@router.post("/v1/v1/models/{model:path}:generateContent")
 @router.post("/v1beta/models/{model:path}:generateContent")
 @router.post("/v1/models/{model:path}:generateContent")
 async def generate_content(
@@ -138,6 +69,14 @@ async def generate_content(
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
     """处理Gemini格式的内容生成请求（非流式）"""
+    log.debug(f"Non-streaming request received for model: {model}")
+    log.debug(f"Request headers: {dict(request.headers)}")
+    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
+    try:
+        body = await request.body()
+        log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
+    except Exception as e:
+        log.error(f"Failed to read request body: {e}")
 
     # 获取原始请求数据
     try:
@@ -199,9 +138,6 @@ async def generate_content(
             }
         )
 
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-
     cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
@@ -209,9 +145,6 @@ async def generate_content(
     if not credential_result:
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    # 增加调用计数
-    cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -248,9 +181,6 @@ async def generate_content(
         else:
             raise HTTPException(status_code=500, detail="Response processing failed")
 
-
-@router.post("/v1/v1beta/models/{model:path}:streamGenerateContent")
-@router.post("/v1/v1/models/{model:path}:streamGenerateContent")
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/v1/models/{model:path}:streamGenerateContent")
 async def stream_generate_content(
@@ -307,10 +237,7 @@ async def stream_generate_content(
     # 对于假流式模型，返回假流式响应
     if use_fake_streaming:
         return await fake_stream_response_gemini(request_data, real_model)
-
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-
+    
     cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
@@ -318,9 +245,6 @@ async def stream_generate_content(
     if not credential_result:
         log.error("当前无可用凭证，请去控制台获取")
         raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    # 增加调用计数
-    cred_mgr.increment_call_count()
 
     # 构建Google API payload
     try:
@@ -344,13 +268,11 @@ async def stream_generate_content(
     # 直接返回流式响应
     return response
 
-
-@router.post("/v1/v1beta/models/{model:path}:countTokens")
-@router.post("/v1/v1/models/{model:path}:countTokens")
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
-    request: Request = None, api_key: str = Depends(authenticate_gemini_flexible)
+    request: Request = None,
+    api_key: str = Depends(authenticate_gemini_flexible),
 ):
     """模拟Gemini格式的token计数"""
 
@@ -387,9 +309,6 @@ async def count_tokens(
     # 返回Gemini格式的响应
     return JSONResponse(content={"totalTokens": total_tokens})
 
-
-@router.get("/v1/v1beta/models/{model:path}")
-@router.get("/v1/v1/models/{model:path}")
 @router.get("/v1beta/models/{model:path}")
 @router.get("/v1/models/{model:path}")
 async def get_model_info(
@@ -425,9 +344,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
 
     async def gemini_stream_generator():
         try:
-            # 获取凭证管理器
-            from src.credential_manager import get_credential_manager
-
             cred_mgr = await get_credential_manager()
 
             # 获取有效凭证
@@ -444,9 +360,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
-
-            # 增加调用计数
-            cred_mgr.increment_call_count()
 
             # 构建Google API payload
             try:

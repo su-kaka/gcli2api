@@ -1,6 +1,8 @@
 """
-存储适配器，提供统一的接口来处理Redis、MongoDB和本地文件存储。
-根据配置自动选择存储后端，优先级：Redis > MongoDB > 本地文件。
+存储适配器，提供统一的接口来处理 SQLite 和 MongoDB 存储。
+根据配置自动选择存储后端：
+- 默认使用 SQLite（本地文件存储）
+- 如果设置了 MONGODB_URI 环境变量，则使用 MongoDB
 """
 
 import asyncio
@@ -23,32 +25,32 @@ class StorageBackend(Protocol):
         ...
 
     # 凭证管理
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """存储凭证数据"""
         ...
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         ...
 
-    async def list_credentials(self) -> List[str]:
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
         """列出所有凭证文件名"""
         ...
 
-    async def delete_credential(self, filename: str) -> bool:
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
         """删除凭证"""
         ...
 
     # 状态管理
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
+    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """更新凭证状态"""
         ...
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
         """获取凭证状态"""
         ...
 
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         ...
 
@@ -69,28 +71,6 @@ class StorageBackend(Protocol):
         """删除配置项"""
         ...
 
-    # 使用统计管理
-    async def update_usage_stats(self, filename: str, stats_updates: Dict[str, Any]) -> bool:
-        """更新使用统计"""
-        ...
-
-    async def get_usage_stats(self, filename: str) -> Dict[str, Any]:
-        """获取使用统计"""
-        ...
-
-    async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有使用统计"""
-        ...
-
-    # 凭证顺序管理
-    async def get_credential_order(self) -> List[str]:
-        """获取凭证轮换顺序"""
-        ...
-
-    async def set_credential_order(self, order: List[str]) -> bool:
-        """设置凭证轮换顺序"""
-        ...
-
 
 class StorageAdapter:
     """存储适配器，根据配置选择存储后端"""
@@ -106,63 +86,41 @@ class StorageAdapter:
             if self._initialized:
                 return
 
-            # 按优先级检查存储后端：Redis > MongoDB > 本地文件
-            redis_uri = os.getenv("REDIS_URI", "")
+            # 按优先级检查存储后端：SQLite > MongoDB
             mongodb_uri = os.getenv("MONGODB_URI", "")
 
-            # 优先尝试Redis存储
-            if redis_uri:
+            # 优先使用 SQLite（默认启用，无需环境变量）
+            if not mongodb_uri:
                 try:
-                    from .storage.redis_manager import RedisManager
+                    from .storage.sqlite_manager import SQLiteManager
 
-                    self._backend = RedisManager()
+                    self._backend = SQLiteManager()
                     await self._backend.initialize()
-                    log.info("Using Redis storage backend")
-                except ImportError as e:
-                    log.error(f"Failed to import Redis backend: {e}")
-                    log.info("Falling back to next available storage backend")
+                    log.info("Using SQLite storage backend")
                 except Exception as e:
-                    log.error(f"Failed to initialize Redis backend: {e}")
-                    log.info("Falling back to next available storage backend")
-
-            # 如果Redis不可用或未配置，接下来尝试Postgres（优先级低于Redis）
-            postgres_dsn = os.getenv("POSTGRES_DSN", "")
-            if not self._backend and postgres_dsn:
-                try:
-                    from .storage.postgres_manager import PostgresManager
-
-                    self._backend = PostgresManager()
-                    await self._backend.initialize()
-                    log.info("Using Postgres storage backend")
-                except ImportError as e:
-                    log.error(f"Failed to import Postgres backend: {e}")
-                    log.info("Falling back to next available storage backend")
-                except Exception as e:
-                    log.error(f"Failed to initialize Postgres backend: {e}")
-                    log.info("Falling back to next available storage backend")
-
-            # 如果Redis和Postgres不可用，尝试MongoDB存储
-            if not self._backend and mongodb_uri:
+                    log.error(f"Failed to initialize SQLite backend: {e}")
+                    raise RuntimeError("No storage backend available") from e
+            else:
+                # 使用 MongoDB
                 try:
                     from .storage.mongodb_manager import MongoDBManager
 
                     self._backend = MongoDBManager()
                     await self._backend.initialize()
                     log.info("Using MongoDB storage backend")
-                except ImportError as e:
-                    log.error(f"Failed to import MongoDB backend: {e}")
-                    log.info("Falling back to file storage backend")
                 except Exception as e:
                     log.error(f"Failed to initialize MongoDB backend: {e}")
-                    log.info("Falling back to file storage backend")
+                    # 尝试降级到 SQLite
+                    log.info("Falling back to SQLite storage backend")
+                    try:
+                        from .storage.sqlite_manager import SQLiteManager
 
-            # 如果Redis和MongoDB都不可用，使用文件存储
-            if not self._backend:
-                from .storage.file_storage_manager import FileStorageManager
-
-                self._backend = FileStorageManager()
-                await self._backend.initialize()
-                log.info("Using file storage backend")
+                        self._backend = SQLiteManager()
+                        await self._backend.initialize()
+                        log.info("Using SQLite storage backend (fallback)")
+                    except Exception as e2:
+                        log.error(f"Failed to initialize SQLite backend: {e2}")
+                        raise RuntimeError("No storage backend available") from e2
 
             self._initialized = True
 
@@ -180,42 +138,42 @@ class StorageAdapter:
 
     # ============ 凭证管理 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """存储凭证数据"""
         self._ensure_initialized()
-        return await self._backend.store_credential(filename, credential_data)
+        return await self._backend.store_credential(filename, credential_data, is_antigravity)
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         self._ensure_initialized()
-        return await self._backend.get_credential(filename)
+        return await self._backend.get_credential(filename, is_antigravity)
 
-    async def list_credentials(self) -> List[str]:
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
         """列出所有凭证文件名"""
         self._ensure_initialized()
-        return await self._backend.list_credentials()
+        return await self._backend.list_credentials(is_antigravity)
 
-    async def delete_credential(self, filename: str) -> bool:
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
         """删除凭证"""
         self._ensure_initialized()
-        return await self._backend.delete_credential(filename)
+        return await self._backend.delete_credential(filename, is_antigravity)
 
     # ============ 状态管理 ============
 
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
+    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False) -> bool:
         """更新凭证状态"""
         self._ensure_initialized()
-        return await self._backend.update_credential_state(filename, state_updates)
+        return await self._backend.update_credential_state(filename, state_updates, is_antigravity)
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
         """获取凭证状态"""
         self._ensure_initialized()
-        return await self._backend.get_credential_state(filename)
+        return await self._backend.get_credential_state(filename, is_antigravity)
 
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         self._ensure_initialized()
-        return await self._backend.get_all_credential_states()
+        return await self._backend.get_all_credential_states(is_antigravity)
 
     # ============ 配置管理 ============
 
@@ -238,35 +196,6 @@ class StorageAdapter:
         """删除配置项"""
         self._ensure_initialized()
         return await self._backend.delete_config(key)
-
-    # ============ 使用统计管理 ============
-
-    async def update_usage_stats(self, filename: str, stats_updates: Dict[str, Any]) -> bool:
-        """更新使用统计"""
-        self._ensure_initialized()
-        return await self._backend.update_usage_stats(filename, stats_updates)
-
-    async def get_usage_stats(self, filename: str) -> Dict[str, Any]:
-        """获取使用统计"""
-        self._ensure_initialized()
-        return await self._backend.get_usage_stats(filename)
-
-    async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有使用统计"""
-        self._ensure_initialized()
-        return await self._backend.get_all_usage_stats()
-
-    # ============ 凭证顺序管理 ============
-
-    async def get_credential_order(self) -> List[str]:
-        """获取凭证轮换顺序"""
-        self._ensure_initialized()
-        return await self._backend.get_credential_order()
-
-    async def set_credential_order(self, order: List[str]) -> bool:
-        """设置凭证轮换顺序"""
-        self._ensure_initialized()
-        return await self._backend.set_credential_order(order)
 
     # ============ 工具方法 ============
 
@@ -320,12 +249,10 @@ class StorageAdapter:
 
         # 检查后端类型
         backend_class_name = self._backend.__class__.__name__
-        if "File" in backend_class_name or "file" in backend_class_name.lower():
-            return "file"
+        if "SQLite" in backend_class_name or "sqlite" in backend_class_name.lower():
+            return "sqlite"
         elif "MongoDB" in backend_class_name or "mongo" in backend_class_name.lower():
             return "mongodb"
-        elif "Redis" in backend_class_name or "redis" in backend_class_name.lower():
-            return "redis"
         else:
             return "unknown"
 
@@ -345,19 +272,17 @@ class StorageAdapter:
                 info["database_error"] = str(e)
         else:
             backend_type = self.get_backend_type()
-            if backend_type == "file":
+            if backend_type == "sqlite":
                 info.update(
                     {
+                        "database_path": getattr(self._backend, "_db_path", None),
                         "credentials_dir": getattr(self._backend, "_credentials_dir", None),
-                        "state_file": getattr(self._backend, "_state_file", None),
-                        "config_file": getattr(self._backend, "_config_file", None),
                     }
                 )
-            elif backend_type == "redis":
+            elif backend_type == "mongodb":
                 info.update(
                     {
-                        "redis_url": getattr(self._backend, "_redis_url", None),
-                        "connection_pool_size": getattr(self._backend, "_pool_size", None),
+                        "database_name": getattr(self._backend, "_db", {}).name if hasattr(self._backend, "_db") else None,
                     }
                 )
 

@@ -1,547 +1,684 @@
 """
-MongoDB数据库管理器，使用单文档设计和统一缓存。
-所有凭证数据存储在一个文档中，配置数据存储在另一个文档中，类似TOML文件结构。
+MongoDB 存储管理器
 """
 
-import asyncio
-import os
 import time
-from collections import deque
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import motor.motor_asyncio
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from log import log
 
-from .cache_manager import CacheBackend, UnifiedCacheManager
-
-
-class MongoDBCacheBackend(CacheBackend):
-    """MongoDB缓存后端实现"""
-
-    def __init__(self, db, collection_name: str, doc_key: str):
-        self._db = db
-        self._collection_name = collection_name
-        self._doc_key = doc_key
-
-    async def load_data(self) -> Dict[str, Any]:
-        """从MongoDB文档加载数据"""
-        try:
-            collection = self._db[self._collection_name]
-            doc = await collection.find_one({"key": self._doc_key})
-
-            if doc and "data" in doc:
-                return doc["data"]
-            return {}
-
-        except Exception as e:
-            log.error(f"Error loading data from MongoDB document {self._doc_key}: {e}")
-            return {}
-
-    async def write_data(self, data: Dict[str, Any]) -> bool:
-        """将数据写入MongoDB文档"""
-        try:
-            collection = self._db[self._collection_name]
-
-            doc = {"key": self._doc_key, "data": data, "updated_at": datetime.now(timezone.utc)}
-
-            await collection.replace_one({"key": self._doc_key}, doc, upsert=True)
-            return True
-
-        except Exception as e:
-            log.error(f"Error writing data to MongoDB document {self._doc_key}: {e}")
-            return False
-
 
 class MongoDBManager:
-    """MongoDB数据库管理器"""
+    """MongoDB 数据库管理器"""
+
+    # 状态字段常量
+    STATE_FIELDS = {
+        "error_codes",
+        "disabled",
+        "last_success",
+        "user_email",
+        "model_cooldowns",
+    }
 
     def __init__(self):
-        self._client: Optional[motor.motor_asyncio.AsyncIOMotorClient] = None
-        self._db: Optional[motor.motor_asyncio.AsyncIOMotorDatabase] = None
+        self._client: Optional[AsyncIOMotorClient] = None
+        self._db: Optional[AsyncIOMotorDatabase] = None
         self._initialized = False
-        self._lock = asyncio.Lock()
 
-        # 配置
-        self._connection_uri = None
-        self._database_name = None
+        # 内存配置缓存 - 初始化时加载一次
+        self._config_cache: Dict[str, Any] = {}
+        self._config_loaded = False
 
-        # 单文档设计 - 所有凭证存在一个文档中（类似TOML文件）
-        self._collection_name = "credentials_data"
+    async def initialize(self) -> None:
+        """初始化 MongoDB 连接"""
+        if self._initialized:
+            return
 
-        # 性能监控
-        self._operation_count = 0
-        self._operation_times = deque(maxlen=5000)
-
-        # 统一缓存管理器
-        self._credentials_cache_manager: Optional[UnifiedCacheManager] = None
-        self._config_cache_manager: Optional[UnifiedCacheManager] = None
-
-        # 文档key定义
-        self._credentials_doc_key = "all_credentials"
-        self._config_doc_key = "config_data"
-
-        # 写入配置参数
-        self._write_delay = 1.0  # 写入延迟（秒）
-        self._cache_ttl = 300  # 缓存TTL（秒）
-
-    async def initialize(self):
-        """初始化MongoDB连接"""
-        async with self._lock:
-            if self._initialized:
-                return
-
-            try:
-                # 获取连接配置
-                self._connection_uri = os.getenv("MONGODB_URI")
-                self._database_name = os.getenv("MONGODB_DATABASE", "gcli2api")
-
-                if not self._connection_uri:
-                    raise ValueError("MONGODB_URI environment variable is required")
-
-                # 建立连接
-                self._client = motor.motor_asyncio.AsyncIOMotorClient(
-                    self._connection_uri,
-                    serverSelectionTimeoutMS=5000,
-                    maxPoolSize=100,
-                    minPoolSize=10,
-                    maxIdleTimeMS=45000,
-                    waitQueueTimeoutMS=10000,
-                )
-
-                # 验证连接
-                await self._client.admin.command("ping")
-
-                # 获取数据库
-                self._db = self._client[self._database_name]
-
-                # 创建索引
-                await self._create_indexes()
-
-                # 创建缓存管理器
-                credentials_backend = MongoDBCacheBackend(
-                    self._db, self._collection_name, self._credentials_doc_key
-                )
-                config_backend = MongoDBCacheBackend(
-                    self._db, self._collection_name, self._config_doc_key
-                )
-
-                self._credentials_cache_manager = UnifiedCacheManager(
-                    credentials_backend,
-                    cache_ttl=self._cache_ttl,
-                    write_delay=self._write_delay,
-                    name="credentials",
-                )
-
-                self._config_cache_manager = UnifiedCacheManager(
-                    config_backend,
-                    cache_ttl=self._cache_ttl,
-                    write_delay=self._write_delay,
-                    name="config",
-                )
-
-                # 启动缓存管理器
-                await self._credentials_cache_manager.start()
-                await self._config_cache_manager.start()
-
-                self._initialized = True
-                log.info(
-                    f"MongoDB connection established to {self._database_name} with unified cache"
-                )
-
-            except Exception as e:
-                log.error(f"Error initializing MongoDB: {e}")
-                raise
-
-    async def _create_indexes(self):
-        """创建简单索引（单文档设计）"""
         try:
-            # 单文档设计只需要主键索引
-            await self._db[self._collection_name].create_index("key", unique=True)
-            await self._db[self._collection_name].create_index("updated_at")
+            import os
 
-            log.info("MongoDB indexes created for single-document design")
+            mongodb_uri = os.getenv("MONGODB_URI")
+            if not mongodb_uri:
+                raise ValueError("MONGODB_URI environment variable not set")
+
+            database_name = os.getenv("MONGODB_DATABASE", "gcli2api")
+
+            self._client = AsyncIOMotorClient(mongodb_uri)
+            self._db = self._client[database_name]
+
+            # 测试连接
+            await self._db.command("ping")
+
+            # 创建索引
+            await self._create_indexes()
+
+            # 加载配置到内存
+            await self._load_config_cache()
+
+            self._initialized = True
+            log.info(f"MongoDB storage initialized (database: {database_name})")
 
         except Exception as e:
-            log.error(f"Error creating MongoDB indexes: {e}")
+            log.error(f"Error initializing MongoDB: {e}")
+            raise
 
-    async def close(self):
-        """关闭MongoDB连接"""
-        # 停止缓存管理器
-        if self._credentials_cache_manager:
-            await self._credentials_cache_manager.stop()
-        if self._config_cache_manager:
-            await self._config_cache_manager.stop()
+    async def _create_indexes(self):
+        """创建索引"""
+        credentials_collection = self._db["credentials"]
+        antigravity_credentials_collection = self._db["antigravity_credentials"]
 
+        # 创建普通凭证索引
+        await credentials_collection.create_index("filename", unique=True)
+        await credentials_collection.create_index("disabled")
+        await credentials_collection.create_index("rotation_order")
+
+        # 创建 Antigravity 凭证索引
+        await antigravity_credentials_collection.create_index("filename", unique=True)
+        await antigravity_credentials_collection.create_index("disabled")
+        await antigravity_credentials_collection.create_index("rotation_order")
+
+        log.debug("MongoDB indexes created")
+
+    async def _load_config_cache(self):
+        """加载配置到内存缓存（仅在初始化时调用一次）"""
+        if self._config_loaded:
+            return
+
+        try:
+            config_collection = self._db["config"]
+            cursor = config_collection.find({})
+
+            async for doc in cursor:
+                self._config_cache[doc["key"]] = doc.get("value")
+
+            self._config_loaded = True
+            log.debug(f"Loaded {len(self._config_cache)} config items into cache")
+
+        except Exception as e:
+            log.error(f"Error loading config cache: {e}")
+            self._config_cache = {}
+
+    async def close(self) -> None:
+        """关闭 MongoDB 连接"""
         if self._client:
             self._client.close()
-            self._initialized = False
-            log.info("MongoDB connection closed with unified cache flushed")
+            self._client = None
+            self._db = None
+        self._initialized = False
+        log.debug("MongoDB storage closed")
 
     def _ensure_initialized(self):
         """确保已初始化"""
         if not self._initialized:
             raise RuntimeError("MongoDB manager not initialized")
 
-    def _get_default_state(self) -> Dict[str, Any]:
-        """获取默认状态数据"""
-        return {
-            "error_codes": [],
-            "disabled": False,
-            "last_success": time.time(),
-            "user_email": None,
-        }
+    def _is_antigravity(self, filename: str) -> bool:
+        """判断是否为 antigravity 凭证"""
+        return filename.startswith("ag_")
 
-    def _get_default_stats(self) -> Dict[str, Any]:
-        """获取默认统计数据"""
-        return {"call_timestamps": []}
+    def _get_collection_name(self, is_antigravity: bool) -> str:
+        """根据 is_antigravity 标志获取对应的集合名"""
+        return "antigravity_credentials" if is_antigravity else "credentials"
 
-    # ============ 凭证管理 ============
+    # ============ SQL 方法 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any]) -> bool:
-        """存储凭证数据到统一缓存"""
+    async def get_next_available_credential(
+        self, is_antigravity: bool = False, model_key: Optional[str] = None
+    ) -> Optional[tuple[str, Dict[str, Any]]]:
+        """
+        随机获取一个可用凭证（负载均衡）
+        - 未禁用
+        - 如果提供了 model_key，还会检查模型级冷却
+        - 随机选择
+
+        Args:
+            is_antigravity: 是否获取 antigravity 凭证（默认 False）
+            model_key: 模型键（用于模型级冷却检查，antigravity 用模型名，gcli 用 pro/flash）
+
+        Note:
+            - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
+            - 对于 gcli: model_key 是 "pro" 或 "flash"
+        """
         self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
-            existing_data = await self._credentials_cache_manager.get(filename, {})
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            current_time = time.time()
 
-            credential_entry = {
-                "credential": credential_data,
-                "state": existing_data.get("state", self._get_default_state()),
-                "stats": existing_data.get("stats", self._get_default_stats()),
-            }
+            # 获取所有候选凭证（未禁用）
+            query = {"disabled": False}
 
-            success = await self._credentials_cache_manager.set(filename, credential_entry)
+            # 使用 $sample 随机抽取
+            pipeline = [
+                {"$match": query},
+                {"$sample": {"size": 100}}  # 随机抽取最多100个
+            ]
 
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            docs = await collection.aggregate(pipeline).to_list(length=100)
 
-            log.debug(f"Stored credential to unified cache: {filename} in {operation_time:.3f}s")
-            return success
+            # 如果没有提供 model_key，使用第一个可用凭证
+            if not model_key:
+                if docs:
+                    doc = docs[0]
+                    return doc["filename"], doc.get("credential_data")
+                return None
 
-        except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error storing credential {filename} in {operation_time:.3f}s: {e}")
-            return False
+            # 如果提供了 model_key，检查模型级冷却
+            for doc in docs:
+                model_cooldowns = doc.get("model_cooldowns", {})
 
-    async def get_credential(self, filename: str) -> Optional[Dict[str, Any]]:
-        """从统一缓存获取凭证数据"""
-        self._ensure_initialized()
-        start_time = time.time()
+                # 检查该模型是否在冷却中
+                model_cooldown = model_cooldowns.get(model_key)
+                if model_cooldown is None or current_time >= model_cooldown:
+                    # 该模型未冷却或冷却已过期
+                    return doc["filename"], doc.get("credential_data")
 
-        try:
-            credential_entry = await self._credentials_cache_manager.get(filename)
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            if credential_entry and "credential" in credential_entry:
-                return credential_entry["credential"]
             return None
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error retrieving credential {filename} in {operation_time:.3f}s: {e}")
+            log.error(f"Error getting next available credential (antigravity={is_antigravity}, model_key={model_key}): {e}")
             return None
 
-    async def list_credentials(self) -> List[str]:
-        """从统一缓存列出所有凭证文件名"""
+    async def get_available_credentials_list(self, is_antigravity: bool = False) -> List[str]:
+        """
+        获取所有可用凭证列表
+        - 未禁用
+        - 按轮换顺序排序
+        """
         self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            all_data = await self._credentials_cache_manager.get_all()
-            filenames = list(all_data.keys())
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
 
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            cursor = collection.find(
+                {"disabled": False},
+                {"filename": 1}
+            ).sort("rotation_order", 1)
 
-            log.debug(
-                f"Listed {len(filenames)} credentials from unified cache in {operation_time:.3f}s"
-            )
+            filenames = []
+            async for doc in cursor:
+                filenames.append(doc["filename"])
+
             return filenames
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error listing credentials in {operation_time:.3f}s: {e}")
+            log.error(f"Error getting available credentials list: {e}")
             return []
 
-    async def delete_credential(self, filename: str) -> bool:
-        """从统一缓存删除凭证及所有相关数据"""
+    async def check_and_clear_cooldowns(self) -> int:
+        """
+        批量清除已过期的模型级冷却
+        返回清除的数量
+        """
         self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            success = await self._credentials_cache_manager.delete(filename)
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            log.debug(f"Deleted credential from unified cache: {filename} in {operation_time:.3f}s")
-            return success
+            # 直接调用模型级冷却清理方法
+            cleared = 0
+            cleared += await self.clear_expired_model_cooldowns(is_antigravity=False)
+            cleared += await self.clear_expired_model_cooldowns(is_antigravity=True)
+            return cleared
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error deleting credential {filename} in {operation_time:.3f}s: {e}")
-            return False
+            log.error(f"Error clearing cooldowns: {e}")
+            return 0
 
-    # ============ 状态管理 ============
+    # ============ StorageBackend 协议方法 ============
 
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any]) -> bool:
-        """更新凭证状态（使用统一缓存）"""
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
+        """存储或更新凭证"""
         self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
-            existing_data = await self._credentials_cache_manager.get(filename, {})
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
 
-            if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
+            # 检查是否存在
+            existing = await collection.find_one({"filename": filename})
+
+            if existing:
+                # 更新凭证数据，保留状态
+                await collection.update_one(
+                    {"filename": filename},
+                    {
+                        "$set": {
+                            "credential_data": credential_data,
+                            "updated_at": time.time(),
+                        }
+                    },
+                )
+            else:
+                # 获取下一个 rotation_order
+                max_doc = await collection.find_one(
+                    {}, sort=[("rotation_order", -1)]
+                )
+                next_order = (max_doc["rotation_order"] + 1) if max_doc else 0
+
+                # 插入新凭证
+                await collection.insert_one(
+                    {
+                        "filename": filename,
+                        "credential_data": credential_data,
+                        "disabled": False,
+                        "error_codes": [],
+                        "last_success": time.time(),
+                        "user_email": None,
+                        "model_cooldowns": {},
+                        "rotation_order": next_order,
+                        "call_count": 0,
+                        "created_at": time.time(),
+                        "updated_at": time.time(),
+                    }
+                )
+
+            log.debug(f"Stored credential: {filename} (antigravity={is_antigravity})")
+            return True
+
+        except Exception as e:
+            log.error(f"Error storing credential {filename}: {e}")
+            return False
+
+    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
+        """获取凭证数据"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            doc = await collection.find_one({"filename": filename})
+
+            if doc:
+                return doc.get("credential_data")
+            return None
+
+        except Exception as e:
+            log.error(f"Error getting credential {filename}: {e}")
+            return None
+
+    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
+        """列出所有凭证文件名"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            cursor = collection.find({}, {"filename": 1}).sort(
+                "rotation_order", 1
+            )
+
+            filenames = []
+            async for doc in cursor:
+                filenames.append(doc["filename"])
+
+            return filenames
+
+        except Exception as e:
+            log.error(f"Error listing credentials: {e}")
+            return []
+
+    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
+        """删除凭证"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            result = await collection.delete_one({"filename": filename})
+
+            log.debug(f"Deleted credential: {filename} (antigravity={is_antigravity})")
+            return result.deleted_count > 0
+
+        except Exception as e:
+            log.error(f"Error deleting credential {filename}: {e}")
+            return False
+
+    async def update_credential_state(
+        self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False
+    ) -> bool:
+        """更新凭证状态"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+
+            # 过滤只更新状态字段
+            valid_updates = {
+                k: v for k, v in state_updates.items() if k in self.STATE_FIELDS
+            }
+
+            if not valid_updates:
+                return True
+
+            valid_updates["updated_at"] = time.time()
+
+            result = await collection.update_one(
+                {"filename": filename}, {"$set": valid_updates}
+            )
+
+            return result.modified_count > 0 or result.matched_count > 0
+
+        except Exception as e:
+            log.error(f"Error updating credential state {filename}: {e}")
+            return False
+
+    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
+        """获取凭证状态"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            doc = await collection.find_one({"filename": filename})
+
+            if doc:
+                return {
+                    "disabled": doc.get("disabled", False),
+                    "error_codes": doc.get("error_codes", []),
+                    "last_success": doc.get("last_success", time.time()),
+                    "user_email": doc.get("user_email"),
+                    "model_cooldowns": doc.get("model_cooldowns", {}),
                 }
 
-            # 更新状态数据
-            existing_data["state"].update(state_updates)
-
-            success = await self._credentials_cache_manager.set(filename, existing_data)
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            log.debug(
-                f"Updated credential state in unified cache: {filename} in {operation_time:.3f}s"
-            )
-            return success
+            # 返回默认状态
+            return {
+                "disabled": False,
+                "error_codes": [],
+                "last_success": time.time(),
+                "user_email": None,
+                "model_cooldowns": {},
+            }
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error updating credential state {filename} in {operation_time:.3f}s: {e}")
-            return False
+            log.error(f"Error getting credential state {filename}: {e}")
+            return {}
 
-    async def get_credential_state(self, filename: str) -> Dict[str, Any]:
-        """从统一缓存获取凭证状态"""
+    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
+        """获取所有凭证状态"""
         self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            credential_entry = await self._credentials_cache_manager.get(filename)
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            if credential_entry and "state" in credential_entry:
-                log.debug(
-                    f"Retrieved credential state from unified cache: {filename} in {operation_time:.3f}s"
-                )
-                return credential_entry["state"]
-            else:
-                # 返回默认状态
-                return self._get_default_state()
-
-        except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error getting credential state {filename} in {operation_time:.3f}s: {e}")
-            return self._get_default_state()
-
-    async def get_all_credential_states(self) -> Dict[str, Dict[str, Any]]:
-        """从统一缓存获取所有凭证状态"""
-        self._ensure_initialized()
-        start_time = time.time()
-
-        try:
-            all_data = await self._credentials_cache_manager.get_all()
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            cursor = collection.find({})
 
             states = {}
-            for filename, cred_data in all_data.items():
-                states[filename] = cred_data.get("state", self._get_default_state())
+            current_time = time.time()
 
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+            async for doc in cursor:
+                filename = doc["filename"]
+                model_cooldowns = doc.get("model_cooldowns", {})
 
-            log.debug(
-                f"Retrieved all credential states from unified cache ({len(states)}) in {operation_time:.3f}s"
-            )
+                # 自动过滤掉已过期的模型CD
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if v > current_time
+                    }
+
+                states[filename] = {
+                    "disabled": doc.get("disabled", False),
+                    "error_codes": doc.get("error_codes", []),
+                    "last_success": doc.get("last_success", time.time()),
+                    "user_email": doc.get("user_email"),
+                    "model_cooldowns": model_cooldowns,
+                }
+
             return states
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error getting all credential states in {operation_time:.3f}s: {e}")
+            log.error(f"Error getting all credential states: {e}")
             return {}
 
-    # ============ 配置管理 ============
+    async def get_credentials_summary(
+        self,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        status_filter: str = "all",
+        is_antigravity: bool = False
+    ) -> Dict[str, Any]:
+        """
+        获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
+
+        Args:
+            offset: 跳过的记录数（默认0）
+            limit: 返回的最大记录数（None表示返回所有）
+            status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
+            is_antigravity: 是否查询antigravity凭证集合（默认False）
+
+        Returns:
+            包含 items（凭证列表）、total（总数）、offset、limit 的字典
+        """
+        self._ensure_initialized()
+
+        try:
+            # 根据 is_antigravity 选择集合名
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+
+            # 构建查询条件
+            query = {}
+            if status_filter == "enabled":
+                query["disabled"] = False
+            elif status_filter == "disabled":
+                query["disabled"] = True
+
+            # 获取总数
+            total_count = await collection.count_documents(query)
+
+            # 构建分页查询
+            cursor = collection.find(query).sort("rotation_order", 1).skip(offset)
+            if limit is not None:
+                cursor = cursor.limit(limit)
+
+            summaries = []
+            current_time = time.time()
+
+            async for doc in cursor:
+                model_cooldowns = doc.get("model_cooldowns", {})
+
+                # 自动过滤掉已过期的模型CD
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if v > current_time
+                    }
+
+                summaries.append({
+                    "filename": doc["filename"],
+                    "disabled": doc.get("disabled", False),
+                    "error_codes": doc.get("error_codes", []),
+                    "last_success": doc.get("last_success", current_time),
+                    "user_email": doc.get("user_email"),
+                    "rotation_order": doc.get("rotation_order", 0),
+                    "model_cooldowns": model_cooldowns,
+                })
+
+            return {
+                "items": summaries,
+                "total": total_count,
+                "offset": offset,
+                "limit": limit,
+            }
+
+        except Exception as e:
+            log.error(f"Error getting credentials summary: {e}")
+            return {
+                "items": [],
+                "total": 0,
+                "offset": offset,
+                "limit": limit,
+            }
+
+    # ============ 配置管理（内存缓存）============
 
     async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置到统一缓存"""
+        """设置配置（写入数据库 + 更新内存缓存）"""
         self._ensure_initialized()
-        return await self._config_cache_manager.set(key, value)
+
+        try:
+            config_collection = self._db["config"]
+            await config_collection.update_one(
+                {"key": key},
+                {"$set": {"value": value, "updated_at": time.time()}},
+                upsert=True,
+            )
+
+            # 更新内存缓存
+            self._config_cache[key] = value
+            return True
+
+        except Exception as e:
+            log.error(f"Error setting config {key}: {e}")
+            return False
+
+    async def reload_config_cache(self):
+        """重新加载配置缓存（在批量修改配置后调用）"""
+        self._ensure_initialized()
+        self._config_loaded = False
+        await self._load_config_cache()
+        log.info("Config cache reloaded from database")
 
     async def get_config(self, key: str, default: Any = None) -> Any:
-        """从统一缓存获取配置"""
+        """获取配置（从内存缓存）"""
         self._ensure_initialized()
-        return await self._config_cache_manager.get(key, default)
+        return self._config_cache.get(key, default)
 
     async def get_all_config(self) -> Dict[str, Any]:
-        """从统一缓存获取所有配置"""
+        """获取所有配置（从内存缓存）"""
         self._ensure_initialized()
-        return await self._config_cache_manager.get_all()
+        return self._config_cache.copy()
 
     async def delete_config(self, key: str) -> bool:
-        """从统一缓存删除配置"""
+        """删除配置"""
         self._ensure_initialized()
-        return await self._config_cache_manager.delete(key)
-
-    # ============ 使用统计管理 ============
-
-    async def update_usage_stats(self, filename: str, stats_updates: Dict[str, Any]) -> bool:
-        """更新使用统计（使用统一缓存）"""
-        self._ensure_initialized()
-        start_time = time.time()
 
         try:
-            # 获取现有数据或创建新数据
-            existing_data = await self._credentials_cache_manager.get(filename, {})
+            config_collection = self._db["config"]
+            result = await config_collection.delete_one({"key": key})
 
-            if not existing_data:
-                existing_data = {
-                    "credential": {},
-                    "state": self._get_default_state(),
-                    "stats": self._get_default_stats(),
-                }
-
-            # 更新统计数据
-            existing_data["stats"].update(stats_updates)
-
-            success = await self._credentials_cache_manager.set(filename, existing_data)
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            log.debug(f"Updated usage stats in unified cache: {filename} in {operation_time:.3f}s")
-            return success
+            # 从内存缓存移除
+            self._config_cache.pop(key, None)
+            return result.deleted_count > 0
 
         except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error updating usage stats {filename} in {operation_time:.3f}s: {e}")
+            log.error(f"Error deleting config {key}: {e}")
             return False
 
-    async def get_usage_stats(self, filename: str) -> Dict[str, Any]:
-        """从统一缓存获取使用统计"""
-        self._ensure_initialized()
-        start_time = time.time()
+    # ============ 模型级冷却管理 ============
 
-        try:
-            credential_entry = await self._credentials_cache_manager.get(filename)
+    async def set_model_cooldown(
+        self,
+        filename: str,
+        model_key: str,
+        cooldown_until: Optional[float],
+        is_antigravity: bool = False
+    ) -> bool:
+        """
+        设置特定模型的冷却时间
 
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
+        Args:
+            filename: 凭证文件名
+            model_key: 模型键（antigravity 用模型名，gcli 用 pro/flash）
+            cooldown_until: 冷却截止时间戳（None 表示清除冷却）
+            is_antigravity: 是否为 antigravity 凭证
 
-            if credential_entry and "stats" in credential_entry:
-                log.debug(
-                    f"Retrieved usage stats from unified cache: {filename} in {operation_time:.3f}s"
-                )
-                return credential_entry["stats"]
-            else:
-                return self._get_default_stats()
-
-        except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error getting usage stats {filename} in {operation_time:.3f}s: {e}")
-            return self._get_default_stats()
-
-    async def get_all_usage_stats(self) -> Dict[str, Dict[str, Any]]:
-        """从统一缓存获取所有使用统计"""
-        self._ensure_initialized()
-        start_time = time.time()
-
-        try:
-            all_data = await self._credentials_cache_manager.get_all()
-
-            stats = {}
-            for filename, cred_data in all_data.items():
-                if "stats" in cred_data:
-                    stats[filename] = cred_data["stats"]
-
-            # 性能监控
-            self._operation_count += 1
-            operation_time = time.time() - start_time
-            self._operation_times.append(operation_time)
-
-            log.debug(
-                f"Retrieved all usage stats from unified cache ({len(stats)}) in {operation_time:.3f}s"
-            )
-            return stats
-
-        except Exception as e:
-            operation_time = time.time() - start_time
-            log.error(f"Error getting all usage stats in {operation_time:.3f}s: {e}")
-            return {}
-
-    # ============ 凭证顺序管理 ============
-
-    async def get_credential_order(self) -> List[str]:
-        """获取凭证轮换顺序"""
+        Returns:
+            是否成功
+        """
         self._ensure_initialized()
 
         try:
-            # 从配置缓存中获取顺序
-            order = await self._config_cache_manager.get("_credential_order", None)
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
 
-            if order is None or not isinstance(order, list):
-                # 如果没有保存的顺序，返回当前凭证列表作为默认顺序
-                all_creds = await self.list_credentials()
-                log.debug(f"No saved credential order, using default: {all_creds}")
-                return all_creds
+            # 获取当前的 model_cooldowns
+            doc = await collection.find_one({"filename": filename})
 
-            log.debug(f"Loaded credential order: {order}")
-            return order
-
-        except Exception as e:
-            log.error(f"Error getting credential order: {e}")
-            return []
-
-    async def set_credential_order(self, order: List[str]) -> bool:
-        """设置凭证轮换顺序"""
-        self._ensure_initialized()
-
-        try:
-            if not isinstance(order, list):
-                log.error(f"Invalid credential order type: {type(order)}")
+            if not doc:
+                log.warning(f"Credential {filename} not found")
                 return False
 
-            # 保存顺序到配置缓存
-            success = await self._config_cache_manager.set("_credential_order", order)
+            model_cooldowns = doc.get("model_cooldowns", {})
 
-            if success:
-                log.debug(f"Saved credential order: {order}")
+            # 更新或删除指定模型的冷却时间
+            if cooldown_until is None:
+                model_cooldowns.pop(model_key, None)
             else:
-                log.error("Failed to save credential order")
+                model_cooldowns[model_key] = cooldown_until
 
-            return success
+            # 写回数据库
+            await collection.update_one(
+                {"filename": filename},
+                {
+                    "$set": {
+                        "model_cooldowns": model_cooldowns,
+                        "updated_at": time.time()
+                    }
+                }
+            )
+
+            log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
+            return True
 
         except Exception as e:
-            log.error(f"Error setting credential order: {e}")
+            log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
+
+    async def clear_expired_model_cooldowns(self, is_antigravity: bool = False) -> int:
+        """
+        清除已过期的模型级冷却
+
+        Args:
+            is_antigravity: 是否为 antigravity 凭证集合
+
+        Returns:
+            清除的冷却项数量
+        """
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+            current_time = time.time()
+            cleared_count = 0
+
+            # 获取所有有 model_cooldowns 的凭证
+            cursor = collection.find({"model_cooldowns": {"$ne": {}}})
+
+            async for doc in cursor:
+                filename = doc["filename"]
+                model_cooldowns = doc.get("model_cooldowns", {})
+                original_len = len(model_cooldowns)
+
+                # 过滤掉已过期的冷却
+                model_cooldowns = {
+                    k: v for k, v in model_cooldowns.items()
+                    if v > current_time
+                }
+
+                # 如果有变化，更新数据库
+                if len(model_cooldowns) < original_len:
+                    await collection.update_one(
+                        {"filename": filename},
+                        {
+                            "$set": {
+                                "model_cooldowns": model_cooldowns,
+                                "updated_at": time.time()
+                            }
+                        }
+                    )
+                    cleared_count += (original_len - len(model_cooldowns))
+
+            if cleared_count > 0:
+                log.debug(f"Cleared {cleared_count} expired model cooldowns")
+
+            return cleared_count
+
+        except Exception as e:
+            log.error(f"Error clearing expired model cooldowns: {e}")
+            return 0

@@ -2,7 +2,6 @@
 Google OAuth2 认证模块
 """
 
-import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -15,6 +14,7 @@ from config import (
     get_oauth_proxy_url,
     get_resource_manager_api_url,
     get_service_usage_api_url,
+    get_antigravity_api_url,
 )
 from log import log
 
@@ -70,8 +70,8 @@ class Credentials:
         await self.refresh()
         return True
 
-    async def refresh(self, max_retries: int = 3, base_delay: float = 1.0):
-        """刷新访问令牌，支持重试机制"""
+    async def refresh(self):
+        """刷新访问令牌"""
         if not self.refresh_token:
             raise TokenError("无刷新令牌")
 
@@ -82,118 +82,47 @@ class Credentials:
             "grant_type": "refresh_token",
         }
 
-        last_exception = None
-        last_status_code = None
+        try:
+            oauth_base_url = await get_oauth_proxy_url()
+            token_url = f"{oauth_base_url.rstrip('/')}/token"
+            response = await post_async(
+                token_url,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
 
-        for attempt in range(max_retries + 1):
-            try:
-                oauth_base_url = await get_oauth_proxy_url()
-                token_url = f"{oauth_base_url.rstrip('/')}/token"
-                response = await post_async(
-                    token_url,
-                    data=data,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+            token_data = response.json()
+            self.access_token = token_data["access_token"]
+
+            if "expires_in" in token_data:
+                expires_in = int(token_data["expires_in"])
+                current_utc = datetime.now(timezone.utc)
+                self.expires_at = current_utc + timedelta(seconds=expires_in)
+                log.debug(
+                    f"Token刷新: 当前UTC时间={current_utc.isoformat()}, "
+                    f"有效期={expires_in}秒, "
+                    f"过期时间={self.expires_at.isoformat()}"
                 )
-                response.raise_for_status()
 
-                token_data = response.json()
-                self.access_token = token_data["access_token"]
+            if "refresh_token" in token_data:
+                self.refresh_token = token_data["refresh_token"]
 
-                if "expires_in" in token_data:
-                    expires_in = int(token_data["expires_in"])
-                    self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
 
-                if "refresh_token" in token_data:
-                    self.refresh_token = token_data["refresh_token"]
+        except Exception as e:
+            error_msg = str(e)
+            status_code = None
+            if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+                status_code = e.response.status_code
+                error_msg = f"Token刷新失败 (HTTP {status_code}): {error_msg}"
+            else:
+                error_msg = f"Token刷新失败: {error_msg}"
 
-                if attempt > 0:
-                    log.debug(
-                        f"Token刷新成功（第{attempt + 1}次尝试），过期时间: {self.expires_at}"
-                    )
-                else:
-                    log.debug(f"Token刷新成功，过期时间: {self.expires_at}")
-                return
-
-            except Exception as e:
-                last_exception = e
-                error_msg = str(e)
-
-                # 尝试提取HTTP状态码
-                status_code = None
-                if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
-                    status_code = e.response.status_code
-                    last_status_code = status_code
-
-                # 检查是否是明确的客户端错误（400/403等），这些错误不应重试
-                if self._is_non_retryable_error(error_msg, status_code):
-                    log.error(f"Token刷新遇到不可恢复错误 (HTTP {status_code}): {error_msg}")
-                    break
-
-                if attempt < max_retries:
-                    # 计算退避延迟时间（指数退避）
-                    delay = base_delay * (2**attempt)
-                    log.warning(
-                        f"Token刷新失败（第{attempt + 1}次尝试, HTTP {status_code}）: {error_msg}，{delay}秒后重试..."
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    break
-
-        # 所有重试都失败了，将HTTP状态码附加到异常信息中
-        error_msg = f"Token刷新失败（已重试{max_retries}次）: {str(last_exception)}"
-        if last_status_code:
-            error_msg = f"Token刷新失败（已重试{max_retries}次，HTTP {last_status_code}）: {str(last_exception)}"
-        log.error(error_msg)
-
-        # 创建TokenError并附加状态码信息
-        token_error = TokenError(error_msg)
-        token_error.status_code = last_status_code  # 附加状态码供外部判断
-        raise token_error
-
-    def _is_non_retryable_error(self, error_msg: str, status_code: Optional[int] = None) -> bool:
-        """
-        判断是否是不需要重试的错误
-
-        Args:
-            error_msg: 错误信息
-            status_code: HTTP状态码（如果有）
-
-        Returns:
-            True表示不应重试（凭证永久失效），False表示可以重试（可能是网络问题）
-        """
-        # 优先使用HTTP状态码判断
-        if status_code is not None:
-            # 400/403/401 表示客户端错误，凭证有问题，不应重试
-            if status_code in [400, 401, 403]:
-                log.debug(f"检测到客户端错误状态码 {status_code}，判定为不可重试")
-                return True
-            # 500/502/503/504 是服务器错误，应该重试
-            elif status_code in [500, 502, 503, 504]:
-                log.debug(f"检测到服务器错误状态码 {status_code}，判定为可重试")
-                return False
-            # 429 (限流) 应该重试
-            elif status_code == 429:
-                log.debug("检测到限流错误 429，判定为可重试")
-                return False
-
-        # 如果没有状态码，回退到错误信息匹配
-        # 只有明确的凭证失效错误才判定为不可重试
-        non_retryable_patterns = [
-            "invalid_grant",
-            "refresh_token_expired",
-            "invalid_refresh_token",
-            "unauthorized_client",
-            "access_denied",
-        ]
-
-        error_msg_lower = error_msg.lower()
-        for pattern in non_retryable_patterns:
-            if pattern.lower() in error_msg_lower:
-                log.debug(f"错误信息匹配到不可重试模式: {pattern}")
-                return True
-
-        # 默认认为可以重试（可能是网络问题）
-        return False
+            log.error(error_msg)
+            token_error = TokenError(error_msg)
+            token_error.status_code = status_code
+            raise token_error
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Credentials":
@@ -586,6 +515,7 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
     # 策略1：查找显示名称或项目ID包含"default"的项目
     for project in projects:
         display_name = project.get("displayName", "").lower()
+        # Google API returns projectId in camelCase
         project_id = project.get("projectId", "")
         if "default" in display_name or "default" in project_id.lower():
             log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
@@ -593,8 +523,77 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
     # 策略2：选择第一个项目
     first_project = projects[0]
+    # Google API returns projectId in camelCase
     project_id = first_project.get("projectId", "")
     log.info(
         f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})"
     )
     return project_id
+
+
+async def fetch_project_id(
+    access_token: str,
+    user_agent: str
+) -> Optional[str]:
+    """
+    从 API 获取 project_id
+
+    Args:
+        access_token: Google OAuth access token
+        user_agent: User-Agent header
+
+    Returns:
+        project_id 字符串，如果获取失败返回 None
+    """
+    headers = {
+        'User-Agent': user_agent,
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip'
+    }
+
+    try:
+        antigravity_url = await get_antigravity_api_url()
+        request_url = f"{antigravity_url}/v1internal:loadCodeAssist"
+        request_body = {"metadata": {"ideType": "ANTIGRAVITY"}}
+
+        log.debug(f"[fetch_project_id] Fetching project_id from: {request_url}")
+        log.debug(f"[fetch_project_id] Request body: {request_body}")
+        log.debug(f"[fetch_project_id] Request headers: {dict(headers)}")
+
+        response = await post_async(
+            request_url,
+            json=request_body,
+            headers=headers,
+            timeout=30.0,
+        )
+
+        log.debug(f"[fetch_project_id] Response status: {response.status_code}")
+
+        if response.status_code == 200:
+            response_text = response.text
+            log.debug(f"[fetch_project_id] Response body (complete): {response_text}")
+
+            data = response.json()
+            log.debug(f"[fetch_project_id] Response JSON keys: {list(data.keys())}")
+            log.debug(f"[fetch_project_id] Full response data: {data}")
+
+            project_id = data.get("cloudaicompanionProject")
+            if project_id:
+                log.info(f"[fetch_project_id] Successfully fetched project_id: {project_id}")
+                return project_id
+            else:
+                log.warning("[fetch_project_id] loadCodeAssist returned no 'cloudaicompanionProject' field")
+                log.warning(f"[fetch_project_id] Full response data: {data}")
+                log.warning("[fetch_project_id] This may indicate: account has no quota, or API configuration issue")
+                return None
+        else:
+            log.warning(f"[fetch_project_id] Failed to fetch project_id: HTTP {response.status_code}")
+            log.warning(f"[fetch_project_id] Response body: {response.text[:500]}")
+            return None
+
+    except Exception as e:
+        log.error(f"[fetch_project_id] Error fetching project_id: {type(e).__name__}: {e}")
+        import traceback
+        log.debug(f"[fetch_project_id] Traceback: {traceback.format_exc()}")
+        return None

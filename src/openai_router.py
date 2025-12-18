@@ -7,24 +7,25 @@ import asyncio
 import json
 import time
 import uuid
-from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
     get_anti_truncation_max_attempts,
+)
+from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
     is_anti_truncation_model,
     is_fake_streaming_model,
+    authenticate_bearer,
 )
 from log import log
 
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
-from .google_chat_api import send_gemini_request
+from .gcli_chat_api import send_gemini_request
 from .models import ChatCompletionRequest, Model, ModelList
 from .openai_transfer import (
     _convert_usage_metadata,
@@ -36,32 +37,18 @@ from .task_manager import create_managed_task
 
 # 创建路由器
 router = APIRouter()
-security = HTTPBearer()
 
 # 全局凭证管理器实例
 credential_manager = None
 
 
-@asynccontextmanager
 async def get_credential_manager():
     """获取全局凭证管理器实例"""
     global credential_manager
     if not credential_manager:
         credential_manager = CredentialManager()
         await credential_manager.initialize()
-    yield credential_manager
-
-
-async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    """验证用户密码"""
-    from config import get_api_password
-
-    password = await get_api_password()
-    token = credentials.credentials
-    if token != password:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
-    return token
-
+    return credential_manager
 
 @router.get("/v1/models", response_model=ModelList)
 async def list_models():
@@ -71,7 +58,10 @@ async def list_models():
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: Request, token: str = Depends(authenticate)):
+async def chat_completions(
+    request: Request,
+    token: str = Depends(authenticate_bearer)
+):
     """处理OpenAI格式的聊天完成请求"""
 
     # 获取原始请求数据
@@ -153,9 +143,6 @@ async def chat_completions(request: Request, token: str = Depends(authenticate))
 
     current_file = credential_result
     log.debug(f"Using credential: {current_file}")
-
-    # 增加调用计数
-    cred_mgr.increment_call_count()
 
     # 转换为Gemini API payload格式
     try:

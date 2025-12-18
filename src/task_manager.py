@@ -81,8 +81,9 @@ class TaskManager:
             except asyncio.TimeoutError:
                 log.warning(f"Some tasks did not complete within {timeout}s timeout")
 
-        # 清理资源
+        # 清理资源 - 改进弱引用处理
         cleaned_resources = 0
+        failed_resources = 0
         for resource_ref in list(self._resources):
             resource = resource_ref()
             if resource is not None:
@@ -97,9 +98,13 @@ class TaskManager:
                     cleaned_resources += 1
                 except Exception as e:
                     log.warning(f"Failed to close resource {type(resource).__name__}: {e}")
+                    failed_resources += 1
+            # 如果弱引用已失效，资源已经被自动回收，无需操作
 
         if cleaned_resources > 0:
             log.info(f"Cleaned up {cleaned_resources} resources")
+        if failed_resources > 0:
+            log.warning(f"Failed to clean {failed_resources} resources")
 
         self._tasks.clear()
         self._resources.clear()

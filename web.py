@@ -18,6 +18,8 @@ from src.credential_manager import CredentialManager
 from src.gemini_router import router as gemini_router
 
 # Import all routers
+from src.antigravity_router import router as antigravity_router
+from src.antigravity_anthropic_router import router as antigravity_anthropic_router
 from src.openai_router import router as openai_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
@@ -33,6 +35,14 @@ async def lifespan(app: FastAPI):
 
     log.info("启动 GCLI2API 主服务")
 
+    # 初始化配置缓存（优先执行）
+    try:
+        import config
+        await config.init_config()
+        log.info("配置缓存初始化成功")
+    except Exception as e:
+        log.error(f"配置缓存初始化失败: {e}")
+
     # 初始化全局凭证管理器
     try:
         global_credential_manager = CredentialManager()
@@ -41,24 +51,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
         global_credential_manager = None
-
-    # 自动从环境变量加载凭证（异步执行）
-    try:
-        import asyncio
-
-        from src.auth import auto_load_env_credentials_on_startup
-
-        # 在后台任务中执行异步加载
-        async def load_env_creds():
-            try:
-                await auto_load_env_credentials_on_startup()
-            except Exception as e:
-                log.error(f"自动加载环境变量凭证失败: {e}")
-
-        # 创建后台任务
-        asyncio.create_task(load_env_creds())
-    except Exception as e:
-        log.error(f"创建自动加载环境变量凭证任务失败: {e}")
 
     # OAuth回调服务器将在需要时按需启动
 
@@ -109,11 +101,20 @@ app.include_router(openai_router, prefix="", tags=["OpenAI Compatible API"])
 # Gemini原生路由 - 处理Gemini格式请求
 app.include_router(gemini_router, prefix="", tags=["Gemini Native API"])
 
+# Antigravity路由 - 处理OpenAI格式请求并转换为Antigravity API
+app.include_router(antigravity_router, prefix="", tags=["Antigravity API"])
+
+# Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
+app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
+
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
 
 # 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")
+
+# 静态文件路由 - 服务front目录下的文件（HTML、JS、CSS等）
+app.mount("/front", StaticFiles(directory="front"), name="front")
 
 
 # 保活接口（仅响应 HEAD）
@@ -149,6 +150,10 @@ async def main():
     log.info("API端点:")
     log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
     log.info(f"   Gemini原生: http://127.0.0.1:{port}")
+    log.info(f"   Antigravity (OpenAI格式): http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (claude格式): http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (Gemini格式): http://127.0.0.1:{port}/antigravity")
+    log.info(f"   Antigravity (SD-WebUI格式): http://127.0.0.1:{port}/antigravity")
 
     # 配置hypercorn
     config = Config()
