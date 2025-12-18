@@ -130,6 +130,41 @@ def clean_json_schema(schema: Any) -> Any:
     if not isinstance(schema, dict):
         return schema
 
+    # 下游（Antigravity/Vertex/Gemini）对 tool parameters 的 JSON Schema 支持范围很窄，
+    # 一些标准字段会直接触发 400（例如 $ref / exclusiveMinimum）。
+    #
+    # 这里参考 `src/openai_transfer.py::_clean_schema_for_gemini` 的名单，做一次统一剔除，
+    # 以保证 Anthropic tools -> 下游 functionDeclarations 的兼容性。
+    unsupported_keys = {
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "definitions",
+        "title",
+        "example",
+        "examples",
+        "readOnly",
+        "writeOnly",
+        "default",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "additionalItems",
+        "contains",
+        "patternProperties",
+        "dependencies",
+        "propertyNames",
+        "if",
+        "then",
+        "else",
+        "contentEncoding",
+        "contentMediaType",
+    }
+
     validation_fields = {
         "minLength": "minLength",
         "maxLength": "maxLength",
@@ -138,7 +173,7 @@ def clean_json_schema(schema: Any) -> Any:
         "minItems": "minItems",
         "maxItems": "maxItems",
     }
-    fields_to_remove = {"$schema", "additionalProperties"}
+    fields_to_remove = {"additionalProperties"}
 
     validations: List[str] = []
     for field, label in validation_fields.items():
@@ -147,7 +182,7 @@ def clean_json_schema(schema: Any) -> Any:
 
     cleaned: Dict[str, Any] = {}
     for key, value in schema.items():
-        if key in fields_to_remove or key in validation_fields:
+        if key in unsupported_keys or key in fields_to_remove or key in validation_fields:
             continue
 
         if key == "type" and isinstance(value, list):
@@ -178,6 +213,11 @@ def clean_json_schema(schema: Any) -> Any:
 
     if validations and "description" not in cleaned:
         cleaned["description"] = f"Validation: {', '.join(validations)}"
+
+    # 与 `src/openai_transfer.py::_clean_schema_for_gemini` 保持一致：
+    # 如果有 properties 但没有显式 type，则补齐为 object，避免下游校验失败。
+    if "properties" in cleaned and "type" not in cleaned:
+        cleaned["type"] = "object"
 
     return cleaned
 

@@ -97,6 +97,33 @@ def test_clean_json_schema_type_数组在深层items_properties_也会被处理(
     assert row_props["count"]["nullable"] is True
 
 
+def test_clean_json_schema_会移除下游不支持字段_避免400():
+    schema = {
+        "type": "object",
+        "properties": {
+            "age": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "年龄",
+            },
+            "refed": {"$ref": "#/$defs/X"},
+        },
+        "$defs": {"X": {"type": "string"}},
+        "oneOf": [{"type": "object"}],
+        "title": "Example",
+    }
+
+    cleaned = clean_json_schema(schema)
+    # 顶层不支持字段
+    assert "$defs" not in cleaned
+    assert "oneOf" not in cleaned
+    assert "title" not in cleaned
+
+    # properties 内的不支持字段也应被递归移除
+    assert "exclusiveMinimum" not in cleaned["properties"]["age"]
+    assert "$ref" not in cleaned["properties"]["refed"]
+
+
 def test_convert_messages_to_contents_支持多种内容块():
     messages = [
         {
