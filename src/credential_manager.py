@@ -12,7 +12,6 @@ from log import log
 from .google_oauth_api import Credentials, fetch_user_email_from_file
 from .storage_adapter import get_storage_adapter
 
-
 class CredentialManager:
     """
     统一凭证管理器

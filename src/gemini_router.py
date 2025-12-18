@@ -5,11 +5,9 @@ Gemini Router - Handles native Gemini format API requests
 
 import asyncio
 import json
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import (
     get_anti_truncation_max_attempts,
@@ -20,6 +18,7 @@ from src.utils import (
     get_base_model_name,
     is_anti_truncation_model,
     is_fake_streaming_model,
+    authenticate_gemini_flexible,
 )
 from log import log
 
@@ -31,60 +30,7 @@ from .task_manager import create_managed_task
 
 # 创建路由器
 router = APIRouter()
-security = HTTPBearer()
 
-
-async def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    """验证用户密码（Bearer Token方式）"""
-    from config import get_api_password
-
-    password = await get_api_password()
-    token = credentials.credentials
-    if token != password:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="密码错误")
-    return token
-
-
-async def authenticate_gemini_flexible(
-    request: Request,
-    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
-    key: Optional[str] = Query(None),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(lambda: None),
-) -> str:
-    """灵活验证：支持x-goog-api-key头部、URL参数key或Authorization Bearer"""
-    from config import get_api_password
-
-    password = await get_api_password()
-
-    # 尝试从URL参数key获取（Google官方标准方式）
-    if key:
-        log.debug("Using URL parameter key authentication")
-        if key == password:
-            return key
-
-    # 尝试从Authorization头获取（兼容旧方式）
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug("Using Bearer token authentication")
-        if token == password:
-            return token
-
-    # 尝试从x-goog-api-key头获取（新标准方式）
-    if x_goog_api_key:
-        log.debug("Using x-goog-api-key authentication")
-        if x_goog_api_key == password:
-            return x_goog_api_key
-
-    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
-    )
-
-
-@router.get("/v1/v1beta/models")
-@router.get("/v1/v1/models")
 @router.get("/v1beta/models")
 @router.get("/v1/models")
 async def list_gemini_models():
@@ -115,9 +61,6 @@ async def list_gemini_models():
 
     return JSONResponse(content={"models": gemini_models})
 
-
-@router.post("/v1/v1beta/models/{model:path}:generateContent")
-@router.post("/v1/v1/models/{model:path}:generateContent")
 @router.post("/v1beta/models/{model:path}:generateContent")
 @router.post("/v1/models/{model:path}:generateContent")
 async def generate_content(
@@ -238,9 +181,6 @@ async def generate_content(
         else:
             raise HTTPException(status_code=500, detail="Response processing failed")
 
-
-@router.post("/v1/v1beta/models/{model:path}:streamGenerateContent")
-@router.post("/v1/v1/models/{model:path}:streamGenerateContent")
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/v1/models/{model:path}:streamGenerateContent")
 async def stream_generate_content(
@@ -328,13 +268,11 @@ async def stream_generate_content(
     # 直接返回流式响应
     return response
 
-
-@router.post("/v1/v1beta/models/{model:path}:countTokens")
-@router.post("/v1/v1/models/{model:path}:countTokens")
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
 async def count_tokens(
-    request: Request = None, api_key: str = Depends(authenticate_gemini_flexible)
+    request: Request = None,
+    api_key: str = Depends(authenticate_gemini_flexible),
 ):
     """模拟Gemini格式的token计数"""
 
@@ -371,9 +309,6 @@ async def count_tokens(
     # 返回Gemini格式的响应
     return JSONResponse(content={"totalTokens": total_tokens})
 
-
-@router.get("/v1/v1beta/models/{model:path}")
-@router.get("/v1/v1/models/{model:path}")
 @router.get("/v1beta/models/{model:path}")
 @router.get("/v1/models/{model:path}")
 async def get_model_info(

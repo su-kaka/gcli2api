@@ -150,7 +150,10 @@ async def main():
     log.info("API端点:")
     log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
     log.info(f"   Gemini原生: http://127.0.0.1:{port}")
-    log.info(f"   Antigravity: http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (OpenAI格式): http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (claude格式): http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (Gemini格式): http://127.0.0.1:{port}/antigravity")
+    log.info(f"   Antigravity (SD-WebUI格式): http://127.0.0.1:{port}/antigravity")
 
     # 配置hypercorn
     config = Config()

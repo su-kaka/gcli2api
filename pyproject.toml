@@ -28,7 +28,6 @@ dependencies = [
     "pyjwt>=2.10.1",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
-    "toml>=0.10.2",
     "pypinyin>=0.51.0",
     "aiosqlite>=0.20.0",
 ]
