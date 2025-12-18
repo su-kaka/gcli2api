@@ -458,6 +458,15 @@ async def anthropic_messages(
 
     log.info(f"[ANTHROPIC] /messages 模型映射: upstream={model} -> downstream={components['model']}")
 
+    # 下游要求每条 text 内容块必须包含“非空白”文本；上游客户端偶尔会追加空白 text block（例如图片后跟一个空字符串），
+    # 经过转换过滤后可能导致 contents 为空，此时应在本地直接返回 400，避免把无效请求打到下游。
+    if not (components.get("contents") or []):
+        return _anthropic_error(
+            status_code=400,
+            message="messages 不能为空；text 内容块必须包含非空白文本",
+            error_type="invalid_request_error",
+        )
+
     estimated_input_tokens_payload = 0
     try:
         estimated_input_tokens_payload = _estimate_input_tokens_from_anthropic_payload(payload)

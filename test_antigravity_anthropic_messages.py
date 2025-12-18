@@ -141,6 +141,40 @@ def test_convert_messages_to_contents_支持多种内容块():
     assert contents[1]["parts"] == [{"text": "收到"}]
 
 
+def test_convert_messages_to_contents_会过滤仅空白的text块_避免下游400():
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "   \n\t  "},
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+                },
+                {"type": "text", "text": "你好"},
+            ],
+        }
+    ]
+
+    contents = convert_messages_to_contents(messages)
+    assert len(contents) == 1
+    assert contents[0]["role"] == "user"
+    assert contents[0]["parts"] == [
+        {"inlineData": {"mimeType": "image/png", "data": "AAAA"}},
+        {"text": "你好"},
+    ]
+
+
+def test_convert_messages_to_contents_仅空白文本会丢弃整条消息():
+    messages = [
+        {"role": "user", "content": "   \n\t  "},
+        {"role": "assistant", "content": "收到"},
+    ]
+
+    contents = convert_messages_to_contents(messages)
+    assert contents == [{"role": "model", "parts": [{"text": "收到"}]}]
+
+
 def test_token_estimator_components_包含特殊标记文本不会归零():
     components = {
         "model": "claude-opus-4-5-thinking",
