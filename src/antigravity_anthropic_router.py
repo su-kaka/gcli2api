@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -17,10 +19,130 @@ from .antigravity_api import (
 )
 from .anthropic_converter import convert_anthropic_request_to_antigravity_components
 from .anthropic_streaming import antigravity_sse_to_anthropic_sse
-from .token_estimator import estimate_input_tokens_from_components
+from .token_estimator import (
+    estimate_input_tokens_from_anthropic_request,
+    estimate_input_tokens_from_components,
+    estimate_input_tokens_from_components_with_options,
+)
+from .token_calibrator import token_calibrator
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
+
+_DEBUG_TRUE = {"1", "true", "yes", "on"}
+_REDACTED = "<REDACTED>"
+_SENSITIVE_KEYS = {
+    "authorization",
+    "x-api-key",
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "token",
+    "password",
+    "secret",
+}
+
+
+def _anthropic_debug_max_chars() -> int:
+    """
+    调试日志中单个字符串字段的最大输出长度（避免把 base64 图片/超长 schema 打爆日志）。
+    """
+    raw = str(os.getenv("ANTHROPIC_DEBUG_MAX_CHARS", "")).strip()
+    if not raw:
+        return 2000
+    try:
+        return max(200, int(raw))
+    except Exception:
+        return 2000
+
+
+def _anthropic_debug_enabled() -> bool:
+    return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in _DEBUG_TRUE
+
+
+def _anthropic_debug_body_enabled() -> bool:
+    """
+    是否打印请求体/下游请求体等“高体积”调试日志。
+
+    说明：`ANTHROPIC_DEBUG=1` 仅开启 token 对比等精简日志；为避免刷屏，入参/下游 body 必须显式开启。
+    """
+    return str(os.getenv("ANTHROPIC_DEBUG_BODY", "")).strip().lower() in _DEBUG_TRUE
+
+
+def _redact_for_log(value: Any, *, key_hint: str | None = None, max_chars: int) -> Any:
+    """
+    递归脱敏/截断用于日志打印的 JSON。
+
+    目标：
+    - 让用户能看到“实际入参结构”（system/messages/tools 等）
+    - 默认避免泄露凭证/令牌
+    - 避免把图片 base64 或超长字段直接写入日志文件
+    """
+    if isinstance(value, dict):
+        redacted: Dict[str, Any] = {}
+        for k, v in value.items():
+            k_str = str(k)
+            k_lower = k_str.strip().lower()
+            if k_lower in _SENSITIVE_KEYS:
+                redacted[k_str] = _REDACTED
+                continue
+            redacted[k_str] = _redact_for_log(v, key_hint=k_lower, max_chars=max_chars)
+        return redacted
+
+    if isinstance(value, list):
+        return [_redact_for_log(v, key_hint=key_hint, max_chars=max_chars) for v in value]
+
+    if isinstance(value, str):
+        if (key_hint or "").lower() == "data" and len(value) > 64:
+            return f"<base64 len={len(value)}>"
+        if len(value) > max_chars:
+            head = value[: max_chars // 2]
+            tail = value[-max_chars // 2 :]
+            return f"{head}<...省略 {len(value) - len(head) - len(tail)} 字符...>{tail}"
+        return value
+
+    return value
+
+
+def _json_dumps_for_log(data: Any) -> str:
+    try:
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        return str(data)
+
+
+def _debug_log_request_payload(request: Request, payload: Dict[str, Any]) -> None:
+    """
+    在开启 `ANTHROPIC_DEBUG` 时打印入参（已脱敏/截断）。
+    """
+    if not _anthropic_debug_enabled() or not _anthropic_debug_body_enabled():
+        return
+
+    max_chars = _anthropic_debug_max_chars()
+    safe_payload = _redact_for_log(payload, max_chars=max_chars)
+
+    headers_of_interest = {
+        "content-type": request.headers.get("content-type"),
+        "content-length": request.headers.get("content-length"),
+        "anthropic-version": request.headers.get("anthropic-version"),
+        "user-agent": request.headers.get("user-agent"),
+    }
+    safe_headers = _redact_for_log(headers_of_interest, max_chars=max_chars)
+    log.info(f"[ANTHROPIC][DEBUG] headers={_json_dumps_for_log(safe_headers)}")
+    log.info(f"[ANTHROPIC][DEBUG] payload={_json_dumps_for_log(safe_payload)}")
+
+
+def _debug_log_downstream_request_body(request_body: Dict[str, Any]) -> None:
+    """
+    在开启 `ANTHROPIC_DEBUG` 时打印最终转发到下游的请求体（已截断）。
+    """
+    if not _anthropic_debug_enabled() or not _anthropic_debug_body_enabled():
+        return
+
+    max_chars = _anthropic_debug_max_chars()
+    safe_body = _redact_for_log(request_body, max_chars=max_chars)
+    log.info(f"[ANTHROPIC][DEBUG] downstream_request_body={_json_dumps_for_log(safe_body)}")
 
 
 def _anthropic_error(
@@ -80,15 +202,87 @@ def _estimate_input_tokens_from_components(components: Dict[str, Any]) -> int:
     return estimate_input_tokens_from_components(components)
 
 
+def _estimate_input_tokens_from_components_raw(components: Dict[str, Any]) -> int:
+    """
+    components 口径的“未校准”预估（主要用于 debug 对比）。
+    """
+    return estimate_input_tokens_from_components_with_options(components, calibrate=False)
+
+
+def _build_token_calibration_key(
+    *,
+    client_host: str,
+    user_agent: str,
+    model: str,
+    include_thoughts: bool,
+    has_tools: bool,
+) -> str:
+    """
+    构建进程内 token 校准 key（不包含任何敏感信息/内容）。
+    """
+    ua = (user_agent or "").strip()
+    if len(ua) > 120:
+        ua = ua[:120]
+    return (
+        f"client={client_host or 'unknown'}|ua={ua}|model={model}|"
+        f"thoughts={1 if include_thoughts else 0}|tools={1 if has_tools else 0}"
+    )
+
+
+def _estimate_input_tokens_from_anthropic_payload(payload: Dict[str, Any]) -> int:
+    """
+    对 Anthropic 原始请求做本地 token 预估（用于 /messages/count_tokens 与流式 message_start 展示）。
+    """
+    return estimate_input_tokens_from_anthropic_request(payload)
+
+
+def _pick_usage_metadata_from_antigravity_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    兼容下游 usageMetadata 的多种落点：
+    - response.usageMetadata
+    - response.candidates[0].usageMetadata
+
+    如两者同时存在，优先选择“字段更完整”的一侧。
+    """
+    response = response_data.get("response", {}) or {}
+    if not isinstance(response, dict):
+        return {}
+
+    response_usage = response.get("usageMetadata", {}) or {}
+    if not isinstance(response_usage, dict):
+        response_usage = {}
+
+    candidate = (response.get("candidates", []) or [{}])[0] or {}
+    if not isinstance(candidate, dict):
+        candidate = {}
+    candidate_usage = candidate.get("usageMetadata", {}) or {}
+    if not isinstance(candidate_usage, dict):
+        candidate_usage = {}
+
+    fields = ("promptTokenCount", "candidatesTokenCount", "totalTokenCount")
+
+    def score(d: Dict[str, Any]) -> int:
+        s = 0
+        for f in fields:
+            if f in d and d.get(f) is not None:
+                s += 1
+        return s
+
+    if score(candidate_usage) > score(response_usage):
+        return candidate_usage
+    return response_usage
+
+
 def _convert_antigravity_response_to_anthropic_message(
     response_data: Dict[str, Any],
     *,
     model: str,
     message_id: str,
+    fallback_input_tokens: int = 0,
 ) -> Dict[str, Any]:
     candidate = response_data.get("response", {}).get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
-    usage_metadata = response_data.get("response", {}).get("usageMetadata", {}) or {}
+    usage_metadata = _pick_usage_metadata_from_antigravity_response(response_data)
 
     content = []
     has_tool_use = False
@@ -141,6 +335,17 @@ def _convert_antigravity_response_to_anthropic_message(
     if finish_reason == "MAX_TOKENS" and not has_tool_use:
         stop_reason = "max_tokens"
 
+    input_tokens_present = isinstance(usage_metadata, dict) and "promptTokenCount" in usage_metadata
+    output_tokens_present = isinstance(usage_metadata, dict) and "candidatesTokenCount" in usage_metadata
+
+    input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
+    output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
+
+    if not input_tokens_present:
+        input_tokens = max(0, int(fallback_input_tokens or 0))
+    if not output_tokens_present:
+        output_tokens = 0
+
     return {
         "id": message_id,
         "type": "message",
@@ -150,8 +355,8 @@ def _convert_antigravity_response_to_anthropic_message(
         "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
-            "input_tokens": usage_metadata.get("promptTokenCount", 0) or 0,
-            "output_tokens": usage_metadata.get("candidatesTokenCount", 0) or 0,
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
         },
     }
 
@@ -179,6 +384,8 @@ async def anthropic_messages(
         return _anthropic_error(
             status_code=400, message="请求体必须为 JSON object", error_type="invalid_request_error"
         )
+
+    _debug_log_request_payload(request, payload)
 
     model = payload.get("model")
     max_tokens = payload.get("max_tokens")
@@ -251,11 +458,65 @@ async def anthropic_messages(
 
     log.info(f"[ANTHROPIC] /messages 模型映射: upstream={model} -> downstream={components['model']}")
 
-    estimated_input_tokens = 0
+    estimated_input_tokens_payload = 0
     try:
-        estimated_input_tokens = _estimate_input_tokens_from_components(components)
+        estimated_input_tokens_payload = _estimate_input_tokens_from_anthropic_payload(payload)
     except Exception as e:
         log.debug(f"[ANTHROPIC] 输入 token 估算失败，回退为0: {e}")
+
+    estimated_input_tokens_components_raw = 0
+    estimated_input_tokens_components = 0
+    estimated_components_source = "heuristic"
+    learned_ratio = None
+    try:
+        estimated_input_tokens_components_raw = _estimate_input_tokens_from_components_raw(components)
+        estimated_input_tokens_components = _estimate_input_tokens_from_components(components)
+
+        gen_cfg = components.get("generation_config") or {}
+        include_thoughts = False
+        if isinstance(gen_cfg, dict):
+            tc = gen_cfg.get("thinkingConfig") or {}
+            include_thoughts = bool(isinstance(tc, dict) and tc.get("includeThoughts") is True)
+
+        has_tools = bool(components.get("tools"))
+        calibration_key = _build_token_calibration_key(
+            client_host=client_host,
+            user_agent=user_agent,
+            model=str(components.get("model") or model),
+            include_thoughts=include_thoughts,
+            has_tools=has_tools,
+        )
+
+        learned_ratio = token_calibrator.get_ratio(calibration_key, estimated_input_tokens_components_raw)
+        if learned_ratio:
+            learned_estimated = int(round(estimated_input_tokens_components_raw * float(learned_ratio)))
+            if learned_estimated > 0:
+                estimated_input_tokens_components = learned_estimated
+                estimated_components_source = "learned"
+    except Exception as e:
+        log.debug(f"[ANTHROPIC] components token 估算失败，回退为0: {e}")
+        calibration_key = _build_token_calibration_key(
+            client_host=client_host,
+            user_agent=user_agent,
+            model=str(components.get("model") or model),
+            include_thoughts=False,
+            has_tools=bool(components.get("tools")),
+        )
+
+    if _anthropic_debug_enabled():
+        factor = (
+            (estimated_input_tokens_components / estimated_input_tokens_components_raw)
+            if estimated_input_tokens_components_raw
+            else 1.0
+        )
+        learned_ratio_str = f"{float(learned_ratio):.3f}" if learned_ratio else "None"
+        log.info(
+            f"[ANTHROPIC][TOKEN] 本地预估: estimated_payload={estimated_input_tokens_payload}, "
+            f"estimated_components_raw={estimated_input_tokens_components_raw}, "
+            f"estimated_components={estimated_input_tokens_components}, "
+            f"calibration_factor={factor:.3f}, learned_ratio={learned_ratio_str}, "
+            f"source={estimated_components_source}"
+        )
 
     request_body = build_antigravity_request_body(
         contents=components["contents"],
@@ -266,6 +527,7 @@ async def anthropic_messages(
         tools=components["tools"],
         generation_config=components["generation_config"],
     )
+    _debug_log_downstream_request_body(request_body)
 
     if stream:
         message_id = f"msg_{uuid.uuid4().hex}"
@@ -283,7 +545,9 @@ async def anthropic_messages(
                     response.aiter_lines(),
                     model=str(model),
                     message_id=message_id,
-                    initial_input_tokens=estimated_input_tokens,
+                    initial_input_tokens=estimated_input_tokens_components,
+                    estimated_input_tokens_components_raw=estimated_input_tokens_components_raw,
+                    calibration_key=calibration_key,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
                 ):
@@ -308,8 +572,24 @@ async def anthropic_messages(
         return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
 
     anthropic_response = _convert_antigravity_response_to_anthropic_message(
-        response_data, model=str(model), message_id=request_id
+        response_data,
+        model=str(model),
+        message_id=request_id,
+        fallback_input_tokens=estimated_input_tokens_components,
     )
+    if _anthropic_debug_enabled():
+        usage_metadata = _pick_usage_metadata_from_antigravity_response(response_data)
+        downstream_input = int((usage_metadata or {}).get("promptTokenCount", 0) or 0)
+        # 非流式场景也用真实值更新校准器，供下一次预估使用
+        if downstream_input and estimated_input_tokens_components_raw:
+            token_calibrator.update(
+                calibration_key, raw_tokens=estimated_input_tokens_components_raw, downstream_tokens=downstream_input
+            )
+        log.info(
+            f"[ANTHROPIC][TOKEN] 非流式 input_tokens 对比: estimated_payload={estimated_input_tokens_payload}, "
+            f"estimated_components_raw={estimated_input_tokens_components_raw}, "
+            f"estimated_components={estimated_input_tokens_components}, downstream={downstream_input}"
+        )
     return JSONResponse(content=anthropic_response)
 
 
@@ -341,6 +621,8 @@ async def anthropic_messages_count_tokens(
         return _anthropic_error(
             status_code=400, message="请求体必须为 JSON object", error_type="invalid_request_error"
         )
+
+    _debug_log_request_payload(request, payload)
 
     if not payload.get("model") or not isinstance(payload.get("messages"), list):
         return _anthropic_error(
@@ -375,18 +657,44 @@ async def anthropic_messages_count_tokens(
         f"thinking_present={thinking_present}, thinking={thinking_summary}, ua={user_agent}"
     )
 
+    input_tokens = 0
     try:
         components = convert_anthropic_request_to_antigravity_components(payload)
-    except Exception as e:
-        log.error(f"[ANTHROPIC] count_tokens 请求转换失败: {e}")
-        return _anthropic_error(
-            status_code=400, message="请求转换失败", error_type="invalid_request_error"
+        raw_tokens = _estimate_input_tokens_from_components_raw(components)
+        estimated_tokens = _estimate_input_tokens_from_components(components)
+
+        try:
+            client_host = request.client.host if request.client else "unknown"
+        except Exception:
+            client_host = "unknown"
+        ua = request.headers.get("user-agent", "")
+
+        gen_cfg = components.get("generation_config") or {}
+        include_thoughts = False
+        if isinstance(gen_cfg, dict):
+            tc = gen_cfg.get("thinkingConfig") or {}
+            include_thoughts = bool(isinstance(tc, dict) and tc.get("includeThoughts") is True)
+        has_tools = bool(components.get("tools"))
+
+        key = _build_token_calibration_key(
+            client_host=client_host,
+            user_agent=ua,
+            model=str(components.get("model") or payload.get("model") or ""),
+            include_thoughts=include_thoughts,
+            has_tools=has_tools,
         )
 
-    log.info(
-        f"[ANTHROPIC] /messages/count_tokens 模型映射: upstream={payload.get('model')} "
-        f"-> downstream={components['model']}"
-    )
+        learned = token_calibrator.get_ratio(key, raw_tokens)
+        if learned and raw_tokens:
+            input_tokens = int(round(raw_tokens * float(learned)))
+        else:
+            input_tokens = int(estimated_tokens)
+    except Exception as e:
+        log.error(f"[ANTHROPIC] count_tokens components 估算失败，回退 payload: {e}")
+        try:
+            input_tokens = _estimate_input_tokens_from_anthropic_payload(payload)
+        except Exception as e2:
+            log.error(f"[ANTHROPIC] count_tokens payload 估算也失败: {e2}")
+            input_tokens = 0
 
-    input_tokens = _estimate_input_tokens_from_components(components)
     return JSONResponse(content={"input_tokens": input_tokens})

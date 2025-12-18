@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import Any, AsyncIterator, Dict, Optional
 
@@ -10,6 +11,12 @@ from log import log
 def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
+
+_DEBUG_TRUE = {"1", "true", "yes", "on"}
+
+
+def _anthropic_debug_enabled() -> bool:
+    return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in _DEBUG_TRUE
 
 
 class _StreamingState:
@@ -24,6 +31,8 @@ class _StreamingState:
         self.has_tool_use: bool = False
         self.input_tokens: int = 0
         self.output_tokens: int = 0
+        self.has_input_tokens: bool = False
+        self.has_output_tokens: bool = False
         self.finish_reason: Optional[str] = None
 
     def _next_index(self) -> int:
@@ -76,6 +85,8 @@ async def antigravity_sse_to_anthropic_sse(
     model: str,
     message_id: str,
     initial_input_tokens: int = 0,
+    estimated_input_tokens_components_raw: int = 0,
+    calibration_key: Optional[str] = None,
     credential_manager: Any = None,
     credential_name: Optional[str] = None,
 ) -> AsyncIterator[bytes]:
@@ -89,6 +100,28 @@ async def antigravity_sse_to_anthropic_sse(
         initial_input_tokens_int = max(0, int(initial_input_tokens or 0))
     except Exception:
         initial_input_tokens_int = 0
+
+    def pick_usage_metadata(response: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+        response_usage = response.get("usageMetadata", {}) or {}
+        if not isinstance(response_usage, dict):
+            response_usage = {}
+
+        candidate_usage = candidate.get("usageMetadata", {}) or {}
+        if not isinstance(candidate_usage, dict):
+            candidate_usage = {}
+
+        fields = ("promptTokenCount", "candidatesTokenCount", "totalTokenCount")
+
+        def score(d: Dict[str, Any]) -> int:
+            s = 0
+            for f in fields:
+                if f in d and d.get(f) is not None:
+                    s += 1
+            return s
+
+        if score(candidate_usage) > score(response_usage):
+            return candidate_usage
+        return response_usage
 
     yield _sse_event(
         "message_start",
@@ -130,6 +163,17 @@ async def antigravity_sse_to_anthropic_sse(
             response = data.get("response", {}) or {}
             candidate = (response.get("candidates", []) or [{}])[0] or {}
             parts = (candidate.get("content", {}) or {}).get("parts", []) or []
+
+            # 在任意 chunk 中尽早捕获 usageMetadata（优先选择字段更完整的一侧）
+            if isinstance(response, dict) and isinstance(candidate, dict):
+                usage = pick_usage_metadata(response, candidate)
+                if isinstance(usage, dict):
+                    if "promptTokenCount" in usage:
+                        state.input_tokens = int(usage.get("promptTokenCount", 0) or 0)
+                        state.has_input_tokens = True
+                    if "candidatesTokenCount" in usage:
+                        state.output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
+                        state.has_output_tokens = True
 
             for part in parts:
                 if not isinstance(part, dict):
@@ -251,9 +295,6 @@ async def antigravity_sse_to_anthropic_sse(
             finish_reason = candidate.get("finishReason")
             if finish_reason:
                 state.finish_reason = str(finish_reason)
-                usage = response.get("usageMetadata", {}) or {}
-                state.input_tokens = int(usage.get("promptTokenCount", 0) or 0)
-                state.output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
                 break
 
         stop_evt = state.close_block_if_open()
@@ -264,12 +305,38 @@ async def antigravity_sse_to_anthropic_sse(
         if state.finish_reason == "MAX_TOKENS" and not state.has_tool_use:
             stop_reason = "max_tokens"
 
+        if _anthropic_debug_enabled():
+            estimated_input = initial_input_tokens_int
+            estimated_components_raw = max(0, int(estimated_input_tokens_components_raw or 0))
+            downstream_input = state.input_tokens if state.has_input_tokens else 0
+            log.info(
+                f"[ANTHROPIC][TOKEN] 流式 input_tokens 对比: estimated_initial={estimated_input}, "
+                f"estimated_components_raw={estimated_components_raw}, downstream={downstream_input}, "
+                f"has_downstream={state.has_input_tokens}"
+            )
+
+        # 用真实值更新校准器（供下一次预估使用；不记录任何文本内容）
+        if state.has_input_tokens and calibration_key and estimated_input_tokens_components_raw:
+            try:
+                from .token_calibrator import token_calibrator
+
+                token_calibrator.update(
+                    calibration_key,
+                    raw_tokens=int(estimated_input_tokens_components_raw or 0),
+                    downstream_tokens=int(state.input_tokens or 0),
+                )
+            except Exception as e:
+                log.debug(f"[ANTHROPIC][TOKEN] 更新校准器失败（忽略）: {e}")
+
         yield _sse_event(
             "message_delta",
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                "usage": {"input_tokens": state.input_tokens, "output_tokens": state.output_tokens},
+                "usage": {
+                    "input_tokens": state.input_tokens if state.has_input_tokens else initial_input_tokens_int,
+                    "output_tokens": state.output_tokens if state.has_output_tokens else 0,
+                },
             },
         )
         yield _sse_event("message_stop", {"type": "message_stop"})
