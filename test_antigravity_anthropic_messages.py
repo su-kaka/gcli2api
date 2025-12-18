@@ -399,6 +399,48 @@ def test_antigravity_response_to_anthropic_message_缺失_usageMetadata_会回�
     assert msg["usage"] == {"input_tokens": 123, "output_tokens": 0}
 
 
+def test_antigravity_response_to_anthropic_message_tool_use_input_会递归移除null字段():
+    response_data = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "id": "t1",
+                                    "name": "code_index_search",
+                                    "args": {
+                                        "query": None,
+                                        "path": "src",
+                                        "options": {"limit": 20, "caseSensitive": None},
+                                        "arr": [1, None, {"x": None, "y": 2}],
+                                    },
+                                }
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    msg = _convert_antigravity_response_to_anthropic_message(
+        response_data,
+        model="claude-3-5-sonnet-20241022",
+        message_id="msg_test",
+        fallback_input_tokens=1,
+    )
+    tool_use = next(b for b in msg["content"] if b.get("type") == "tool_use")
+    assert tool_use["name"] == "code_index_search"
+    assert tool_use["input"] == {
+        "path": "src",
+        "options": {"limit": 20},
+        "arr": [1, {"y": 2}],
+    }
+
+
 @pytest.mark.asyncio
 async def test_streaming_事件序列包含必要事件():
     antigravity_lines = [
@@ -430,6 +472,37 @@ async def test_streaming_事件序列包含必要事件():
     assert "content_block_stop" in events
     assert events[-2] == "message_delta"
     assert events[-1] == "message_stop"
+
+
+@pytest.mark.asyncio
+async def test_streaming_tool_use_input_json_delta_会递归移除null字段():
+    antigravity_lines = [
+        'data: {"response":{"candidates":[{"content":{"parts":[{"functionCall":{"id":"c1","name":"tool","args":{"query":null,"path":"src","arr":[1,null,2],"obj":{"a":1,"b":null}}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}',
+    ]
+
+    async def gen():
+        for l in antigravity_lines:
+            yield l
+
+    chunks = []
+    async for chunk in antigravity_sse_to_anthropic_sse(gen(), model="m", message_id="msg1"):
+        chunks.append(chunk.decode("utf-8"))
+
+    def parse_event(chunk_str: str):
+        lines = [l for l in chunk_str.splitlines() if l.strip()]
+        event = lines[0].split("event: ", 1)[1].strip()
+        data = json.loads(lines[1].split("data: ", 1)[1])
+        return event, data
+
+    parsed = [parse_event(c) for c in chunks]
+    input_delta = next(
+        data
+        for event, data in parsed
+        if event == "content_block_delta" and (data.get("delta") or {}).get("type") == "input_json_delta"
+    )
+    partial_json = input_delta["delta"]["partial_json"]
+    assert "null" not in partial_json
+    assert json.loads(partial_json) == {"path": "src", "arr": [1, 2], "obj": {"a": 1}}
 
 
 @pytest.mark.asyncio

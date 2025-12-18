@@ -43,6 +43,31 @@ _SENSITIVE_KEYS = {
     "secret",
 }
 
+def _remove_nulls_for_tool_input(value: Any) -> Any:
+    """
+    递归移除 dict/list 中值为 null/None 的字段/元素。
+
+    背景：Roo/Kilo 在 Anthropic native tool 路径下，若收到 tool_use.input 中包含 null，
+    可能会把 null 当作真实入参执行（例如“在 null 中搜索”）。因此在返回 tool_use.input 前做兜底清理。
+    """
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for k, v in value.items():
+            if v is None:
+                continue
+            cleaned[k] = _remove_nulls_for_tool_input(v)
+        return cleaned
+
+    if isinstance(value, list):
+        cleaned_list = []
+        for item in value:
+            if item is None:
+                continue
+            cleaned_list.append(_remove_nulls_for_tool_input(item))
+        return cleaned_list
+
+    return value
+
 
 def _anthropic_debug_max_chars() -> int:
     """
@@ -311,7 +336,7 @@ def _convert_antigravity_response_to_anthropic_message(
                     "type": "tool_use",
                     "id": fc.get("id") or f"toolu_{uuid.uuid4().hex}",
                     "name": fc.get("name") or "",
-                    "input": fc.get("args", {}) or {},
+                    "input": _remove_nulls_for_tool_input(fc.get("args", {}) or {}),
                 }
             )
             continue

@@ -14,6 +14,31 @@ def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
 
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
+def _remove_nulls_for_tool_input(value: Any) -> Any:
+    """
+    递归移除 dict/list 中值为 null/None 的字段/元素。
+
+    背景：Roo/Kilo 在 Anthropic native tool 路径下，若收到 tool_use.input 中包含 null，
+    可能会把 null 当作真实入参执行（例如“在 null 中搜索”）。因此在输出 input_json_delta 前做兜底清理。
+    """
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for k, v in value.items():
+            if v is None:
+                continue
+            cleaned[k] = _remove_nulls_for_tool_input(v)
+        return cleaned
+
+    if isinstance(value, list):
+        cleaned_list = []
+        for item in value:
+            if item is None:
+                continue
+            cleaned_list.append(_remove_nulls_for_tool_input(item))
+        return cleaned_list
+
+    return value
+
 
 def _anthropic_debug_enabled() -> bool:
     return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in _DEBUG_TRUE
@@ -260,7 +285,7 @@ async def antigravity_sse_to_anthropic_sse(
                     fc = part.get("functionCall", {}) or {}
                     tool_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
                     tool_name = fc.get("name") or ""
-                    tool_args = fc.get("args", {}) or {}
+                    tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
                     idx = state._next_index()
                     yield _sse_event(
