@@ -14,7 +14,6 @@ from config import (
     get_oauth_proxy_url,
     get_resource_manager_api_url,
     get_service_usage_api_url,
-    get_antigravity_api_url,
 )
 from log import log
 
@@ -533,7 +532,8 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
 async def fetch_project_id(
     access_token: str,
-    user_agent: str
+    user_agent: str,
+    api_base_url: str
 ) -> Optional[str]:
     """
     从 API 获取 project_id
@@ -541,6 +541,7 @@ async def fetch_project_id(
     Args:
         access_token: Google OAuth access token
         user_agent: User-Agent header
+        api_base_url: API base URL (e.g., antigravity or code assist endpoint)
 
     Returns:
         project_id 字符串，如果获取失败返回 None
@@ -553,8 +554,7 @@ async def fetch_project_id(
     }
 
     try:
-        antigravity_url = await get_antigravity_api_url()
-        request_url = f"{antigravity_url}/v1internal:loadCodeAssist"
+        request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
         request_body = {"metadata": {"ideType": "ANTIGRAVITY"}}
 
         log.debug(f"[fetch_project_id] Fetching project_id from: {request_url}")

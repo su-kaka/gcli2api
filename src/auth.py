@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from config import get_config_value
+from config import get_config_value, get_antigravity_api_url, get_code_assist_endpoint
 from log import log
 
 from .google_oauth_api import (
@@ -562,22 +562,33 @@ async def asyncio_complete_auth_flow(
         # 如果没有指定项目ID或没找到匹配的，查找需要自动检测项目ID的流程
         if not state:
             log.info("没有找到指定项目的流程，查找自动检测流程")
+            # 首先尝试找到已完成的流程（有授权码的）
+            completed_flows = []
             for s, data in auth_flows.items():
-                log.debug(
-                    f"检查流程 {s}: auto_project_detection={data.get('auto_project_detection', False)}"
-                )
                 if data.get("auto_project_detection", False):
-                    # 如果指定了用户会话，优先匹配相同会话的流程
                     if user_session and data.get("user_session") == user_session:
-                        state = s
-                        flow_data = data
-                        log.info(f"找到匹配用户会话的自动检测流程: {s}")
-                        break
-                    # 使用第一个找到的需要自动检测的流程
-                    elif not state:
-                        state = s
-                        flow_data = data
-                        log.info(f"找到自动检测流程: {s}")
+                        if data.get("code"):  # 优先选择已完成的
+                            completed_flows.append((s, data, data.get("created_at", 0)))
+
+            # 如果有已完成的流程，选择最新的
+            if completed_flows:
+                completed_flows.sort(key=lambda x: x[2], reverse=True)  # 按时间倒序
+                state, flow_data, _ = completed_flows[0]
+                log.info(f"找到已完成的最新认证流程: {state}")
+            else:
+                # 如果没有已完成的，找最新的未完成流程
+                pending_flows = []
+                for s, data in auth_flows.items():
+                    if data.get("auto_project_detection", False):
+                        if user_session and data.get("user_session") == user_session:
+                            pending_flows.append((s, data, data.get("created_at", 0)))
+                        elif not user_session:
+                            pending_flows.append((s, data, data.get("created_at", 0)))
+
+                if pending_flows:
+                    pending_flows.sort(key=lambda x: x[2], reverse=True)  # 按时间倒序
+                    state, flow_data, _ = pending_flows[0]
+                    log.info(f"找到最新的待完成认证流程: {state}")
 
         if not state or not flow_data:
             log.error(f"未找到认证流程: state={state}, flow_data存在={bool(flow_data)}")
@@ -611,15 +622,21 @@ async def asyncio_complete_auth_flow(
 
         # 检查是否已经有授权码
         log.info("开始检查OAuth授权码...")
+        log.info(f"等待state={state}的授权回调，回调端口: {flow_data.get('callback_port')}")
+        log.info(f"当前flow_data状态: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}")
         max_wait_time = 60  # 最多等待60秒
         wait_interval = 1  # 每秒检查一次
         waited = 0
 
         while waited < max_wait_time:
-            log.debug(f"等待OAuth授权码... ({waited}/{max_wait_time}秒)")
             if flow_data.get("code"):
                 log.info(f"检测到OAuth授权码，开始处理凭证 (等待时间: {waited}秒)")
                 break
+
+            # 每5秒输出一次提示
+            if waited % 5 == 0 and waited > 0:
+                log.info(f"仍在等待OAuth授权... ({waited}/{max_wait_time}秒)")
+                log.debug(f"当前state: {state}, flow_data keys: {list(flow_data.keys())}")
 
             # 异步等待
             await asyncio.sleep(wait_interval)
@@ -628,9 +645,6 @@ async def asyncio_complete_auth_flow(
             # 刷新flow_data引用，因为可能被回调更新了
             if state in auth_flows:
                 flow_data = auth_flows[state]
-                log.debug(
-                    f"刷新flow_data: completed={flow_data.get('completed')}, code存在={bool(flow_data.get('code'))}"
-                )
 
         if not flow_data.get("code"):
             log.error(f"等待OAuth回调超时，等待了{waited}秒")
@@ -662,9 +676,11 @@ async def asyncio_complete_auth_flow(
                 if is_antigravity:
                     log.info("Antigravity模式：从API获取project_id...")
                     # 使用API获取project_id
+                    antigravity_url = await get_antigravity_api_url()
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        ANTIGRAVITY_USER_AGENT
+                        ANTIGRAVITY_USER_AGENT,
+                        antigravity_url
                     )
                     if project_id:
                         log.info(f"成功从API获取project_id: {project_id}")
@@ -695,9 +711,11 @@ async def asyncio_complete_auth_flow(
                 if flow_data.get("auto_project_detection", False) and not project_id:
                     log.info("标准模式：从API获取project_id...")
                     # 使用API获取project_id（使用标准模式的User-Agent）
+                    code_assist_url = await get_code_assist_endpoint()
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        user_agent=STANDARD_USER_AGENT
+                        STANDARD_USER_AGENT,
+                        code_assist_url
                     )
                     if project_id:
                         flow_data["project_id"] = project_id
@@ -836,9 +854,11 @@ async def complete_auth_flow_from_callback_url(
             if is_antigravity:
                 log.info("Antigravity模式（从回调URL）：从API获取project_id...")
                 # 使用API获取project_id
+                antigravity_url = await get_antigravity_api_url()
                 project_id = await fetch_project_id(
                     credentials.access_token,
-                    ANTIGRAVITY_USER_AGENT
+                    ANTIGRAVITY_USER_AGENT,
+                    antigravity_url
                 )
                 if project_id:
                     log.info(f"成功从API获取project_id: {project_id}")
@@ -873,9 +893,11 @@ async def complete_auth_flow_from_callback_url(
                 # 尝试使用fetch_project_id自动获取项目ID
                 try:
                     log.info("标准模式：从API获取project_id...")
+                    code_assist_url = await get_code_assist_endpoint()
                     detected_project_id = await fetch_project_id(
                         credentials.access_token,
-                        user_agent=STANDARD_USER_AGENT
+                        STANDARD_USER_AGENT,
+                        code_assist_url
                     )
                     if detected_project_id:
                         auto_detected = True
