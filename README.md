@@ -527,6 +527,13 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 **兼容性配置**
 - `COMPATIBILITY_MODE`: 启用兼容性模式，将 system 消息转为 user 消息（默认：false）
 
+**Anthropic（Antigravity Messages）图片兼容**
+- `ANTHROPIC_IMAGE_OUTPUT`: 图片输出模式（`base64|url|both`，默认：url）。`url` 模式会把图片转换为短期签名链接，便于 CherryStudio 等客户端渲染。
+- `ANTHROPIC_MEDIA_TTL_SECONDS`: 图片签名链接有效期（秒，默认：600）
+- `ANTHROPIC_MEDIA_SIGNING_SECRET`: 图片签名密钥（默认：回退到 API_PASSWORD/PASSWORD）
+- `ANTHROPIC_MEDIA_DIR`: 图片临时落地目录（默认：`./cache/anthropic_media`）
+- `PUBLIC_BASE_URL`: （可选）对外可访问的 base url，用于生成图片绝对链接；反代/自定义域名场景建议设置
+
 **日志配置**
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
 - `LOG_FILE`: 日志文件路径（默认：gcli2api.log）

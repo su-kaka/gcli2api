@@ -395,6 +395,129 @@ async def get_antigravity_api_url() -> str:
     )
 
 
+async def get_anthropic_image_output_mode() -> str:
+    """
+    获取 Anthropic Messages 图片输出模式。
+
+    可选值：
+    - base64：保持现状，返回 `type=image` 且 `source.type=base64`
+    - url：把图片落地为短期可访问的签名 URL，并以 Markdown 图片链接文本块返回
+    - both：同时返回 base64 image block 与 Markdown 链接（兼容更多客户端）
+
+    Environment variable: ANTHROPIC_IMAGE_OUTPUT
+    TOML config key: anthropic_image_output
+    Default: url
+    """
+    raw = str(await get_config_value("anthropic_image_output", "url", "ANTHROPIC_IMAGE_OUTPUT"))
+    mode = raw.strip().lower()
+    if mode in {"base64", "url", "both"}:
+        return mode
+    return "url"
+
+
+async def get_public_base_url() -> Optional[str]:
+    """
+    获取对外可访问的 Base URL（用于生成图片链接等绝对 URL）。
+
+    说明：在反向代理/自定义域名场景下，`request.base_url` 可能不可达；可通过该配置覆写。
+
+    Environment variable: PUBLIC_BASE_URL
+    TOML config key: public_base_url
+    Default: None（使用请求的 base_url 推断）
+    """
+    raw = str(await get_config_value("public_base_url", "", "PUBLIC_BASE_URL")).strip()
+    return raw or None
+
+
+async def get_anthropic_media_dir() -> str:
+    """
+    获取 Anthropic 图片临时文件目录。
+
+    Environment variable: ANTHROPIC_MEDIA_DIR
+    TOML config key: anthropic_media_dir
+    Default: ./cache/anthropic_media
+    """
+    return str(await get_config_value("anthropic_media_dir", "./cache/anthropic_media", "ANTHROPIC_MEDIA_DIR"))
+
+
+async def get_anthropic_media_ttl_seconds() -> int:
+    """
+    获取 Anthropic 图片签名 URL 有效期（秒）。
+
+    Environment variable: ANTHROPIC_MEDIA_TTL_SECONDS
+    TOML config key: anthropic_media_ttl_seconds
+    Default: 600
+    """
+    raw = await get_config_value("anthropic_media_ttl_seconds", 600, "ANTHROPIC_MEDIA_TTL_SECONDS")
+    try:
+        return max(30, int(raw))
+    except Exception:
+        return 600
+
+
+async def get_anthropic_media_signing_secret() -> str:
+    """
+    获取 Anthropic 图片签名密钥（用于生成/校验签名 URL）。
+
+    说明：若未显式配置，会回退到 API 密码，便于开箱即用。
+
+    Environment variable: ANTHROPIC_MEDIA_SIGNING_SECRET
+    TOML config key: anthropic_media_signing_secret
+    Default: API_PASSWORD（或 PASSWORD）
+    """
+    raw = str(await get_config_value("anthropic_media_signing_secret", "", "ANTHROPIC_MEDIA_SIGNING_SECRET")).strip()
+    if raw:
+        return raw
+    return await get_api_password()
+
+
+async def get_anthropic_media_max_bytes() -> int:
+    """
+    获取单张图片最大字节数（用于避免滥用）。
+
+    Environment variable: ANTHROPIC_MEDIA_MAX_BYTES
+    TOML config key: anthropic_media_max_bytes
+    Default: 8MB
+    """
+    raw = await get_config_value("anthropic_media_max_bytes", 8 * 1024 * 1024, "ANTHROPIC_MEDIA_MAX_BYTES")
+    try:
+        return max(64 * 1024, int(raw))
+    except Exception:
+        return 8 * 1024 * 1024
+
+
+async def get_anthropic_media_max_files() -> int:
+    """
+    获取媒体目录允许保留的最大文件数量（超过后会清理最旧文件）。
+
+    Environment variable: ANTHROPIC_MEDIA_MAX_FILES
+    TOML config key: anthropic_media_max_files
+    Default: 200
+    """
+    raw = await get_config_value("anthropic_media_max_files", 200, "ANTHROPIC_MEDIA_MAX_FILES")
+    try:
+        return max(10, int(raw))
+    except Exception:
+        return 200
+
+
+async def get_anthropic_media_cleanup_interval_seconds() -> int:
+    """
+    获取媒体目录清理最小间隔（秒）。
+
+    Environment variable: ANTHROPIC_MEDIA_CLEANUP_INTERVAL_SECONDS
+    TOML config key: anthropic_media_cleanup_interval_seconds
+    Default: 60
+    """
+    raw = await get_config_value(
+        "anthropic_media_cleanup_interval_seconds", 60, "ANTHROPIC_MEDIA_CLEANUP_INTERVAL_SECONDS"
+    )
+    try:
+        return max(5, int(raw))
+    except Exception:
+        return 60
+
+
 # MongoDB Configuration
 async def get_mongodb_uri() -> str:
     """

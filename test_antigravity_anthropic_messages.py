@@ -1,9 +1,13 @@
+import base64
 import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from src.antigravity_api import build_antigravity_request_body, send_antigravity_request_no_stream
 from src.anthropic_converter import (
@@ -18,6 +22,7 @@ from src.antigravity_anthropic_router import (
     _convert_antigravity_response_to_anthropic_message,
     _estimate_input_tokens_from_components,
 )
+from src.anthropic_media_store import AnthropicMediaStore
 from src.token_estimator import estimate_input_tokens_from_anthropic_request
 from src.token_estimator import estimate_input_tokens_from_components_legacy
 from src.token_estimator import estimate_input_tokens_from_components_with_options
@@ -466,6 +471,80 @@ def test_antigravity_response_to_anthropic_message_tool_use_input_会递归移�
         "options": {"limit": 20},
         "arr": [1, {"y": 2}],
     }
+
+
+def test_antigravity_response_to_anthropic_message_url模式_会输出可渲染链接且不回传base64(tmp_path):
+    store = AnthropicMediaStore(
+        media_dir=str(tmp_path),
+        ttl_seconds=600,
+        signing_secret="secret",
+        max_bytes=1024 * 1024,
+        max_files=50,
+        cleanup_interval_seconds=1,
+    )
+    raw = b"not-a-real-png-but-ok"
+    b64 = base64.b64encode(raw).decode("utf-8")
+
+    response_data = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {"parts": [{"inlineData": {"mimeType": "image/png", "data": b64}}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    msg = _convert_antigravity_response_to_anthropic_message(
+        response_data,
+        model="claude-3-5-sonnet-20241022",
+        message_id="msg_test",
+        image_output_mode="url",
+        media_store=store,
+        media_base_url="http://testserver",
+        media_ttl_seconds=600,
+    )
+
+    assert not any(b.get("type") == "image" for b in msg["content"])
+    text_blocks = [b for b in msg["content"] if b.get("type") == "text"]
+    assert text_blocks
+    assert "/antigravity/v1/media/" in text_blocks[0]["text"]
+    assert b64 not in json.dumps(msg, ensure_ascii=False)
+    assert any(p.suffix == ".png" for p in tmp_path.iterdir())
+
+
+def test_anthropic_media端点_签名校验通过返回图片_签名错误返回403(tmp_path, monkeypatch):
+    store = AnthropicMediaStore(
+        media_dir=str(tmp_path),
+        ttl_seconds=600,
+        signing_secret="secret",
+        max_bytes=1024 * 1024,
+        max_files=50,
+        cleanup_interval_seconds=1,
+    )
+    b64 = base64.b64encode(b"abc").decode("utf-8")
+    media_key = store.save_inline_data(mime_type="image/png", base64_data=b64)
+    signed = store.build_signed_url(base_url="http://testserver", media_key=media_key, ttl_seconds=600)
+
+    import src.antigravity_anthropic_router as anthropic_router_module
+
+    async def fake_get_store():
+        return store
+
+    monkeypatch.setattr(anthropic_router_module, "get_anthropic_media_store", fake_get_store)
+
+    app = FastAPI()
+    app.include_router(anthropic_router_module.router)
+    client = TestClient(app)
+
+    u = urlparse(signed.url)
+    ok_resp = client.get(u.path + "?" + u.query)
+    assert ok_resp.status_code == 200
+    assert ok_resp.headers.get("content-type", "").startswith("image/png")
+
+    bad_resp = client.get(f"{u.path}?expires={signed.expires}&sig=deadbeef")
+    assert bad_resp.status_code == 403
 
 
 @pytest.mark.asyncio

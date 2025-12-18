@@ -114,6 +114,10 @@ async def antigravity_sse_to_anthropic_sse(
     calibration_key: Optional[str] = None,
     credential_manager: Any = None,
     credential_name: Optional[str] = None,
+    image_output_mode: str = "base64",
+    media_store: Any = None,
+    media_base_url: Optional[str] = None,
+    media_ttl_seconds: int = 600,
 ) -> AsyncIterator[bytes]:
     """
     将 Antigravity SSE（data: {...}）转换为 Anthropic Messages Streaming SSE。
@@ -339,32 +343,109 @@ async def antigravity_sse_to_anthropic_sse(
                             enqueue(stop_evt)
 
                     inline = part.get("inlineData", {}) or {}
-                    idx = state._next_index()
-                    block = {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": inline.get("mimeType", "image/png"),
-                            "data": inline.get("data", ""),
-                        },
-                    }
-                    evt1 = _sse_event(
-                        "content_block_start",
-                        {
-                            "type": "content_block_start",
-                            "index": idx,
-                            "content_block": block,
-                        },
+                    mime_type = inline.get("mimeType", "image/png")
+                    base64_data = inline.get("data", "")
+
+                    want_url = (
+                        image_output_mode in {"url", "both"} and media_store is not None and media_base_url
                     )
-                    evt2 = _sse_event(
-                        "content_block_stop",
-                        {"type": "content_block_stop", "index": idx},
-                    )
-                    if message_start_sent:
-                        ready_output.extend([evt1, evt2])
-                    else:
-                        enqueue(evt1)
-                        enqueue(evt2)
+                    if want_url:
+                        try:
+                            media_key = media_store.save_inline_data(
+                                mime_type=mime_type, base64_data=base64_data
+                            )
+                            signed = media_store.build_signed_url(
+                                base_url=str(media_base_url),
+                                media_key=media_key,
+                                ttl_seconds=int(media_ttl_seconds or 0) or None,
+                            )
+                            md = f"![生成的图片]({signed.url})"
+
+                            if image_output_mode == "both":
+                                idx_img = state._next_index()
+                                evt_img_start = _sse_event(
+                                    "content_block_start",
+                                    {
+                                        "type": "content_block_start",
+                                        "index": idx_img,
+                                        "content_block": {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": mime_type,
+                                                "data": base64_data,
+                                            },
+                                        },
+                                    },
+                                )
+                                evt_img_stop = _sse_event(
+                                    "content_block_stop",
+                                    {"type": "content_block_stop", "index": idx_img},
+                                )
+                                if message_start_sent:
+                                    ready_output.extend([evt_img_start, evt_img_stop])
+                                else:
+                                    enqueue(evt_img_start)
+                                    enqueue(evt_img_stop)
+
+                            idx_text = state._next_index()
+                            evt_txt_start = _sse_event(
+                                "content_block_start",
+                                {
+                                    "type": "content_block_start",
+                                    "index": idx_text,
+                                    "content_block": {"type": "text", "text": ""},
+                                },
+                            )
+                            evt_txt_delta = _sse_event(
+                                "content_block_delta",
+                                {
+                                    "type": "content_block_delta",
+                                    "index": idx_text,
+                                    "delta": {"type": "text_delta", "text": md},
+                                },
+                            )
+                            evt_txt_stop = _sse_event(
+                                "content_block_stop",
+                                {"type": "content_block_stop", "index": idx_text},
+                            )
+                            if message_start_sent:
+                                ready_output.extend([evt_txt_start, evt_txt_delta, evt_txt_stop])
+                            else:
+                                enqueue(evt_txt_start)
+                                enqueue(evt_txt_delta)
+                                enqueue(evt_txt_stop)
+                        except Exception as e:
+                            log.debug(f"[ANTHROPIC][MEDIA] 流式图片落地失败，回退 base64: {e}")
+                            want_url = False
+
+                    if not want_url:
+                        idx = state._next_index()
+                        block = {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": base64_data,
+                            },
+                        }
+                        evt1 = _sse_event(
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": idx,
+                                "content_block": block,
+                            },
+                        )
+                        evt2 = _sse_event(
+                            "content_block_stop",
+                            {"type": "content_block_stop", "index": idx},
+                        )
+                        if message_start_sent:
+                            ready_output.extend([evt1, evt2])
+                        else:
+                            enqueue(evt1)
+                            enqueue(evt2)
                     continue
 
                 if "functionCall" in part:

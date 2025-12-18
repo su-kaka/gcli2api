@@ -7,11 +7,12 @@ import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from log import log
 
+from .anthropic_media_store import AnthropicMediaStore, get_anthropic_media_store
 from .antigravity_api import (
     build_antigravity_request_body,
     send_antigravity_request_no_stream,
@@ -43,6 +44,7 @@ _SENSITIVE_KEYS = {
     "secret",
 }
 
+
 def _remove_nulls_for_tool_input(value: Any) -> Any:
     """
     递归移除 dict/list 中值为 null/None 的字段/元素。
@@ -67,6 +69,19 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
         return cleaned_list
 
     return value
+
+
+async def _get_media_base_url(request: Request) -> str:
+    """
+    获取用于拼接媒体绝对 URL 的 base_url。
+
+    默认使用 `request.base_url`；若配置了 `PUBLIC_BASE_URL` 则以配置为准（反代/域名场景）。
+    """
+    from config import get_public_base_url
+
+    public_base = await get_public_base_url()
+    base = public_base or str(request.base_url)
+    return str(base).rstrip("/")
 
 
 def _anthropic_debug_max_chars() -> int:
@@ -261,6 +276,34 @@ def _estimate_input_tokens_from_anthropic_payload(payload: Dict[str, Any]) -> in
     return estimate_input_tokens_from_anthropic_request(payload)
 
 
+@router.get("/antigravity/v1/media/{media_key}")
+async def anthropic_media_get(media_key: str, request: Request) -> Response:
+    """
+    在 `ANTHROPIC_IMAGE_OUTPUT=url|both` 时，用于短期访问图片内容的签名 URL 端点。
+
+    说明：该端点默认不要求额外鉴权头，便于聊天客户端渲染；安全性依赖短期签名参数。
+    """
+    expires_raw = request.query_params.get("expires")
+    sig = request.query_params.get("sig") or ""
+
+    try:
+        expires = int(expires_raw or 0)
+    except Exception:
+        expires = 0
+
+    media_store = await get_anthropic_media_store()
+    if not media_store.validate(media_key=media_key, expires=expires, sig=sig):
+        return Response(status_code=403, content="Forbidden", media_type="text/plain")
+
+    media = media_store.get_media_file(media_key=media_key)
+    if not media:
+        return Response(status_code=404, content="Not Found", media_type="text/plain")
+
+    path, content_type = media
+    media_store.maybe_cleanup()
+    return FileResponse(path, media_type=content_type)
+
+
 def _pick_usage_metadata_from_antigravity_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     兼容下游 usageMetadata 的多种落点：
@@ -304,6 +347,10 @@ def _convert_antigravity_response_to_anthropic_message(
     model: str,
     message_id: str,
     fallback_input_tokens: int = 0,
+    image_output_mode: str = "base64",
+    media_store: Optional[AnthropicMediaStore] = None,
+    media_base_url: Optional[str] = None,
+    media_ttl_seconds: int = 600,
 ) -> Dict[str, Any]:
     candidate = response_data.get("response", {}).get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
@@ -343,16 +390,45 @@ def _convert_antigravity_response_to_anthropic_message(
 
         if "inlineData" in part:
             inline = part.get("inlineData", {}) or {}
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": inline.get("mimeType", "image/png"),
-                        "data": inline.get("data", ""),
-                    },
-                }
-            )
+            mime_type = inline.get("mimeType", "image/png")
+            base64_data = inline.get("data", "")
+
+            want_url = image_output_mode in {"url", "both"} and media_store and media_base_url
+            if want_url:
+                try:
+                    media_key = media_store.save_inline_data(mime_type=mime_type, base64_data=base64_data)
+                    signed = media_store.build_signed_url(
+                        base_url=str(media_base_url),
+                        media_key=media_key,
+                        ttl_seconds=int(media_ttl_seconds or 0) or None,
+                    )
+                    if image_output_mode == "both":
+                        content.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": base64_data,
+                                },
+                            }
+                        )
+                    content.append({"type": "text", "text": f"![生成的图片]({signed.url})"})
+                except Exception as e:
+                    log.debug(f"[ANTHROPIC][MEDIA] 图片落地失败，回退 base64: {e}")
+                    want_url = False
+
+            if not want_url:
+                content.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": base64_data,
+                        },
+                    }
+                )
             continue
 
     finish_reason = candidate.get("finishReason")
@@ -566,6 +642,16 @@ async def anthropic_messages(
     if stream:
         message_id = f"msg_{uuid.uuid4().hex}"
 
+        from config import get_anthropic_image_output_mode, get_anthropic_media_ttl_seconds
+
+        image_output_mode = await get_anthropic_image_output_mode()
+        media_store = None
+        media_base_url = None
+        media_ttl_seconds = await get_anthropic_media_ttl_seconds()
+        if image_output_mode in {"url", "both"}:
+            media_store = await get_anthropic_media_store()
+            media_base_url = await _get_media_base_url(request)
+
         try:
             resources, cred_name, _ = await send_antigravity_request_stream(request_body, cred_mgr)
             response, stream_ctx, client = resources
@@ -584,6 +670,10 @@ async def anthropic_messages(
                     calibration_key=calibration_key,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
+                    image_output_mode=image_output_mode,
+                    media_store=media_store,
+                    media_base_url=media_base_url,
+                    media_ttl_seconds=media_ttl_seconds,
                 ):
                     yield chunk
             finally:
@@ -605,11 +695,25 @@ async def anthropic_messages(
         log.error(f"[ANTHROPIC] 下游非流式请求失败: {e}")
         return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
 
+    from config import get_anthropic_image_output_mode, get_anthropic_media_ttl_seconds
+
+    image_output_mode = await get_anthropic_image_output_mode()
+    media_store = None
+    media_base_url = None
+    media_ttl_seconds = await get_anthropic_media_ttl_seconds()
+    if image_output_mode in {"url", "both"}:
+        media_store = await get_anthropic_media_store()
+        media_base_url = await _get_media_base_url(request)
+
     anthropic_response = _convert_antigravity_response_to_anthropic_message(
         response_data,
         model=str(model),
         message_id=request_id,
         fallback_input_tokens=estimated_input_tokens_components,
+        image_output_mode=image_output_mode,
+        media_store=media_store,
+        media_base_url=media_base_url,
+        media_ttl_seconds=media_ttl_seconds,
     )
     if _anthropic_debug_enabled():
         usage_metadata = _pick_usage_metadata_from_antigravity_response(response_data)
