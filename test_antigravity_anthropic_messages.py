@@ -572,16 +572,33 @@ async def test_streaming_空文本part_不会产生空text块_避免污染thinki
 
 
 @pytest.mark.asyncio
-async def test_streaming_message_start_会注入估算_input_tokens():
-    payload = {
-        "model": "claude-3-5-sonnet-20241022",
-        "max_tokens": 8,
-        "messages": [{"role": "user", "content": "你好，世界"}],
-    }
-    components = convert_anthropic_request_to_antigravity_components(payload)
-    estimated_input_tokens = _estimate_input_tokens_from_components(components)
-    assert estimated_input_tokens > 0
+async def test_streaming_message_start_优先使用下游_promptTokenCount():
+    antigravity_lines = [
+        'data: {"response":{"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":0},"candidates":[{"content":{"parts":[]}}]}}',
+    ]
 
+    async def gen():
+        for l in antigravity_lines:
+            yield l
+
+    chunks = []
+    async for chunk in antigravity_sse_to_anthropic_sse(
+        gen(),
+        model="m",
+        message_id="msg1",
+        initial_input_tokens=77,
+    ):
+        chunks.append(chunk.decode("utf-8"))
+
+    first = chunks[0]
+    lines = [l for l in first.splitlines() if l.strip()]
+    assert lines[0] == "event: message_start"
+    data = json.loads(lines[1].split("data: ", 1)[1])
+    assert data["message"]["usage"]["input_tokens"] == 7
+
+
+@pytest.mark.asyncio
+async def test_streaming_message_start_缺失_usageMetadata_会回退到估算_input_tokens():
     async def gen():
         if False:
             yield ""
@@ -591,7 +608,7 @@ async def test_streaming_message_start_会注入估算_input_tokens():
         gen(),
         model="m",
         message_id="msg1",
-        initial_input_tokens=estimated_input_tokens,
+        initial_input_tokens=77,
     ):
         chunks.append(chunk.decode("utf-8"))
 
@@ -599,7 +616,7 @@ async def test_streaming_message_start_会注入估算_input_tokens():
     lines = [l for l in first.splitlines() if l.strip()]
     assert lines[0] == "event: message_start"
     data = json.loads(lines[1].split("data: ", 1)[1])
-    assert data["message"]["usage"]["input_tokens"] == estimated_input_tokens
+    assert data["message"]["usage"]["input_tokens"] == 77
 
 
 @pytest.mark.asyncio
@@ -655,6 +672,42 @@ async def test_streaming_message_delta_支持_candidate_level_usageMetadata():
     assert parsed[-2][0] == "message_delta"
     assert parsed[-2][1]["usage"]["input_tokens"] == 7
     assert parsed[-2][1]["usage"]["output_tokens"] == 9
+
+
+@pytest.mark.asyncio
+async def test_streaming_thoughtSignature_延迟到达_会输出_signature_delta():
+    antigravity_lines = [
+        'data: {"response":{"candidates":[{"content":{"parts":[{"thought":true,"text":"A"}]}}]}}',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"thought":true,"text":"","thoughtSignature":"sigX"}]}}]}}',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"B"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}}}',
+    ]
+
+    async def gen():
+        for l in antigravity_lines:
+            yield l
+
+    chunks = []
+    async for chunk in antigravity_sse_to_anthropic_sse(
+        gen(),
+        model="m",
+        message_id="msg1",
+        initial_input_tokens=1,
+    ):
+        chunks.append(chunk.decode("utf-8"))
+
+    def parse_event(chunk_str: str):
+        lines = [l for l in chunk_str.splitlines() if l.strip()]
+        event = lines[0].split("event: ", 1)[1].strip()
+        data = json.loads(lines[1].split("data: ", 1)[1])
+        return event, data
+
+    parsed = [parse_event(c) for c in chunks]
+    signature_delta = next(
+        data
+        for event, data in parsed
+        if event == "content_block_delta" and (data.get("delta") or {}).get("type") == "signature_delta"
+    )
+    assert signature_delta["delta"]["signature"] == "sigX"
 
 
 def test_count_tokens_图片不会按base64纯文本爆炸():

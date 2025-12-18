@@ -120,6 +120,8 @@ async def antigravity_sse_to_anthropic_sse(
     """
     state = _StreamingState(message_id=message_id, model=model)
     success_recorded = False
+    message_start_sent = False
+    pending_output: list[bytes] = []
 
     try:
         initial_input_tokens_int = max(0, int(initial_input_tokens or 0))
@@ -148,25 +150,43 @@ async def antigravity_sse_to_anthropic_sse(
             return candidate_usage
         return response_usage
 
-    yield _sse_event(
-        "message_start",
-        {
-            "type": "message_start",
-            "message": {
-                "id": message_id,
-                "type": "message",
-                "role": "assistant",
-                "model": model,
-                "content": [],
-                "stop_reason": None,
-                "stop_sequence": None,
-                "usage": {"input_tokens": initial_input_tokens_int, "output_tokens": 0},
-            },
-        },
-    )
+    def enqueue(evt: bytes) -> None:
+        pending_output.append(evt)
+
+    def flush_pending_ready(ready: list[bytes]) -> None:
+        if not pending_output:
+            return
+        ready.extend(pending_output)
+        pending_output.clear()
+
+    def send_message_start(ready: list[bytes], *, input_tokens: int) -> None:
+        nonlocal message_start_sent
+        if message_start_sent:
+            return
+        message_start_sent = True
+        ready.append(
+            _sse_event(
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": message_id,
+                        "type": "message",
+                        "role": "assistant",
+                        "model": model,
+                        "content": [],
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": int(input_tokens or 0), "output_tokens": 0},
+                    },
+                },
+            )
+        )
+        flush_pending_ready(ready)
 
     try:
         async for line in lines:
+            ready_output: list[bytes] = []
             if not line or not line.startswith("data: "):
                 continue
 
@@ -200,6 +220,10 @@ async def antigravity_sse_to_anthropic_sse(
                         state.output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
                         state.has_output_tokens = True
 
+            # 为保证 message_start 永远是首个事件：在拿到真实值之前，把所有事件暂存到 pending_output。
+            if state.has_input_tokens and not message_start_sent:
+                send_message_start(ready_output, input_tokens=state.input_tokens)
+
             for part in parts:
                 if not isinstance(part, dict):
                     continue
@@ -208,13 +232,38 @@ async def antigravity_sse_to_anthropic_sse(
                     if state._current_block_type != "thinking":
                         stop_evt = state.close_block_if_open()
                         if stop_evt:
-                            yield stop_evt
+                            if message_start_sent:
+                                ready_output.append(stop_evt)
+                            else:
+                                enqueue(stop_evt)
                         signature = part.get("thoughtSignature")
-                        yield state.open_thinking_block(signature=signature)
+                        evt = state.open_thinking_block(signature=signature)
+                        if message_start_sent:
+                            ready_output.append(evt)
+                        else:
+                            enqueue(evt)
+                    else:
+                        # 兼容：thoughtSignature 可能在后续 chunk 才出现（甚至 text 为空）。
+                        # 参考 /mnt/d/pythonProject/amq2api-v2/gemini/handler.py 的思路：用 signature_delta 补发签名。
+                        signature = part.get("thoughtSignature")
+                        if signature and not state._current_thinking_signature:
+                            evt = _sse_event(
+                                "content_block_delta",
+                                {
+                                    "type": "content_block_delta",
+                                    "index": state._current_block_index,
+                                    "delta": {"type": "signature_delta", "signature": signature},
+                                },
+                            )
+                            state._current_thinking_signature = str(signature)
+                            if message_start_sent:
+                                ready_output.append(evt)
+                            else:
+                                enqueue(evt)
 
                     thinking_text = part.get("text", "")
                     if thinking_text:
-                        yield _sse_event(
+                        evt = _sse_event(
                             "content_block_delta",
                             {
                                 "type": "content_block_delta",
@@ -222,6 +271,10 @@ async def antigravity_sse_to_anthropic_sse(
                                 "delta": {"type": "thinking_delta", "thinking": thinking_text},
                             },
                         )
+                        if message_start_sent:
+                            ready_output.append(evt)
+                        else:
+                            enqueue(evt)
                     continue
 
                 if "text" in part:
@@ -232,11 +285,18 @@ async def antigravity_sse_to_anthropic_sse(
                     if state._current_block_type != "text":
                         stop_evt = state.close_block_if_open()
                         if stop_evt:
-                            yield stop_evt
-                        yield state.open_text_block()
+                            if message_start_sent:
+                                ready_output.append(stop_evt)
+                            else:
+                                enqueue(stop_evt)
+                        evt = state.open_text_block()
+                        if message_start_sent:
+                            ready_output.append(evt)
+                        else:
+                            enqueue(evt)
 
                     if text:
-                        yield _sse_event(
+                        evt = _sse_event(
                             "content_block_delta",
                             {
                                 "type": "content_block_delta",
@@ -244,12 +304,19 @@ async def antigravity_sse_to_anthropic_sse(
                                 "delta": {"type": "text_delta", "text": text},
                             },
                         )
+                        if message_start_sent:
+                            ready_output.append(evt)
+                        else:
+                            enqueue(evt)
                     continue
 
                 if "inlineData" in part:
                     stop_evt = state.close_block_if_open()
                     if stop_evt:
-                        yield stop_evt
+                        if message_start_sent:
+                            ready_output.append(stop_evt)
+                        else:
+                            enqueue(stop_evt)
 
                     inline = part.get("inlineData", {}) or {}
                     idx = state._next_index()
@@ -261,7 +328,7 @@ async def antigravity_sse_to_anthropic_sse(
                             "data": inline.get("data", ""),
                         },
                     }
-                    yield _sse_event(
+                    evt1 = _sse_event(
                         "content_block_start",
                         {
                             "type": "content_block_start",
@@ -269,16 +336,24 @@ async def antigravity_sse_to_anthropic_sse(
                             "content_block": block,
                         },
                     )
-                    yield _sse_event(
+                    evt2 = _sse_event(
                         "content_block_stop",
                         {"type": "content_block_stop", "index": idx},
                     )
+                    if message_start_sent:
+                        ready_output.extend([evt1, evt2])
+                    else:
+                        enqueue(evt1)
+                        enqueue(evt2)
                     continue
 
                 if "functionCall" in part:
                     stop_evt = state.close_block_if_open()
                     if stop_evt:
-                        yield stop_evt
+                        if message_start_sent:
+                            ready_output.append(stop_evt)
+                        else:
+                            enqueue(stop_evt)
 
                     state.has_tool_use = True
 
@@ -288,7 +363,7 @@ async def antigravity_sse_to_anthropic_sse(
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
                     idx = state._next_index()
-                    yield _sse_event(
+                    evt_start = _sse_event(
                         "content_block_start",
                         {
                             "type": "content_block_start",
@@ -303,7 +378,7 @@ async def antigravity_sse_to_anthropic_sse(
                     )
 
                     input_json = json.dumps(tool_args, ensure_ascii=False, separators=(",", ":"))
-                    yield _sse_event(
+                    evt_delta = _sse_event(
                         "content_block_delta",
                         {
                             "type": "content_block_delta",
@@ -311,20 +386,41 @@ async def antigravity_sse_to_anthropic_sse(
                             "delta": {"type": "input_json_delta", "partial_json": input_json},
                         },
                     )
-                    yield _sse_event(
+                    evt_stop = _sse_event(
                         "content_block_stop",
                         {"type": "content_block_stop", "index": idx},
                     )
+                    if message_start_sent:
+                        ready_output.extend([evt_start, evt_delta, evt_stop])
+                    else:
+                        enqueue(evt_start)
+                        enqueue(evt_delta)
+                        enqueue(evt_stop)
                     continue
 
             finish_reason = candidate.get("finishReason")
+
+            if ready_output:
+                for evt in ready_output:
+                    yield evt
+
             if finish_reason:
                 state.finish_reason = str(finish_reason)
                 break
 
         stop_evt = state.close_block_if_open()
         if stop_evt:
-            yield stop_evt
+            if message_start_sent:
+                yield stop_evt
+            else:
+                enqueue(stop_evt)
+
+        # 流结束仍未拿到下游 usageMetadata 时，兜底使用估算值发送 message_start，保证协议完整。
+        if not message_start_sent:
+            ready_output = []
+            send_message_start(ready_output, input_tokens=initial_input_tokens_int)
+            for evt in ready_output:
+                yield evt
 
         stop_reason = "tool_use" if state.has_tool_use else "end_turn"
         if state.finish_reason == "MAX_TOKENS" and not state.has_tool_use:
@@ -368,6 +464,24 @@ async def antigravity_sse_to_anthropic_sse(
 
     except Exception as e:
         log.error(f"[ANTHROPIC] 流式转换失败: {e}")
+        # 错误场景也尽量保证客户端先收到 message_start（否则部分客户端会直接挂起）。
+        if not message_start_sent:
+            yield _sse_event(
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": message_id,
+                        "type": "message",
+                        "role": "assistant",
+                        "model": model,
+                        "content": [],
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": initial_input_tokens_int, "output_tokens": 0},
+                    },
+                },
+            )
         yield _sse_event(
             "error",
             {"type": "error", "error": {"type": "api_error", "message": str(e)}},
