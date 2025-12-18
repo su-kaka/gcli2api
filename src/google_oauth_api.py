@@ -533,7 +533,6 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
 async def fetch_project_id(
     access_token: str,
-    host: str,
     user_agent: str
 ) -> Optional[str]:
     """
@@ -541,14 +540,12 @@ async def fetch_project_id(
 
     Args:
         access_token: Google OAuth access token
-        host: API host
         user_agent: User-Agent header
 
     Returns:
         project_id 字符串，如果获取失败返回 None
     """
     headers = {
-        'Host': host,
         'User-Agent': user_agent,
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',

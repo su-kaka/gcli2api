@@ -43,12 +43,8 @@ CALLBACK_HOST = "localhost"
 
 # ====================== API Configuration ======================
 
-# Standard mode API Host and User-Agent
-STANDARD_HOST = "cloudcode-pa.googleapis.com"
 STANDARD_USER_AGENT = "GeminiCLI/0.1.5 (Windows; AMD64)"
 
-# Antigravity API Host and User-Agent (shared by antigravity_api.py and google_oauth_api.py)
-ANTIGRAVITY_HOST = "daily-cloudcode-pa.sandbox.googleapis.com"
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
 # ====================== Model Configuration ======================

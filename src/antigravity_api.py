@@ -22,7 +22,7 @@ from log import log
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .models import Model
-from .utils import ANTIGRAVITY_HOST, ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
+from .utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
 
 async def _check_should_auto_ban(status_code: int) -> bool:
     """检查是否应该触发自动封禁"""
@@ -48,7 +48,6 @@ async def _handle_auto_ban(
 def build_antigravity_headers(access_token: str) -> Dict[str, str]:
     """构建 Antigravity API 请求头"""
     return {
-        'Host': ANTIGRAVITY_HOST,
         'User-Agent': ANTIGRAVITY_USER_AGENT,
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',

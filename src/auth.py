@@ -29,14 +29,12 @@ from .storage_adapter import get_storage_adapter
 from .utils import (
     ANTIGRAVITY_CLIENT_ID,
     ANTIGRAVITY_CLIENT_SECRET,
-    ANTIGRAVITY_HOST,
     ANTIGRAVITY_SCOPES,
     ANTIGRAVITY_USER_AGENT,
     CALLBACK_HOST,
     CLIENT_ID,
     CLIENT_SECRET,
     SCOPES,
-    STANDARD_HOST,
     STANDARD_USER_AGENT,
     TOKEN_URL,
 )
@@ -666,7 +664,6 @@ async def asyncio_complete_auth_flow(
                     # 使用API获取project_id
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        ANTIGRAVITY_HOST,
                         ANTIGRAVITY_USER_AGENT
                     )
                     if project_id:
@@ -697,10 +694,9 @@ async def asyncio_complete_auth_flow(
                 # 如果需要自动检测项目ID且没有提供项目ID（标准模式）
                 if flow_data.get("auto_project_detection", False) and not project_id:
                     log.info("标准模式：从API获取project_id...")
-                    # 使用API获取project_id（使用标准模式的Host和User-Agent）
+                    # 使用API获取project_id（使用标准模式的User-Agent）
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        host=STANDARD_HOST,
                         user_agent=STANDARD_USER_AGENT
                     )
                     if project_id:
@@ -842,7 +838,6 @@ async def complete_auth_flow_from_callback_url(
                 # 使用API获取project_id
                 project_id = await fetch_project_id(
                     credentials.access_token,
-                    ANTIGRAVITY_HOST,
                     ANTIGRAVITY_USER_AGENT
                 )
                 if project_id:
@@ -880,7 +875,6 @@ async def complete_auth_flow_from_callback_url(
                     log.info("标准模式：从API获取project_id...")
                     detected_project_id = await fetch_project_id(
                         credentials.access_token,
-                        host=STANDARD_HOST,
                         user_agent=STANDARD_USER_AGENT
                     )
                     if detected_project_id:
