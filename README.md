@@ -244,6 +244,32 @@ docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(p
 docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
 ```
 
+**Docker Mac**
+```bash
+# 使用通用密码
+docker run -d \
+  --name gcli2api \
+  -p 7861:7861 \
+  -p 8080:8080 \
+  -e PASSWORD=pwd \
+  -e PORT=7861 \
+  -v "$(pwd)/data/creds":/app/creds \
+  ghcr.io/su-kaka/gcli2api:latest
+```
+
+```bash
+# 使用分离密码
+docker run -d \
+--name gcli2api \
+-p 7861:7861 \
+-p 8080:8080 \
+-e API_PASSWORD=api_pwd \
+-e PANEL_PASSWORD=panel_pwd \
+-e PORT=7861 \
+-v $(pwd)/data/creds:/app/creds \
+ghcr.io/su-kaka/gcli2api:latest
+```
+
 **Docker Compose 运行命令**
 1. 将以下内容保存为 `docker-compose.yml` 文件：
     ```yaml
