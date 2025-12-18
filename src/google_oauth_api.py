@@ -14,6 +14,7 @@ from config import (
     get_oauth_proxy_url,
     get_resource_manager_api_url,
     get_service_usage_api_url,
+    get_antigravity_api_url,
 )
 from log import log
 
@@ -542,8 +543,6 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
     Returns:
         project_id 字符串，如果获取失败返回 None
     """
-    from config import get_antigravity_api_url
-
     # Use shared constants from utils
     headers = {
         'Host': ANTIGRAVITY_HOST,
@@ -573,10 +572,11 @@ async def fetch_project_id(access_token: str) -> Optional[str]:
 
         if response.status_code == 200:
             response_text = response.text
-            log.debug(f"[ANTIGRAVITY] Response body (first 500 chars): {response_text[:500]}")
+            log.debug(f"[ANTIGRAVITY] Response body (complete): {response_text}")
 
             data = response.json()
             log.debug(f"[ANTIGRAVITY] Response JSON keys: {list(data.keys())}")
+            log.debug(f"[ANTIGRAVITY] Full response data: {data}")
 
             project_id = data.get("cloudaicompanionProject")
             if project_id:
