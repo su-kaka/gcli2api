@@ -1677,3 +1677,139 @@ async def download_all_antigravity_creds(token: str = Depends(verify_panel_token
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/creds/verify-project/{filename}")
+async def verify_credential_project(filename: str, token: str = Depends(verify_panel_token)):
+    """
+    检验GCLI凭证的project id，重新获取project id
+    检验成功可以使403错误恢复
+    """
+    try:
+        from .google_oauth_api import Credentials, fetch_project_id
+        from config import get_code_assist_endpoint
+
+        # 验证文件名
+        if not filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="无效的文件名")
+
+        await ensure_credential_manager_initialized()
+        storage_adapter = await get_storage_adapter()
+
+        # 获取凭证数据
+        credential_data = await storage_adapter.get_credential(filename)
+        if not credential_data:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        # 创建凭证对象
+        credentials = Credentials.from_dict(credential_data)
+
+        # 确保token有效
+        await credentials.refresh_if_needed()
+
+        # 获取API端点
+        api_base_url = await get_code_assist_endpoint()
+
+        # 重新获取project id
+        project_id = await fetch_project_id(
+            access_token=credentials.access_token,
+            user_agent="gcli2api-verify/1.0",
+            api_base_url=api_base_url
+        )
+
+        if project_id:
+            # 更新凭证数据中的project_id
+            credential_data["project_id"] = project_id
+            await storage_adapter.store_credential(filename, credential_data, is_antigravity=False)
+
+            log.info(f"检验成功: {filename} - Project ID: {project_id}")
+
+            return JSONResponse(content={
+                "success": True,
+                "filename": filename,
+                "project_id": project_id,
+                "message": "检验成功！Project ID已更新，403错误应该已恢复"
+            })
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "filename": filename,
+                    "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
+                }
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"检验凭证Project ID失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"检验失败: {str(e)}")
+
+
+@router.post("/antigravity/creds/verify-project/{filename}")
+async def verify_antigravity_credential_project(filename: str, token: str = Depends(verify_panel_token)):
+    """
+    检验Antigravity凭证的project id，重新获取project id
+    检验成功可以使403错误恢复
+    """
+    try:
+        from .google_oauth_api import Credentials, fetch_project_id
+        from config import get_antigravity_api_url
+
+        # 验证文件名
+        if not filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="无效的文件名")
+
+        await ensure_credential_manager_initialized()
+        storage_adapter = await get_storage_adapter()
+
+        # 获取凭证数据
+        credential_data = await storage_adapter.get_credential(filename, is_antigravity=True)
+        if not credential_data:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        # 创建凭证对象
+        credentials = Credentials.from_dict(credential_data)
+
+        # 确保token有效
+        await credentials.refresh_if_needed()
+
+        # 获取Antigravity API端点
+        api_base_url = await get_antigravity_api_url()
+
+        # 重新获取project id
+        project_id = await fetch_project_id(
+            access_token=credentials.access_token,
+            user_agent="gcli2api-verify/1.0",
+            api_base_url=api_base_url
+        )
+
+        if project_id:
+            # 更新凭证数据中的project_id
+            credential_data["project_id"] = project_id
+            await storage_adapter.store_credential(filename, credential_data, is_antigravity=True)
+
+            log.info(f"检验成功: {filename} - Project ID: {project_id}")
+
+            return JSONResponse(content={
+                "success": True,
+                "filename": filename,
+                "project_id": project_id,
+                "message": "检验成功！Project ID已更新，403错误应该已恢复"
+            })
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "filename": filename,
+                    "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
+                }
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"检验Antigravity凭证Project ID失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"检验失败: {str(e)}")
+
+

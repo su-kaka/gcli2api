@@ -225,7 +225,7 @@ function createCredsManager(type) {
             const selectedCount = this.selectedFiles.size;
             document.getElementById(this.getElementId('SelectedCount')).textContent = `已选择 ${selectedCount} 项`;
 
-            const batchBtns = ['Enable', 'Disable', 'Delete'].map(action =>
+            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify'].map(action =>
                 document.getElementById(this.getElementId(`Batch${action}Btn`))
             );
             batchBtns.forEach(btn => btn && (btn.disabled = selectedCount === 0));
@@ -575,6 +575,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn view" onclick="toggle${isAntigravity ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
         <button class="cred-btn download" onclick="download${isAntigravity ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${isAntigravity ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${isAntigravity ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
 
@@ -1301,6 +1302,195 @@ async function fetchAntigravityUserEmail(filename) {
         showStatus(`获取邮箱失败: ${error.message}`, 'error');
     }
 }
+
+async function verifyProjectId(filename) {
+    try {
+        // 显示加载状态
+        showStatus('🔍 正在检验Project ID，请稍候...', 'info');
+
+        const response = await fetch(`./creds/verify-project/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            // 成功时显示绿色成功消息和Project ID
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`;
+            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
+
+            // 弹出成功提示
+            alert(`✅ 检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`);
+
+            await AppState.creds.refresh();
+        } else {
+            // 失败时显示红色错误消息
+            const errorMsg = data.message || '检验失败';
+            showStatus(`❌ ${errorMsg}`, 'error');
+            alert(`❌ 检验失败\n\n${errorMsg}`);
+        }
+    } catch (error) {
+        const errorMsg = `检验失败: ${error.message}`;
+        showStatus(`❌ ${errorMsg}`, 'error');
+        alert(`❌ ${errorMsg}`);
+    }
+}
+
+async function verifyAntigravityProjectId(filename) {
+    try {
+        // 显示加载状态
+        showStatus('🔍 正在检验Antigravity Project ID，请稍候...', 'info');
+
+        const response = await fetch(`./antigravity/creds/verify-project/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            // 成功时显示绿色成功消息和Project ID
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`;
+            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
+
+            // 弹出成功提示
+            alert(`✅ Antigravity检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`);
+
+            await AppState.antigravityCreds.refresh();
+        } else {
+            // 失败时显示红色错误消息
+            const errorMsg = data.message || '检验失败';
+            showStatus(`❌ ${errorMsg}`, 'error');
+            alert(`❌ 检验失败\n\n${errorMsg}`);
+        }
+    } catch (error) {
+        const errorMsg = `检验失败: ${error.message}`;
+        showStatus(`❌ ${errorMsg}`, 'error');
+        alert(`❌ ${errorMsg}`);
+    }
+}
+
+async function batchVerifyProjectIds() {
+    const selectedFiles = Array.from(AppState.creds.selectedFiles);
+    if (selectedFiles.length === 0) {
+        showStatus('❌ 请先选择要检验的凭证', 'error');
+        alert('请先选择要检验的凭证');
+        return;
+    }
+
+    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个凭证的Project ID吗？\n这可能需要一些时间。`)) {
+        return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+    const results = [];
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+        const filename = selectedFiles[i];
+        const progress = `[${i + 1}/${selectedFiles.length}]`;
+
+        try {
+            showStatus(`🔍 ${progress} 正在检验: ${filename}...`, 'info');
+
+            const response = await fetch(`./creds/verify-project/${encodeURIComponent(filename)}`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                successCount++;
+                results.push(`✅ ${filename}: ${data.project_id}`);
+                showStatus(`✅ ${progress} 检验成功: ${filename} - Project ID: ${data.project_id}`, 'success');
+            } else {
+                failCount++;
+                results.push(`❌ ${filename}: ${data.message || '失败'}`);
+                showStatus(`❌ ${progress} 检验失败: ${filename}`, 'error');
+            }
+        } catch (error) {
+            failCount++;
+            results.push(`❌ ${filename}: ${error.message}`);
+            showStatus(`❌ ${progress} 检验出错: ${filename}`, 'error');
+        }
+    }
+
+    await AppState.creds.refresh();
+
+    const summary = `批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${results.join('\n')}`;
+
+    if (failCount === 0) {
+        showStatus(`✅ 全部检验成功！成功检验 ${successCount}/${selectedFiles.length} 个凭证`, 'success');
+    } else if (successCount === 0) {
+        showStatus(`❌ 全部检验失败！失败 ${failCount}/${selectedFiles.length} 个凭证`, 'error');
+    } else {
+        showStatus(`⚠️ 批量检验完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
+    }
+
+    console.log(summary);
+    alert(summary);
+}
+
+async function batchVerifyAntigravityProjectIds() {
+    const selectedFiles = Array.from(AppState.antigravityCreds.selectedFiles);
+    if (selectedFiles.length === 0) {
+        showStatus('❌ 请先选择要检验的Antigravity凭证', 'error');
+        alert('请先选择要检验的Antigravity凭证');
+        return;
+    }
+
+    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个Antigravity凭证的Project ID吗？\n这可能需要一些时间。`)) {
+        return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+    const results = [];
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+        const filename = selectedFiles[i];
+        const progress = `[${i + 1}/${selectedFiles.length}]`;
+
+        try {
+            showStatus(`🔍 ${progress} 正在检验Antigravity: ${filename}...`, 'info');
+
+            const response = await fetch(`./antigravity/creds/verify-project/${encodeURIComponent(filename)}`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                successCount++;
+                results.push(`✅ ${filename}: ${data.project_id}`);
+                showStatus(`✅ ${progress} 检验成功: ${filename} - Project ID: ${data.project_id}`, 'success');
+            } else {
+                failCount++;
+                results.push(`❌ ${filename}: ${data.message || '失败'}`);
+                showStatus(`❌ ${progress} 检验失败: ${filename}`, 'error');
+            }
+        } catch (error) {
+            failCount++;
+            results.push(`❌ ${filename}: ${error.message}`);
+            showStatus(`❌ ${progress} 检验出错: ${filename}`, 'error');
+        }
+    }
+
+    await AppState.antigravityCreds.refresh();
+
+    const summary = `Antigravity批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${results.join('\n')}`;
+
+    if (failCount === 0) {
+        showStatus(`✅ 全部检验成功！成功检验 ${successCount}/${selectedFiles.length} 个Antigravity凭证`, 'success');
+    } else if (successCount === 0) {
+        showStatus(`❌ 全部检验失败！失败 ${failCount}/${selectedFiles.length} 个Antigravity凭证`, 'error');
+    } else {
+        showStatus(`⚠️ 批量检验完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
+    }
+
+    console.log(summary);
+    alert(summary);
+}
+
 
 async function refreshAllEmails() {
     if (!confirm('确定要刷新所有凭证的用户邮箱吗？这可能需要一些时间。')) return;
