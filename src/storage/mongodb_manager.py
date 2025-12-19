@@ -439,7 +439,9 @@ class MongoDBManager:
         offset: int = 0,
         limit: Optional[int] = None,
         status_filter: str = "all",
-        is_antigravity: bool = False
+        is_antigravity: bool = False,
+        error_code_filter: Optional[str] = None,
+        cooldown_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -449,6 +451,8 @@ class MongoDBManager:
             limit: 返回的最大记录数（None表示返回所有）
             status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
             is_antigravity: 是否查询antigravity凭证集合（默认False）
+            error_code_filter: 错误码筛选（格式如"400"或"403"，筛选包含该错误码的凭证）
+            cooldown_filter: 冷却状态筛选（"in_cooldown"=冷却中, "no_cooldown"=未冷却）
 
         Returns:
             包含 items（凭证列表）、total（总数）、offset、limit 的字典
@@ -467,36 +471,56 @@ class MongoDBManager:
             elif status_filter == "disabled":
                 query["disabled"] = True
 
-            # 获取总数
-            total_count = await collection.count_documents(query)
+            # 错误码筛选 - 检查error_codes数组中是否包含特定错误码
+            if error_code_filter:
+                query["error_codes"] = error_code_filter
 
-            # 构建分页查询
-            cursor = collection.find(query).sort("rotation_order", 1).skip(offset)
-            if limit is not None:
-                cursor = cursor.limit(limit)
+            # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
+            cursor = collection.find(query).sort("rotation_order", 1)
 
-            summaries = []
+            all_summaries = []
             current_time = time.time()
 
             async for doc in cursor:
                 model_cooldowns = doc.get("model_cooldowns", {})
 
                 # 自动过滤掉已过期的模型CD
+                active_cooldowns = {}
                 if model_cooldowns:
-                    model_cooldowns = {
+                    active_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
                         if v > current_time
                     }
 
-                summaries.append({
+                summary = {
                     "filename": doc["filename"],
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
                     "last_success": doc.get("last_success", current_time),
                     "user_email": doc.get("user_email"),
                     "rotation_order": doc.get("rotation_order", 0),
-                    "model_cooldowns": model_cooldowns,
-                })
+                    "model_cooldowns": active_cooldowns,
+                }
+
+                # 应用冷却筛选
+                if cooldown_filter == "in_cooldown":
+                    # 只保留有冷却的凭证
+                    if active_cooldowns:
+                        all_summaries.append(summary)
+                elif cooldown_filter == "no_cooldown":
+                    # 只保留没有冷却的凭证
+                    if not active_cooldowns:
+                        all_summaries.append(summary)
+                else:
+                    # 不筛选冷却状态
+                    all_summaries.append(summary)
+
+            # 应用分页
+            total_count = len(all_summaries)
+            if limit is not None:
+                summaries = all_summaries[offset:offset + limit]
+            else:
+                summaries = all_summaries[offset:]
 
             return {
                 "items": summaries,
