@@ -590,7 +590,8 @@ async def upload_credentials_common(
 
 
 async def get_creds_status_common(
-    offset: int, limit: int, status_filter: str, is_antigravity: bool = False
+    offset: int, limit: int, status_filter: str, is_antigravity: bool = False,
+    error_code_filter: str = None, cooldown_filter: str = None
 ) -> JSONResponse:
     """获取凭证文件状态的通用函数"""
     # 验证分页参数
@@ -600,6 +601,8 @@ async def get_creds_status_common(
         raise HTTPException(status_code=400, detail="limit 只能是 20、50、100、200、500 或 1000")
     if status_filter not in ["all", "enabled", "disabled"]:
         raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
+    if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
+        raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
 
     await ensure_credential_manager_initialized()
 
@@ -613,7 +616,9 @@ async def get_creds_status_common(
             offset=offset,
             limit=limit,
             status_filter=status_filter,
-            is_antigravity=is_antigravity
+            is_antigravity=is_antigravity,
+            error_code_filter=error_code_filter if error_code_filter and error_code_filter != "all" else None,
+            cooldown_filter=cooldown_filter if cooldown_filter and cooldown_filter != "all" else None
         )
 
         creds_list = []
@@ -833,7 +838,9 @@ async def get_creds_status(
     token: str = Depends(verify_panel_token),
     offset: int = 0,
     limit: int = 50,
-    status_filter: str = "all"
+    status_filter: str = "all",
+    error_code_filter: str = "all",
+    cooldown_filter: str = "all"
 ):
     """
     获取凭证文件的状态（轻量级摘要，不包含完整凭证数据，支持分页和状态筛选）
@@ -842,12 +849,18 @@ async def get_creds_status(
         offset: 跳过的记录数（默认0）
         limit: 每页返回的记录数（默认50，可选：20, 50, 100, 200, 500, 1000）
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
+        error_code_filter: 错误码筛选（all=全部, 或具体错误码如"400", "403"）
+        cooldown_filter: 冷却状态筛选（all=全部, in_cooldown=冷却中, no_cooldown=未冷却）
 
     Returns:
         包含凭证列表、总数、分页信息的响应
     """
     try:
-        return await get_creds_status_common(offset, limit, status_filter, is_antigravity=False)
+        return await get_creds_status_common(
+            offset, limit, status_filter, is_antigravity=False,
+            error_code_filter=error_code_filter,
+            cooldown_filter=cooldown_filter
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1526,7 +1539,9 @@ async def get_antigravity_creds_status(
     token: str = Depends(verify_panel_token),
     offset: int = 0,
     limit: int = 50,
-    status_filter: str = "all"
+    status_filter: str = "all",
+    error_code_filter: str = "all",
+    cooldown_filter: str = "all"
 ):
     """
     获取Antigravity凭证文件的状态（轻量级摘要，不包含完整凭证数据，支持分页和状态筛选）
@@ -1535,12 +1550,18 @@ async def get_antigravity_creds_status(
         offset: 跳过的记录数（默认0）
         limit: 每页返回的记录数（默认50，可选：20, 50, 100, 200, 500, 1000）
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
+        error_code_filter: 错误码筛选（all=全部, 或具体错误码如"400", "403"）
+        cooldown_filter: 冷却状态筛选（all=全部, in_cooldown=冷却中, no_cooldown=未冷却）
 
     Returns:
         包含凭证列表、总数、分页信息的响应
     """
     try:
-        return await get_creds_status_common(offset, limit, status_filter, is_antigravity=True)
+        return await get_creds_status_common(
+            offset, limit, status_filter, is_antigravity=True,
+            error_code_filter=error_code_filter,
+            cooldown_filter=cooldown_filter
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1677,6 +1698,74 @@ async def download_all_antigravity_creds(token: str = Depends(verify_panel_token
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def verify_credential_project_common(filename: str, is_antigravity: bool = False) -> JSONResponse:
+    """验证并重新获取凭证的project id的通用函数"""
+    from .google_oauth_api import Credentials, fetch_project_id
+    from config import get_code_assist_endpoint, get_antigravity_api_url
+
+    cred_type = "Antigravity" if is_antigravity else "GCLI"
+
+    # 验证文件名
+    if not filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="无效的文件名")
+
+    await ensure_credential_manager_initialized()
+    storage_adapter = await get_storage_adapter()
+
+    # 获取凭证数据
+    credential_data = await storage_adapter.get_credential(filename, is_antigravity=is_antigravity)
+    if not credential_data:
+        raise HTTPException(status_code=404, detail="凭证不存在")
+
+    # 创建凭证对象
+    credentials = Credentials.from_dict(credential_data)
+
+    # 确保token有效
+    await credentials.refresh_if_needed()
+
+    # 获取API端点
+    if is_antigravity:
+        api_base_url = await get_antigravity_api_url()
+    else:
+        api_base_url = await get_code_assist_endpoint()
+
+    # 重新获取project id
+    project_id = await fetch_project_id(
+        access_token=credentials.access_token,
+        user_agent="gcli2api-verify/1.0",
+        api_base_url=api_base_url
+    )
+
+    if project_id:
+        # 更新凭证数据中的project_id
+        credential_data["project_id"] = project_id
+        await storage_adapter.store_credential(filename, credential_data, is_antigravity=is_antigravity)
+
+        # 检验成功后自动解除禁用状态并清除错误码
+        await storage_adapter.update_credential_state(filename, {
+            "disabled": False,
+            "error_codes": []
+        }, is_antigravity=is_antigravity)
+
+        log.info(f"检验{cred_type}凭证成功: {filename} - Project ID: {project_id} - 已解除禁用并清除错误码")
+
+        return JSONResponse(content={
+            "success": True,
+            "filename": filename,
+            "project_id": project_id,
+            "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
+        })
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "filename": filename,
+                "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
+            }
+        )
+
+
 @router.post("/creds/verify-project/{filename}")
 async def verify_credential_project(filename: str, token: str = Depends(verify_panel_token)):
     """
@@ -1684,66 +1773,7 @@ async def verify_credential_project(filename: str, token: str = Depends(verify_p
     检验成功可以使403错误恢复
     """
     try:
-        from .google_oauth_api import Credentials, fetch_project_id
-        from config import get_code_assist_endpoint
-
-        # 验证文件名
-        if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="无效的文件名")
-
-        await ensure_credential_manager_initialized()
-        storage_adapter = await get_storage_adapter()
-
-        # 获取凭证数据
-        credential_data = await storage_adapter.get_credential(filename)
-        if not credential_data:
-            raise HTTPException(status_code=404, detail="凭证不存在")
-
-        # 创建凭证对象
-        credentials = Credentials.from_dict(credential_data)
-
-        # 确保token有效
-        await credentials.refresh_if_needed()
-
-        # 获取API端点
-        api_base_url = await get_code_assist_endpoint()
-
-        # 重新获取project id
-        project_id = await fetch_project_id(
-            access_token=credentials.access_token,
-            user_agent="gcli2api-verify/1.0",
-            api_base_url=api_base_url
-        )
-
-        if project_id:
-            # 更新凭证数据中的project_id
-            credential_data["project_id"] = project_id
-            await storage_adapter.store_credential(filename, credential_data, is_antigravity=False)
-
-            # 检验成功后自动解除禁用状态并清除错误码
-            await storage_adapter.update_credential_state(filename, {
-                "disabled": False,
-                "error_codes": []
-            }, is_antigravity=False)
-
-            log.info(f"检验成功: {filename} - Project ID: {project_id} - 已解除禁用并清除错误码")
-
-            return JSONResponse(content={
-                "success": True,
-                "filename": filename,
-                "project_id": project_id,
-                "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
-            })
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "filename": filename,
-                    "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
-                }
-            )
-
+        return await verify_credential_project_common(filename, is_antigravity=False)
     except HTTPException:
         raise
     except Exception as e:
@@ -1758,66 +1788,7 @@ async def verify_antigravity_credential_project(filename: str, token: str = Depe
     检验成功可以使403错误恢复
     """
     try:
-        from .google_oauth_api import Credentials, fetch_project_id
-        from config import get_antigravity_api_url
-
-        # 验证文件名
-        if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="无效的文件名")
-
-        await ensure_credential_manager_initialized()
-        storage_adapter = await get_storage_adapter()
-
-        # 获取凭证数据
-        credential_data = await storage_adapter.get_credential(filename, is_antigravity=True)
-        if not credential_data:
-            raise HTTPException(status_code=404, detail="凭证不存在")
-
-        # 创建凭证对象
-        credentials = Credentials.from_dict(credential_data)
-
-        # 确保token有效
-        await credentials.refresh_if_needed()
-
-        # 获取Antigravity API端点
-        api_base_url = await get_antigravity_api_url()
-
-        # 重新获取project id
-        project_id = await fetch_project_id(
-            access_token=credentials.access_token,
-            user_agent="gcli2api-verify/1.0",
-            api_base_url=api_base_url
-        )
-
-        if project_id:
-            # 更新凭证数据中的project_id
-            credential_data["project_id"] = project_id
-            await storage_adapter.store_credential(filename, credential_data, is_antigravity=True)
-
-            # 检验成功后自动解除禁用状态并清除错误码
-            await storage_adapter.update_credential_state(filename, {
-                "disabled": False,
-                "error_codes": []
-            }, is_antigravity=True)
-
-            log.info(f"检验成功: {filename} - Project ID: {project_id} - 已解除禁用并清除错误码")
-
-            return JSONResponse(content={
-                "success": True,
-                "filename": filename,
-                "project_id": project_id,
-                "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
-            })
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "filename": filename,
-                    "message": "检验失败：无法获取Project ID，请检查凭证是否有效"
-                }
-            )
-
+        return await verify_credential_project_common(filename, is_antigravity=True)
     except HTTPException:
         raise
     except Exception as e:

@@ -930,6 +930,16 @@
                 <h3>凭证文件管理</h3>
                 <p>管理所有认证文件，查看状态和执行操作</p>
 
+                <!-- 检验功能说明 -->
+                <div class="status info" style="margin-bottom: 15px;">
+                    <strong>💡 检验功能说明：</strong>
+                    <p style="margin: 8px 0; font-size: 14px;">
+                        点击每个凭证的"检验"按钮可以重新获取Project ID。<br>
+                        <strong style="color: #0c5460;">✅ 检验成功可以恢复403错误</strong>，让凭证重新正常工作。<br>
+                        建议在遇到403错误时使用此功能。
+                    </p>
+                </div>
+
                 <!-- 状态统计 -->
                 <div class="stats-container" id="statsContainer">
                     <div class="stat-item" style="border-left: 4px solid #007bff;">
@@ -972,6 +982,8 @@
                             style="background-color: #6c757d;">批量禁用</button>
                         <button class="btn btn-small" id="batchDeleteBtn" onclick="batchAction('delete')" disabled
                             style="background-color: #dc3545;">批量删除</button>
+                        <button class="btn btn-small" id="batchVerifyBtn" onclick="batchVerifyProjectIds()" disabled
+                            style="background-color: #ff9800;">批量检验</button>
                         <button class="btn btn-small" onclick="refreshAllEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
                     </div>
@@ -986,6 +998,26 @@
                             <option value="all">全部凭证</option>
                             <option value="enabled">仅启用</option>
                             <option value="disabled">仅禁用</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="errorCodeFilter">错误码筛选：</label>
+                        <select id="errorCodeFilter" onchange="applyStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="400">400</option>
+                            <option value="403">403</option>
+                            <option value="429">429</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="cooldownFilter">冷却状态：</label>
+                        <select id="cooldownFilter" onchange="applyStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="in_cooldown">CD中</option>
+                            <option value="no_cooldown">未CD</option>
                         </select>
                     </div>
 
@@ -1036,6 +1068,16 @@
                 <h3>Antigravity凭证文件管理</h3>
                 <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
 
+                <!-- 检验功能说明 -->
+                <div class="status info" style="margin-bottom: 15px;">
+                    <strong>💡 检验功能说明：</strong>
+                    <p style="margin: 8px 0; font-size: 14px;">
+                        点击每个凭证的"检验"按钮可以重新获取Project ID。<br>
+                        <strong style="color: #0c5460;">✅ 检验成功可以恢复403错误</strong>，让凭证重新正常工作。<br>
+                        建议在遇到403错误时使用此功能。
+                    </p>
+                </div>
+
                 <!-- 状态统计 -->
                 <div class="stats-container" id="antigravityStatsContainer">
                     <div class="stat-item" style="border-left: 4px solid #007bff;">
@@ -1078,6 +1120,8 @@
                             style="background-color: #6c757d;">批量禁用</button>
                         <button class="btn btn-small" id="antigravityBatchDeleteBtn" onclick="batchAntigravityAction('delete')" disabled
                             style="background-color: #dc3545;">批量删除</button>
+                        <button class="btn btn-small" id="antigravityBatchVerifyBtn" onclick="batchVerifyAntigravityProjectIds()" disabled
+                            style="background-color: #ff9800;">批量检验</button>
                         <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
                     </div>
@@ -1092,6 +1136,26 @@
                             <option value="all">全部凭证</option>
                             <option value="enabled">仅启用</option>
                             <option value="disabled">仅禁用</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="antigravityErrorCodeFilter">错误码筛选：</label>
+                        <select id="antigravityErrorCodeFilter" onchange="applyAntigravityStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="400">400</option>
+                            <option value="403">403</option>
+                            <option value="429">429</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="antigravityCooldownFilter">冷却状态：</label>
+                        <select id="antigravityCooldownFilter" onchange="applyAntigravityStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="in_cooldown">CD中</option>
+                            <option value="no_cooldown">未CD</option>
                         </select>
                     </div>
 

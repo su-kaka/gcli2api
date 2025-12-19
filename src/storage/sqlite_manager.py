@@ -653,7 +653,9 @@ class SQLiteManager:
         offset: int = 0,
         limit: Optional[int] = None,
         status_filter: str = "all",
-        is_antigravity: bool = False
+        is_antigravity: bool = False,
+        error_code_filter: Optional[str] = None,
+        cooldown_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -663,6 +665,8 @@ class SQLiteManager:
             limit: 返回的最大记录数（None表示返回所有）
             status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
             is_antigravity: 是否查询antigravity凭证表（默认False）
+            error_code_filter: 错误码筛选（格式如"400"或"403"，筛选包含该错误码的凭证）
+            cooldown_filter: 冷却状态筛选（"in_cooldown"=冷却中, "no_cooldown"=未冷却）
 
         Returns:
             包含 items（凭证列表）、total（总数）、offset、limit 的字典
@@ -675,71 +679,83 @@ class SQLiteManager:
 
             async with aiosqlite.connect(self._db_path) as db:
                 # 构建WHERE子句
-                where_clause = ""
+                where_clauses = []
                 count_params = []
-                query_params = []
 
                 if status_filter == "enabled":
-                    where_clause = "WHERE disabled = 0"
+                    where_clauses.append("disabled = 0")
                 elif status_filter == "disabled":
-                    where_clause = "WHERE disabled = 1"
+                    where_clauses.append("disabled = 1")
 
-                # 先获取符合筛选条件的总数
-                count_query = f"SELECT COUNT(*) FROM {table_name} {where_clause}"
-                async with db.execute(count_query, count_params) as cursor:
-                    row = await cursor.fetchone()
-                    total_count = row[0] if row else 0
+                # 错误码筛选 - 使用LIKE查询JSON数组中是否包含特定错误码
+                if error_code_filter:
+                    # 将错误码包装成JSON格式进行匹配,比如 "400" -> '%"400"%'
+                    where_clauses.append(f"error_codes LIKE ?")
+                    count_params.append(f'%"{error_code_filter}"%')
 
-                # 构建分页查询
-                if limit is not None:
-                    query = f"""
-                        SELECT filename, disabled, error_codes, last_success,
-                               user_email, rotation_order, model_cooldowns
-                        FROM {table_name}
-                        {where_clause}
-                        ORDER BY rotation_order
-                        LIMIT ? OFFSET ?
-                    """
-                    query_params = (limit, offset)
-                else:
-                    query = f"""
-                        SELECT filename, disabled, error_codes, last_success,
-                               user_email, rotation_order, model_cooldowns
-                        FROM {table_name}
-                        {where_clause}
-                        ORDER BY rotation_order
-                        OFFSET ?
-                    """
-                    query_params = (offset,)
+                # 构建WHERE子句
+                where_clause = ""
+                if where_clauses:
+                    where_clause = "WHERE " + " AND ".join(where_clauses)
 
-                async with db.execute(query, query_params) as cursor:
-                    rows = await cursor.fetchall()
+                # 先获取所有数据（用于冷却筛选，因为需要在Python中判断）
+                all_query = f"""
+                    SELECT filename, disabled, error_codes, last_success,
+                           user_email, rotation_order, model_cooldowns
+                    FROM {table_name}
+                    {where_clause}
+                    ORDER BY rotation_order
+                """
 
-                    summaries = []
+                async with db.execute(all_query, count_params) as cursor:
+                    all_rows = await cursor.fetchall()
+
                     current_time = time.time()
+                    all_summaries = []
 
-                    for row in rows:
+                    for row in all_rows:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
                         model_cooldowns_json = row[6] or '{}'
                         model_cooldowns = json.loads(model_cooldowns_json)
 
                         # 自动过滤掉已过期的模型CD
+                        active_cooldowns = {}
                         if model_cooldowns:
-                            model_cooldowns = {
+                            active_cooldowns = {
                                 k: v for k, v in model_cooldowns.items()
                                 if v > current_time
                             }
 
-                        summaries.append({
+                        summary = {
                             "filename": filename,
                             "disabled": bool(row[1]),
                             "error_codes": json.loads(error_codes_json),
                             "last_success": row[3] or current_time,
                             "user_email": row[4],
                             "rotation_order": row[5],
-                            "model_cooldowns": model_cooldowns,
-                        })
+                            "model_cooldowns": active_cooldowns,
+                        }
+
+                        # 应用冷却筛选
+                        if cooldown_filter == "in_cooldown":
+                            # 只保留有冷却的凭证
+                            if active_cooldowns:
+                                all_summaries.append(summary)
+                        elif cooldown_filter == "no_cooldown":
+                            # 只保留没有冷却的凭证
+                            if not active_cooldowns:
+                                all_summaries.append(summary)
+                        else:
+                            # 不筛选冷却状态
+                            all_summaries.append(summary)
+
+                    # 应用分页
+                    total_count = len(all_summaries)
+                    if limit is not None:
+                        summaries = all_summaries[offset:offset + limit]
+                    else:
+                        summaries = all_summaries[offset:]
 
                     return {
                         "items": summaries,

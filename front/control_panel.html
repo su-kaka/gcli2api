@@ -1310,6 +1310,22 @@
                         <option value="disabled">仅禁用</option>
                     </select>
 
+                    <label for="errorCodeFilter" style="margin-left: 20px;">错误码：</label>
+                    <select id="errorCodeFilter" class="filter-select" onchange="applyStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="400">400</option>
+                        <option value="403">403</option>
+                        <option value="429">429</option>
+                        <option value="500">500</option>
+                    </select>
+
+                    <label for="cooldownFilter" style="margin-left: 20px;">冷却状态：</label>
+                    <select id="cooldownFilter" class="filter-select" onchange="applyStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="in_cooldown">CD中</option>
+                        <option value="no_cooldown">未CD</option>
+                    </select>
+
                     <label for="pageSizeSelect" style="margin-left: 20px;">每页显示：</label>
                     <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize()">
                         <option value="20">20</option>
@@ -1398,6 +1414,22 @@
                         <option value="all">全部凭证</option>
                         <option value="enabled">仅启用</option>
                         <option value="disabled">仅禁用</option>
+                    </select>
+
+                    <label for="antigravityErrorCodeFilter" style="margin-left: 20px;">错误码：</label>
+                    <select id="antigravityErrorCodeFilter" class="filter-select" onchange="applyAntigravityStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="400">400</option>
+                        <option value="403">403</option>
+                        <option value="429">429</option>
+                        <option value="500">500</option>
+                    </select>
+
+                    <label for="antigravityCooldownFilter" style="margin-left: 20px;">冷却状态：</label>
+                    <select id="antigravityCooldownFilter" class="filter-select" onchange="applyAntigravityStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="in_cooldown">CD中</option>
+                        <option value="no_cooldown">未CD</option>
                     </select>
 
                     <label for="antigravityPageSizeSelect" style="margin-left: 20px;">每页显示：</label>

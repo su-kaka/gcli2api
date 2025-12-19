@@ -56,6 +56,8 @@ function createCredsManager(type) {
         selectedFiles: new Set(),
         totalCount: 0,
         currentStatusFilter: 'all',
+        currentErrorCodeFilter: 'all',
+        currentCooldownFilter: 'all',
         statsData: { total: 0, normal: 0, disabled: 0 },
 
         // API端点
@@ -93,8 +95,10 @@ function createCredsManager(type) {
                 list.innerHTML = '';
 
                 const offset = (this.currentPage - 1) * this.pageSize;
+                const errorCodeFilter = this.currentErrorCodeFilter || 'all';
+                const cooldownFilter = this.currentCooldownFilter || 'all';
                 const response = await fetch(
-                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}`,
+                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}`,
                     { headers: getAuthHeaders() }
                 );
 
@@ -216,6 +220,10 @@ function createCredsManager(type) {
         // 应用状态筛选
         applyStatusFilter() {
             this.currentStatusFilter = document.getElementById(this.getElementId('StatusFilter')).value;
+            const errorCodeFilterEl = document.getElementById(this.getElementId('ErrorCodeFilter'));
+            const cooldownFilterEl = document.getElementById(this.getElementId('CooldownFilter'));
+            this.currentErrorCodeFilter = errorCodeFilterEl ? errorCodeFilterEl.value : 'all';
+            this.currentCooldownFilter = cooldownFilterEl ? cooldownFilterEl.value : 'all';
             this.currentPage = 1;
             this.refresh();
         },
