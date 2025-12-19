@@ -48,6 +48,7 @@ from .models import (
 )
 from .storage_adapter import get_storage_adapter
 from .utils import verify_panel_token
+from .antigravity_quota import fetch_models_with_quotas
 
 # 创建路由器
 router = APIRouter()
@@ -1676,4 +1677,101 @@ async def download_all_antigravity_creds(token: str = Depends(verify_panel_token
         log.error(f"打包下载Antigravity凭证失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# =============================================================================
+# Antigravity 额度查询路由
+# =============================================================================
+
+
+@router.get("/antigravity/creds/{filename}/quotas")
+async def get_antigravity_cred_quotas(
+    filename: str,
+    refresh: bool = False,
+    token: str = Depends(verify_panel_token)
+):
+    """
+    获取指定 Antigravity 凭证的模型额度信息
+    
+    Args:
+        filename: 凭证文件名
+        refresh: 是否强制刷新（忽略缓存）
+    
+    Returns:
+        {
+            "success": True/False,
+            "data": {
+                "lastUpdated": timestamp,
+                "models": {
+                    "model_id": {
+                        "remaining": 0.972,
+                        "resetTime": "01-07 15:27",
+                        "resetTimeRaw": "2025-01-07T07:27:44Z"
+                    }
+                }
+            }
+        }
+    """
+    try:
+        # 获取凭证数据
+        storage_adapter = await get_storage_adapter()
+        credential_data = await storage_adapter.get_credential(filename, is_antigravity=True)
+        
+        if not credential_data:
+            return JSONResponse(content={
+                "success": False,
+                "message": f"凭证不存在: {filename}"
+            })
+
+        # 检查是否需要刷新token
+        # 注意: 这是一个临时的修复方案，直接调用了 credential_manager 的内部方法
+        # 理想情况下应该在 credential_manager 中提供公开的 get_specific_credential 方法
+        try:
+            # 确保 credential_manager 已初始化
+            if not credential_manager._initialized:
+                await credential_manager.initialize()
+                
+            if await credential_manager._should_refresh_token(credential_data):
+                log.info(f"额度查询: Token需要刷新 - {filename}")
+                refreshed_data = await credential_manager._refresh_token(
+                    credential_data, filename, is_antigravity=True
+                )
+                if refreshed_data:
+                    credential_data = refreshed_data
+                    log.info(f"额度查询: Token刷新成功 - {filename}")
+                else:
+                    return JSONResponse(content={
+                        "success": False,
+                        "message": "Token 已过期且自动刷新失败，请重新登录"
+                    })
+        except Exception as e:
+            log.warning(f"额度查询: Token刷新检查失败: {e}")
+            # 即使刷新检查失败，也尝试继续使用现有token
+        
+        # 获取额度信息
+        result = await fetch_models_with_quotas(credential_data)
+        
+        # 检查是否是 401 错误 (Token失效)，如果是则强制刷新并重试
+        if not result.get("success") and "401" in result.get("message", ""):
+            log.info(f"额度查询: 遇到 401 错误，尝试强制刷新 Token - {filename}")
+            
+            # 强制刷新
+            refreshed_data = await credential_manager._refresh_token(
+                credential_data, filename, is_antigravity=True
+            )
+            
+            if refreshed_data:
+                log.info(f"额度查询: 强制刷新成功，正在重试 - {filename}")
+                # 使用新 Token 重试
+                result = await fetch_models_with_quotas(refreshed_data)
+            else:
+                log.warning(f"额度查询: 强制刷新失败 - {filename}")
+
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        log.error(f"获取 Antigravity 额度失败: {e}")
+        return JSONResponse(content={
+            "success": False,
+            "message": f"获取额度失败: {str(e)}"
+        })
 

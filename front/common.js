@@ -344,7 +344,7 @@ function createUploadManager(type) {
         addFiles(files) {
             files.forEach(file => {
                 const isValid = file.type === 'application/json' || file.name.endsWith('.json') ||
-                               file.type === 'application/zip' || file.name.endsWith('.zip');
+                    file.type === 'application/zip' || file.name.endsWith('.zip');
 
                 if (isValid) {
                     if (!this.selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
@@ -575,8 +575,10 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn view" onclick="toggle${isAntigravity ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
         <button class="cred-btn download" onclick="download${isAntigravity ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${isAntigravity ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        ${isAntigravity ? `<button class="cred-btn view" style="background-color: #6f42c1;" onclick="AntigravityQuota.showQuotaModal('${filename}', '${credInfo.user_email || ''}')">📊 查看额度</button>` : ''}
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
+
 
     // 邮箱信息
     const emailInfo = credInfo.user_email
@@ -586,17 +588,22 @@ function createCredCard(credInfo, manager) {
     const checkboxClass = manager.getElementId('file-checkbox');
 
     div.innerHTML = `
-        <div class="cred-header">
-            <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="cred-header" style="display: flex; align-items: center; gap: 15px; position: relative;">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 280px; max-width: 35%;">
                 <input type="checkbox" class="${checkboxClass}" data-filename="${filename}" onchange="toggle${isAntigravity ? 'Antigravity' : ''}FileSelection('${filename}')">
-                <div>
-                    <div class="cred-filename">${filename}</div>
+                <div style="overflow: hidden; width: 100%;">
+                    <div class="cred-filename" style="overflow: hidden; text-overflow: ellipsis;">${filename}</div>
                     ${emailInfo}
                 </div>
             </div>
-            <div class="cred-status">${statusBadges}</div>
+
+            <div class="cred-status" style="flex-shrink: 0;">${statusBadges}</div>
+            
+            ${isAntigravity ? `<div id="quota-preview-${pathId}" class="ag-quota-preview-container" style="display: none; position: absolute; right: 260px; top: calc(50% + 10px); transform: translateY(-50%);"></div>` : ''}
         </div>
-        <div class="cred-actions">${actionButtons}</div>
+        <div class="cred-actions" style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
+            ${actionButtons}
+        </div>
         <div class="cred-details" id="details-${pathId}">
             <div class="cred-content" data-filename="${filename}" data-loaded="false">点击"查看内容"按钮加载文件详情...</div>
         </div>
@@ -604,7 +611,7 @@ function createCredCard(credInfo, manager) {
 
     // 添加事件监听
     div.querySelectorAll('[data-filename][data-action]').forEach(button => {
-        button.addEventListener('click', function() {
+        button.addEventListener('click', function () {
             const fn = this.getAttribute('data-filename');
             const action = this.getAttribute('data-action');
             if (action === 'delete') {
@@ -616,6 +623,15 @@ function createCredCard(credInfo, manager) {
             }
         });
     });
+
+    // 触发额度预览自动加载
+    if (isAntigravity) {
+        setTimeout(() => {
+            if (typeof AntigravityQuota !== 'undefined' && AntigravityQuota.renderPreview) {
+                AntigravityQuota.renderPreview(filename, `quota-preview-${pathId}`);
+            }
+        }, 0);
+    }
 
     return div;
 }
@@ -1967,7 +1983,7 @@ function updateCooldownDisplays() {
 // =====================================================================
 // 页面初始化
 // =====================================================================
-window.onload = async function() {
+window.onload = async function () {
     const autoLoginSuccess = await autoLogin();
 
     if (!autoLoginSuccess) {
@@ -1983,7 +1999,7 @@ window.onload = async function() {
 };
 
 // 拖拽功能 - 初始化
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const uploadArea = document.getElementById('uploadArea');
 
     if (uploadArea) {
