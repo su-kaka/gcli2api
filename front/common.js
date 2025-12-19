@@ -1377,21 +1377,15 @@ async function batchVerifyProjectIds() {
         return;
     }
 
-    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个凭证的Project ID吗？\n这可能需要一些时间。`)) {
+    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个凭证的Project ID吗？\n\n将并行检验以加快速度。`)) {
         return;
     }
 
-    let successCount = 0;
-    let failCount = 0;
-    const results = [];
+    showStatus(`🔍 正在并行检验 ${selectedFiles.length} 个凭证，请稍候...`, 'info');
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-        const filename = selectedFiles[i];
-        const progress = `[${i + 1}/${selectedFiles.length}]`;
-
+    // 并行执行所有检验请求
+    const promises = selectedFiles.map(async (filename) => {
         try {
-            showStatus(`🔍 ${progress} 正在检验: ${filename}...`, 'info');
-
             const response = await fetch(`./creds/verify-project/${encodeURIComponent(filename)}`, {
                 method: 'POST',
                 headers: getAuthHeaders()
@@ -1399,24 +1393,36 @@ async function batchVerifyProjectIds() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                successCount++;
-                results.push(`✅ ${filename}: ${data.project_id}`);
-                showStatus(`✅ ${progress} 检验成功: ${filename} - Project ID: ${data.project_id}`, 'success');
+                return { success: true, filename, projectId: data.project_id, message: data.message };
             } else {
-                failCount++;
-                results.push(`❌ ${filename}: ${data.message || '失败'}`);
-                showStatus(`❌ ${progress} 检验失败: ${filename}`, 'error');
+                return { success: false, filename, error: data.message || '失败' };
             }
         } catch (error) {
-            failCount++;
-            results.push(`❌ ${filename}: ${error.message}`);
-            showStatus(`❌ ${progress} 检验出错: ${filename}`, 'error');
+            return { success: false, filename, error: error.message };
         }
-    }
+    });
+
+    // 等待所有请求完成
+    const results = await Promise.all(promises);
+
+    // 统计结果
+    let successCount = 0;
+    let failCount = 0;
+    const resultMessages = [];
+
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+            resultMessages.push(`✅ ${result.filename}: ${result.projectId}`);
+        } else {
+            failCount++;
+            resultMessages.push(`❌ ${result.filename}: ${result.error}`);
+        }
+    });
 
     await AppState.creds.refresh();
 
-    const summary = `批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${results.join('\n')}`;
+    const summary = `批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
 
     if (failCount === 0) {
         showStatus(`✅ 全部检验成功！成功检验 ${successCount}/${selectedFiles.length} 个凭证`, 'success');
@@ -1438,21 +1444,15 @@ async function batchVerifyAntigravityProjectIds() {
         return;
     }
 
-    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个Antigravity凭证的Project ID吗？\n这可能需要一些时间。`)) {
+    if (!confirm(`确定要批量检验 ${selectedFiles.length} 个Antigravity凭证的Project ID吗？\n\n将并行检验以加快速度。`)) {
         return;
     }
 
-    let successCount = 0;
-    let failCount = 0;
-    const results = [];
+    showStatus(`🔍 正在并行检验 ${selectedFiles.length} 个Antigravity凭证，请稍候...`, 'info');
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-        const filename = selectedFiles[i];
-        const progress = `[${i + 1}/${selectedFiles.length}]`;
-
+    // 并行执行所有检验请求
+    const promises = selectedFiles.map(async (filename) => {
         try {
-            showStatus(`🔍 ${progress} 正在检验Antigravity: ${filename}...`, 'info');
-
             const response = await fetch(`./antigravity/creds/verify-project/${encodeURIComponent(filename)}`, {
                 method: 'POST',
                 headers: getAuthHeaders()
@@ -1460,24 +1460,36 @@ async function batchVerifyAntigravityProjectIds() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                successCount++;
-                results.push(`✅ ${filename}: ${data.project_id}`);
-                showStatus(`✅ ${progress} 检验成功: ${filename} - Project ID: ${data.project_id}`, 'success');
+                return { success: true, filename, projectId: data.project_id, message: data.message };
             } else {
-                failCount++;
-                results.push(`❌ ${filename}: ${data.message || '失败'}`);
-                showStatus(`❌ ${progress} 检验失败: ${filename}`, 'error');
+                return { success: false, filename, error: data.message || '失败' };
             }
         } catch (error) {
-            failCount++;
-            results.push(`❌ ${filename}: ${error.message}`);
-            showStatus(`❌ ${progress} 检验出错: ${filename}`, 'error');
+            return { success: false, filename, error: error.message };
         }
-    }
+    });
+
+    // 等待所有请求完成
+    const results = await Promise.all(promises);
+
+    // 统计结果
+    let successCount = 0;
+    let failCount = 0;
+    const resultMessages = [];
+
+    results.forEach(result => {
+        if (result.success) {
+            successCount++;
+            resultMessages.push(`✅ ${result.filename}: ${result.projectId}`);
+        } else {
+            failCount++;
+            resultMessages.push(`❌ ${result.filename}: ${result.error}`);
+        }
+    });
 
     await AppState.antigravityCreds.refresh();
 
-    const summary = `Antigravity批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${results.join('\n')}`;
+    const summary = `Antigravity批量检验完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
 
     if (failCount === 0) {
         showStatus(`✅ 全部检验成功！成功检验 ${successCount}/${selectedFiles.length} 个Antigravity凭证`, 'success');
