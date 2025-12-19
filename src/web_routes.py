@@ -1720,13 +1720,19 @@ async def verify_credential_project(filename: str, token: str = Depends(verify_p
             credential_data["project_id"] = project_id
             await storage_adapter.store_credential(filename, credential_data, is_antigravity=False)
 
-            log.info(f"检验成功: {filename} - Project ID: {project_id}")
+            # 检验成功后自动解除禁用状态并清除错误码
+            await storage_adapter.update_credential_state(filename, {
+                "disabled": False,
+                "error_codes": []
+            }, is_antigravity=False)
+
+            log.info(f"检验成功: {filename} - Project ID: {project_id} - 已解除禁用并清除错误码")
 
             return JSONResponse(content={
                 "success": True,
                 "filename": filename,
                 "project_id": project_id,
-                "message": "检验成功！Project ID已更新，403错误应该已恢复"
+                "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
             })
         else:
             return JSONResponse(
@@ -1788,13 +1794,19 @@ async def verify_antigravity_credential_project(filename: str, token: str = Depe
             credential_data["project_id"] = project_id
             await storage_adapter.store_credential(filename, credential_data, is_antigravity=True)
 
-            log.info(f"检验成功: {filename} - Project ID: {project_id}")
+            # 检验成功后自动解除禁用状态并清除错误码
+            await storage_adapter.update_credential_state(filename, {
+                "disabled": False,
+                "error_codes": []
+            }, is_antigravity=True)
+
+            log.info(f"检验成功: {filename} - Project ID: {project_id} - 已解除禁用并清除错误码")
 
             return JSONResponse(content={
                 "success": True,
                 "filename": filename,
                 "project_id": project_id,
-                "message": "检验成功！Project ID已更新，403错误应该已恢复"
+                "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
             })
         else:
             return JSONResponse(
