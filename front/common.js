@@ -1298,6 +1298,32 @@ function clearAntigravityFiles() { AppState.antigravityUploadFiles.clearFiles();
 function uploadAntigravityFiles() { AppState.antigravityUploadFiles.upload(); }
 
 // 邮箱相关
+// 辅助函数：根据文件名更新卡片中的邮箱显示
+function updateEmailDisplay(filename, email, isAntigravity = false) {
+    // 查找对应的凭证卡片
+    const containerId = isAntigravity ? 'antigravityCredsList' : 'credsList';
+    const container = document.getElementById(containerId);
+    if (!container) return false;
+
+    // 通过 data-filename 找到对应的复选框，再找到其父卡片
+    const checkbox = container.querySelector(`input[data-filename="${filename}"]`);
+    if (!checkbox) return false;
+
+    // 找到对应的 cred-card 元素
+    const card = checkbox.closest('.cred-card');
+    if (!card) return false;
+
+    // 找到邮箱显示元素
+    const emailDiv = card.querySelector('.cred-email');
+    if (emailDiv) {
+        emailDiv.textContent = email;
+        emailDiv.style.color = '#666';
+        emailDiv.style.fontStyle = 'normal';
+        return true;
+    }
+    return false;
+}
+
 async function fetchUserEmail(filename) {
     try {
         showStatus('正在获取用户邮箱...', 'info');
@@ -1308,7 +1334,8 @@ async function fetchUserEmail(filename) {
         const data = await response.json();
         if (response.ok && data.user_email) {
             showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
-            await AppState.creds.refresh();
+            // 直接更新卡片中的邮箱显示，不刷新整个列表
+            updateEmailDisplay(filename, data.user_email, false);
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }
@@ -1327,7 +1354,8 @@ async function fetchAntigravityUserEmail(filename) {
         const data = await response.json();
         if (response.ok && data.user_email) {
             showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
-            await AppState.antigravityCreds.refresh();
+            // 直接更新卡片中的邮箱显示，不刷新整个列表
+            updateEmailDisplay(filename, data.user_email, true);
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }
