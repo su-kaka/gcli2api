@@ -644,6 +644,7 @@ async def get_creds_status_common(
             "offset": offset,
             "limit": limit,
             "has_more": (offset + limit) < result["total"],
+            "stats": result.get("stats", {"total": 0, "normal": 0, "disabled": 0}),
         })
 
     # 回退到传统方式（MongoDB/其他后端）

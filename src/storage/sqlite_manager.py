@@ -678,6 +678,19 @@ class SQLiteManager:
             table_name = self._get_table_name(is_antigravity)
 
             async with aiosqlite.connect(self._db_path) as db:
+                # 先计算全局统计数据（不受筛选条件影响）
+                global_stats = {"total": 0, "normal": 0, "disabled": 0}
+                async with db.execute(f"""
+                    SELECT disabled, COUNT(*) FROM {table_name} GROUP BY disabled
+                """) as stats_cursor:
+                    stats_rows = await stats_cursor.fetchall()
+                    for disabled, count in stats_rows:
+                        global_stats["total"] += count
+                        if disabled:
+                            global_stats["disabled"] = count
+                        else:
+                            global_stats["normal"] = count
+
                 # 构建WHERE子句
                 where_clauses = []
                 count_params = []
@@ -687,11 +700,14 @@ class SQLiteManager:
                 elif status_filter == "disabled":
                     where_clauses.append("disabled = 1")
 
-                # 错误码筛选 - 使用LIKE查询JSON数组中是否包含特定错误码
-                if error_code_filter:
-                    # 将错误码包装成JSON格式进行匹配,比如 "400" -> '%"400"%'
-                    where_clauses.append(f"error_codes LIKE ?")
-                    count_params.append(f'%"{error_code_filter}"%')
+                filter_value = None
+                filter_int = None
+                if error_code_filter and str(error_code_filter).strip().lower() != "all":
+                    filter_value = str(error_code_filter).strip()
+                    try:
+                        filter_int = int(filter_value)
+                    except ValueError:
+                        filter_int = None
 
                 # 构建WHERE子句
                 where_clause = ""
@@ -727,10 +743,27 @@ class SQLiteManager:
                                 if v > current_time
                             }
 
+                        error_codes = json.loads(error_codes_json)
+                        if filter_value:
+                            match = False
+                            for code in error_codes:
+                                if code == filter_value or code == filter_int:
+                                    match = True
+                                    break
+                                if isinstance(code, str) and filter_int is not None:
+                                    try:
+                                        if int(code) == filter_int:
+                                            match = True
+                                            break
+                                    except ValueError:
+                                        pass
+                            if not match:
+                                continue
+
                         summary = {
                             "filename": filename,
                             "disabled": bool(row[1]),
-                            "error_codes": json.loads(error_codes_json),
+                            "error_codes": error_codes,
                             "last_success": row[3] or current_time,
                             "user_email": row[4],
                             "rotation_order": row[5],
@@ -762,6 +795,7 @@ class SQLiteManager:
                         "total": total_count,
                         "offset": offset,
                         "limit": limit,
+                        "stats": global_stats,
                     }
 
         except Exception as e:
@@ -771,6 +805,7 @@ class SQLiteManager:
                 "total": 0,
                 "offset": offset,
                 "limit": limit,
+                "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
     # ============ 配置管理（内存缓存）============
