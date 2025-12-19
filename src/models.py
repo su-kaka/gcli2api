@@ -3,6 +3,21 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
+# Pydantic v1/v2 兼容性辅助函数
+def model_to_dict(model: BaseModel) -> Dict[str, Any]:
+    """
+    兼容 Pydantic v1 和 v2 的模型转字典方法
+    - v1: model.dict()
+    - v2: model.model_dump()
+    """
+    if hasattr(model, 'model_dump'):
+        # Pydantic v2
+        return model.model_dump()
+    else:
+        # Pydantic v1
+        return model.dict()
+
+
 # Common Models
 class Model(BaseModel):
     id: str

@@ -21,8 +21,9 @@ from src.utils import (
     should_include_thoughts,
 )
 from log import log
+from pydantic import BaseModel
 
-from .models import ChatCompletionRequest
+from .models import ChatCompletionRequest, model_to_dict
 
 
 async def openai_request_to_gemini_payload(
@@ -778,10 +779,8 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
 
     for tool in openai_tools:
         # 处理 Pydantic 模型
-        if hasattr(tool, "model_dump"):
-            tool_dict = tool.model_dump()
-        elif hasattr(tool, "dict"):
-            tool_dict = tool.dict()
+        if hasattr(tool, "model_dump") or hasattr(tool, "dict"):
+            tool_dict = model_to_dict(tool)
         else:
             tool_dict = tool
 

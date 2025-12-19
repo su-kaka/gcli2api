@@ -21,7 +21,7 @@ from log import log
 
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
-from .models import Model
+from .models import Model, model_to_dict
 from .utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
 
 async def _check_should_auto_ban(status_code: int) -> bool:
@@ -453,7 +453,7 @@ async def fetch_available_models(
                             created=current_timestamp,
                             owned_by='google'
                         )
-                        model_list.append(model.model_dump())
+                        model_list.append(model_to_dict(model))
 
                 # 添加额外的 claude-opus-4-5 模型
                 claude_opus_model = Model(
@@ -462,7 +462,7 @@ async def fetch_available_models(
                     created=current_timestamp,
                     owned_by='google'
                 )
-                model_list.append(claude_opus_model.model_dump())
+                model_list.append(model_to_dict(claude_opus_model))
 
                 log.info(f"[ANTIGRAVITY] Fetched {len(model_list)} available models")
                 return model_list
