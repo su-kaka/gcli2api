@@ -736,6 +736,8 @@ async function login() {
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainSection').classList.remove('hidden');
             showStatus('登录成功', 'success');
+            // 显示面板后初始化滑块
+            requestAnimationFrame(() => initTabSlider());
         } else {
             showStatus(`登录失败: ${data.detail || data.error || '未知错误'}`, 'error');
         }
@@ -762,6 +764,8 @@ async function autoLogin() {
             document.getElementById('loginSection').classList.add('hidden');
             document.getElementById('mainSection').classList.remove('hidden');
             showStatus('自动登录成功', 'success');
+            // 显示面板后初始化滑块
+            requestAnimationFrame(() => initTabSlider());
             return true;
         } else if (response.status === 401) {
             localStorage.removeItem('gcli2api_auth_token');
@@ -791,6 +795,50 @@ function handlePasswordEnter(event) {
 // =====================================================================
 // 标签页切换
 // =====================================================================
+
+// 更新滑块位置
+function updateTabSlider(targetTab, animate = true) {
+    const slider = document.querySelector('.tab-slider');
+    const tabs = document.querySelector('.tabs');
+    if (!slider || !tabs || !targetTab) return;
+
+    // 获取按钮位置和容器宽度
+    const tabLeft = targetTab.offsetLeft;
+    const tabWidth = targetTab.offsetWidth;
+    const tabsWidth = tabs.scrollWidth;
+
+    // 使用 left 和 right 同时控制，确保动画同步
+    const rightValue = tabsWidth - tabLeft - tabWidth;
+
+    if (animate) {
+        slider.style.left = `${tabLeft}px`;
+        slider.style.right = `${rightValue}px`;
+    } else {
+        // 首次加载时不使用动画
+        slider.style.transition = 'none';
+        slider.style.left = `${tabLeft}px`;
+        slider.style.right = `${rightValue}px`;
+        // 强制重绘后恢复过渡
+        slider.offsetHeight;
+        slider.style.transition = '';
+    }
+}
+
+// 初始化滑块位置
+function initTabSlider() {
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab) {
+        updateTabSlider(activeTab, false);
+    }
+}
+
+// 页面加载和窗口大小变化时初始化滑块
+document.addEventListener('DOMContentLoaded', initTabSlider);
+window.addEventListener('resize', () => {
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab) updateTabSlider(activeTab, false);
+});
+
 function switchTab(tabName) {
     // 获取当前活动的内容区域
     const currentContent = document.querySelector('.tab-content.active');
@@ -799,12 +847,18 @@ function switchTab(tabName) {
     // 如果点击的是当前标签页，不做任何操作
     if (currentContent === targetContent) return;
 
+    // 找到目标标签按钮
+    const targetTab = event && event.target ? event.target :
+        document.querySelector(`.tab[onclick*="'${tabName}'"]`);
+
     // 移除所有标签页的active状态
     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
 
-    // 添加当前点击标签的active状态（带波纹效果）
-    if (event && event.target) {
-        event.target.classList.add('active');
+    // 添加当前点击标签的active状态
+    if (targetTab) {
+        targetTab.classList.add('active');
+        // 更新滑块位置（带动画）
+        updateTabSlider(targetTab, true);
     }
 
     // 淡出当前内容

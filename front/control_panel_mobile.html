@@ -113,6 +113,40 @@
             box-sizing: border-box;
             box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06),
                 0 1px 2px rgba(255, 255, 255, 0.9);
+            position: relative;
+        }
+
+        /* 滑块指示器 */
+        .tab-slider {
+            position: absolute;
+            top: 5px;
+            left: 0;
+            right: 0;
+            height: calc(100% - 10px);
+            background: white;
+            border-radius: 9px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
+                0 1px 3px rgba(0, 0, 0, 0.06);
+            transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* 滑块微光效果 */
+        .tab-slider::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(180deg,
+                    rgba(255, 255, 255, 0.8) 0%,
+                    rgba(255, 255, 255, 0) 100%);
+            border-radius: 9px 9px 0 0;
+            pointer-events: none;
+            opacity: 0.5;
         }
 
         .tabs::-webkit-scrollbar {
@@ -166,27 +200,9 @@
         }
 
         .tab.active {
-            background: white;
             color: #1a1a1a;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
-                0 1px 3px rgba(0, 0, 0, 0.06);
             font-weight: 550;
-        }
-
-        /* 选中时的微光效果 */
-        .tab.active::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 50%;
-            background: linear-gradient(180deg,
-                    rgba(255, 255, 255, 0.8) 0%,
-                    rgba(255, 255, 255, 0) 100%);
-            border-radius: 9px 9px 0 0;
-            pointer-events: none;
-            opacity: 0.5;
+            /* 背景和阴影由滑块提供 */
         }
 
         .tab:hover:not(.active) {
@@ -770,7 +786,9 @@
             </div>
 
             <!-- 移动端优化的标签页 -->
+            <!-- 移动端优化的标签页 -->
             <div class="tabs">
+                <div class="tab-slider"></div>
                 <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
                 <button class="tab" onclick="switchTab('antigravity')">Antigravity认证</button>
                 <button class="tab" onclick="switchTab('upload')">批量上传</button>
