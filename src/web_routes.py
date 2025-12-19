@@ -47,7 +47,9 @@ from .models import (
     ConfigSaveRequest,
 )
 from .storage_adapter import get_storage_adapter
-from .utils import verify_panel_token
+from .utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
+from .google_oauth_api import Credentials, fetch_project_id
+from config import get_code_assist_endpoint, get_antigravity_api_url
 
 # 创建路由器
 router = APIRouter()
@@ -1700,8 +1702,6 @@ async def download_all_antigravity_creds(token: str = Depends(verify_panel_token
 
 async def verify_credential_project_common(filename: str, is_antigravity: bool = False) -> JSONResponse:
     """验证并重新获取凭证的project id的通用函数"""
-    from .google_oauth_api import Credentials, fetch_project_id
-    from config import get_code_assist_endpoint, get_antigravity_api_url
 
     cred_type = "Antigravity" if is_antigravity else "GCLI"
 
@@ -1723,16 +1723,18 @@ async def verify_credential_project_common(filename: str, is_antigravity: bool =
     # 确保token有效
     await credentials.refresh_if_needed()
 
-    # 获取API端点
+    # 获取API端点和对应的User-Agent
     if is_antigravity:
         api_base_url = await get_antigravity_api_url()
+        user_agent = ANTIGRAVITY_USER_AGENT
     else:
         api_base_url = await get_code_assist_endpoint()
+        user_agent = STANDARD_USER_AGENT
 
     # 重新获取project id
     project_id = await fetch_project_id(
         access_token=credentials.access_token,
-        user_agent="gcli2api-verify/1.0",
+        user_agent=user_agent,
         api_base_url=api_base_url
     )
 
