@@ -792,17 +792,83 @@ function handlePasswordEnter(event) {
 // 标签页切换
 // =====================================================================
 function switchTab(tabName) {
+    // 获取当前活动的内容区域
+    const currentContent = document.querySelector('.tab-content.active');
+    const targetContent = document.getElementById(tabName + 'Tab');
+
+    // 如果点击的是当前标签页，不做任何操作
+    if (currentContent === targetContent) return;
+
+    // 移除所有标签页的active状态
     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
-    event.target.classList.add('active');
-    document.getElementById(tabName + 'Tab').classList.add('active');
+    // 添加当前点击标签的active状态（带波纹效果）
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
 
+    // 淡出当前内容
+    if (currentContent) {
+        // 设置淡出过渡
+        currentContent.style.transition = 'opacity 0.18s ease-out, transform 0.18s ease-out';
+        currentContent.style.opacity = '0';
+        currentContent.style.transform = 'translateX(-12px)';
+
+        setTimeout(() => {
+            currentContent.classList.remove('active');
+            currentContent.style.transition = '';
+            currentContent.style.opacity = '';
+            currentContent.style.transform = '';
+
+            // 淡入新内容
+            if (targetContent) {
+                // 先设置初始状态（在添加 active 类之前）
+                targetContent.style.opacity = '0';
+                targetContent.style.transform = 'translateX(12px)';
+                targetContent.style.transition = 'none'; // 暂时禁用过渡
+
+                // 添加 active 类使元素可见
+                targetContent.classList.add('active');
+
+                // 使用双重 requestAnimationFrame 确保浏览器完成重绘
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        // 启用过渡并应用最终状态
+                        targetContent.style.transition = 'opacity 0.25s ease-out, transform 0.25s ease-out';
+                        targetContent.style.opacity = '1';
+                        targetContent.style.transform = 'translateX(0)';
+
+                        // 清理内联样式并执行数据加载
+                        setTimeout(() => {
+                            targetContent.style.transition = '';
+                            targetContent.style.opacity = '';
+                            targetContent.style.transform = '';
+
+                            // 动画完成后触发数据加载
+                            triggerTabDataLoad(tabName);
+                        }, 260);
+                    });
+                });
+            }
+        }, 180);
+    } else {
+        // 如果没有当前内容（首次加载），直接显示目标内容
+        if (targetContent) {
+            targetContent.classList.add('active');
+            // 直接触发数据加载
+            triggerTabDataLoad(tabName);
+        }
+    }
+}
+
+// 标签页数据加载（从动画中分离出来）
+function triggerTabDataLoad(tabName) {
     if (tabName === 'manage') AppState.creds.refresh();
     if (tabName === 'antigravity-manage') AppState.antigravityCreds.refresh();
     if (tabName === 'config') loadConfig();
     if (tabName === 'logs') connectWebSocket();
 }
+
 
 // =====================================================================
 // OAuth认证相关函数

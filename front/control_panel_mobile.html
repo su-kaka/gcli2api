@@ -100,35 +100,115 @@
         /* 移动端优化的标签页 */
         .tabs {
             display: flex;
+            background: linear-gradient(145deg, #f5f5f7, #e8e8ed);
+            padding: 5px;
+            border-radius: 12px;
+            margin-bottom: 20px;
             overflow-x: auto;
-            background: white;
-            border-bottom: 2px solid #ddd;
-            margin-bottom: 15px;
             -webkit-overflow-scrolling: touch;
+            gap: 3px;
+            border-bottom: none;
+            user-select: none;
+            width: 100%;
+            box-sizing: border-box;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06),
+                0 1px 2px rgba(255, 255, 255, 0.9);
+        }
+
+        .tabs::-webkit-scrollbar {
+            height: 3px;
+        }
+
+        .tabs::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .tabs::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 2px;
         }
 
         .tab {
-            padding: 12px 16px;
+            padding: 10px 14px;
             cursor: pointer;
             border: none;
-            background: #f8f8f8;
-            border-bottom: 3px solid transparent;
+            background: transparent;
+            border-radius: 9px;
             white-space: nowrap;
-            min-width: 80px;
+            min-width: 70px;
             flex-shrink: 0;
-            font-size: 14px;
+            font-size: 13px;
+            font-weight: 450;
+            color: #666;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 点击波纹效果 */
+        .tab::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(66, 133, 244, 0.15);
+            transform: translate(-50%, -50%);
+            transition: width 0.4s ease, height 0.4s ease;
+            z-index: -1;
+        }
+
+        .tab:active::before {
+            width: 200%;
+            height: 200%;
         }
 
         .tab.active {
             background: white;
-            border-bottom-color: #4285f4;
-            color: #4285f4;
-            font-weight: bold;
+            color: #1a1a1a;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
+                0 1px 3px rgba(0, 0, 0, 0.06);
+            font-weight: 550;
+        }
+
+        /* 选中时的微光效果 */
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(180deg,
+                    rgba(255, 255, 255, 0.8) 0%,
+                    rgba(255, 255, 255, 0) 100%);
+            border-radius: 9px 9px 0 0;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+
+        .tab:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.5);
+            color: #333;
+        }
+
+        /* 按压效果 */
+        .tab:active {
+            transform: scale(0.96);
+            transition: transform 0.1s ease;
+        }
+
+        .tab.active:active {
+            transform: scale(0.98);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
         }
 
         .tab-content {
             display: none;
             padding: 10px 0;
+            /* 动画由 JavaScript 控制，避免冲突 */
         }
 
         .tab-content.active {
