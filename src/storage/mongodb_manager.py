@@ -471,9 +471,25 @@ class MongoDBManager:
             elif status_filter == "disabled":
                 query["disabled"] = True
 
-            # 错误码筛选 - 检查error_codes数组中是否包含特定错误码
-            if error_code_filter:
-                query["error_codes"] = error_code_filter
+            # 错误码筛选 - 兼容存储为数字或字符串的情况
+            if error_code_filter and str(error_code_filter).strip().lower() != "all":
+                filter_value = str(error_code_filter).strip()
+                query_values = [filter_value]
+                try:
+                    query_values.append(int(filter_value))
+                except ValueError:
+                    pass
+                query["error_codes"] = {"$in": query_values}
+
+            # 计算全局统计数据（不受筛选条件影响）
+            global_stats = {"total": 0, "normal": 0, "disabled": 0}
+            stats_cursor = collection.find({})
+            async for doc in stats_cursor:
+                global_stats["total"] += 1
+                if doc.get("disabled", False):
+                    global_stats["disabled"] += 1
+                else:
+                    global_stats["normal"] += 1
 
             # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
             cursor = collection.find(query).sort("rotation_order", 1)
@@ -527,6 +543,7 @@ class MongoDBManager:
                 "total": total_count,
                 "offset": offset,
                 "limit": limit,
+                "stats": global_stats,
             }
 
         except Exception as e:
@@ -536,6 +553,7 @@ class MongoDBManager:
                 "total": 0,
                 "offset": offset,
                 "limit": limit,
+                "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
     # ============ 配置管理（内存缓存）============

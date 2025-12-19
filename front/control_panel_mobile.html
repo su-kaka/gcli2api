@@ -135,6 +135,66 @@
             display: block;
         }
 
+        /* Toast 固定定位在右上角 */
+        #statusSection {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            left: auto;
+            transform: none;
+            z-index: 9999;
+            width: auto;
+            max-width: 90%;
+            min-width: 200px;
+        }
+
+        /* Toast 专用样式 - 只在 #statusSection 内生效 */
+        #statusSection .status {
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin: 0;
+            font-size: 13px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateX(100%);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        #statusSection .status.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        #statusSection .status.fade-out {
+            opacity: 0;
+            transform: translateX(100%);
+        }
+
+        #statusSection .status.success {
+            background-color: #28a745;
+            border: none;
+            color: white;
+        }
+
+        #statusSection .status.error {
+            background-color: #dc3545;
+            border: none;
+            color: white;
+        }
+
+        #statusSection .status.warning {
+            background-color: #ffc107;
+            border: none;
+            color: #212529;
+        }
+
+        #statusSection .status.info {
+            background-color: #17a2b8;
+            border: none;
+            color: white;
+        }
+
+        /* 页面内嵌的 status 样式 - 保持原有风格 */
         .status {
             padding: 12px;
             border-radius: 8px;
@@ -620,9 +680,11 @@
 
         <!-- 主界面 -->
         <div id="mainSection" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                 <h1 style="margin: 0; font-size: 20px;">GCLI2API 移动端控制面板</h1>
-                <button onclick="logout()" style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
+                <button onclick="logout()"
+                    style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
                     退出登录
                 </button>
             </div>
@@ -829,21 +891,25 @@
                                     placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 4px; font-size: 12px;">
                             </div>
-                            <button class="btn" style="margin-top: 8px; background: #28a745; border-color: #28a745; font-size: 13px;"
+                            <button class="btn"
+                                style="margin-top: 8px; background: #28a745; border-color: #28a745; font-size: 13px;"
                                 onclick="processAntigravityCallbackUrl()">
                                 从回调URL获取凭证
                             </button>
                         </div>
                     </div>
 
-                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity 凭证</button>
+                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity
+                        凭证</button>
 
                     <div id="antigravityCredsSection" class="hidden">
                         <h4>Antigravity 凭证内容：</h4>
-                        <div style="background-color: #f0f8ff; border: 1px solid #b0d4ff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">
+                        <div
+                            style="background-color: #f0f8ff; border: 1px solid #b0d4ff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">
                             <pre id="antigravityCredsContent"></pre>
                         </div>
-                        <button class="btn" onclick="downloadAntigravityCredentials()" style="margin-top: 10px;">下载凭证文件</button>
+                        <button class="btn" onclick="downloadAntigravityCredentials()"
+                            style="margin-top: 10px;">下载凭证文件</button>
                     </div>
                 </div>
             </div>
@@ -854,8 +920,11 @@
                 <p>支持批量上传 GCLI 和 Antigravity 认证文件</p>
 
                 <!-- GCLI凭证上传区域 -->
-                <div style="margin-bottom: 25px; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background: #f8f9fa;">
-                    <h4 style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 16px;">📤 GCLI 凭证批量上传</h4>
+                <div
+                    style="margin-bottom: 25px; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background: #f8f9fa;">
+                    <h4
+                        style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 16px;">
+                        📤 GCLI 凭证批量上传</h4>
 
                     <div style="border: 2px dashed #007bff; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer; transition: border-color 0.3s;"
                         id="uploadArea" onclick="document.getElementById('fileInput').click()">
@@ -891,11 +960,14 @@
 
                 <!-- Antigravity凭证上传区域 -->
                 <div style="padding: 15px; border: 2px solid #28a745; border-radius: 8px; background: #f8f9fa;">
-                    <h4 style="margin-top: 0; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 8px; font-size: 16px;">📤 Antigravity 凭证批量上传</h4>
+                    <h4
+                        style="margin-top: 0; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 8px; font-size: 16px;">
+                        📤 Antigravity 凭证批量上传</h4>
 
                     <div style="border: 2px dashed #28a745; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer;"
                         onclick="document.getElementById('antigravityFileInput').click()">
-                        <p style="color: #28a745; font-size: 16px; font-weight: bold; margin: 8px 0;">📤 批量上传 Antigravity 凭证文件</p>
+                        <p style="color: #28a745; font-size: 16px; font-weight: bold; margin: 8px 0;">📤 批量上传
+                            Antigravity 凭证文件</p>
                         <p style="color: #666; font-size: 14px; margin: 4px 0;">支持 .json 和 .zip 格式文件</p>
                         <p style="color: #888; font-size: 12px; margin: 4px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
                     </div>
@@ -907,7 +979,8 @@
                         <h4>选择的文件：</h4>
                         <div id="antigravityFileList"></div>
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <button class="btn" style="background-color: #28a745; flex: 1;" onclick="uploadAntigravityFiles()">上传文件</button>
+                            <button class="btn" style="background-color: #28a745; flex: 1;"
+                                onclick="uploadAntigravityFiles()">上传文件</button>
                             <button class="btn" style="background-color: #6c757d; flex: 1;"
                                 onclick="clearAntigravityFiles()">清空列表</button>
                         </div>
@@ -1106,21 +1179,27 @@
                     <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">批量操作</h4>
                     <div style="margin-bottom: 10px;">
                         <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px;">
-                            <input type="checkbox" id="selectAllAntigravityCheckbox" onchange="toggleSelectAllAntigravity()"
+                            <input type="checkbox" id="selectAllAntigravityCheckbox"
+                                onchange="toggleSelectAllAntigravity()"
                                 style="margin-right: 8px; transform: scale(1.2);">
                             全选
                         </label>
-                        <span id="antigravitySelectedCount" style="font-weight: bold; color: #007bff; font-size: 12px;">已选择 0
+                        <span id="antigravitySelectedCount"
+                            style="font-weight: bold; color: #007bff; font-size: 12px;">已选择 0
                             项</span>
                     </div>
                     <div class="batch-controls-grid">
-                        <button class="btn btn-small" id="antigravityBatchEnableBtn" onclick="batchAntigravityAction('enable')" disabled
+                        <button class="btn btn-small" id="antigravityBatchEnableBtn"
+                            onclick="batchAntigravityAction('enable')" disabled
                             style="background-color: #28a745;">批量启用</button>
-                        <button class="btn btn-small" id="antigravityBatchDisableBtn" onclick="batchAntigravityAction('disable')" disabled
+                        <button class="btn btn-small" id="antigravityBatchDisableBtn"
+                            onclick="batchAntigravityAction('disable')" disabled
                             style="background-color: #6c757d;">批量禁用</button>
-                        <button class="btn btn-small" id="antigravityBatchDeleteBtn" onclick="batchAntigravityAction('delete')" disabled
+                        <button class="btn btn-small" id="antigravityBatchDeleteBtn"
+                            onclick="batchAntigravityAction('delete')" disabled
                             style="background-color: #dc3545;">批量删除</button>
-                        <button class="btn btn-small" id="antigravityBatchVerifyBtn" onclick="batchVerifyAntigravityProjectIds()" disabled
+                        <button class="btn btn-small" id="antigravityBatchVerifyBtn"
+                            onclick="batchVerifyAntigravityProjectIds()" disabled
                             style="background-color: #ff9800;">批量检验</button>
                         <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
@@ -1178,8 +1257,8 @@
                     <div id="antigravityPaginationContainer" style="display: none; text-align: center; margin: 20px 0;">
                         <div
                             style="display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <button class="btn btn-small" id="antigravityPrevPageBtn" onclick="changeAntigravityPage(-1)"
-                                style="background-color: #6c757d;">上一页</button>
+                            <button class="btn btn-small" id="antigravityPrevPageBtn"
+                                onclick="changeAntigravityPage(-1)" style="background-color: #6c757d;">上一页</button>
                             <div id="antigravityPaginationInfo" style="font-size: 14px; color: #666;">第 1 页，共 1 页</div>
                             <button class="btn btn-small" id="antigravityNextPageBtn" onclick="changeAntigravityPage(1)"
                                 style="background-color: #6c757d;">下一页</button>
@@ -1404,7 +1483,8 @@
                                     <span style="color: #28a745;">✓ 支持热更新</span></small>
                                 <div
                                     style="background-color: #e3f2fd; border: 1px solid #2196f3; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #0d47a1;">
-                                    <strong>💭 说明：</strong>某些模型（如Gemini 2.0 Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
+                                    <strong>💭 说明：</strong>某些模型（如Gemini 2.0
+                                    Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
                                 </div>
                             </div>
                         </div>
@@ -1469,8 +1549,7 @@
                         style="background-color: #dc3545;">断开连接</button>
                     <button class="btn btn-small" onclick="downloadLogs()"
                         style="background-color: #28a745;">下载日志</button>
-                    <button class="btn btn-small" onclick="clearLogs()"
-                        style="background-color: #6c757d;">清空日志</button>
+                    <button class="btn btn-small" onclick="clearLogs()" style="background-color: #6c757d;">清空日志</button>
                 </div>
 
                 <div
@@ -1548,7 +1627,9 @@
                         style="display: inline-block; background: white; padding: 12px; border-radius: 10px; box-shadow: 0 2px 15px rgba(0,0,0,0.1); margin-top: 10px;">
                         <img src="docs/qq群.jpg" alt="QQ群二维码"
                             style="width: 180px; height: 180px; border-radius: 6px; display: block;">
-                        <p style="color: #666; margin: 8px 0 0 0; font-size: 12px; font-weight: 600; text-align: center;">扫码加入QQ群</p>
+                        <p
+                            style="color: #666; margin: 8px 0 0 0; font-size: 12px; font-weight: 600; text-align: center;">
+                            扫码加入QQ群</p>
                     </div>
                 </div>
 
