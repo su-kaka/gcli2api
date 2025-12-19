@@ -48,6 +48,7 @@ from .models import (
 )
 from .storage_adapter import get_storage_adapter
 from .utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
+from .antigravity_api import fetch_quota_info
 from .google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
 
@@ -1720,8 +1721,14 @@ async def verify_credential_project_common(filename: str, is_antigravity: bool =
     # 创建凭证对象
     credentials = Credentials.from_dict(credential_data)
 
-    # 确保token有效
-    await credentials.refresh_if_needed()
+    # 确保token有效（自动刷新）
+    token_refreshed = await credentials.refresh_if_needed()
+
+    # 如果token被刷新了，更新存储
+    if token_refreshed:
+        log.info(f"Token已自动刷新: {filename} (is_antigravity={is_antigravity})")
+        credential_data = credentials.to_dict()
+        await storage_adapter.store_credential(filename, credential_data, is_antigravity=is_antigravity)
 
     # 获取API端点和对应的User-Agent
     if is_antigravity:
@@ -1796,5 +1803,70 @@ async def verify_antigravity_credential_project(filename: str, token: str = Depe
     except Exception as e:
         log.error(f"检验Antigravity凭证Project ID失败 {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"检验失败: {str(e)}")
+
+
+@router.get("/antigravity/creds/quota/{filename}")
+async def get_antigravity_credential_quota(filename: str, token: str = Depends(verify_panel_token)):
+    """
+    获取指定Antigravity凭证的额度信息
+    """
+    try:
+        # 验证文件名
+        if not filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="无效的文件名")
+
+        await ensure_credential_manager_initialized()
+        storage_adapter = await get_storage_adapter()
+
+        # 获取凭证数据
+        credential_data = await storage_adapter.get_credential(filename, is_antigravity=True)
+        if not credential_data:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        # 使用 Credentials 对象自动处理 token 刷新
+        from .google_oauth_api import Credentials
+
+        creds = Credentials.from_dict(credential_data)
+
+        # 自动刷新 token（如果需要）
+        await creds.refresh_if_needed()
+
+        # 如果 token 被刷新了，更新存储
+        updated_data = creds.to_dict()
+        if updated_data != credential_data:
+            log.info(f"Token已自动刷新: {filename}")
+            await storage_adapter.store_credential(filename, updated_data, is_antigravity=True)
+            credential_data = updated_data
+
+        # 获取访问令牌
+        access_token = credential_data.get("access_token") or credential_data.get("token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="凭证中没有访问令牌")
+
+        # 获取额度信息
+        quota_info = await fetch_quota_info(access_token)
+
+        if quota_info.get("success"):
+            return JSONResponse(content={
+                "success": True,
+                "filename": filename,
+                "models": quota_info.get("models", {})
+            })
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "filename": filename,
+                    "error": quota_info.get("error", "未知错误")
+                }
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取Antigravity凭证额度失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"获取额度失败: {str(e)}")
+
 
 

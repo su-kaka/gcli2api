@@ -475,3 +475,88 @@ async def fetch_available_models(
         log.error(f"[ANTIGRAVITY] Failed to fetch models: {e}")
         log.error(f"[ANTIGRAVITY] Traceback: {traceback.format_exc()}")
         return []
+
+
+async def fetch_quota_info(access_token: str) -> Dict[str, Any]:
+    """
+    获取指定凭证的额度信息
+
+    Args:
+        access_token: Antigravity 访问令牌
+
+    Returns:
+        包含额度信息的字典，格式为：
+        {
+            "success": True,
+            "models": {
+                "gemini-2.0-flash-exp": {
+                    "remaining": 0.95,
+                    "resetTime": "12-20 10:30",
+                    "resetTimeRaw": "2025-12-20T02:30:00Z"
+                }
+            }
+        }
+    """
+
+    headers = build_antigravity_headers(access_token)
+
+    try:
+        antigravity_url = await get_antigravity_api_url()
+
+        async with http_client.get_client(timeout=30.0) as client:
+            response = await client.post(
+                f"{antigravity_url}/v1internal:fetchAvailableModels",
+                json={},
+                headers=headers,
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                log.debug(f"[ANTIGRAVITY QUOTA] Raw response: {json.dumps(data, ensure_ascii=False)[:500]}")
+
+                quota_info = {}
+
+                if 'models' in data and isinstance(data['models'], dict):
+                    for model_id, model_data in data['models'].items():
+                        if isinstance(model_data, dict) and 'quotaInfo' in model_data:
+                            quota = model_data['quotaInfo']
+                            remaining = quota.get('remainingFraction', 0)
+                            reset_time_raw = quota.get('resetTime', '')
+
+                            # 转换为北京时间
+                            reset_time_beijing = 'N/A'
+                            if reset_time_raw:
+                                try:
+                                    utc_date = datetime.fromisoformat(reset_time_raw.replace('Z', '+00:00'))
+                                    # 转换为北京时间 (UTC+8)
+                                    from datetime import timedelta
+                                    beijing_date = utc_date + timedelta(hours=8)
+                                    reset_time_beijing = beijing_date.strftime('%m-%d %H:%M')
+                                except Exception as e:
+                                    log.warning(f"[ANTIGRAVITY QUOTA] Failed to parse reset time: {e}")
+
+                            quota_info[model_id] = {
+                                "remaining": remaining,
+                                "resetTime": reset_time_beijing,
+                                "resetTimeRaw": reset_time_raw
+                            }
+
+                return {
+                    "success": True,
+                    "models": quota_info
+                }
+            else:
+                log.error(f"[ANTIGRAVITY QUOTA] Failed to fetch quota ({response.status_code}): {response.text[:500]}")
+                return {
+                    "success": False,
+                    "error": f"API返回错误: {response.status_code}"
+                }
+
+    except Exception as e:
+        import traceback
+        log.error(f"[ANTIGRAVITY QUOTA] Failed to fetch quota: {e}")
+        log.error(f"[ANTIGRAVITY QUOTA] Traceback: {traceback.format_exc()}")
+        return {
+            "success": False,
+            "error": str(e)
+        }

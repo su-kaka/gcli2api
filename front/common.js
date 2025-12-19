@@ -583,6 +583,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn view" onclick="toggle${isAntigravity ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
         <button class="cred-btn download" onclick="download${isAntigravity ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${isAntigravity ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        ${isAntigravity ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="viewAntigravityQuota('${filename}')" title="查看当前各模型的额度">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${isAntigravity ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
@@ -609,6 +610,11 @@ function createCredCard(credInfo, manager) {
         <div class="cred-details" id="details-${pathId}">
             <div class="cred-content" data-filename="${filename}" data-loaded="false">点击"查看内容"按钮加载文件详情...</div>
         </div>
+        ${isAntigravity ? `<div class="quota-details" id="quota-${pathId}" style="display: none;">
+            <div class="quota-loading" style="text-align: center; padding: 20px; color: #666;">
+                正在加载额度信息...
+            </div>
+        </div>` : ''}
     `;
 
     // 添加事件监听
@@ -1376,6 +1382,129 @@ async function verifyAntigravityProjectId(filename) {
         alert(`❌ ${errorMsg}`);
     }
 }
+
+async function viewAntigravityQuota(filename) {
+    // 生成路径ID
+    const pathId = 'ag_' + btoa(encodeURIComponent(filename)).replace(/[+/=]/g, '_');
+    const quotaDiv = document.getElementById('quota-' + pathId);
+
+    if (!quotaDiv) return;
+
+    // 切换显示状态
+    const isShowing = quotaDiv.style.display === 'none';
+
+    if (isShowing) {
+        quotaDiv.style.display = 'block';
+
+        // 检查是否已加载
+        if (quotaDiv.getAttribute('data-loaded') === 'true') {
+            return; // 已加载过，直接显示
+        }
+
+        // 显示加载状态
+        quotaDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">正在加载额度信息...</div>';
+
+        try {
+            const response = await fetch(`./antigravity/creds/quota/${encodeURIComponent(filename)}`, {
+                method: 'GET',
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                const models = data.models || {};
+
+                if (Object.keys(models).length === 0) {
+                    quotaDiv.innerHTML = `
+                        <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 15px; margin-top: 10px;">
+                            <div style="color: #856404; font-size: 14px;">
+                                ⚠️ 未获取到任何模型的额度信息
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // 构建额度卡片
+                    let quotaHTML = '<div style="margin-top: 10px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px;">';
+                    quotaHTML += '<div style="color: white; font-weight: bold; font-size: 14px; margin-bottom: 12px;">📊 额度信息</div>';
+                    quotaHTML += '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">';
+
+                    for (const [modelId, quota] of Object.entries(models)) {
+                        const remaining = quota.remaining || 0;
+                        const percentage = (remaining * 100).toFixed(1);
+                        const resetTime = quota.resetTime || 'N/A';
+
+                        // 根据额度比例显示不同的颜色
+                        let barColor = '#28a745';
+                        let statusIcon = '🟢';
+                        let statusText = '充足';
+
+                        if (remaining < 0.2) {
+                            barColor = '#dc3545';
+                            statusIcon = '🔴';
+                            statusText = '紧张';
+                        } else if (remaining < 0.5) {
+                            barColor = '#ffc107';
+                            statusIcon = '🟡';
+                            statusText = '一般';
+                        }
+
+                        quotaHTML += `
+                            <div style="background: white; border-radius: 6px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <div style="font-size: 13px; font-weight: bold; color: #333; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                                    ${statusIcon}
+                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${modelId}">${modelId}</span>
+                                </div>
+                                <div style="margin-bottom: 8px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                        <span style="font-size: 11px; color: #666;">剩余额度</span>
+                                        <span style="font-size: 13px; font-weight: bold; color: ${barColor};">${percentage}%</span>
+                                    </div>
+                                    <div style="width: 100%; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden;">
+                                        <div style="width: ${percentage}%; height: 100%; background: ${barColor}; transition: width 0.3s ease;"></div>
+                                    </div>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #666;">
+                                    <span>状态: <span style="color: ${barColor}; font-weight: bold;">${statusText}</span></span>
+                                    <span>🕐 ${resetTime}</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    quotaHTML += '</div></div>';
+                    quotaDiv.innerHTML = quotaHTML;
+                }
+
+                quotaDiv.setAttribute('data-loaded', 'true');
+                showStatus('✅ 额度信息加载成功', 'success');
+            } else {
+                const errorMsg = data.error || '获取额度失败';
+                quotaDiv.innerHTML = `
+                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 6px; padding: 15px; margin-top: 10px;">
+                        <div style="color: #721c24; font-size: 14px;">
+                            ❌ ${errorMsg}
+                        </div>
+                    </div>
+                `;
+                showStatus(`❌ ${errorMsg}`, 'error');
+            }
+        } catch (error) {
+            const errorMsg = `获取额度失败: ${error.message}`;
+            quotaDiv.innerHTML = `
+                <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 6px; padding: 15px; margin-top: 10px;">
+                    <div style="color: #721c24; font-size: 14px;">
+                        ❌ ${errorMsg}
+                    </div>
+                </div>
+            `;
+            showStatus(`❌ ${errorMsg}`, 'error');
+        }
+    } else {
+        quotaDiv.style.display = 'none';
+    }
+}
+
+
 
 async function batchVerifyProjectIds() {
     const selectedFiles = Array.from(AppState.creds.selectedFiles);

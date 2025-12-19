@@ -254,8 +254,24 @@ class CredentialManager:
             if not credential_data:
                 return None
 
-            # 尝试获取邮箱
-            email = await fetch_user_email_from_file(credential_data)
+            # 创建凭证对象并自动刷新 token
+            from .google_oauth_api import Credentials, get_user_email
+
+            credentials = Credentials.from_dict(credential_data)
+            if not credentials:
+                return None
+
+            # 自动刷新 token（如果需要）
+            token_refreshed = await credentials.refresh_if_needed()
+
+            # 如果 token 被刷新了，更新存储
+            if token_refreshed:
+                log.info(f"Token已自动刷新: {credential_name} (is_antigravity={is_antigravity})")
+                updated_data = credentials.to_dict()
+                await self._storage_adapter.store_credential(credential_name, updated_data, is_antigravity=is_antigravity)
+
+            # 获取邮箱
+            email = await get_user_email(credentials)
 
             if email:
                 # 缓存邮箱地址
