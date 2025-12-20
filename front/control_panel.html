@@ -602,6 +602,31 @@
             overflow-y: auto;
         }
 
+        /* 额度信息显示样式 */
+        .cred-quota-details {
+            margin-top: 10px;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cred-quota-content {
+            background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+            border: 2px solid #17a2b8;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(23, 162, 184, 0.15);
+        }
+
         .manage-actions {
             margin-bottom: 20px;
             display: flex;

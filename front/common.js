@@ -608,6 +608,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn view" onclick="toggle${isAntigravity ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
         <button class="cred-btn download" onclick="download${isAntigravity ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${isAntigravity ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        ${isAntigravity ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${isAntigravity ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
@@ -634,6 +635,13 @@ function createCredCard(credInfo, manager) {
         <div class="cred-details" id="details-${pathId}">
             <div class="cred-content" data-filename="${filename}" data-loaded="false">点击"查看内容"按钮加载文件详情...</div>
         </div>
+        ${isAntigravity ? `
+        <div class="cred-quota-details" id="quota-${pathId}" style="display: none;">
+            <div class="cred-quota-content" data-filename="${filename}" data-loaded="false">
+                点击"查看额度"按钮加载额度信息...
+            </div>
+        </div>
+        ` : ''}
     `;
 
     // 添加事件监听
@@ -1547,6 +1555,139 @@ async function verifyAntigravityProjectId(filename) {
         const errorMsg = `检验失败: ${error.message}`;
         showStatus(`❌ ${errorMsg}`, 'error');
         alert(`❌ ${errorMsg}`);
+    }
+}
+
+async function toggleAntigravityQuotaDetails(pathId) {
+    const quotaDetails = document.getElementById('quota-' + pathId);
+    if (!quotaDetails) return;
+
+    // 切换显示状态
+    const isShowing = quotaDetails.style.display === 'block';
+
+    if (isShowing) {
+        // 收起
+        quotaDetails.style.display = 'none';
+    } else {
+        // 展开
+        quotaDetails.style.display = 'block';
+
+        const contentDiv = quotaDetails.querySelector('.cred-quota-content');
+        const filename = contentDiv.getAttribute('data-filename');
+        const loaded = contentDiv.getAttribute('data-loaded');
+
+        // 如果还没加载过，则加载数据
+        if (loaded === 'false' && filename) {
+            contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">📊 正在加载额度信息...</div>';
+
+            try {
+                const response = await fetch(`./antigravity/creds/quota/${encodeURIComponent(filename)}`, {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // 成功时渲染美化的额度信息
+                    const models = data.models || {};
+
+                    if (Object.keys(models).length === 0) {
+                        contentDiv.innerHTML = `
+                            <div style="text-align: center; padding: 20px; color: #999;">
+                                <div style="font-size: 48px; margin-bottom: 10px;">📊</div>
+                                <div>暂无额度信息</div>
+                            </div>
+                        `;
+                    } else {
+                        let quotaHTML = `
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px 8px 0 0; margin: -10px -10px 15px -10px;">
+                                <h4 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 20px;">📊</span>
+                                    <span>额度信息详情</span>
+                                </h4>
+                                <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">文件: ${filename}</div>
+                            </div>
+                            <div style="display: grid; gap: 12px;">
+                        `;
+
+                        for (const [modelName, quotaData] of Object.entries(models)) {
+                            // 后端返回的是剩余比例 (0-1)，不是绝对数量
+                            const remainingFraction = quotaData.remaining || 0;
+                            const resetTime = quotaData.resetTime || 'N/A';
+
+                            // 计算已使用百分比（1 - 剩余比例）
+                            const usedPercentage = Math.round((1 - remainingFraction) * 100);
+                            const remainingPercentage = Math.round(remainingFraction * 100);
+
+                            // 根据使用情况选择颜色
+                            let percentageColor = '#28a745'; // 绿色：使用少
+                            if (usedPercentage >= 90) percentageColor = '#dc3545'; // 红色：使用多
+                            else if (usedPercentage >= 70) percentageColor = '#ffc107'; // 黄色：使用较多
+                            else if (usedPercentage >= 50) percentageColor = '#17a2b8'; // 蓝色：使用中等
+
+                            quotaHTML += `
+                                <div style="background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; border-left: 4px solid #17a2b8;">
+                                    <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
+                                        🔹 ${modelName}
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px;">
+                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6;">
+                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">剩余额度</div>
+                                            <div style="font-size: 18px; font-weight: bold; color: #28a745;">${remainingPercentage}%</div>
+                                        </div>
+                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6;">
+                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">已使用</div>
+                                            <div style="font-size: 18px; font-weight: bold; color: #dc3545;">${usedPercentage}%</div>
+                                        </div>
+                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6; grid-column: span 2;">
+                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">重置时间</div>
+                                            <div style="font-size: 14px; font-weight: bold; color: #666;">${resetTime}</div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                            <span style="font-size: 11px; color: #666;">使用进度</span>
+                                            <span style="font-size: 12px; font-weight: bold; color: ${percentageColor};">${usedPercentage}%</span>
+                                        </div>
+                                        <div style="width: 100%; height: 10px; background-color: #e9ecef; border-radius: 5px; overflow: hidden;">
+                                            <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        quotaHTML += '</div>';
+                        contentDiv.innerHTML = quotaHTML;
+                    }
+
+                    contentDiv.setAttribute('data-loaded', 'true');
+                    showStatus('✅ 成功加载额度信息', 'success');
+                } else {
+                    // 失败时显示错误
+                    const errorMsg = data.error || '获取额度信息失败';
+                    contentDiv.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #dc3545;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                            <div style="font-weight: bold; margin-bottom: 5px;">获取额度信息失败</div>
+                            <div style="font-size: 13px; color: #666;">${errorMsg}</div>
+                        </div>
+                    `;
+                    showStatus(`❌ ${errorMsg}`, 'error');
+                }
+            } catch (error) {
+                contentDiv.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #dc3545;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                        <div style="font-weight: bold; margin-bottom: 5px;">网络错误</div>
+                        <div style="font-size: 13px; color: #666;">${error.message}</div>
+                    </div>
+                `;
+                showStatus(`❌ 获取额度信息失败: ${error.message}`, 'error');
+            }
+        }
     }
 }
 
