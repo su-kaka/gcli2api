@@ -20,12 +20,7 @@ from .antigravity_api import (
 )
 from .anthropic_converter import convert_anthropic_request_to_antigravity_components
 from .anthropic_streaming import antigravity_sse_to_anthropic_sse
-from .token_estimator import (
-    estimate_input_tokens_from_anthropic_request,
-    estimate_input_tokens_from_components,
-    estimate_input_tokens_from_components_with_options,
-)
-from .token_calibrator import token_calibrator
+from .token_estimator import estimate_input_tokens
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
@@ -208,51 +203,6 @@ def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, st
     project_id = credential_data.get("project_id")
     session_id = f"session-{uuid.uuid4().hex}"   
     return str(project_id), str(session_id)
-
-
-def _estimate_input_tokens_from_components(components: Dict[str, Any]) -> int:
-    """
-    估算输入 token 数（用于 /messages/count_tokens 与流式 message_start 初始 usage 展示）。
-
-    该值是本地预估口径：当前实现基于 `tiktoken` 进行分词计数，并叠加少量结构化开销；
-    最终真实 token 仍以下游 `usageMetadata.promptTokenCount` 为准。
-    """
-    return estimate_input_tokens_from_components(components)
-
-
-def _estimate_input_tokens_from_components_raw(components: Dict[str, Any]) -> int:
-    """
-    components 口径的“未校准”预估（主要用于 debug 对比）。
-    """
-    return estimate_input_tokens_from_components_with_options(components, calibrate=False)
-
-
-def _build_token_calibration_key(
-    *,
-    client_host: str,
-    user_agent: str,
-    model: str,
-    include_thoughts: bool,
-    has_tools: bool,
-) -> str:
-    """
-    构建进程内 token 校准 key（不包含任何敏感信息/内容）。
-    """
-    ua = (user_agent or "").strip()
-    if len(ua) > 120:
-        ua = ua[:120]
-    return (
-        f"client={client_host or 'unknown'}|ua={ua}|model={model}|"
-        f"thoughts={1 if include_thoughts else 0}|tools={1 if has_tools else 0}"
-    )
-
-
-def _estimate_input_tokens_from_anthropic_payload(payload: Dict[str, Any]) -> int:
-    """
-    对 Anthropic 原始请求做本地 token 预估（用于 /messages/count_tokens 与流式 message_start 展示）。
-    """
-    return estimate_input_tokens_from_anthropic_request(payload)
-
 
 def _pick_usage_metadata_from_antigravity_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -485,65 +435,12 @@ async def anthropic_messages(
             error_type="invalid_request_error",
         )
 
-    estimated_input_tokens_payload = 0
+    # 简单估算 token
+    estimated_tokens = 0
     try:
-        estimated_input_tokens_payload = _estimate_input_tokens_from_anthropic_payload(payload)
+        estimated_tokens = estimate_input_tokens(payload)
     except Exception as e:
-        log.debug(f"[ANTHROPIC] 输入 token 估算失败，回退为0: {e}")
-
-    estimated_input_tokens_components_raw = 0
-    estimated_input_tokens_components = 0
-    estimated_components_source = "heuristic"
-    learned_ratio = None
-    try:
-        estimated_input_tokens_components_raw = _estimate_input_tokens_from_components_raw(components)
-        estimated_input_tokens_components = _estimate_input_tokens_from_components(components)
-
-        gen_cfg = components.get("generation_config") or {}
-        include_thoughts = False
-        if isinstance(gen_cfg, dict):
-            tc = gen_cfg.get("thinkingConfig") or {}
-            include_thoughts = bool(isinstance(tc, dict) and tc.get("includeThoughts") is True)
-
-        has_tools = bool(components.get("tools"))
-        calibration_key = _build_token_calibration_key(
-            client_host=client_host,
-            user_agent=user_agent,
-            model=str(components.get("model") or model),
-            include_thoughts=include_thoughts,
-            has_tools=has_tools,
-        )
-
-        learned_ratio = token_calibrator.get_ratio(calibration_key, estimated_input_tokens_components_raw)
-        if learned_ratio:
-            learned_estimated = int(round(estimated_input_tokens_components_raw * float(learned_ratio)))
-            if learned_estimated > 0:
-                estimated_input_tokens_components = learned_estimated
-                estimated_components_source = "learned"
-    except Exception as e:
-        log.debug(f"[ANTHROPIC] components token 估算失败，回退为0: {e}")
-        calibration_key = _build_token_calibration_key(
-            client_host=client_host,
-            user_agent=user_agent,
-            model=str(components.get("model") or model),
-            include_thoughts=False,
-            has_tools=bool(components.get("tools")),
-        )
-
-    if _anthropic_debug_enabled():
-        factor = (
-            (estimated_input_tokens_components / estimated_input_tokens_components_raw)
-            if estimated_input_tokens_components_raw
-            else 1.0
-        )
-        learned_ratio_str = f"{float(learned_ratio):.3f}" if learned_ratio else "None"
-        log.info(
-            f"[ANTHROPIC][TOKEN] 本地预估: estimated_payload={estimated_input_tokens_payload}, "
-            f"estimated_components_raw={estimated_input_tokens_components_raw}, "
-            f"estimated_components={estimated_input_tokens_components}, "
-            f"calibration_factor={factor:.3f}, learned_ratio={learned_ratio_str}, "
-            f"source={estimated_components_source}"
-        )
+        log.debug(f"[ANTHROPIC] token 估算失败: {e}")
 
     request_body = build_antigravity_request_body(
         contents=components["contents"],
@@ -573,9 +470,7 @@ async def anthropic_messages(
                     response,
                     model=str(model),
                     message_id=message_id,
-                    initial_input_tokens=estimated_input_tokens_components,
-                    estimated_input_tokens_components_raw=estimated_input_tokens_components_raw,
-                    calibration_key=calibration_key,
+                    initial_input_tokens=estimated_tokens,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
                 ):
@@ -603,21 +498,8 @@ async def anthropic_messages(
         response_data,
         model=str(model),
         message_id=request_id,
-        fallback_input_tokens=estimated_input_tokens_components,
+        fallback_input_tokens=estimated_tokens,
     )
-    if _anthropic_debug_enabled():
-        usage_metadata = _pick_usage_metadata_from_antigravity_response(response_data)
-        downstream_input = int((usage_metadata or {}).get("promptTokenCount", 0) or 0)
-        # 非流式场景也用真实值更新校准器，供下一次预估使用
-        if downstream_input and estimated_input_tokens_components_raw:
-            token_calibrator.update(
-                calibration_key, raw_tokens=estimated_input_tokens_components_raw, downstream_tokens=downstream_input
-            )
-        log.info(
-            f"[ANTHROPIC][TOKEN] 非流式 input_tokens 对比: estimated_payload={estimated_input_tokens_payload}, "
-            f"estimated_components_raw={estimated_input_tokens_components_raw}, "
-            f"estimated_components={estimated_input_tokens_components}, downstream={downstream_input}"
-        )
     return JSONResponse(content=anthropic_response)
 
 
@@ -685,44 +567,11 @@ async def anthropic_messages_count_tokens(
         f"thinking_present={thinking_present}, thinking={thinking_summary}, ua={user_agent}"
     )
 
+    # 简单估算
     input_tokens = 0
     try:
-        components = convert_anthropic_request_to_antigravity_components(payload)
-        raw_tokens = _estimate_input_tokens_from_components_raw(components)
-        estimated_tokens = _estimate_input_tokens_from_components(components)
-
-        try:
-            client_host = request.client.host if request.client else "unknown"
-        except Exception:
-            client_host = "unknown"
-        ua = request.headers.get("user-agent", "")
-
-        gen_cfg = components.get("generation_config") or {}
-        include_thoughts = False
-        if isinstance(gen_cfg, dict):
-            tc = gen_cfg.get("thinkingConfig") or {}
-            include_thoughts = bool(isinstance(tc, dict) and tc.get("includeThoughts") is True)
-        has_tools = bool(components.get("tools"))
-
-        key = _build_token_calibration_key(
-            client_host=client_host,
-            user_agent=ua,
-            model=str(components.get("model") or payload.get("model") or ""),
-            include_thoughts=include_thoughts,
-            has_tools=has_tools,
-        )
-
-        learned = token_calibrator.get_ratio(key, raw_tokens)
-        if learned and raw_tokens:
-            input_tokens = int(round(raw_tokens * float(learned)))
-        else:
-            input_tokens = int(estimated_tokens)
+        input_tokens = estimate_input_tokens(payload)
     except Exception as e:
-        log.error(f"[ANTHROPIC] count_tokens components 估算失败，回退 payload: {e}")
-        try:
-            input_tokens = _estimate_input_tokens_from_anthropic_payload(payload)
-        except Exception as e2:
-            log.error(f"[ANTHROPIC] count_tokens payload 估算也失败: {e2}")
-            input_tokens = 0
+        log.error(f"[ANTHROPIC] token 估算失败: {e}")
 
     return JSONResponse(content={"input_tokens": input_tokens})

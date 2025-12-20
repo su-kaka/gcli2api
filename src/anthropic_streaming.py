@@ -110,8 +110,6 @@ async def antigravity_sse_to_anthropic_sse(
     model: str,
     message_id: str,
     initial_input_tokens: int = 0,
-    estimated_input_tokens_components_raw: int = 0,
-    calibration_key: Optional[str] = None,
     credential_manager: Any = None,
     credential_name: Optional[str] = None,
 ) -> AsyncIterator[bytes]:
@@ -448,26 +446,11 @@ async def antigravity_sse_to_anthropic_sse(
 
         if _anthropic_debug_enabled():
             estimated_input = initial_input_tokens_int
-            estimated_components_raw = max(0, int(estimated_input_tokens_components_raw or 0))
             downstream_input = state.input_tokens if state.has_input_tokens else 0
             log.info(
-                f"[ANTHROPIC][TOKEN] 流式 input_tokens 对比: estimated_initial={estimated_input}, "
-                f"estimated_components_raw={estimated_components_raw}, downstream={downstream_input}, "
-                f"has_downstream={state.has_input_tokens}"
+                f"[ANTHROPIC][TOKEN] 流式 token: estimated={estimated_input}, "
+                f"downstream={downstream_input}"
             )
-
-        # 用真实值更新校准器（供下一次预估使用；不记录任何文本内容）
-        if state.has_input_tokens and calibration_key and estimated_input_tokens_components_raw:
-            try:
-                from .token_calibrator import token_calibrator
-
-                token_calibrator.update(
-                    calibration_key,
-                    raw_tokens=int(estimated_input_tokens_components_raw or 0),
-                    downstream_tokens=int(state.input_tokens or 0),
-                )
-            except Exception as e:
-                log.debug(f"[ANTHROPIC][TOKEN] 更新校准器失败（忽略）: {e}")
 
         yield _sse_event(
             "message_delta",
