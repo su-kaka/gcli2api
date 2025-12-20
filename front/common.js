@@ -1607,7 +1607,7 @@ async function toggleAntigravityQuotaDetails(pathId) {
                                 </h4>
                                 <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">文件: ${filename}</div>
                             </div>
-                            <div style="display: grid; gap: 12px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
                         `;
 
                         for (const [modelName, quotaData] of Object.entries(models)) {
@@ -1626,34 +1626,17 @@ async function toggleAntigravityQuotaDetails(pathId) {
                             else if (usedPercentage >= 50) percentageColor = '#17a2b8'; // 蓝色：使用中等
 
                             quotaHTML += `
-                                <div style="background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; border-left: 4px solid #17a2b8;">
-                                    <div style="font-weight: bold; color: #333; margin-bottom: 8px; font-size: 14px;">
-                                        🔹 ${modelName}
-                                    </div>
-
-                                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px;">
-                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6;">
-                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">剩余额度</div>
-                                            <div style="font-size: 18px; font-weight: bold; color: #28a745;">${remainingPercentage}%</div>
+                                <div style="background: white; border-left: 4px solid ${percentageColor}; border-radius: 4px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                        <div style="font-weight: bold; color: #333; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px;" title="${modelName} - 剩余${remainingPercentage}% - ${resetTime}">
+                                            ${modelName}
                                         </div>
-                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6;">
-                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">已使用</div>
-                                            <div style="font-size: 18px; font-weight: bold; color: #dc3545;">${usedPercentage}%</div>
-                                        </div>
-                                        <div style="background: white; padding: 8px; border-radius: 4px; border: 1px solid #dee2e6; grid-column: span 2;">
-                                            <div style="font-size: 11px; color: #666; margin-bottom: 2px;">重置时间</div>
-                                            <div style="font-size: 14px; font-weight: bold; color: #666;">${resetTime}</div>
+                                        <div style="font-size: 13px; font-weight: bold; color: ${percentageColor}; white-space: nowrap;">
+                                            ${remainingPercentage}%
                                         </div>
                                     </div>
-
-                                    <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                                            <span style="font-size: 11px; color: #666;">使用进度</span>
-                                            <span style="font-size: 12px; font-weight: bold; color: ${percentageColor};">${usedPercentage}%</span>
-                                        </div>
-                                        <div style="width: 100%; height: 10px; background-color: #e9ecef; border-radius: 5px; overflow: hidden;">
-                                            <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
-                                        </div>
+                                    <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;">
+                                        <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
                                     </div>
                                 </div>
                             `;
