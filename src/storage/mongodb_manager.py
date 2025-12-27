@@ -152,6 +152,7 @@ class MongoDBManager:
         Note:
             - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
             - 对于 gcli: model_key 是 "pro" 或 "flash"
+            - 使用聚合管道在数据库层面过滤冷却状态，性能更优
         """
         self._ensure_initialized()
 
@@ -160,33 +161,50 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # 获取所有候选凭证（未禁用）
-            query = {"disabled": False}
-
-            # 使用 $sample 随机抽取
+            # 构建聚合管道
             pipeline = [
-                {"$match": query},
-                {"$sample": {"size": 100}}  # 随机抽取最多100个
+                # 第一步: 筛选未禁用的凭证
+                {"$match": {"disabled": False}},
             ]
 
-            docs = await collection.aggregate(pipeline).to_list(length=100)
+            # 如果提供了 model_key，添加冷却检查
+            if model_key:
+                pipeline.extend([
+                    # 第二步: 添加冷却状态字段
+                    {
+                        "$addFields": {
+                            "is_available": {
+                                "$or": [
+                                    # model_cooldowns 中没有该 model_key
+                                    {"$not": {"$ifNull": [f"$model_cooldowns.{model_key}", False]}},
+                                    # 或者冷却时间已过期
+                                    {"$lte": [f"$model_cooldowns.{model_key}", current_time]}
+                                ]
+                            }
+                        }
+                    },
+                    # 第三步: 只保留可用的凭证
+                    {"$match": {"is_available": True}},
+                ])
 
-            # 如果没有提供 model_key，使用第一个可用凭证
-            if not model_key:
-                if docs:
-                    doc = docs[0]
-                    return doc["filename"], doc.get("credential_data")
-                return None
+            # 第四步: 随机抽取一个
+            pipeline.append({"$sample": {"size": 1}})
 
-            # 如果提供了 model_key，检查模型级冷却
-            for doc in docs:
-                model_cooldowns = doc.get("model_cooldowns", {})
+            # 第五步: 只投影需要的字段
+            pipeline.append({
+                "$project": {
+                    "filename": 1,
+                    "credential_data": 1,
+                    "_id": 0
+                }
+            })
 
-                # 检查该模型是否在冷却中
-                model_cooldown = model_cooldowns.get(model_key)
-                if model_cooldown is None or current_time >= model_cooldown:
-                    # 该模型未冷却或冷却已过期
-                    return doc["filename"], doc.get("credential_data")
+            # 执行聚合
+            docs = await collection.aggregate(pipeline).to_list(length=1)
+
+            if docs:
+                doc = docs[0]
+                return doc["filename"], doc.get("credential_data")
 
             return None
 
