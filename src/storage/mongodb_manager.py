@@ -74,7 +74,7 @@ class MongoDBManager:
         await credentials_collection.create_index("disabled")
         await credentials_collection.create_index("rotation_order")
 
-        # 复合索引 - 优化 get_next_available_credential 查询
+        # 复合索引
         await credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
 
         # 如果经常按错误码筛选，可以添加此索引
@@ -85,7 +85,7 @@ class MongoDBManager:
         await antigravity_credentials_collection.create_index("disabled")
         await antigravity_credentials_collection.create_index("rotation_order")
 
-        # 复合索引 - 优化 get_next_available_credential 查询
+        # 复合索引
         await antigravity_credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
 
         # 如果经常按错误码筛选，可以添加此索引
@@ -224,38 +224,18 @@ class MongoDBManager:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
 
-            cursor = collection.find(
-                {"disabled": False},
-                {"filename": 1}
-            ).sort("rotation_order", 1)
+            pipeline = [
+                {"$match": {"disabled": False}},
+                {"$sort": {"rotation_order": 1}},
+                {"$project": {"filename": 1, "_id": 0}}
+            ]
 
-            filenames = []
-            async for doc in cursor:
-                filenames.append(doc["filename"])
-
-            return filenames
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+            return [doc["filename"] for doc in docs]
 
         except Exception as e:
             log.error(f"Error getting available credentials list (antigravity={is_antigravity}): {e}")
             return []
-
-    async def check_and_clear_cooldowns(self) -> int:
-        """
-        批量清除已过期的模型级冷却
-        返回清除的数量
-        """
-        self._ensure_initialized()
-
-        try:
-            # 直接调用模型级冷却清理方法
-            cleared = 0
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=False)
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=True)
-            return cleared
-
-        except Exception as e:
-            log.error(f"Error clearing cooldowns: {e}")
-            return 0
 
     # ============ StorageBackend 协议方法 ============
 
@@ -266,44 +246,59 @@ class MongoDBManager:
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
+            current_ts = time.time()
 
-            # 检查是否存在
-            existing = await collection.find_one({"filename": filename})
+            # 使用 upsert + $setOnInsert
+            # 如果文档存在，只更新 credential_data 和 updated_at
+            # 如果文档不存在，设置所有默认字段
 
-            if existing:
-                # 更新凭证数据，保留状态
-                await collection.update_one(
-                    {"filename": filename},
-                    {
-                        "$set": {
-                            "credential_data": credential_data,
-                            "updated_at": time.time(),
-                        }
-                    },
-                )
-            else:
+            # 先尝试更新现有文档
+            result = await collection.update_one(
+                {"filename": filename},
+                {
+                    "$set": {
+                        "credential_data": credential_data,
+                        "updated_at": current_ts,
+                    }
+                }
+            )
+
+            # 如果没有匹配到（新凭证），需要插入
+            if result.matched_count == 0:
                 # 获取下一个 rotation_order
-                max_doc = await collection.find_one(
-                    {}, sort=[("rotation_order", -1)]
-                )
-                next_order = (max_doc["rotation_order"] + 1) if max_doc else 0
+                pipeline = [
+                    {"$group": {"_id": None, "max_order": {"$max": "$rotation_order"}}},
+                    {"$project": {"_id": 0, "next_order": {"$add": ["$max_order", 1]}}}
+                ]
 
-                # 插入新凭证
-                await collection.insert_one(
-                    {
+                result_list = await collection.aggregate(pipeline).to_list(length=1)
+                next_order = result_list[0]["next_order"] if result_list else 0
+
+                # 插入新凭证（使用 insert_one，因为我们已经确认不存在）
+                try:
+                    await collection.insert_one({
                         "filename": filename,
                         "credential_data": credential_data,
                         "disabled": False,
                         "error_codes": [],
-                        "last_success": time.time(),
+                        "last_success": current_ts,
                         "user_email": None,
                         "model_cooldowns": {},
                         "rotation_order": next_order,
                         "call_count": 0,
-                        "created_at": time.time(),
-                        "updated_at": time.time(),
-                    }
-                )
+                        "created_at": current_ts,
+                        "updated_at": current_ts,
+                    })
+                except Exception as insert_error:
+                    # 处理并发插入导致的重复键错误
+                    if "duplicate key" in str(insert_error).lower():
+                        # 重试更新
+                        await collection.update_one(
+                            {"filename": filename},
+                            {"$set": {"credential_data": credential_data, "updated_at": current_ts}}
+                        )
+                    else:
+                        raise
 
             log.debug(f"Stored credential: {filename} (antigravity={is_antigravity})")
             return True
@@ -320,23 +315,23 @@ class MongoDBManager:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
 
-            # 首先尝试精确匹配
-            doc = await collection.find_one({"filename": filename})
+            # 首先尝试精确匹配，只投影需要的字段
+            doc = await collection.find_one(
+                {"filename": filename},
+                {"credential_data": 1, "_id": 0}
+            )
             if doc:
                 return doc.get("credential_data")
 
             # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
-            # 匹配以 filename 结尾的路径，或者包含 filename 的路径
+            # 直接使用 $regex 结尾匹配，移除重复的 $or 条件
             regex_pattern = re.escape(filename)
-            cursor = collection.find({
-                "$or": [
-                    {"filename": {"$regex": f".*{regex_pattern}$"}},
-                    {"filename": filename}
-                ]
-            })
+            doc = await collection.find_one(
+                {"filename": {"$regex": f".*{regex_pattern}$"}},
+                {"credential_data": 1, "_id": 0}
+            )
 
-            # 优先返回完全匹配的，否则返回basename匹配的第一个
-            async for doc in cursor:
+            if doc:
                 return doc.get("credential_data")
 
             return None
@@ -352,15 +347,15 @@ class MongoDBManager:
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
-            cursor = collection.find({}, {"filename": 1}).sort(
-                "rotation_order", 1
-            )
 
-            filenames = []
-            async for doc in cursor:
-                filenames.append(doc["filename"])
+            # 使用聚合管道
+            pipeline = [
+                {"$sort": {"rotation_order": 1}},
+                {"$project": {"filename": 1, "_id": 0}}
+            ]
 
-            return filenames
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+            return [doc["filename"] for doc in docs]
 
         except Exception as e:
             log.error(f"Error listing credentials: {e}")
@@ -583,7 +578,7 @@ class MongoDBManager:
                     pass
                 query["error_codes"] = {"$in": query_values}
 
-            # 计算全局统计数据（不受筛选条件影响）- 使用聚合管道优化
+            # 计算全局统计数据（不受筛选条件影响）
             global_stats = {"total": 0, "normal": 0, "disabled": 0}
             stats_pipeline = [
                 {
@@ -794,57 +789,3 @@ class MongoDBManager:
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
-
-    async def clear_expired_model_cooldowns(self, is_antigravity: bool = False) -> int:
-        """
-        清除已过期的模型级冷却
-
-        Args:
-            is_antigravity: 是否为 antigravity 凭证集合
-
-        Returns:
-            清除的冷却项数量
-        """
-        self._ensure_initialized()
-
-        try:
-            collection_name = self._get_collection_name(is_antigravity)
-            collection = self._db[collection_name]
-            current_time = time.time()
-            cleared_count = 0
-
-            # 获取所有有 model_cooldowns 的凭证
-            cursor = collection.find({"model_cooldowns": {"$ne": {}}})
-
-            async for doc in cursor:
-                filename = doc["filename"]
-                model_cooldowns = doc.get("model_cooldowns", {})
-                original_len = len(model_cooldowns)
-
-                # 过滤掉已过期的冷却
-                model_cooldowns = {
-                    k: v for k, v in model_cooldowns.items()
-                    if v > current_time
-                }
-
-                # 如果有变化，更新数据库
-                if len(model_cooldowns) < original_len:
-                    await collection.update_one(
-                        {"filename": filename},
-                        {
-                            "$set": {
-                                "model_cooldowns": model_cooldowns,
-                                "updated_at": time.time()
-                            }
-                        }
-                    )
-                    cleared_count += (original_len - len(model_cooldowns))
-
-            if cleared_count > 0:
-                log.debug(f"Cleared {cleared_count} expired model cooldowns")
-
-            return cleared_count
-
-        except Exception as e:
-            log.error(f"Error clearing expired model cooldowns: {e}")
-            return 0
