@@ -74,10 +74,22 @@ class MongoDBManager:
         await credentials_collection.create_index("disabled")
         await credentials_collection.create_index("rotation_order")
 
+        # 复合索引 - 优化 get_next_available_credential 查询
+        await credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
+
+        # 如果经常按错误码筛选，可以添加此索引
+        await credentials_collection.create_index("error_codes")
+
         # 创建 Antigravity 凭证索引
         await antigravity_credentials_collection.create_index("filename", unique=True)
         await antigravity_credentials_collection.create_index("disabled")
         await antigravity_credentials_collection.create_index("rotation_order")
+
+        # 复合索引 - 优化 get_next_available_credential 查询
+        await antigravity_credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
+
+        # 如果经常按错误码筛选，可以添加此索引
+        await antigravity_credentials_collection.create_index("error_codes")
 
         log.debug("MongoDB indexes created")
 
@@ -463,7 +475,20 @@ class MongoDBManager:
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
-            cursor = collection.find({})
+
+            # 使用投影只获取需要的字段
+            cursor = collection.find(
+                {},
+                projection={
+                    "filename": 1,
+                    "disabled": 1,
+                    "error_codes": 1,
+                    "last_success": 1,
+                    "user_email": 1,
+                    "model_cooldowns": 1,
+                    "_id": 0
+                }
+            )
 
             states = {}
             current_time = time.time()
@@ -540,18 +565,40 @@ class MongoDBManager:
                     pass
                 query["error_codes"] = {"$in": query_values}
 
-            # 计算全局统计数据（不受筛选条件影响）
+            # 计算全局统计数据（不受筛选条件影响）- 使用聚合管道优化
             global_stats = {"total": 0, "normal": 0, "disabled": 0}
-            stats_cursor = collection.find({})
-            async for doc in stats_cursor:
-                global_stats["total"] += 1
-                if doc.get("disabled", False):
-                    global_stats["disabled"] += 1
+            stats_pipeline = [
+                {
+                    "$group": {
+                        "_id": "$disabled",
+                        "count": {"$sum": 1}
+                    }
+                }
+            ]
+
+            stats_result = await collection.aggregate(stats_pipeline).to_list(length=10)
+            for item in stats_result:
+                count = item["count"]
+                global_stats["total"] += count
+                if item["_id"]:
+                    global_stats["disabled"] = count
                 else:
-                    global_stats["normal"] += 1
+                    global_stats["normal"] = count
 
             # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
-            cursor = collection.find(query).sort("rotation_order", 1)
+            cursor = collection.find(
+                query,
+                projection={
+                    "filename": 1,
+                    "disabled": 1,
+                    "error_codes": 1,
+                    "last_success": 1,
+                    "user_email": 1,
+                    "rotation_order": 1,
+                    "model_cooldowns": 1,
+                    "_id": 0
+                }
+            ).sort("rotation_order", 1)
 
             all_summaries = []
             current_time = time.time()
@@ -697,31 +744,31 @@ class MongoDBManager:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
 
-            # 获取当前的 model_cooldowns
-            doc = await collection.find_one({"filename": filename})
+            # 使用原子操作直接更新，避免竞态条件
+            if cooldown_until is None:
+                # 删除指定模型的冷却
+                result = await collection.update_one(
+                    {"filename": filename},
+                    {
+                        "$unset": {f"model_cooldowns.{model_key}": ""},
+                        "$set": {"updated_at": time.time()}
+                    }
+                )
+            else:
+                # 设置冷却时间
+                result = await collection.update_one(
+                    {"filename": filename},
+                    {
+                        "$set": {
+                            f"model_cooldowns.{model_key}": cooldown_until,
+                            "updated_at": time.time()
+                        }
+                    }
+                )
 
-            if not doc:
+            if result.matched_count == 0:
                 log.warning(f"Credential {filename} not found")
                 return False
-
-            model_cooldowns = doc.get("model_cooldowns", {})
-
-            # 更新或删除指定模型的冷却时间
-            if cooldown_until is None:
-                model_cooldowns.pop(model_key, None)
-            else:
-                model_cooldowns[model_key] = cooldown_until
-
-            # 写回数据库
-            await collection.update_one(
-                {"filename": filename},
-                {
-                    "$set": {
-                        "model_cooldowns": model_cooldowns,
-                        "updated_at": time.time()
-                    }
-                }
-            )
 
             log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
             return True
