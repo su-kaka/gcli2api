@@ -2,7 +2,9 @@
 MongoDB 存储管理器
 """
 
+import os
 import time
+import re
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -37,8 +39,6 @@ class MongoDBManager:
             return
 
         try:
-            import os
-
             mongodb_uri = os.getenv("MONGODB_URI")
             if not mongodb_uri:
                 raise ValueError("MONGODB_URI environment variable not set")
@@ -206,7 +206,7 @@ class MongoDBManager:
             return filenames
 
         except Exception as e:
-            log.error(f"Error getting available credentials list: {e}")
+            log.error(f"Error getting available credentials list (antigravity={is_antigravity}): {e}")
             return []
 
     async def check_and_clear_cooldowns(self) -> int:
@@ -283,16 +283,32 @@ class MongoDBManager:
             return False
 
     async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
-        """获取凭证数据"""
+        """获取凭证数据，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
-            doc = await collection.find_one({"filename": filename})
 
+            # 首先尝试精确匹配
+            doc = await collection.find_one({"filename": filename})
             if doc:
                 return doc.get("credential_data")
+
+            # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
+            # 匹配以 filename 结尾的路径，或者包含 filename 的路径
+            regex_pattern = re.escape(filename)
+            cursor = collection.find({
+                "$or": [
+                    {"filename": {"$regex": f".*{regex_pattern}$"}},
+                    {"filename": filename}
+                ]
+            })
+
+            # 优先返回完全匹配的，否则返回basename匹配的第一个
+            async for doc in cursor:
+                return doc.get("credential_data")
+
             return None
 
         except Exception as e:
@@ -321,16 +337,31 @@ class MongoDBManager:
             return []
 
     async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
-        """删除凭证"""
+        """删除凭证，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
-            result = await collection.delete_one({"filename": filename})
 
-            log.debug(f"Deleted credential: {filename} (antigravity={is_antigravity})")
-            return result.deleted_count > 0
+            # 首先尝试精确匹配删除
+            result = await collection.delete_one({"filename": filename})
+            deleted_count = result.deleted_count
+
+            # 如果精确匹配没有删除任何记录，尝试basename匹配
+            if deleted_count == 0:
+                regex_pattern = re.escape(filename)
+                result = await collection.delete_one({
+                    "filename": {"$regex": f".*{regex_pattern}$"}
+                })
+                deleted_count = result.deleted_count
+
+            if deleted_count > 0:
+                log.debug(f"Deleted {deleted_count} credential(s): {filename} (antigravity={is_antigravity})")
+                return True
+            else:
+                log.warning(f"No credential found to delete: {filename} (antigravity={is_antigravity})")
+                return False
 
         except Exception as e:
             log.error(f"Error deleting credential {filename}: {e}")
@@ -339,7 +370,7 @@ class MongoDBManager:
     async def update_credential_state(
         self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False
     ) -> bool:
-        """更新凭证状态"""
+        """更新凭证状态，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
@@ -356,24 +387,52 @@ class MongoDBManager:
 
             valid_updates["updated_at"] = time.time()
 
+            # 首先尝试精确匹配更新
             result = await collection.update_one(
                 {"filename": filename}, {"$set": valid_updates}
             )
+            updated_count = result.modified_count + result.matched_count
 
-            return result.modified_count > 0 or result.matched_count > 0
+            # 如果精确匹配没有更新任何记录，尝试basename匹配
+            if updated_count == 0:
+                regex_pattern = re.escape(filename)
+                result = await collection.update_one(
+                    {"filename": {"$regex": f".*{regex_pattern}$"}},
+                    {"$set": valid_updates}
+                )
+                updated_count = result.modified_count + result.matched_count
+
+            return updated_count > 0
 
         except Exception as e:
             log.error(f"Error updating credential state {filename}: {e}")
             return False
 
     async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
-        """获取凭证状态"""
+        """获取凭证状态，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(is_antigravity)
             collection = self._db[collection_name]
+
+            # 首先尝试精确匹配
             doc = await collection.find_one({"filename": filename})
+
+            if doc:
+                return {
+                    "disabled": doc.get("disabled", False),
+                    "error_codes": doc.get("error_codes", []),
+                    "last_success": doc.get("last_success", time.time()),
+                    "user_email": doc.get("user_email"),
+                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                }
+
+            # 如果精确匹配失败，尝试basename匹配
+            regex_pattern = re.escape(filename)
+            doc = await collection.find_one({
+                "filename": {"$regex": f".*{regex_pattern}$"}
+            })
 
             if doc:
                 return {
