@@ -89,9 +89,10 @@ def map_claude_model_to_gemini(claude_model: str) -> str:
     if claude_model == "claude-sonnet-4-5":
         return "claude-sonnet-4-5"
     if claude_model == "claude-haiku-4-5":
-        return "gemini-2.5-flash"
+        return "gemini-3-flash"
 
     supported_models = {
+        "gemini-3-flash",
         "gemini-2.5-flash",
         "gemini-2.5-flash-thinking",
         "gemini-2.5-pro",

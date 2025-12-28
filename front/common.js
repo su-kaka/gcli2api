@@ -1862,7 +1862,7 @@ function connectWebSocket() {
 
     try {
         const wsPath = new URL('./auth/logs/stream', window.location.href).href;
-        const wsUrl = wsPath.replace(/^https/, 'ws');
+        const wsUrl = wsPath.replace(/^http/, 'ws');
 
         document.getElementById('connectionStatusText').textContent = '连接中...';
         document.getElementById('logConnectionStatus').className = 'status info';
