@@ -269,9 +269,13 @@ def _extract_tool_result_output(content: Any) -> str:
     return str(content)
 
 
-def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def convert_messages_to_contents(messages: List[Dict[str, Any]], *, include_thinking: bool = True) -> List[Dict[str, Any]]:
     """
     将 Anthropic messages[] 转换为下游 contents[]（role: user/model, parts: []）。
+
+    Args:
+        messages: Anthropic 格式的消息列表
+        include_thinking: 是否包含 thinking 块（当请求未启用 thinking 时应设为 False）
     """
     contents: List[Dict[str, Any]] = []
 
@@ -293,8 +297,12 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
 
                 item_type = item.get("type")
                 if item_type == "thinking":
+                    # 如果请求未启用 thinking，则跳过历史 thinking 块
+                    if not include_thinking:
+                        continue
+
                     # Anthropic 的历史 thinking block 在回放时通常要求携带 signature；
-                    # 若缺失 signature，下游可能会报 “thinking.signature: Field required”。
+                    # 若缺失 signature，下游可能会报 "thinking.signature: Field required"。
                     # 为保证兼容性，这里选择丢弃无 signature 的 thinking block。
                     signature = item.get("signature")
                     if not signature:
@@ -310,6 +318,10 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]]) -> List[Dict[st
                     }
                     parts.append(part)
                 elif item_type == "redacted_thinking":
+                    # 如果请求未启用 thinking，则跳过历史 redacted_thinking 块
+                    if not include_thinking:
+                        continue
+
                     signature = item.get("signature")
                     if not signature:
                         continue
@@ -456,11 +468,14 @@ def build_system_instruction(system: Any) -> Optional[Dict[str, Any]]:
     return {"role": "user", "parts": parts}
 
 
-def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
     """
     根据 Anthropic Messages 请求构造下游 generationConfig。
 
     默认值与 `converter.py` 保持一致，并在此基础上兼容 stop_sequences。
+
+    Returns:
+        (generation_config, should_include_thinking): 元组，包含生成配置和是否应包含 thinking 块
     """
     config: Dict[str, Any] = {
         "topP": 1,
@@ -498,12 +513,13 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     # 可能会携带 `thinking: null`，或开启 thinking 但不回放历史 thinking blocks。
     #
     # 下游在 thinking 启用时会更严格校验历史 assistant 消息：
-    # - 若历史中存在 assistant 消息，则“最后一条 assistant 消息”必须以 thinking/redacted_thinking block 开头
+    # - 若历史中存在 assistant 消息，则"最后一条 assistant 消息"必须以 thinking/redacted_thinking block 开头
     # - max_tokens 必须大于 thinking.budget_tokens
     #
-    # 为兼容客户端，这里仅在 thinking 值“显式且非 null”时才考虑下发，并做安全兜底：
+    # 为兼容客户端，这里仅在 thinking 值"显式且非 null"时才考虑下发，并做安全兜底：
     # - 若最后一条 assistant 消息不以 thinking/redacted_thinking 开头，则不下发 thinkingConfig（避免 400）
     # - 若 budget >= max_tokens，则自动下调 budget（最低降到 max_tokens-1），否则不下发
+    should_include_thinking = False
     if "thinking" in payload:
         thinking_value = payload.get("thinking")
         if thinking_value is not None:
@@ -536,7 +552,7 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                         "[ANTHROPIC][thinking] 请求显式启用 thinking，但历史 messages 未回放 "
                         "满足约束的 assistant thinking/redacted_thinking 起始块，已跳过下发 thinkingConfig（避免下游 400）"
                     )
-                return config
+                return config, False
 
             max_tokens = payload.get("max_tokens")
             if include_thoughts and isinstance(max_tokens, int):
@@ -549,7 +565,7 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                                 "[ANTHROPIC][thinking] thinkingBudget>=max_tokens 且无法下调到正数，"
                                 "已跳过下发 thinkingConfig（避免下游 400）"
                             )
-                        return config
+                        return config, False
                     if _anthropic_debug_enabled():
                         log.info(
                             f"[ANTHROPIC][thinking] thinkingBudget>=max_tokens，自动下调 budget: "
@@ -558,6 +574,7 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                     thinking_config["thinkingBudget"] = adjusted_budget
 
             config["thinkingConfig"] = thinking_config
+            should_include_thinking = include_thoughts
             if _anthropic_debug_enabled():
                 log.info(
                     f"[ANTHROPIC][thinking] 已下发 thinkingConfig: includeThoughts="
@@ -570,7 +587,7 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         if _anthropic_debug_enabled():
             log.info("[ANTHROPIC][thinking] 未提供 thinking 字段（不下发 thinkingConfig）")
-    return config
+    return config, should_include_thinking
 
 
 def convert_anthropic_request_to_antigravity_components(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -589,11 +606,14 @@ def convert_anthropic_request_to_antigravity_components(payload: Dict[str, Any])
     if not isinstance(messages, list):
         messages = []
 
-    contents = convert_messages_to_contents(messages)
+    # 先构建 generation_config 以确定是否应包含 thinking
+    generation_config, should_include_thinking = build_generation_config(payload)
+
+    # 根据 thinking 配置转换消息
+    contents = convert_messages_to_contents(messages, include_thinking=should_include_thinking)
     contents = reorganize_tool_messages(contents)
     system_instruction = build_system_instruction(payload.get("system"))
     tools = convert_tools(payload.get("tools"))
-    generation_config = build_generation_config(payload)
 
     return {
         "model": model,
