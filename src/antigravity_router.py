@@ -196,10 +196,16 @@ def openai_messages_to_antigravity_contents(messages: List[Any]) -> List[Dict[st
 
         # 处理 tool 消息
         elif role == "tool":
+            # 获取函数名称,确保不为空
+            func_name = getattr(msg, "name", None)
+            if not func_name:
+                # 如果没有提供名称,尝试从 tool_call_id 推断或使用默认值
+                func_name = f"function_{tool_call_id}" if tool_call_id else "unknown_function"
+
             parts = [{
                 "functionResponse": {
                     "id": tool_call_id,
-                    "name": getattr(msg, "name", "unknown"),
+                    "name": func_name,
                     "response": {"output": content}
                 }
             }]
@@ -491,6 +497,8 @@ async def convert_antigravity_stream_to_openai(
                 # 处理工具调用
                 elif "functionCall" in part:
                     tool_call = convert_to_openai_tool_call(part["functionCall"])
+                    # 在流式响应中,每个 tool_call 需要包含 index 字段
+                    tool_call["index"] = len(state["tool_calls"])
                     state["tool_calls"].append(tool_call)
 
             # 检查是否结束
