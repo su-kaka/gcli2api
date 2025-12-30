@@ -238,7 +238,11 @@ def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[L
         description = tool.get("description", "")
         input_schema = tool.get("input_schema", {}) or {}
         parameters = clean_json_schema(input_schema)
-
+        if not isinstance(parameters, dict):
+            parameters = {"type": "object"}
+        elif "type" not in parameters:
+            parameters["type"] = "object"
+            
         gemini_tools.append(
             {
                 "functionDeclarations": [

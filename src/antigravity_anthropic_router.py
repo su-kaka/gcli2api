@@ -355,6 +355,18 @@ async def anthropic_messages(
 
     _debug_log_request_payload(request, payload)
 
+        # 检查是否包含 web_search 工具
+    tools = payload.get("tools", [])
+    if isinstance(tools, list):
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("name") == "web_search":
+                log.warning(f"[ANTHROPIC] 检测到不支持的 web_search 工具，拒绝请求")
+                return _anthropic_error(
+                    status_code=400,
+                    message="下游不支持内置搜索工具 (web_search)，请使用其他搜索方式或移除该工具",
+                    error_type="invalid_request_error"
+                )
+            
     model = payload.get("model")
     max_tokens = payload.get("max_tokens")
     messages = payload.get("messages")
