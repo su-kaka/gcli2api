@@ -51,7 +51,7 @@ async def get_credential_manager():
     return credential_manager
 
 @router.get("/v1/models", response_model=ModelList)
-async def list_models():
+async def list_models(token: str = Depends(authenticate_bearer)):
     """返回OpenAI格式的模型列表"""
     models = get_available_models("openai")
     return ModelList(data=[Model(id=m) for m in models])

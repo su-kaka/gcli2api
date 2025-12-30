@@ -349,24 +349,6 @@ class SQLiteManager:
             log.error(f"Error getting available credentials list: {e}")
             return []
 
-    async def check_and_clear_cooldowns(self) -> int:
-        """
-        批量清除已过期的模型级冷却
-        返回清除的数量
-        """
-        self._ensure_initialized()
-
-        try:
-            # 直接调用模型级冷却清理方法
-            cleared = 0
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=False)
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=True)
-            return cleared
-
-        except Exception as e:
-            log.error(f"Error clearing cooldowns: {e}")
-            return 0
-
     # ============ StorageBackend 协议方法 ============
 
     async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
@@ -926,59 +908,3 @@ class SQLiteManager:
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
-
-    async def clear_expired_model_cooldowns(self, is_antigravity: bool = False) -> int:
-        """
-        清除已过期的模型级冷却
-
-        Args:
-            is_antigravity: 是否为 antigravity 凭证表
-
-        Returns:
-            清除的冷却项数量
-        """
-        self._ensure_initialized()
-
-        try:
-            table_name = self._get_table_name(is_antigravity)
-            current_time = time.time()
-            cleared_count = 0
-
-            async with aiosqlite.connect(self._db_path) as db:
-                # 获取所有凭证的 model_cooldowns
-                async with db.execute(f"""
-                    SELECT filename, model_cooldowns FROM {table_name}
-                    WHERE model_cooldowns != '{{}}'
-                """) as cursor:
-                    rows = await cursor.fetchall()
-
-                    for filename, model_cooldowns_json in rows:
-                        model_cooldowns = json.loads(model_cooldowns_json or '{}')
-                        original_len = len(model_cooldowns)
-
-                        # 过滤掉已过期的冷却
-                        model_cooldowns = {
-                            k: v for k, v in model_cooldowns.items()
-                            if v > current_time
-                        }
-
-                        # 如果有变化，更新数据库
-                        if len(model_cooldowns) < original_len:
-                            await db.execute(f"""
-                                UPDATE {table_name}
-                                SET model_cooldowns = ?,
-                                    updated_at = unixepoch()
-                                WHERE filename = ?
-                            """, (json.dumps(model_cooldowns), filename))
-                            cleared_count += (original_len - len(model_cooldowns))
-
-                    await db.commit()
-
-            if cleared_count > 0:
-                log.debug(f"Cleared {cleared_count} expired model cooldowns")
-
-            return cleared_count
-
-        except Exception as e:
-            log.error(f"Error clearing expired model cooldowns: {e}")
-            return 0
