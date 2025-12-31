@@ -5,6 +5,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,6 +25,15 @@ from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .models import Model, model_to_dict
 from .utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
 
+def _anthropic_debug_enabled() -> bool:
+    return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+def _json_dumps_for_log(data: Any) -> str:
+    try:
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        return str(data)
+    
 async def _check_should_auto_ban(status_code: int) -> bool:
     """检查是否应该触发自动封禁"""
     return (
@@ -117,6 +127,9 @@ def build_antigravity_request_body(
 async def _filter_thinking_from_stream(lines, return_thoughts: bool):
     """过滤流式响应中的思维链（如果配置禁用）"""
     async for line in lines:
+        if _anthropic_debug_enabled():
+            log.info(f"[ANTHROPIC][DEBUG] 响应response={_json_dumps_for_log(line)}")
+        
         if not line or not line.startswith("data: "):
             yield line
             continue
@@ -193,6 +206,10 @@ async def send_antigravity_request_stream(
             # 发送流式请求
             client = await create_streaming_client_with_kwargs()
             antigravity_url = await get_antigravity_api_url()
+
+            if _anthropic_debug_enabled():
+                log.info(f"[ANTHROPIC][DEBUG] 请求body={_json_dumps_for_log(request_body)}")
+                log.info(f"[ANTHROPIC][DEBUG] 请求header={_json_dumps_for_log(headers)}")
 
             try:
                 # 使用stream方法但不在async with块中消费数据
@@ -320,6 +337,10 @@ async def send_antigravity_request_no_stream(
             # 发送非流式请求
             antigravity_url = await get_antigravity_api_url()
 
+            if _anthropic_debug_enabled():
+                log.info(f"[ANTHROPIC][DEBUG] no_stream请求body={_json_dumps_for_log(request_body)}")
+                log.info(f"[ANTHROPIC][DEBUG] no_stream请求header={_json_dumps_for_log(headers)}")
+            
             # 使用上下文管理器确保正确的资源管理
             async with http_client.get_client(timeout=300.0) as client:
                 response = await client.post(
@@ -335,7 +356,8 @@ async def send_antigravity_request_no_stream(
                         current_file, True, is_antigravity=True, model_key=model_name
                     )
                     response_data = response.json()
-
+                    if _anthropic_debug_enabled():
+                        log.info(f"[ANTHROPIC][DEBUG] no_stream响应response={_json_dumps_for_log(response_data)}")
                     # 从源头过滤思维链
                     return_thoughts = await get_return_thoughts_to_frontend()
                     if not return_thoughts:

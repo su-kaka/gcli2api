@@ -274,10 +274,27 @@ def _convert_antigravity_response_to_anthropic_message(
         if "functionCall" in part:
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
+
+            # 提取 thoughtSignature（如果存在）
+            thought_signature = part.get("thoughtSignature")
+            tool_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
+
+            if _anthropic_debug_enabled():
+                log.info(
+                    f"[ANTHROPIC][tool_use] 非流式处理 functionCall: "
+                    f"name={fc.get('name')}, has_signature={thought_signature is not None}, "
+                    f"signature_len={len(str(thought_signature)) if thought_signature else 0}"
+                )
+
+            # 如果有 signature，保存到全局缓存
+            if thought_signature:
+                from src.anthropic_converter import _save_tool_signature
+                _save_tool_signature(tool_id, thought_signature)
+
             content.append(
                 {
                     "type": "tool_use",
-                    "id": fc.get("id") or f"toolu_{uuid.uuid4().hex}",
+                    "id": tool_id,
                     "name": fc.get("name") or "",
                     "input": _remove_nulls_for_tool_input(fc.get("args", {}) or {}),
                 }
@@ -354,6 +371,9 @@ async def anthropic_messages(
         )
 
     _debug_log_request_payload(request, payload)
+
+    if _anthropic_debug_enabled():
+        log.info(f"[ANTHROPIC][DEBUG] 请求payload={_json_dumps_for_log(payload)}")
 
         # 检查是否包含 web_search 工具
     tools = payload.get("tools", [])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Union
 
 from log import log
@@ -11,9 +12,57 @@ from log import log
 DEFAULT_THINKING_BUDGET = 1024
 DEFAULT_TEMPERATURE = 0.4
 
+# 全局缓存：保存 tool_use 的 signature，用于客户端回传时补齐
+# 结构: {tool_id: (signature, timestamp)}
+_TOOL_SIGNATURE_CACHE: Dict[str, tuple[str, float]] = {}
+_CACHE_TTL = 3600  # 缓存1小时后过期
 
 def _anthropic_debug_enabled() -> bool:
     return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _clean_expired_cache() -> None:
+    """清理过期的 signature 缓存"""
+    now = time.time()
+    expired_keys = [k for k, (_, ts) in _TOOL_SIGNATURE_CACHE.items() if now - ts > _CACHE_TTL]
+    for k in expired_keys:
+        _TOOL_SIGNATURE_CACHE.pop(k, None)
+    if expired_keys and _anthropic_debug_enabled():
+        log.info(f"[ANTHROPIC][signature_cache] 清理了 {len(expired_keys)} 个过期的 signature 缓存")
+
+def _save_tool_signature(tool_id: str, signature: str) -> None:
+    """保存 tool_use 的 signature 到全局缓存"""
+    if not tool_id or not signature:
+        return
+    _TOOL_SIGNATURE_CACHE[str(tool_id)] = (str(signature), time.time())
+    if _anthropic_debug_enabled():
+        log.info(
+            f"[ANTHROPIC][signature_cache] 保存 signature: "
+            f"tool_id={tool_id}, signature_len={len(str(signature))}, "
+            f"cache_size={len(_TOOL_SIGNATURE_CACHE)}"
+        )
+
+
+def _get_cached_signature(tool_id: str) -> Optional[str]:
+    """从全局缓存中获取 tool_use 的 signature"""
+    if not tool_id:
+        return None
+    cached = _TOOL_SIGNATURE_CACHE.get(str(tool_id))
+    if not cached:
+        return None
+    signature, ts = cached
+    # 检查是否过期
+    if time.time() - ts > _CACHE_TTL:
+        _TOOL_SIGNATURE_CACHE.pop(str(tool_id), None)
+        if _anthropic_debug_enabled():
+            log.info(f"[ANTHROPIC][signature_cache] signature 已过期: tool_id={tool_id}")
+        return None
+    if _anthropic_debug_enabled():
+        log.info(
+            f"[ANTHROPIC][signature_cache] 从缓存获取 signature: "
+            f"tool_id={tool_id}, signature_len={len(str(signature))}"
+        )
+    return signature
 
 
 def _is_non_whitespace_text(value: Any) -> bool:
@@ -282,9 +331,17 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]], *, include_thin
         messages: Anthropic 格式的消息列表
         include_thinking: 是否包含 thinking 块（当请求未启用 thinking 时应设为 False）
     """
-    contents: List[Dict[str, Any]] = []
+    # 定期清理过期缓存
+    _clean_expired_cache()
 
-    for msg in messages:
+    contents: List[Dict[str, Any]] = []
+    # 用于存储 tool_use 的 id -> (name, thoughtSignature) 映射
+    tool_use_map: Dict[str, tuple[str, Optional[str]]] = {}
+
+    if _anthropic_debug_enabled():
+        log.info(f"[ANTHROPIC][converter] 开始转换 {len(messages)} 条消息")
+
+    for msg_idx, msg in enumerate(messages):
         role = msg.get("role", "user")
         gemini_role = "model" if role == "assistant" else "user"
         raw_content = msg.get("content", "")
@@ -358,22 +415,56 @@ def convert_messages_to_contents(messages: List[Dict[str, Any]], *, include_thin
                             }
                         )
                 elif item_type == "tool_use":
-                    parts.append(
-                        {
-                            "functionCall": {
-                                "id": item.get("id"),
-                                "name": item.get("name"),
-                                "args": item.get("input", {}) or {},
-                            }
-                        }
-                    )
+                    tool_id = item.get("id")
+                    tool_name = item.get("name")
+                    thought_signature = item.get("signature")  # 从 tool_use 中获取 signature
+
+                    # 如果客户端没有提供 signature，尝试从全局缓存中获取
+                    if not thought_signature and tool_id:
+                        thought_signature = _get_cached_signature(str(tool_id))
+                        if thought_signature and _anthropic_debug_enabled():
+                            log.info(
+                                f"[ANTHROPIC][converter] 客户端未提供 signature，已从缓存补齐: "
+                                f"tool_id={tool_id}, signature_len={len(str(thought_signature))}"
+                            )
+
+                    # 保存到映射表,供后续 tool_result 使用
+                    if tool_id:
+                        tool_use_map[str(tool_id)] = (str(tool_name or ""), thought_signature)
+
+                    # 构建 functionCall (不包含 thoughtSignature)
+                    function_call: Dict[str, Any] = {
+                        "id": tool_id,
+                        "name": tool_name,
+                        "args": item.get("input", {}) or {},
+                    }
+
+                    # 构建 part，thoughtSignature 应该在 functionCall 外层
+                    part: Dict[str, Any] = {"functionCall": function_call}
+                    if thought_signature:
+                        part["thoughtSignature"] = thought_signature
+
+                    parts.append(part)
                 elif item_type == "tool_result":
+                    tool_use_id = item.get("tool_use_id")
                     output = _extract_tool_result_output(item.get("content"))
+
+                    # 从映射表中查找对应的 tool_use 的 name 和 thoughtSignature
+                    tool_name = ""
+                    if tool_use_id and str(tool_use_id) in tool_use_map:
+                        tool_name, thought_signature = tool_use_map[str(tool_use_id)]
+                    else:
+                        if _anthropic_debug_enabled():
+                            log.warning(
+                                f"[ANTHROPIC][converter] 映射表中未找到 tool_use_id={tool_use_id}! "
+                                f"当前映射表: {list(tool_use_map.keys())}"
+                            )
+
                     parts.append(
                         {
                             "functionResponse": {
-                                "id": item.get("tool_use_id"),
-                                "name": item.get("name", ""),
+                                "id": tool_use_id,
+                                "name": tool_name,
                                 "response": {"output": output},
                             }
                         }
