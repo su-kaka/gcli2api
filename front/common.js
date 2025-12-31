@@ -1635,8 +1635,11 @@ async function toggleAntigravityQuotaDetails(pathId) {
                                             ${remainingPercentage}%
                                         </div>
                                     </div>
-                                    <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;">
+                                    <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
                                         <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <div style="font-size: 10px; color: #666; text-align: right;">
+                                        ${resetTime !== 'N/A' ? '🔄 ' + resetTime : ''}
                                     </div>
                                 </div>
                             `;
