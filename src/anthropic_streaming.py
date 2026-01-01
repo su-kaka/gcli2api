@@ -413,7 +413,7 @@ async def antigravity_sse_to_anthropic_sse(
                     if _anthropic_debug_enabled():
                         log.info(
                             f"[ANTHROPIC][tool_use] 发送 content_block_start 事件: "
-                            f"content_block={json.dumps(content_block, ensure_ascii=False)}"
+                            f"content_block={json.dumps(evt_start.decode('utf-8'), ensure_ascii=False)}"
                         )
 
                     input_json = json.dumps(tool_args, ensure_ascii=False, separators=(",", ":"))
