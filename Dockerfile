@@ -31,4 +31,4 @@ COPY . .
 EXPOSE 7861
 
 # Default command
-CMD ["python", "web.py"]
+CMD ["python", "web.py", "--allow-websocket-origin", "*"]
