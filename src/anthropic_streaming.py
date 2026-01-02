@@ -383,13 +383,6 @@ async def antigravity_sse_to_anthropic_sse(
                     # 提取 thoughtSignature（如果存在）
                     thought_signature = part.get("thoughtSignature")
 
-                    if _anthropic_debug_enabled():
-                        log.info(
-                            f"[ANTHROPIC][tool_use] 处理 functionCall: "
-                            f"name={tool_name}, has_signature={thought_signature is not None}, "
-                            f"signature_len={len(str(thought_signature)) if thought_signature else 0}"
-                        )
-
                     # 如果有 signature，保存到全局缓存
                     if thought_signature:
                         from src.anthropic_converter import _save_tool_signature
@@ -409,12 +402,6 @@ async def antigravity_sse_to_anthropic_sse(
                             },
                         },
                     )
-
-                    if _anthropic_debug_enabled():
-                        log.info(
-                            f"[ANTHROPIC][tool_use] 发送 content_block_start 事件: "
-                            f"content_block={json.dumps(evt_start.decode('utf-8'), ensure_ascii=False)}"
-                        )
 
                     input_json = json.dumps(tool_args, ensure_ascii=False, separators=(",", ":"))
                     evt_delta = _sse_event(
@@ -440,18 +427,7 @@ async def antigravity_sse_to_anthropic_sse(
             finish_reason = candidate.get("finishReason")
 
             if ready_output:
-                if _anthropic_debug_enabled():
-                    log.info(
-                        f"[ANTHROPIC][SSE] 准备发送 {len(ready_output)} 个SSE事件"
-                    )
                 for evt in ready_output:
-                    if _anthropic_debug_enabled():
-                        # 解码并打印实际发送的SSE内容
-                        try:
-                            evt_str = evt.decode('utf-8')
-                            log.info(f"[ANTHROPIC][SSE] 发送事件: {evt_str[:500]}")  # 只打印前500字符
-                        except Exception as e:
-                            log.debug(f"[ANTHROPIC][SSE] 无法解码事件: {e}")
                     yield evt
 
             if finish_reason:
@@ -483,12 +459,8 @@ async def antigravity_sse_to_anthropic_sse(
                 f"[ANTHROPIC][TOKEN] 流式 token: estimated={estimated_input}, "
                 f"downstream={downstream_input}"
             )
-            log.info(
-                f"[ANTHROPIC][SSE] 流式转换完成: has_tool_use={state.has_tool_use}, "
-                f"stop_reason={stop_reason}, message_start_sent={message_start_sent}"
-            )
 
-        message_delta_evt = _sse_event(
+        yield _sse_event(
             "message_delta",
             {
                 "type": "message_delta",
@@ -499,17 +471,7 @@ async def antigravity_sse_to_anthropic_sse(
                 },
             },
         )
-        message_stop_evt = _sse_event("message_stop", {"type": "message_stop"})
-
-        if _anthropic_debug_enabled():
-            try:
-                log.info(f"[ANTHROPIC][SSE] 发送 message_delta: {message_delta_evt.decode('utf-8')[:300]}")
-                log.info(f"[ANTHROPIC][SSE] 发送 message_stop: {message_stop_evt.decode('utf-8')}")
-            except Exception:
-                pass
-
-        yield message_delta_evt
-        yield message_stop_evt
+        yield _sse_event("message_stop", {"type": "message_stop"})
 
     except Exception as e:
         log.error(f"[ANTHROPIC] 流式转换失败: {e}")
