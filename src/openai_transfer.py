@@ -711,13 +711,13 @@ def _clean_schema_for_gemini(schema: Any) -> Any:
     # Gemini 不支持的字段（官方文档 + GitHub Issues 确认）
     # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
     # example (OpenAPI 3.0) 和 examples (JSON Schema) 都不支持
+    # 注意：title 在某些情况下是必需的，所以保留
     unsupported_keys = {
         "$schema",
         "$id",
         "$ref",
         "$defs",
         "definitions",
-        "title",
         "example",
         "examples",
         "readOnly",

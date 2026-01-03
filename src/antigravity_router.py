@@ -240,9 +240,20 @@ def convert_openai_tools_to_antigravity(tools: Optional[List[Any]]) -> Optional[
     if not tools:
         return None
 
-    # 需要排除的字段
-    EXCLUDED_KEYS = {'$schema', 'additionalProperties', 'minLength', 'maxLength',
-                     'minItems', 'maxItems', 'uniqueItems'}
+    # 需要排除的字段 - 与 _clean_schema_for_gemini 保持一致
+    # Gemini/Antigravity API 不支持这些 JSON Schema 字段
+    # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
+    EXCLUDED_KEYS = {
+        '$schema', '$id', '$ref', '$defs', 'definitions',
+        'example', 'examples', 'readOnly', 'writeOnly', 'default',
+        'exclusiveMaximum', 'exclusiveMinimum',
+        'oneOf', 'anyOf', 'allOf', 'const',
+        'additionalItems', 'contains', 'patternProperties', 'dependencies',
+        'propertyNames', 'if', 'then', 'else',
+        'contentEncoding', 'contentMediaType',
+        'additionalProperties', 'minLength', 'maxLength',
+        'minItems', 'maxItems', 'uniqueItems'
+    }
 
     def clean_parameters(obj):
         """递归清理参数对象"""

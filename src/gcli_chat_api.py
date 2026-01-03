@@ -98,6 +98,80 @@ async def _handle_auto_ban(
         await credential_manager.set_cred_disabled(credential_name, True)
 
 
+def _clean_tools_for_gemini(tools):
+    """
+    清理工具定义，移除 Gemini API 不支持的 JSON Schema 字段
+    
+    Gemini API 只支持有限的 OpenAPI 3.0 Schema 属性：
+    - 支持: type, description, enum, items, properties, required, nullable, format
+    - 不支持: $schema, $id, $ref, $defs, title, examples, default, readOnly,
+              exclusiveMaximum, exclusiveMinimum, oneOf, anyOf, allOf, const 等
+    
+    参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
+    """
+    if not tools:
+        return tools
+    
+    # Gemini 不支持的字段列表
+    # 注意：title 在某些情况下是必需的，所以不移除
+    UNSUPPORTED_KEYS = {
+        '$schema', '$id', '$ref', '$defs', 'definitions',
+        'example', 'examples', 'readOnly', 'writeOnly', 'default',
+        'exclusiveMaximum', 'exclusiveMinimum',
+        'oneOf', 'anyOf', 'allOf', 'const',
+        'additionalItems', 'contains', 'patternProperties', 'dependencies',
+        'propertyNames', 'if', 'then', 'else',
+        'contentEncoding', 'contentMediaType',
+        'additionalProperties', 'minLength', 'maxLength',
+        'minItems', 'maxItems', 'uniqueItems'
+    }
+    
+    def clean_schema(obj):
+        """递归清理 schema 对象"""
+        if isinstance(obj, dict):
+            cleaned = {}
+            for key, value in obj.items():
+                if key in UNSUPPORTED_KEYS:
+                    continue
+                cleaned[key] = clean_schema(value)
+            # 确保有 type 字段（如果有 properties 但没有 type）
+            if "properties" in cleaned and "type" not in cleaned:
+                cleaned["type"] = "object"
+            return cleaned
+        elif isinstance(obj, list):
+            return [clean_schema(item) for item in obj]
+        else:
+            return obj
+    
+    # 清理每个工具的参数
+    cleaned_tools = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            cleaned_tools.append(tool)
+            continue
+            
+        cleaned_tool = tool.copy()
+        
+        # 清理 functionDeclarations
+        if "functionDeclarations" in cleaned_tool:
+            cleaned_declarations = []
+            for func_decl in cleaned_tool["functionDeclarations"]:
+                if not isinstance(func_decl, dict):
+                    cleaned_declarations.append(func_decl)
+                    continue
+                    
+                cleaned_decl = func_decl.copy()
+                if "parameters" in cleaned_decl:
+                    cleaned_decl["parameters"] = clean_schema(cleaned_decl["parameters"])
+                cleaned_declarations.append(cleaned_decl)
+            
+            cleaned_tool["functionDeclarations"] = cleaned_declarations
+        
+        cleaned_tools.append(cleaned_tool)
+    
+    return cleaned_tools
+
+
 async def _handle_error_with_retry(
     credential_manager: CredentialManager,
     status_code: int,
@@ -738,6 +812,10 @@ def build_gemini_payload_from_native(native_request: dict, model_from_path: str)
                 thinking_config["thinkingBudget"] = thinking_budget
         if "includeThoughts" not in thinking_config:
             thinking_config["includeThoughts"] = should_include_thoughts(model_from_path)
+
+    # 清理工具定义中不支持的 JSON Schema 字段
+    if "tools" in request_data and request_data["tools"]:
+        request_data["tools"] = _clean_tools_for_gemini(request_data["tools"])
 
     # 为搜索模型添加Google Search工具（如果未指定且没有functionDeclarations）
     if is_search_model(model_from_path):
