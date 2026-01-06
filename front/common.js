@@ -44,8 +44,7 @@ const AppState = {
 // 凭证管理器工厂
 // =====================================================================
 function createCredsManager(type) {
-    const isAntigravity = type === 'antigravity';
-    const apiPrefix = isAntigravity ? '/antigravity' : '';
+    const modeParam = type === 'antigravity' ? 'mode=antigravity' : 'mode=geminicli';
 
     return {
         type: type,
@@ -63,23 +62,29 @@ function createCredsManager(type) {
         // API端点
         getEndpoint: (action) => {
             const endpoints = {
-                status: `.${apiPrefix}/creds/status`,
-                action: `.${apiPrefix}/creds/action`,
-                batchAction: `.${apiPrefix}/creds/batch-action`,
-                download: `.${apiPrefix}/creds/download`,
-                downloadAll: `.${apiPrefix}/creds/download-all`,
-                detail: `.${apiPrefix}/creds/detail`,
-                fetchEmail: `.${apiPrefix}/creds/fetch-email`,
-                refreshAllEmails: `.${apiPrefix}/creds/refresh-all-emails`
+                status: `./creds/status`,
+                action: `./creds/action`,
+                batchAction: `./creds/batch-action`,
+                download: `./creds/download`,
+                downloadAll: `./creds/download-all`,
+                detail: `./creds/detail`,
+                fetchEmail: `./creds/fetch-email`,
+                refreshAllEmails: `./creds/refresh-all-emails`,
+                deduplicate: `./creds/deduplicate-by-email`,
+                verifyProject: `./creds/verify-project`,
+                quota: `./creds/quota`
             };
             return endpoints[action] || '';
         },
+
+        // 获取mode参数
+        getModeParam: () => modeParam,
 
         // DOM元素ID前缀
         getElementId: (suffix) => {
             // 普通凭证的ID首字母小写,如 credsLoading
             // Antigravity的ID是 antigravity + 首字母大写,如 antigravityCredsLoading
-            if (isAntigravity) {
+            if (type === 'antigravity') {
                 return 'antigravity' + suffix.charAt(0).toUpperCase() + suffix.slice(1);
             }
             return suffix.charAt(0).toLowerCase() + suffix.slice(1);
@@ -98,7 +103,7 @@ function createCredsManager(type) {
                 const errorCodeFilter = this.currentErrorCodeFilter || 'all';
                 const cooldownFilter = this.currentCooldownFilter || 'all';
                 const response = await fetch(
-                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}`,
+                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&${this.getModeParam()}`,
                     { headers: getAuthHeaders() }
                 );
 
@@ -132,7 +137,7 @@ function createCredsManager(type) {
                     this.renderList();
                     this.updatePagination();
 
-                    let msg = `已加载 ${data.total} 个${isAntigravity ? 'Antigravity' : ''}凭证文件`;
+                    let msg = `已加载 ${data.total} 个${type === 'antigravity' ? 'Antigravity' : ''}凭证文件`;
                     if (this.currentStatusFilter !== 'all') {
                         msg += ` (筛选: ${this.currentStatusFilter === 'enabled' ? '仅启用' : '仅禁用'})`;
                     }
@@ -269,7 +274,7 @@ function createCredsManager(type) {
         // 凭证操作
         async action(filename, action) {
             try {
-                const response = await fetch(this.getEndpoint('action'), {
+                const response = await fetch(`${this.getEndpoint('action')}?${this.getModeParam()}`, {
                     method: 'POST',
                     headers: getAuthHeaders(),
                     body: JSON.stringify({ filename, action })
@@ -307,7 +312,7 @@ function createCredsManager(type) {
             try {
                 showStatus(`正在执行批量${actionNames[action]}操作...`, 'info');
 
-                const response = await fetch(this.getEndpoint('batchAction'), {
+                const response = await fetch(`${this.getEndpoint('batchAction')}?${this.getModeParam()}`, {
                     method: 'POST',
                     headers: getAuthHeaders(),
                     body: JSON.stringify({ action, filenames: selectedFiles })
@@ -335,8 +340,8 @@ function createCredsManager(type) {
 // 文件上传管理器工厂
 // =====================================================================
 function createUploadManager(type) {
-    const isAntigravity = type === 'antigravity';
-    const endpoint = isAntigravity ? './antigravity/upload' : './auth/upload';
+    const modeParam = type === 'antigravity' ? 'mode=antigravity' : 'mode=geminicli';
+    const endpoint = `./auth/upload?${modeParam}`;
 
     return {
         type: type,
@@ -345,7 +350,7 @@ function createUploadManager(type) {
         getElementId: (suffix) => {
             // 普通上传的ID首字母小写,如 fileList
             // Antigravity的ID是 antigravity + 首字母大写,如 antigravityFileList
-            if (isAntigravity) {
+            if (type === 'antigravity') {
                 return 'antigravity' + suffix.charAt(0).toUpperCase() + suffix.slice(1);
             }
             return suffix.charAt(0).toLowerCase() + suffix.slice(1);
@@ -400,7 +405,7 @@ function createUploadManager(type) {
                         <span class="file-name">${fileIcon} ${file.name}</span>
                         <span class="file-size">(${formatFileSize(file.size)}${fileType})</span>
                     </div>
-                    <button class="remove-btn" onclick="${isAntigravity ? 'removeAntigravityFile' : 'removeFile'}(${index})">删除</button>
+                    <button class="remove-btn" onclick="${type === 'antigravity' ? 'removeAntigravityFile' : 'removeFile'}(${index})">删除</button>
                 `;
                 list.appendChild(fileItem);
             });
@@ -451,7 +456,7 @@ function createUploadManager(type) {
                     if (xhr.status === 200) {
                         try {
                             const data = JSON.parse(xhr.responseText);
-                            showStatus(`成功上传 ${data.uploaded_count} 个${isAntigravity ? 'Antigravity' : ''}文件`, 'success');
+                            showStatus(`成功上传 ${data.uploaded_count} 个${type === 'antigravity' ? 'Antigravity' : ''}文件`, 'success');
                             this.clearFiles();
                             progressSection.classList.add('hidden');
                         } catch (e) {
@@ -547,7 +552,7 @@ function formatCooldownTime(remainingSeconds) {
 function createCredCard(credInfo, manager) {
     const div = document.createElement('div');
     const { status, filename } = credInfo;
-    const isAntigravity = manager.type === 'antigravity';
+    const managerType = manager.type;
 
     // 卡片样式
     div.className = status.disabled ? 'cred-card disabled' : 'cred-card';
@@ -597,7 +602,7 @@ function createCredCard(credInfo, manager) {
     }
 
     // 路径ID
-    const pathId = (isAntigravity ? 'ag_' : '') + btoa(encodeURIComponent(filename)).replace(/[+/=]/g, '_');
+    const pathId = (managerType === 'antigravity' ? 'ag_' : '') + btoa(encodeURIComponent(filename)).replace(/[+/=]/g, '_');
 
     // 操作按钮
     const actionButtons = `
@@ -605,11 +610,11 @@ function createCredCard(credInfo, manager) {
             ? `<button class="cred-btn enable" data-filename="${filename}" data-action="enable">启用</button>`
             : `<button class="cred-btn disable" data-filename="${filename}" data-action="disable">禁用</button>`
         }
-        <button class="cred-btn view" onclick="toggle${isAntigravity ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
-        <button class="cred-btn download" onclick="download${isAntigravity ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
-        <button class="cred-btn email" onclick="fetch${isAntigravity ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
-        ${isAntigravity ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
-        <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${isAntigravity ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
+        <button class="cred-btn view" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}CredDetails('${pathId}')">查看内容</button>
+        <button class="cred-btn download" onclick="download${managerType === 'antigravity' ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
+        <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
+        ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
+        <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
 
@@ -623,7 +628,7 @@ function createCredCard(credInfo, manager) {
     div.innerHTML = `
         <div class="cred-header">
             <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="checkbox" class="${checkboxClass}" data-filename="${filename}" onchange="toggle${isAntigravity ? 'Antigravity' : ''}FileSelection('${filename}')">
+                <input type="checkbox" class="${checkboxClass}" data-filename="${filename}" onchange="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}FileSelection('${filename}')">
                 <div>
                     <div class="cred-filename">${filename}</div>
                     ${emailInfo}
@@ -635,7 +640,7 @@ function createCredCard(credInfo, manager) {
         <div class="cred-details" id="details-${pathId}">
             <div class="cred-content" data-filename="${filename}" data-loaded="false">点击"查看内容"按钮加载文件详情...</div>
         </div>
-        ${isAntigravity ? `
+        ${managerType === 'antigravity' ? `
         <div class="cred-quota-details" id="quota-${pathId}" style="display: none;">
             <div class="cred-quota-content" data-filename="${filename}" data-loaded="false">
                 点击"查看额度"按钮加载额度信息...
@@ -650,7 +655,7 @@ function createCredCard(credInfo, manager) {
             const fn = this.getAttribute('data-filename');
             const action = this.getAttribute('data-action');
             if (action === 'delete') {
-                if (confirm(`确定要删除${isAntigravity ? ' Antigravity ' : ''}凭证文件吗？\n${fn}`)) {
+                if (confirm(`确定要删除${managerType === 'antigravity' ? ' Antigravity ' : ''}凭证文件吗？\n${fn}`)) {
                     manager.action(fn, action);
                 }
             } else {
@@ -688,28 +693,17 @@ async function toggleCredDetailsCommon(pathId, manager) {
             contentDiv.textContent = '正在加载文件内容...';
 
             try {
-                const endpoint = manager.type === 'antigravity'
-                    ? `./antigravity/creds/download/${encodeURIComponent(filename)}`
-                    : `./creds/detail/${encodeURIComponent(filename)}`;
+                const modeParam = manager.type === 'antigravity' ? 'mode=antigravity' : 'mode=geminicli';
+                const endpoint = `./creds/detail/${encodeURIComponent(filename)}?${modeParam}`;
 
                 const response = await fetch(endpoint, { headers: getAuthHeaders() });
 
-                if (manager.type === 'antigravity') {
-                    if (response.ok) {
-                        const text = await response.text();
-                        contentDiv.textContent = text;
-                        contentDiv.setAttribute('data-loaded', 'true');
-                    } else {
-                        contentDiv.textContent = '加载失败';
-                    }
+                const data = await response.json();
+                if (response.ok && data.content) {
+                    contentDiv.textContent = JSON.stringify(data.content, null, 2);
+                    contentDiv.setAttribute('data-loaded', 'true');
                 } else {
-                    const data = await response.json();
-                    if (response.ok && data.content) {
-                        contentDiv.textContent = JSON.stringify(data.content, null, 2);
-                        contentDiv.setAttribute('data-loaded', 'true');
-                    } else {
-                        contentDiv.textContent = '无法加载文件内容: ' + (data.error || data.detail || '未知错误');
-                    }
+                    contentDiv.textContent = '无法加载文件内容: ' + (data.error || data.detail || '未知错误');
                 }
             } catch (error) {
                 contentDiv.textContent = '加载文件内容失败: ' + error.message;
@@ -1064,7 +1058,7 @@ async function startAntigravityAuth() {
         const response = await fetch('./auth/start', {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ use_antigravity: true })
+            body: JSON.stringify({ mode: 'antigravity' })
         });
 
         const data = await response.json();
@@ -1106,7 +1100,7 @@ async function getAntigravityCredentials() {
         const response = await fetch('./auth/callback', {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ use_antigravity: true })
+            body: JSON.stringify({ mode: 'antigravity' })
         });
 
         const data = await response.json();
@@ -1263,7 +1257,7 @@ async function processAntigravityCallbackUrl() {
         const response = await fetch('./auth/callback-url', {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ callback_url: callbackUrl, use_antigravity: true })
+            body: JSON.stringify({ callback_url: callbackUrl, mode: 'antigravity' })
         });
 
         const result = await response.json();
@@ -1372,7 +1366,7 @@ function toggleSelectAllAntigravity() {
 }
 function batchAntigravityAction(action) { AppState.antigravityCreds.batchAction(action); }
 function downloadAntigravityCred(filename) {
-    fetch(`./antigravity/creds/download/${filename}`, { headers: getAuthHeaders() })
+    fetch(`./creds/download/${filename}?mode=antigravity`, { headers: getAuthHeaders() })
         .then(r => r.ok ? r.blob() : Promise.reject())
         .then(blob => {
             const url = window.URL.createObjectURL(blob);
@@ -1392,7 +1386,7 @@ function deleteAntigravityCred(filename) {
 }
 async function downloadAllAntigravityCreds() {
     try {
-        const response = await fetch('./antigravity/creds/download-all', { headers: getAuthHeaders() });
+        const response = await fetch('./creds/download-all?mode=antigravity', { headers: getAuthHeaders() });
         if (response.ok) {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -1427,9 +1421,9 @@ function uploadAntigravityFiles() { AppState.antigravityUploadFiles.upload(); }
 
 // 邮箱相关
 // 辅助函数：根据文件名更新卡片中的邮箱显示
-function updateEmailDisplay(filename, email, isAntigravity = false) {
+function updateEmailDisplay(filename, email, managerType = 'normal') {
     // 查找对应的凭证卡片
-    const containerId = isAntigravity ? 'antigravityCredsList' : 'credsList';
+    const containerId = managerType === 'antigravity' ? 'antigravityCredsList' : 'credsList';
     const container = document.getElementById(containerId);
     if (!container) return false;
 
@@ -1463,7 +1457,7 @@ async function fetchUserEmail(filename) {
         if (response.ok && data.user_email) {
             showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
             // 直接更新卡片中的邮箱显示，不刷新整个列表
-            updateEmailDisplay(filename, data.user_email, false);
+            updateEmailDisplay(filename, data.user_email, 'normal');
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }
@@ -1475,7 +1469,7 @@ async function fetchUserEmail(filename) {
 async function fetchAntigravityUserEmail(filename) {
     try {
         showStatus('正在获取用户邮箱...', 'info');
-        const response = await fetch(`./antigravity/creds/fetch-email/${encodeURIComponent(filename)}`, {
+        const response = await fetch(`./creds/fetch-email/${encodeURIComponent(filename)}?mode=antigravity`, {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -1483,7 +1477,7 @@ async function fetchAntigravityUserEmail(filename) {
         if (response.ok && data.user_email) {
             showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
             // 直接更新卡片中的邮箱显示，不刷新整个列表
-            updateEmailDisplay(filename, data.user_email, true);
+            updateEmailDisplay(filename, data.user_email, 'antigravity');
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }
@@ -1530,7 +1524,7 @@ async function verifyAntigravityProjectId(filename) {
         // 显示加载状态
         showStatus('🔍 正在检验Antigravity Project ID，请稍候...', 'info');
 
-        const response = await fetch(`./antigravity/creds/verify-project/${encodeURIComponent(filename)}`, {
+        const response = await fetch(`./creds/verify-project/${encodeURIComponent(filename)}?mode=antigravity`, {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -1581,7 +1575,7 @@ async function toggleAntigravityQuotaDetails(pathId) {
             contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">📊 正在加载额度信息...</div>';
 
             try {
-                const response = await fetch(`./antigravity/creds/quota/${encodeURIComponent(filename)}`, {
+                const response = await fetch(`./creds/quota/${encodeURIComponent(filename)}?mode=antigravity`, {
                     method: 'GET',
                     headers: getAuthHeaders()
                 });
@@ -1761,7 +1755,7 @@ async function batchVerifyAntigravityProjectIds() {
     // 并行执行所有检验请求
     const promises = selectedFiles.map(async (filename) => {
         try {
-            const response = await fetch(`./antigravity/creds/verify-project/${encodeURIComponent(filename)}`, {
+            const response = await fetch(`./creds/verify-project/${encodeURIComponent(filename)}?mode=antigravity`, {
                 method: 'POST',
                 headers: getAuthHeaders()
             });
@@ -1838,7 +1832,7 @@ async function refreshAllAntigravityEmails() {
 
     try {
         showStatus('正在刷新所有用户邮箱...', 'info');
-        const response = await fetch('./antigravity/creds/refresh-all-emails', {
+        const response = await fetch('./creds/refresh-all-emails?mode=antigravity', {
             method: 'POST',
             headers: getAuthHeaders()
         });
@@ -1851,6 +1845,68 @@ async function refreshAllAntigravityEmails() {
         }
     } catch (error) {
         showStatus(`邮箱刷新网络错误: ${error.message}`, 'error');
+    }
+}
+
+async function deduplicateByEmail() {
+    if (!confirm('确定要对凭证进行凭证一键去重吗？\n\n相同邮箱的凭证只保留一个，其他将被删除。\n此操作不可撤销！')) return;
+
+    try {
+        showStatus('正在进行凭证一键去重...', 'info');
+        const response = await fetch('./creds/deduplicate-by-email', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        if (response.ok) {
+            const msg = `去重完成：删除 ${data.deleted_count} 个重复凭证，保留 ${data.kept_count} 个凭证（${data.unique_emails_count} 个唯一邮箱）`;
+            showStatus(msg, 'success');
+            await AppState.creds.refresh();
+            
+            // 显示详细信息
+            if (data.duplicate_groups && data.duplicate_groups.length > 0) {
+                let details = '去重详情：\n\n';
+                data.duplicate_groups.forEach(group => {
+                    details += `邮箱: ${group.email}\n保留: ${group.kept_file}\n删除: ${group.deleted_files.join(', ')}\n\n`;
+                });
+                console.log(details);
+            }
+        } else {
+            showStatus(data.message || '去重失败', 'error');
+        }
+    } catch (error) {
+        showStatus(`去重网络错误: ${error.message}`, 'error');
+    }
+}
+
+async function deduplicateAntigravityByEmail() {
+    if (!confirm('确定要对Antigravity凭证进行凭证一键去重吗？\n\n相同邮箱的凭证只保留一个，其他将被删除。\n此操作不可撤销！')) return;
+
+    try {
+        showStatus('正在进行凭证一键去重...', 'info');
+        const response = await fetch('./creds/deduplicate-by-email?mode=antigravity', {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        if (response.ok) {
+            const msg = `去重完成：删除 ${data.deleted_count} 个重复凭证，保留 ${data.kept_count} 个凭证（${data.unique_emails_count} 个唯一邮箱）`;
+            showStatus(msg, 'success');
+            await AppState.antigravityCreds.refresh();
+            
+            // 显示详细信息
+            if (data.duplicate_groups && data.duplicate_groups.length > 0) {
+                let details = '去重详情：\n\n';
+                data.duplicate_groups.forEach(group => {
+                    details += `邮箱: ${group.email}\n保留: ${group.kept_file}\n删除: ${group.deleted_files.join(', ')}\n\n`;
+                });
+                console.log(details);
+            }
+        } else {
+            showStatus(data.message || '去重失败', 'error');
+        }
+    } catch (error) {
+        showStatus(`去重网络错误: ${error.message}`, 'error');
     }
 }
 

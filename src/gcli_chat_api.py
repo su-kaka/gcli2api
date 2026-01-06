@@ -288,7 +288,7 @@ async def send_gemini_request(
         # 每次请求都获取新的凭证（传递模型组）
         try:
             credential_result = await credential_manager.get_valid_credential(
-                is_antigravity=False, model_key=model_group
+                mode="geminicli", model_key=model_group
             )
             if not credential_result:
                 return _create_error_response("No valid credentials available", 500)

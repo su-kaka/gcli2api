@@ -733,6 +733,7 @@
                 opacity: 0;
                 transform: translateY(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -1182,6 +1183,8 @@
                             style="background-color: #ff9800;">批量检验</button>
                         <button class="btn btn-small" onclick="refreshAllEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
+                        <button class="btn btn-small" onclick="deduplicateByEmail()"
+                            style="background-color: #e91e63;">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1326,6 +1329,8 @@
                             style="background-color: #ff9800;">批量检验</button>
                         <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
                             style="background-color: #17a2b8;">刷新所有邮箱</button>
+                        <button class="btn btn-small" onclick="deduplicateAntigravityByEmail()"
+                            style="background-color: #e91e63;">凭证一键去重</button>
                     </div>
                 </div>
 

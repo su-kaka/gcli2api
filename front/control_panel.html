@@ -613,6 +613,7 @@
                 opacity: 0;
                 transform: translateY(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -1517,6 +1518,8 @@
                         <button class="batch-btn" style="background-color: #ff9800;" id="batchVerifyBtn"
                             onclick="batchVerifyProjectIds()" disabled>批量检验</button>
                         <button class="batch-btn batch-email" onclick="refreshAllEmails()">刷新所有邮箱</button>
+                        <button class="batch-btn" style="background-color: #e91e63;"
+                            onclick="deduplicateByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1624,6 +1627,8 @@
                         <button class="batch-btn" style="background-color: #ff9800;" id="antigravityBatchVerifyBtn"
                             onclick="batchVerifyAntigravityProjectIds()" disabled>批量检验</button>
                         <button class="batch-btn batch-email" onclick="refreshAllAntigravityEmails()">刷新所有邮箱</button>
+                        <button class="batch-btn" style="background-color: #e91e63;"
+                            onclick="deduplicateAntigravityByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 

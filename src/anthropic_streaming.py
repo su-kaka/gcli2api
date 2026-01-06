@@ -194,7 +194,7 @@ async def antigravity_sse_to_anthropic_sse(
 
             if not success_recorded and credential_manager and credential_name:
                 await credential_manager.record_api_call_result(
-                    credential_name, True, is_antigravity=True
+                    credential_name, True, mode="antigravity"
                 )
                 success_recorded = True
 

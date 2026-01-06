@@ -409,7 +409,7 @@ async def anthropic_messages(
     from src.credential_manager import get_credential_manager
 
     cred_mgr = await get_credential_manager()
-    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
     if not cred_result:
         return _anthropic_error(status_code=500, message="当前无可用 antigravity 凭证")
 

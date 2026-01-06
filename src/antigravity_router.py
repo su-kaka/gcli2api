@@ -461,7 +461,7 @@ async def convert_antigravity_stream_to_openai(
             # 记录第一次成功响应
             if not state["success_recorded"]:
                 if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(credential_name, True, is_antigravity=True)
+                    await credential_manager.record_api_call_result(credential_name, True, mode="antigravity")
                 state["success_recorded"] = True
 
             # 解析 SSE 数据
@@ -738,7 +738,7 @@ async def convert_antigravity_stream_to_gemini(
             # 记录第一次成功响应
             if not success_recorded:
                 if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(credential_name, True, is_antigravity=True)
+                    await credential_manager.record_api_call_result(credential_name, True, mode="antigravity")
                 success_recorded = True
 
             # 解析 SSE 数据
@@ -890,7 +890,7 @@ async def chat_completions(
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
@@ -1108,7 +1108,7 @@ async def gemini_generate_content(
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
@@ -1225,7 +1225,7 @@ async def gemini_stream_generate_content(
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
@@ -1452,7 +1452,7 @@ async def sdwebui_txt2img(request: Request, _: str = Depends(authenticate_sdwebu
     generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息
-    cred_result = await cred_mgr.get_valid_credential(is_antigravity=True)
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("当前无可用 antigravity 凭证")
         raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")

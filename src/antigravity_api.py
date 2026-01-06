@@ -42,7 +42,7 @@ async def _handle_auto_ban(
         log.warning(
             f"[ANTIGRAVITY AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
         )
-        await credential_manager.set_cred_disabled(credential_name, True, is_antigravity=True)
+        await credential_manager.set_cred_disabled(credential_name, True, mode="antigravity")
 
 
 def build_antigravity_headers(access_token: str) -> Dict[str, str]:
@@ -171,7 +171,7 @@ async def send_antigravity_request_stream(
     for attempt in range(max_retries + 1):
         # 获取可用凭证（传递模型名称）
         cred_result = await credential_manager.get_valid_credential(
-            is_antigravity=True, model_key=model_name
+            mode="antigravity", model_key=model_name
         )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
@@ -237,7 +237,7 @@ async def send_antigravity_request_stream(
                     False,
                     response.status_code,
                     cooldown_until=cooldown_until,
-                    is_antigravity=True,
+                    mode="antigravity",
                     model_key=model_name  # 传递模型名称用于模型级 CD
                 )
 
@@ -307,7 +307,7 @@ async def send_antigravity_request_no_stream(
     for attempt in range(max_retries + 1):
         # 获取可用凭证（传递模型名称）
         cred_result = await credential_manager.get_valid_credential(
-            is_antigravity=True, model_key=model_name
+            mode="antigravity", model_key=model_name
         )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
@@ -341,7 +341,7 @@ async def send_antigravity_request_no_stream(
                 if response.status_code == 200:
                     log.info(f"[ANTIGRAVITY] Request successful with credential: {current_file}")
                     await credential_manager.record_api_call_result(
-                        current_file, True, is_antigravity=True, model_key=model_name
+                        current_file, True, mode="antigravity", model_key=model_name
                     )
                     response_data = response.json()
 
@@ -382,7 +382,7 @@ async def send_antigravity_request_no_stream(
                     False,
                     response.status_code,
                     cooldown_until=cooldown_until,
-                    is_antigravity=True,
+                    mode="antigravity",
                     model_key=model_name  # 传递模型名称用于模型级 CD
                 )
 
@@ -427,7 +427,7 @@ async def fetch_available_models(
         模型列表，格式为字典列表（用于兼容现有代码）
     """
     # 获取可用凭证
-    cred_result = await credential_manager.get_valid_credential(is_antigravity=True)
+    cred_result = await credential_manager.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("[ANTIGRAVITY] No valid credentials available for fetching models")
         return []
