@@ -774,7 +774,7 @@ async def fetch_user_email_common(filename: str, is_antigravity: bool = False) -
 
 
 async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONResponse:
-    """刷新所有凭证文件用户邮箱的通用函数"""
+    """刷新所有凭证文件用户邮箱的通用函数 - 只为没有邮箱的凭证获取"""
     await ensure_credential_manager_initialized()
 
     storage_adapter = await get_storage_adapter()
@@ -782,9 +782,26 @@ async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONRe
 
     results = []
     success_count = 0
+    skipped_count = 0
 
     for filename in credential_filenames:
         try:
+            # 首先检查是否已有邮箱地址
+            state = await storage_adapter.get_credential_state(filename, is_antigravity=is_antigravity)
+            cached_email = state.get("user_email") if state else None
+
+            if cached_email:
+                # 已有邮箱，跳过获取
+                skipped_count += 1
+                results.append({
+                    "filename": os.path.basename(filename),
+                    "user_email": cached_email,
+                    "success": True,
+                    "skipped": True,
+                })
+                continue
+
+            # 没有邮箱，尝试获取
             email = await credential_manager.get_or_fetch_user_email(filename, is_antigravity=is_antigravity)
             if email:
                 success_count += 1
@@ -812,8 +829,9 @@ async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONRe
         content={
             "success_count": success_count,
             "total_count": len(credential_filenames),
+            "skipped_count": skipped_count,
             "results": results,
-            "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址",
+            "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址，跳过 {skipped_count} 个已有邮箱的凭证",
         }
     )
 
