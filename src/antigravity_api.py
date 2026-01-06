@@ -242,7 +242,8 @@ async def send_antigravity_request_stream(
                 )
 
                 # 检查自动封禁
-                if await _check_should_auto_ban(response.status_code):
+                should_auto_ban = await _check_should_auto_ban(response.status_code)
+                if should_auto_ban:
                     await _handle_auto_ban(credential_manager, response.status_code, current_file)
 
                 # 清理资源
@@ -252,9 +253,17 @@ async def send_antigravity_request_stream(
                     pass
                 await client.aclose()
 
-                # 重试逻辑
+                # 重试逻辑: 仅对429错误或导致凭证封禁的错误进行重试
+                should_retry = False
                 if retry_enabled and attempt < max_retries:
-                    log.warning(f"[ANTIGRAVITY RETRY] Retrying ({attempt + 1}/{max_retries})")
+                    if should_auto_ban:
+                        log.warning(f"[ANTIGRAVITY RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})")
+                        should_retry = True
+                    elif response.status_code == 429:
+                        log.warning(f"[ANTIGRAVITY RETRY] 429 error, retrying ({attempt + 1}/{max_retries})")
+                        should_retry = True
+
+                if should_retry:
                     await asyncio.sleep(retry_interval)
                     continue
 
@@ -378,12 +387,21 @@ async def send_antigravity_request_no_stream(
                 )
 
                 # 检查自动封禁
-                if await _check_should_auto_ban(response.status_code):
+                should_auto_ban = await _check_should_auto_ban(response.status_code)
+                if should_auto_ban:
                     await _handle_auto_ban(credential_manager, response.status_code, current_file)
 
-                # 重试逻辑
+                # 重试逻辑: 仅对429错误或导致凭证封禁的错误进行重试
+                should_retry = False
                 if retry_enabled and attempt < max_retries:
-                    log.warning(f"[ANTIGRAVITY RETRY] Retrying ({attempt + 1}/{max_retries})")
+                    if should_auto_ban:
+                        log.warning(f"[ANTIGRAVITY RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})")
+                        should_retry = True
+                    elif response.status_code == 429:
+                        log.warning(f"[ANTIGRAVITY RETRY] 429 error, retrying ({attempt + 1}/{max_retries})")
+                        should_retry = True
+
+                if should_retry:
                     await asyncio.sleep(retry_interval)
                     continue
 
