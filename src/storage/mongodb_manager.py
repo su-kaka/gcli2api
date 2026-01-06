@@ -392,6 +392,91 @@ class MongoDBManager:
             log.error(f"Error deleting credential {filename}: {e}")
             return False
 
+    async def get_duplicate_credentials_by_email(self, is_antigravity: bool = False) -> Dict[str, Any]:
+        """
+        获取按邮箱分组的重复凭证信息（只查询邮箱和文件名，不加载完整凭证数据）
+        用于去重操作
+
+        Args:
+            is_antigravity: 是否查询antigravity凭证集合（默认False）
+
+        Returns:
+            包含 email_groups（邮箱分组）、duplicate_count（重复数量）、no_email_count（无邮箱数量）的字典
+        """
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(is_antigravity)
+            collection = self._db[collection_name]
+
+            # 使用聚合管道，只查询 filename 和 user_email 字段
+            pipeline = [
+                {
+                    "$project": {
+                        "filename": 1,
+                        "user_email": 1,
+                        "_id": 0
+                    }
+                },
+                {
+                    "$sort": {"filename": 1}
+                }
+            ]
+
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+
+            # 按邮箱分组
+            email_to_files = {}
+            no_email_files = []
+
+            for doc in docs:
+                filename = doc.get("filename")
+                user_email = doc.get("user_email")
+
+                if user_email:
+                    if user_email not in email_to_files:
+                        email_to_files[user_email] = []
+                    email_to_files[user_email].append(filename)
+                else:
+                    no_email_files.append(filename)
+
+            # 找出重复的邮箱组
+            duplicate_groups = []
+            total_duplicate_count = 0
+
+            for email, files in email_to_files.items():
+                if len(files) > 1:
+                    # 保留第一个文件，其他为重复
+                    duplicate_groups.append({
+                        "email": email,
+                        "kept_file": files[0],
+                        "duplicate_files": files[1:],
+                        "duplicate_count": len(files) - 1,
+                    })
+                    total_duplicate_count += len(files) - 1
+
+            return {
+                "email_groups": email_to_files,
+                "duplicate_groups": duplicate_groups,
+                "duplicate_count": total_duplicate_count,
+                "no_email_files": no_email_files,
+                "no_email_count": len(no_email_files),
+                "unique_email_count": len(email_to_files),
+                "total_count": len(docs),
+            }
+
+        except Exception as e:
+            log.error(f"Error getting duplicate credentials by email: {e}")
+            return {
+                "email_groups": {},
+                "duplicate_groups": [],
+                "duplicate_count": 0,
+                "no_email_files": [],
+                "no_email_count": 0,
+                "unique_email_count": 0,
+                "total_count": 0,
+            }
+
     async def update_credential_state(
         self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False
     ) -> bool:

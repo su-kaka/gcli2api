@@ -510,7 +510,7 @@ async def upload_credentials_common(
                 status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
             )
 
-    await ensure_credential_manager_initialized()
+    
 
     batch_size = 1000
     all_results = []
@@ -607,7 +607,7 @@ async def get_creds_status_common(
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
         raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
 
-    await ensure_credential_manager_initialized()
+    
 
     storage_adapter = await get_storage_adapter()
     backend_info = await storage_adapter.get_backend_info()
@@ -741,7 +741,7 @@ async def download_all_creds_common(is_antigravity: bool = False) -> Response:
 
 async def fetch_user_email_common(filename: str, is_antigravity: bool = False) -> JSONResponse:
     """获取指定凭证文件用户邮箱的通用函数"""
-    await ensure_credential_manager_initialized()
+    
 
     filename_only = os.path.basename(filename)
     if not filename_only.endswith(".json"):
@@ -775,7 +775,7 @@ async def fetch_user_email_common(filename: str, is_antigravity: bool = False) -
 
 async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONResponse:
     """刷新所有凭证文件用户邮箱的通用函数 - 只为没有邮箱的凭证获取"""
-    await ensure_credential_manager_initialized()
+    
 
     storage_adapter = await get_storage_adapter()
     credential_filenames = await storage_adapter.list_credentials(is_antigravity=is_antigravity)
@@ -834,6 +834,92 @@ async def refresh_all_user_emails_common(is_antigravity: bool = False) -> JSONRe
             "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址，跳过 {skipped_count} 个已有邮箱的凭证",
         }
     )
+
+
+async def deduplicate_credentials_by_email_common(is_antigravity: bool = False) -> JSONResponse:
+    """批量去重凭证文件的通用函数 - 删除邮箱相同的凭证（只保留一个）"""
+    storage_adapter = await get_storage_adapter()
+
+    try:
+        duplicate_info = await storage_adapter._backend.get_duplicate_credentials_by_email(
+            is_antigravity=is_antigravity
+        )
+
+        duplicate_groups = duplicate_info.get("duplicate_groups", [])
+        no_email_files = duplicate_info.get("no_email_files", [])
+        total_count = duplicate_info.get("total_count", 0)
+
+        if not duplicate_groups:
+            return JSONResponse(
+                content={
+                    "deleted_count": 0,
+                    "kept_count": total_count,
+                    "total_count": total_count,
+                    "unique_emails_count": duplicate_info.get("unique_email_count", 0),
+                    "no_email_count": len(no_email_files),
+                    "duplicate_groups": [],
+                    "delete_errors": [],
+                    "message": "没有发现重复的凭证（相同邮箱）",
+                }
+            )
+
+        # 执行删除操作
+        deleted_count = 0
+        delete_errors = []
+        result_duplicate_groups = []
+
+        for group in duplicate_groups:
+            email = group["email"]
+            kept_file = group["kept_file"]
+            duplicate_files = group["duplicate_files"]
+
+            deleted_files_in_group = []
+            for filename in duplicate_files:
+                try:
+                    success = await credential_manager.remove_credential(filename)
+                    if success:
+                        deleted_count += 1
+                        deleted_files_in_group.append(os.path.basename(filename))
+                        log.info(f"去重删除凭证: {filename} (邮箱: {email})")
+                    else:
+                        delete_errors.append(f"{os.path.basename(filename)}: 删除失败")
+                except Exception as e:
+                    delete_errors.append(f"{os.path.basename(filename)}: {str(e)}")
+                    log.error(f"去重删除凭证 {filename} 时出错: {e}")
+
+            result_duplicate_groups.append({
+                "email": email,
+                "kept_file": os.path.basename(kept_file),
+                "deleted_files": deleted_files_in_group,
+                "duplicate_count": len(deleted_files_in_group),
+            })
+
+        kept_count = total_count - deleted_count
+
+        return JSONResponse(
+            content={
+                "deleted_count": deleted_count,
+                "kept_count": kept_count,
+                "total_count": total_count,
+                "unique_emails_count": duplicate_info.get("unique_email_count", 0),
+                "no_email_count": len(no_email_files),
+                "duplicate_groups": result_duplicate_groups,
+                "delete_errors": delete_errors,
+                "message": f"去重完成：删除 {deleted_count} 个重复凭证，保留 {kept_count} 个凭证（{duplicate_info.get('unique_email_count', 0)} 个唯一邮箱）",
+            }
+        )
+
+    except Exception as e:
+        log.error(f"批量去重凭证时出错: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "deleted_count": 0,
+                "kept_count": 0,
+                "total_count": 0,
+                "message": f"去重操作失败: {str(e)}",
+            }
+        )
 
 
 # =============================================================================
@@ -901,7 +987,7 @@ async def get_cred_detail(filename: str, token: str = Depends(verify_panel_token
         if not filename.endswith(".json"):
             raise HTTPException(status_code=400, detail="无效的文件名")
 
-        await ensure_credential_manager_initialized()
+        
 
         storage_adapter = await get_storage_adapter()
         backend_info = await storage_adapter.get_backend_info()
@@ -950,7 +1036,7 @@ async def get_cred_detail(filename: str, token: str = Depends(verify_panel_token
 async def creds_action(request: CredFileActionRequest, token: str = Depends(verify_panel_token)):
     """对凭证文件执行操作（启用/禁用/删除）"""
     try:
-        await ensure_credential_manager_initialized()
+        
 
         log.info(f"Received request: {request}")
 
@@ -1019,7 +1105,7 @@ async def creds_batch_action(
 ):
     """批量对凭证文件执行操作（启用/禁用/删除）"""
     try:
-        await ensure_credential_manager_initialized()
+        
 
         action = request.action
         filenames = request.filenames
@@ -1156,6 +1242,16 @@ async def refresh_all_user_emails(token: str = Depends(verify_panel_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/creds/deduplicate-by-email")
+async def deduplicate_credentials_by_email(token: str = Depends(verify_panel_token)):
+    """批量去重凭证文件 - 删除邮箱相同的凭证（只保留一个）"""
+    try:
+        return await deduplicate_credentials_by_email_common(is_antigravity=False)
+    except Exception as e:
+        log.error(f"批量去重凭证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/creds/download-all")
 async def download_all_creds(token: str = Depends(verify_panel_token)):
     """
@@ -1175,7 +1271,7 @@ async def download_all_creds(token: str = Depends(verify_panel_token)):
 async def get_config(token: str = Depends(verify_panel_token)):
     """获取当前配置"""
     try:
-        await ensure_credential_manager_initialized()
+        
 
         # 读取当前配置（包括环境变量和TOML文件中的配置）
         current_config = {}
@@ -1238,9 +1334,9 @@ async def get_config(token: str = Depends(verify_panel_token)):
 
 @router.post("/config/save")
 async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_panel_token)):
-    """保存配置到TOML文件"""
+    """保存配置"""
     try:
-        await ensure_credential_manager_initialized()
+        
         new_config = request.config
 
         log.debug(f"收到的配置数据: {list(new_config.keys())}")
@@ -1705,6 +1801,16 @@ async def refresh_all_antigravity_user_emails(token: str = Depends(verify_panel_
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/antigravity/creds/deduplicate-by-email")
+async def deduplicate_antigravity_credentials_by_email(token: str = Depends(verify_panel_token)):
+    """批量去重Antigravity凭证文件 - 删除邮箱相同的凭证（只保留一个）"""
+    try:
+        return await deduplicate_credentials_by_email_common(is_antigravity=True)
+    except Exception as e:
+        log.error(f"批量去重Antigravity凭证失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/antigravity/creds/download-all")
 async def download_all_antigravity_creds(token: str = Depends(verify_panel_token)):
     """
@@ -1729,7 +1835,7 @@ async def verify_credential_project_common(filename: str, is_antigravity: bool =
     if not filename.endswith(".json"):
         raise HTTPException(status_code=400, detail="无效的文件名")
 
-    await ensure_credential_manager_initialized()
+    
     storage_adapter = await get_storage_adapter()
 
     # 获取凭证数据
@@ -1834,7 +1940,7 @@ async def get_antigravity_credential_quota(filename: str, token: str = Depends(v
         if not filename.endswith(".json"):
             raise HTTPException(status_code=400, detail="无效的文件名")
 
-        await ensure_credential_manager_initialized()
+        
         storage_adapter = await get_storage_adapter()
 
         # 获取凭证数据

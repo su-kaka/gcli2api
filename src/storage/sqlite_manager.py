@@ -790,6 +790,83 @@ class SQLiteManager:
                 "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
+    async def get_duplicate_credentials_by_email(self, is_antigravity: bool = False) -> Dict[str, Any]:
+        """
+        获取按邮箱分组的重复凭证信息（只查询邮箱和文件名，不加载完整凭证数据）
+        用于去重操作
+
+        Args:
+            is_antigravity: 是否查询antigravity凭证表（默认False）
+
+        Returns:
+            包含 email_groups（邮箱分组）、duplicate_count（重复数量）、no_email_count（无邮箱数量）的字典
+        """
+        self._ensure_initialized()
+
+        try:
+            # 根据 is_antigravity 选择表名
+            table_name = self._get_table_name(is_antigravity)
+
+            async with aiosqlite.connect(self._db_path) as db:
+                # 查询所有凭证的文件名和邮箱（不加载完整凭证数据）
+                query = f"""
+                    SELECT filename, user_email
+                    FROM {table_name}
+                    ORDER BY filename
+                """
+
+                async with db.execute(query) as cursor:
+                    rows = await cursor.fetchall()
+
+                    # 按邮箱分组
+                    email_to_files = {}
+                    no_email_files = []
+
+                    for filename, user_email in rows:
+                        if user_email:
+                            if user_email not in email_to_files:
+                                email_to_files[user_email] = []
+                            email_to_files[user_email].append(filename)
+                        else:
+                            no_email_files.append(filename)
+
+                    # 找出重复的邮箱组
+                    duplicate_groups = []
+                    total_duplicate_count = 0
+
+                    for email, files in email_to_files.items():
+                        if len(files) > 1:
+                            # 保留第一个文件，其他为重复
+                            duplicate_groups.append({
+                                "email": email,
+                                "kept_file": files[0],
+                                "duplicate_files": files[1:],
+                                "duplicate_count": len(files) - 1,
+                            })
+                            total_duplicate_count += len(files) - 1
+
+                    return {
+                        "email_groups": email_to_files,
+                        "duplicate_groups": duplicate_groups,
+                        "duplicate_count": total_duplicate_count,
+                        "no_email_files": no_email_files,
+                        "no_email_count": len(no_email_files),
+                        "unique_email_count": len(email_to_files),
+                        "total_count": len(rows),
+                    }
+
+        except Exception as e:
+            log.error(f"Error getting duplicate credentials by email: {e}")
+            return {
+                "email_groups": {},
+                "duplicate_groups": [],
+                "duplicate_count": 0,
+                "no_email_files": [],
+                "no_email_count": 0,
+                "unique_email_count": 0,
+                "total_count": 0,
+            }
+
     # ============ 配置管理（内存缓存）============
 
     async def set_config(self, key: str, value: Any) -> bool:
