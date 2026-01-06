@@ -795,21 +795,25 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
 
 
 async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONResponse:
-    """刷新所有凭证文件用户邮箱的通用函数 - 只为没有邮箱的凭证获取"""
+    """刷新所有凭证文件用户邮箱的通用函数 - 只为没有邮箱的凭证获取
+    
+    利用 get_all_credential_states 批量获取状态
+    """
     mode = validate_mode(mode)
 
     storage_adapter = await get_storage_adapter()
-    credential_filenames = await storage_adapter.list_credentials(mode=mode)
+    
+    # 一次性批量获取所有凭证的状态
+    all_states = await storage_adapter.get_all_credential_states(mode=mode)
 
     results = []
     success_count = 0
     skipped_count = 0
 
-    for filename in credential_filenames:
+    # 在内存中筛选出需要获取邮箱的凭证
+    for filename, state in all_states.items():
         try:
-            # 首先检查是否已有邮箱地址
-            state = await storage_adapter.get_credential_state(filename, mode=mode)
-            cached_email = state.get("user_email") if state else None
+            cached_email = state.get("user_email")
 
             if cached_email:
                 # 已有邮箱，跳过获取
@@ -846,13 +850,14 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
                 "error": str(e),
             })
 
+    total_count = len(all_states)
     return JSONResponse(
         content={
             "success_count": success_count,
-            "total_count": len(credential_filenames),
+            "total_count": total_count,
             "skipped_count": skipped_count,
             "results": results,
-            "message": f"成功获取 {success_count}/{len(credential_filenames)} 个邮箱地址，跳过 {skipped_count} 个已有邮箱的凭证",
+            "message": f"成功获取 {success_count}/{total_count} 个邮箱地址，跳过 {skipped_count} 个已有邮箱的凭证",
         }
     )
 
