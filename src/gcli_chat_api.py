@@ -33,36 +33,11 @@ from log import log
 from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .utils import get_user_agent, parse_quota_reset_timestamp
-
-
-def _filter_thoughts_from_response(response_data: dict) -> dict:
-    """
-    Filter out thoughts from response data if configured to do so.
-
-    Args:
-        response_data: The response data from Google API
-
-    Returns:
-        Modified response data with thoughts removed if applicable
-    """
-    if not isinstance(response_data, dict):
-        return response_data
-
-    # 检查是否存在candidates字段
-    if "candidates" not in response_data:
-        return response_data
-
-    # 遍历candidates并移除thoughts
-    for candidate in response_data.get("candidates", []):
-        if "content" in candidate and isinstance(candidate["content"], dict):
-            if "parts" in candidate["content"]:
-                # 过滤掉包含thought字段的parts
-                candidate["content"]["parts"] = [
-                    part for part in candidate["content"]["parts"]
-                    if not isinstance(part, dict) or "thought" not in part
-                ]
-
-    return response_data
+from .converter.gemini_fix import (
+    filter_thoughts_from_response,
+    clean_tools_for_gemini,
+    build_gemini_request_payload,
+)
 
 
 def _create_error_response(message: str, status_code: int = 500) -> Response:
@@ -96,80 +71,6 @@ async def _handle_auto_ban(
         )
         # 直接禁用凭证，下次get_valid_credential会自动跳过
         await credential_manager.set_cred_disabled(credential_name, True)
-
-
-def _clean_tools_for_gemini(tools):
-    """
-    清理工具定义，移除 Gemini API 不支持的 JSON Schema 字段
-    
-    Gemini API 只支持有限的 OpenAPI 3.0 Schema 属性：
-    - 支持: type, description, enum, items, properties, required, nullable, format
-    - 不支持: $schema, $id, $ref, $defs, title, examples, default, readOnly,
-              exclusiveMaximum, exclusiveMinimum, oneOf, anyOf, allOf, const 等
-    
-    参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
-    """
-    if not tools:
-        return tools
-    
-    # Gemini 不支持的字段列表
-    # 注意：title 在某些情况下是必需的，所以不移除
-    UNSUPPORTED_KEYS = {
-        '$schema', '$id', '$ref', '$defs', 'definitions',
-        'example', 'examples', 'readOnly', 'writeOnly', 'default',
-        'exclusiveMaximum', 'exclusiveMinimum',
-        'oneOf', 'anyOf', 'allOf', 'const',
-        'additionalItems', 'contains', 'patternProperties', 'dependencies',
-        'propertyNames', 'if', 'then', 'else',
-        'contentEncoding', 'contentMediaType',
-        'additionalProperties', 'minLength', 'maxLength',
-        'minItems', 'maxItems', 'uniqueItems'
-    }
-    
-    def clean_schema(obj):
-        """递归清理 schema 对象"""
-        if isinstance(obj, dict):
-            cleaned = {}
-            for key, value in obj.items():
-                if key in UNSUPPORTED_KEYS:
-                    continue
-                cleaned[key] = clean_schema(value)
-            # 确保有 type 字段（如果有 properties 但没有 type）
-            if "properties" in cleaned and "type" not in cleaned:
-                cleaned["type"] = "object"
-            return cleaned
-        elif isinstance(obj, list):
-            return [clean_schema(item) for item in obj]
-        else:
-            return obj
-    
-    # 清理每个工具的参数
-    cleaned_tools = []
-    for tool in tools:
-        if not isinstance(tool, dict):
-            cleaned_tools.append(tool)
-            continue
-            
-        cleaned_tool = tool.copy()
-        
-        # 清理 functionDeclarations
-        if "functionDeclarations" in cleaned_tool:
-            cleaned_declarations = []
-            for func_decl in cleaned_tool["functionDeclarations"]:
-                if not isinstance(func_decl, dict):
-                    cleaned_declarations.append(func_decl)
-                    continue
-                    
-                cleaned_decl = func_decl.copy()
-                if "parameters" in cleaned_decl:
-                    cleaned_decl["parameters"] = clean_schema(cleaned_decl["parameters"])
-                cleaned_declarations.append(cleaned_decl)
-            
-            cleaned_tool["functionDeclarations"] = cleaned_declarations
-        
-        cleaned_tools.append(cleaned_tool)
-    
-    return cleaned_tools
 
 
 async def _handle_error_with_retry(
@@ -621,7 +522,7 @@ def _handle_streaming_response_managed(
                         data = obj["response"]
                         # 如果配置为不返回思维链，则过滤
                         if not return_thoughts:
-                            data = _filter_thoughts_from_response(data)
+                            data = filter_thoughts_from_response(data)
                         chunk_data = f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
                         yield chunk_data
                         await asyncio.sleep(0)  # 让其他协程有机会运行
@@ -688,7 +589,7 @@ async def _handle_non_streaming_response(
             # 如果配置为不返回思维链，则过滤
             return_thoughts = await get_return_thoughts_to_frontend()
             if not return_thoughts:
-                standard_gemini_response = _filter_thoughts_from_response(standard_gemini_response)
+                standard_gemini_response = filter_thoughts_from_response(standard_gemini_response)
 
             log.debug(
                 f"提取的response字段: {json.dumps(standard_gemini_response, ensure_ascii=False)[:500]}..."
@@ -767,77 +668,22 @@ async def _handle_non_streaming_response(
 def build_gemini_payload_from_native(native_request: dict, model_from_path: str) -> dict:
     """
     Build a Gemini API payload from a native Gemini request with full pass-through support.
+    现在使用 gemini_fix.py 中的统一函数
     """
-    # 创建请求副本以避免修改原始数据
-    request_data = native_request.copy()
-
-    # 增量补全安全设置，用户指定的安全设置条目依照用户设置，未指定的条目使用DEFAULT_SAFETY_SETTINGS
-
-    # 获取用户现有的设置，如果不存在则初始化为空列表
-    user_settings = list(request_data.get("safetySettings", []))
-    # 提取用户已配置的 category 集合
-    existing_categories = {s.get("category") for s in user_settings}
-    # 遍历默认设置，将用户未配置的项追加到列表中
-    user_settings.extend(
-        default_setting for default_setting in DEFAULT_SAFETY_SETTINGS
-        if default_setting["category"] not in existing_categories
+    from src.utils import (
+        DEFAULT_SAFETY_SETTINGS,
+        get_base_model_name,
+        get_thinking_budget,
+        is_search_model,
+        should_include_thoughts,
     )
-    # 回写合并后的结果
-    request_data["safetySettings"] = user_settings
-
-    # 确保generationConfig存在
-    if "generationConfig" not in request_data:
-        request_data["generationConfig"] = {}
-
-    generation_config = request_data["generationConfig"]
-
-    # 配置thinking（如果未指定thinkingConfig）
-    # 注意：只有在thinkingBudget有值时才添加thinkingConfig，避免在thinking未启用时发送includeThoughts
-    if "thinkingConfig" not in generation_config:
-        thinking_budget = get_thinking_budget(model_from_path)
-
-        # 只有在有thinking budget时才添加thinkingConfig
-        if thinking_budget is not None:
-            generation_config["thinkingConfig"] = {
-                "thinkingBudget": thinking_budget,
-                "includeThoughts": should_include_thoughts(model_from_path)
-            }
-    else:
-        # 如果用户已经提供了thinkingConfig，但没有设置某些字段，填充默认值
-        thinking_config = generation_config["thinkingConfig"]
-        if "thinkingBudget" not in thinking_config:
-            thinking_budget = get_thinking_budget(model_from_path)
-            if thinking_budget is not None:
-                thinking_config["thinkingBudget"] = thinking_budget
-        if "includeThoughts" not in thinking_config:
-            thinking_config["includeThoughts"] = should_include_thoughts(model_from_path)
-
-    # 清理工具定义中不支持的 JSON Schema 字段
-    if "tools" in request_data and request_data["tools"]:
-        request_data["tools"] = _clean_tools_for_gemini(request_data["tools"])
-
-    # 为搜索模型添加Google Search工具（如果未指定且没有functionDeclarations）
-    if is_search_model(model_from_path):
-        if "tools" not in request_data:
-            request_data["tools"] = []
-        # 检查是否已有functionDeclarations或googleSearch工具
-        has_function_declarations = any(
-            tool.get("functionDeclarations") for tool in request_data["tools"]
-        )
-        has_google_search = any(tool.get("googleSearch") for tool in request_data["tools"])
-
-        # 只有在没有任何工具时才添加googleSearch，或者只有googleSearch工具时可以添加更多googleSearch
-        if not has_function_declarations and not has_google_search:
-            request_data["tools"].append({"googleSearch": {}})
-
-    # 透传所有其他Gemini原生字段:
-    # - contents (必需)
-    # - systemInstruction (可选)
-    # - generationConfig (已处理)
-    # - safetySettings (已处理)
-    # - tools (已处理)
-    # - toolConfig (透传)
-    # - cachedContent (透传)
-    # - 以及任何其他未知字段都会被透传
-
-    return {"model": get_base_model_name(model_from_path), "request": request_data}
+    
+    return build_gemini_request_payload(
+        native_request,
+        model_from_path,
+        get_base_model_name,
+        get_thinking_budget,
+        should_include_thoughts,
+        is_search_model,
+        DEFAULT_SAFETY_SETTINGS
+    )

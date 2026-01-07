@@ -34,6 +34,10 @@ from .models import (
 from src.converter.anti_truncation import (
     apply_anti_truncation_to_stream,
 )
+from src.converter.gemini_fix import (
+    build_antigravity_generation_config,
+    prepare_image_generation_request,
+)
 from src.converter.openai2gemini import (
     convert_openai_tools_to_gemini,
     extract_tool_calls_from_parts,
@@ -95,92 +99,6 @@ def gemini_contents_to_antigravity_contents(gemini_contents: List[Dict[str, Any]
     """
     return gemini_contents
 
-
-def generate_generation_config(
-    parameters: Dict[str, Any],
-    enable_thinking: bool,
-    model_name: str
-) -> Dict[str, Any]:
-    """
-    生成 Antigravity generationConfig，使用 GeminiGenerationConfig 模型
-    """
-    # 构建基础配置
-    config_dict = {
-        "candidateCount": 1,
-        "stopSequences": [
-            "<|user|>",
-            "<|bot|>",
-            "<|context_request|>",
-            "<|endoftext|>",
-            "<|end_of_turn|>"
-        ],
-        "topK": parameters.get("top_k", 50),  # 默认值 50
-    }
-
-    # 添加可选参数
-    if "temperature" in parameters:
-        config_dict["temperature"] = parameters["temperature"]
-
-    if "top_p" in parameters:
-        config_dict["topP"] = parameters["top_p"]
-
-    if "max_tokens" in parameters:
-        config_dict["maxOutputTokens"] = parameters["max_tokens"]
-
-    # 图片生成相关参数
-    if "response_modalities" in parameters:
-        config_dict["response_modalities"] = parameters["response_modalities"]
-
-    if "image_config" in parameters:
-        config_dict["image_config"] = parameters["image_config"]
-
-    # 思考模型配置
-    if enable_thinking:
-        config_dict["thinkingConfig"] = {
-            "includeThoughts": True,
-            "thinkingBudget": 1024
-        }
-
-        # Claude 思考模型：删除 topP 参数
-        if "claude" in model_name.lower():
-            config_dict.pop("topP", None)
-
-    # 使用 GeminiGenerationConfig 模型进行验证
-    try:
-        config = GeminiGenerationConfig(**config_dict)
-        return config.model_dump(exclude_none=True)
-    except Exception as e:
-        log.warning(f"[ANTIGRAVITY] Failed to validate generation config: {e}, using dict directly")
-        return config_dict
-
-
-def prepare_image_request(request_body: Dict[str, Any], model: str) -> Dict[str, Any]:
-    """图像生成模型请求体后处理"""
-    model_lower = model.lower()
-    
-    # 解析分辨率
-    image_size = "4K" if "-4k" in model_lower else "2K" if "-2k" in model_lower else None
-    
-    # 解析比例
-    aspect_ratio = None
-    for suffix, ratio in [("-21x9", "21:9"), ("-16x9", "16:9"), ("-9x16", "9:16"), ("-4x3", "4:3"), ("-3x4", "3:4"), ("-1x1", "1:1")]:
-        if suffix in model_lower:
-            aspect_ratio = ratio
-            break
-    
-    # 构建 imageConfig
-    image_config = {}
-    if aspect_ratio:
-        image_config["aspectRatio"] = aspect_ratio
-    if image_size:
-        image_config["imageSize"] = image_size
-
-    request_body["requestType"] = "image_gen"
-    request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
-    request_body["request"]["generationConfig"] = {"candidateCount": 1, "imageConfig": image_config}
-    for key in ("systemInstruction", "tools", "toolConfig"):
-        request_body["request"].pop(key, None)
-    return request_body
 
 
 async def convert_antigravity_stream_to_openai(
@@ -519,7 +437,7 @@ async def chat_completions(
     # 过滤 None 值
     parameters = {k: v for k, v in parameters.items() if v is not None}
 
-    generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
+    generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
@@ -543,7 +461,7 @@ async def chat_completions(
 
     # 图像生成模型特殊处理
     if "-image" in model:
-        request_body = prepare_image_request(request_body, model)
+        request_body = prepare_image_generation_request(request_body, model)
 
     # 生成请求 ID
     request_id = f"chatcmpl-{int(time.time() * 1000)}"
@@ -737,7 +655,7 @@ async def gemini_generate_content(
     # 过滤 None 值
     parameters = {k: v for k, v in parameters.items() if v is not None}
 
-    generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
+    generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
@@ -773,7 +691,7 @@ async def gemini_generate_content(
 
     # 图像生成模型特殊处理
     if "-image" in model:
-        request_body = prepare_image_request(request_body, model)
+        request_body = prepare_image_generation_request(request_body, model)
 
     # 发送非流式请求
     try:
@@ -854,7 +772,7 @@ async def gemini_stream_generate_content(
     # 过滤 None 值
     parameters = {k: v for k, v in parameters.items() if v is not None}
 
-    generation_config = generate_generation_config(parameters, enable_thinking, actual_model)
+    generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
     # 获取凭证信息（用于 project_id 和 session_id）
     cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
@@ -890,7 +808,7 @@ async def gemini_stream_generate_content(
 
     # 图像生成模型特殊处理
     if "-image" in model:
-        request_body = prepare_image_request(request_body, model)
+        request_body = prepare_image_generation_request(request_body, model)
 
     # 发送流式请求
     try:
