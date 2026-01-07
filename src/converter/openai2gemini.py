@@ -135,6 +135,17 @@ async def openai_request_to_gemini_payload(
             for part in message.content:
                 if part.get("type") == "text":
                     parts.append({"text": part.get("text", "")})
+                elif part.get("type") == "thinking":
+                    # 处理 thinking 块（用于多轮对话中的历史回放）
+                    thinking_text = part.get("thinking", "")
+                    signature = part.get("signature")
+                    if signature:  # 只有包含 signature 的 thinking 块才处理
+                        thought_part = {
+                            "text": thinking_text,
+                            "thought": True,
+                            "thoughtSignature": signature,
+                        }
+                        parts.append(thought_part)
                 elif part.get("type") == "image_url":
                     image_url = part.get("image_url", {}).get("url")
                     if image_url:
@@ -261,23 +272,6 @@ async def openai_request_to_gemini_payload(
     return {"model": get_base_model_name(openai_request.model), "request": request_data}
 
 
-def _extract_content_and_reasoning(parts: list) -> tuple:
-    """从Gemini响应部件中提取内容和推理内容"""
-    content = ""
-    reasoning_content = ""
-
-    for part in parts:
-        # 处理文本内容
-        if part.get("text"):
-            # 检查这个部件是否包含thinking tokens
-            if part.get("thought", False):
-                reasoning_content += part.get("text", "")
-            else:
-                content += part.get("text", "")
-
-    return content, reasoning_content
-
-
 def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
     """
     将Gemini的usageMetadata转换为OpenAI格式的usage字段
@@ -336,11 +330,20 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         # 提取工具调用和文本内容
         tool_calls, text_content = extract_tool_calls_from_parts(parts)
 
-        # 提取 reasoning content (thinking tokens)
+        # 提取 reasoning content 和 thinking 块
         reasoning_content = ""
+        thinking_blocks = []
         for part in parts:
             if part.get("thought", False) and "text" in part:
                 reasoning_content += part["text"]
+                # 如果有 signature，构建 thinking 块
+                signature = part.get("thoughtSignature")
+                if signature:
+                    thinking_blocks.append({
+                        "type": "thinking",
+                        "thinking": part["text"],
+                        "signature": signature
+                    })
 
         # 构建消息对象
         message = {"role": role}
@@ -355,9 +358,13 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
             message["content"] = text_content
             finish_reason = _map_finish_reason(candidate.get("finishReason"))
 
-        # 添加 reasoning content（如果有）
+        # 添加 reasoning content（如果有）- 保持向后兼容
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
+        
+        # 添加结构化的 thinking 块（如果有 signature）
+        if thinking_blocks:
+            message["thinking_blocks"] = thinking_blocks
 
         choices.append(
             {
@@ -414,11 +421,20 @@ def gemini_stream_chunk_to_openai(
         # 提取工具调用和文本内容（流式响应需要 index 字段）
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
 
-        # 提取 reasoning content
+        # 提取 reasoning content 和 thinking 块
         reasoning_content = ""
+        thinking_blocks = []
         for part in parts:
             if part.get("thought", False) and "text" in part:
                 reasoning_content += part["text"]
+                # 如果有 signature，构建 thinking 块
+                signature = part.get("thoughtSignature")
+                if signature:
+                    thinking_blocks.append({
+                        "type": "thinking",
+                        "thinking": part["text"],
+                        "signature": signature
+                    })
 
         # 构建delta对象
         delta = {}
@@ -433,6 +449,10 @@ def gemini_stream_chunk_to_openai(
 
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
+        
+        # 添加结构化的 thinking 块（如果有 signature）
+        if thinking_blocks:
+            delta["thinking_blocks"] = thinking_blocks
 
         finish_reason = _map_finish_reason(candidate.get("finishReason"))
         # 如果有工具调用且结束了，finish_reason 应该是 tool_calls
@@ -707,10 +727,7 @@ def _clean_schema_for_gemini(schema: Any) -> Any:
     if not isinstance(schema, dict):
         return schema
 
-    # Gemini 不支持的字段（官方文档 + GitHub Issues 确认）
-    # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
-    # example (OpenAPI 3.0) 和 examples (JSON Schema) 都不支持
-    # 注意：title 在某些情况下是必需的，所以保留
+    # Gemini 不支持的字段
     unsupported_keys = {
         "$schema",
         "$id",

@@ -33,6 +33,7 @@ from .converter.openai2gemini import (
     gemini_stream_chunk_to_openai,
     openai_request_to_gemini_payload,
 )
+from .converter.gemini_fix import extract_content_and_reasoning
 from src.task_manager import create_managed_task
 
 # 创建路由器
@@ -283,12 +284,10 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                 reasoning_content = ""
                 if "candidates" in response_data and response_data["candidates"]:
                     # Gemini格式响应 - 使用思维链分离
-                    from .converter.openai2gemini import _extract_content_and_reasoning
-
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
-                        content, reasoning_content = _extract_content_and_reasoning(parts)
+                        content, reasoning_content = extract_content_and_reasoning(parts)
                 elif "choices" in response_data and response_data["choices"]:
                     # OpenAI格式响应
                     content = response_data["choices"][0].get("message", {}).get("content", "")

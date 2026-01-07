@@ -25,7 +25,7 @@ from log import log
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.credential_manager import get_credential_manager
 from src.gcli_chat_api import build_gemini_payload_from_native, send_gemini_request
-from src.converter.openai2gemini import _extract_content_and_reasoning
+from src.converter.gemini_fix import extract_content_and_reasoning
 from src.task_manager import create_managed_task
 
 # 创建路由器
@@ -451,7 +451,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
-                        content, reasoning_content = _extract_content_and_reasoning(parts)
+                        content, reasoning_content = extract_content_and_reasoning(parts)
                         log.debug(f"Gemini extracted content: {content}")
                         log.debug(
                             f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}..."
