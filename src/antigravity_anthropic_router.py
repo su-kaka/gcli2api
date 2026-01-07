@@ -42,32 +42,6 @@ _SENSITIVE_KEYS = {
     "secret",
 }
 
-def _remove_nulls_for_tool_input(value: Any) -> Any:
-    """
-    递归移除 dict/list 中值为 null/None 的字段/元素。
-
-    背景：Roo/Kilo 在 Anthropic native tool 路径下，若收到 tool_use.input 中包含 null，
-    可能会把 null 当作真实入参执行（例如“在 null 中搜索”）。因此在返回 tool_use.input 前做兜底清理。
-    """
-    if isinstance(value, dict):
-        cleaned: Dict[str, Any] = {}
-        for k, v in value.items():
-            if v is None:
-                continue
-            cleaned[k] = _remove_nulls_for_tool_input(v)
-        return cleaned
-
-    if isinstance(value, list):
-        cleaned_list = []
-        for item in value:
-            if item is None:
-                continue
-            cleaned_list.append(_remove_nulls_for_tool_input(item))
-        return cleaned_list
-
-    return value
-
-
 def _anthropic_debug_max_chars() -> int:
     """
     调试日志中单个字符串字段的最大输出长度（避免把 base64 图片/超长 schema 打爆日志）。
