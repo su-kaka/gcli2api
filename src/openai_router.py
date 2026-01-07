@@ -23,17 +23,17 @@ from src.utils import (
 )
 from log import log
 
-from .converter.anti_truncation import apply_anti_truncation_to_stream
-from .credential_manager import CredentialManager
-from .gcli_chat_api import send_gemini_request
-from .models import ChatCompletionRequest, Model, ModelList
+from src.converter.anti_truncation import apply_anti_truncation_to_stream
+from src.credential_manager import CredentialManager
+from src.gcli_chat_api import send_gemini_request
+from src.models import ChatCompletionRequest, Model, ModelList
 from .converter.openai2gemini import (
     _convert_usage_metadata,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
     openai_request_to_gemini_payload,
 )
-from .task_manager import create_managed_task
+from src.task_manager import create_managed_task
 
 # 创建路由器
 router = APIRouter()
