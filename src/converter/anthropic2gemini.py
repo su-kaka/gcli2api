@@ -73,6 +73,7 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
 def map_claude_model_to_gemini(claude_model: str) -> str:
     """
     将 Claude 模型名映射为下游 Gemini 模型名。
+    非 Claude 模型直接透传。
     """
     claude_model = str(claude_model or "").strip()
     if not claude_model:
@@ -83,45 +84,16 @@ def map_claude_model_to_gemini(claude_model: str) -> str:
     if m:
         claude_model = m.group(1)
 
-    # Claude 4.5 系列映射
-    if claude_model == "claude-opus-4-5":
-        return "claude-opus-4-5-thinking"
-    if claude_model == "claude-sonnet-4-5":
-        return "claude-sonnet-4-5"
-    if claude_model == "claude-haiku-4-5":
-        return "gemini-2.5-flash"
-
-    # 支持的模型列表
-    supported_models = {
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-thinking",
-        "gemini-2.5-pro",
-        "gemini-3-pro-low",
-        "gemini-3-pro-high",
-        "gemini-3-pro-image",
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash-image",
-        "gemini-3-flash",
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-5-thinking",
-        "claude-opus-4-5-thinking",
-        "gpt-oss-120b-medium",
-    }
-
-    if claude_model in supported_models:
-        return claude_model
-
-    # 其他模型映射
+    # Claude 模型映射
     model_mapping = {
-        "claude-sonnet-4.5": "claude-sonnet-4-5",
-        "claude-3-5-sonnet-20241022": "claude-sonnet-4-5",
-        "claude-3-5-sonnet-20240620": "claude-sonnet-4-5",
-        "claude-opus-4": "gemini-3-pro-high",
-        "claude-haiku-4": "claude-haiku-4.5",
-        "claude-3-haiku-20240307": "gemini-2.5-flash",
+        "claude-opus-4-5": "claude-opus-4-5-thinking",
+        "claude-haiku-4-5": "gemini-2.5-flash",
+        "claude-opus-4": "claude-opus-4-5-thinking",
+        "claude-haiku-4": "gemini-2.5-flash",
     }
 
-    return model_mapping.get(claude_model, "claude-sonnet-4-5")
+    # 如果在映射表中找到，返回映射值；否则直接透传
+    return model_mapping.get(claude_model, claude_model)
 
 
 # ============================================================================
