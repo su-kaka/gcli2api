@@ -6,7 +6,7 @@ Antigravity Router - Handles OpenAI and Gemini format requests and converts to A
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -30,11 +30,15 @@ from .models import (
     OpenAIChatCompletionChoice,
     OpenAIChatCompletionResponse,
     OpenAIChatMessage,
-    OpenAIToolCall,
-    OpenAIToolFunction,
 )
 from src.converter.anti_truncation import (
     apply_anti_truncation_to_stream,
+)
+from src.converter.openai2gemini import (
+    convert_openai_tools_to_gemini,
+    extract_tool_calls_from_parts,
+    openai_messages_to_gemini_contents,
+    gemini_stream_chunk_to_openai,
 )
 
 # 创建路由器
@@ -84,220 +88,12 @@ def is_thinking_model(model_name: str) -> bool:
     return False
 
 
-def extract_images_from_content(content: Any) -> Dict[str, Any]:
-    """
-    从 OpenAI content 中提取文本和图片
-    """
-    result = {"text": "", "images": []}
-
-    if isinstance(content, str):
-        result["text"] = content
-    elif isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    result["text"] += item.get("text", "")
-                elif item.get("type") == "image_url":
-                    image_url = item.get("image_url", {}).get("url", "")
-                    # 解析 data:image/png;base64,xxx 格式
-                    if image_url.startswith("data:image/"):
-                        import re
-                        match = re.match(r"^data:image/(\w+);base64,(.+)$", image_url)
-                        if match:
-                            mime_type = match.group(1)
-                            base64_data = match.group(2)
-                            result["images"].append({
-                                "inlineData": {
-                                    "mimeType": f"image/{mime_type}",
-                                    "data": base64_data
-                                }
-                            })
-
-    return result
-
-
-def openai_messages_to_antigravity_contents(messages: List[Any]) -> List[Dict[str, Any]]:
-    """
-    将 OpenAI 消息格式转换为 Antigravity contents 格式
-    """
-    contents = []
-    system_messages = []
-
-    for msg in messages:
-        role = getattr(msg, "role", "user")
-        content = getattr(msg, "content", "")
-        tool_calls = getattr(msg, "tool_calls", None)
-        tool_call_id = getattr(msg, "tool_call_id", None)
-
-        # 处理 system 消息 - 合并到第一条用户消息
-        if role == "system":
-            system_messages.append(content)
-            continue
-
-        # 处理 user 消息
-        elif role == "user":
-            parts = []
-
-            # 如果有系统消息，添加到第一条用户消息
-            if system_messages:
-                for sys_msg in system_messages:
-                    parts.append({"text": sys_msg})
-                system_messages = []
-
-            # 提取文本和图片
-            extracted = extract_images_from_content(content)
-            if extracted["text"]:
-                parts.append({"text": extracted["text"]})
-            parts.extend(extracted["images"])
-
-            if parts:
-                contents.append({"role": "user", "parts": parts})
-
-        # 处理 assistant 消息
-        elif role == "assistant":
-            parts = []
-
-            # 添加文本内容
-            if content:
-                extracted = extract_images_from_content(content)
-                if extracted["text"]:
-                    parts.append({"text": extracted["text"]})
-
-            # 添加工具调用
-            if tool_calls:
-                for tool_call in tool_calls:
-                    tc_id = getattr(tool_call, "id", None)
-                    tc_type = getattr(tool_call, "type", "function")
-                    tc_function = getattr(tool_call, "function", None)
-
-                    if tc_function:
-                        func_name = getattr(tc_function, "name", "")
-                        func_args = getattr(tc_function, "arguments", "{}")
-
-                        # 解析 arguments（可能是字符串）
-                        if isinstance(func_args, str):
-                            try:
-                                args_dict = json.loads(func_args)
-                            except:
-                                args_dict = {"query": func_args}
-                        else:
-                            args_dict = func_args
-
-                        parts.append({
-                            "functionCall": {
-                                "id": tc_id,
-                                "name": func_name,
-                                "args": args_dict
-                            }
-                        })
-
-            if parts:
-                contents.append({"role": "model", "parts": parts})
-
-        # 处理 tool 消息
-        elif role == "tool":
-            # 获取函数名称,确保不为空
-            func_name = getattr(msg, "name", None)
-            if not func_name:
-                # 如果没有提供名称,尝试从 tool_call_id 推断或使用默认值
-                func_name = f"function_{tool_call_id}" if tool_call_id else "unknown_function"
-
-            parts = [{
-                "functionResponse": {
-                    "id": tool_call_id,
-                    "name": func_name,
-                    "response": {"output": content}
-                }
-            }]
-            contents.append({"role": "user", "parts": parts})
-
-    return contents
-
-
 def gemini_contents_to_antigravity_contents(gemini_contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     将 Gemini 原生 contents 格式转换为 Antigravity contents 格式
-    Gemini 和 Antigravity 的 contents 格式基本一致，只需要做少量调整
+    Gemini 和 Antigravity 的 contents 格式完全一致，直接返回
     """
-    contents = []
-
-    for content in gemini_contents:
-        role = content.get("role", "user")
-        parts = content.get("parts", [])
-
-        contents.append({
-            "role": role,
-            "parts": parts
-        })
-
-    return contents
-
-
-def convert_openai_tools_to_antigravity(tools: Optional[List[Any]]) -> Optional[List[Dict[str, Any]]]:
-    """
-    将 OpenAI 工具定义转换为 Antigravity 格式
-    """
-    if not tools:
-        return None
-
-    # 需要排除的字段 - 与 _clean_schema_for_gemini 保持一致
-    # Gemini/Antigravity API 不支持这些 JSON Schema 字段
-    # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
-    EXCLUDED_KEYS = {
-        '$schema', '$id', '$ref', '$defs', 'definitions',
-        'example', 'examples', 'readOnly', 'writeOnly', 'default',
-        'exclusiveMaximum', 'exclusiveMinimum',
-        'oneOf', 'anyOf', 'allOf', 'const',
-        'additionalItems', 'contains', 'patternProperties', 'dependencies',
-        'propertyNames', 'if', 'then', 'else',
-        'contentEncoding', 'contentMediaType',
-        'additionalProperties', 'minLength', 'maxLength',
-        'minItems', 'maxItems', 'uniqueItems'
-    }
-
-    def clean_parameters(obj):
-        """递归清理参数对象"""
-        if isinstance(obj, dict):
-            cleaned = {}
-            for key, value in obj.items():
-                if key in EXCLUDED_KEYS:
-                    continue
-                cleaned[key] = clean_parameters(value)
-            return cleaned
-        elif isinstance(obj, list):
-            return [clean_parameters(item) for item in obj]
-        else:
-            return obj
-
-    function_declarations = []
-
-    for tool in tools:
-        tool_type = getattr(tool, "type", "function")
-        if tool_type == "function":
-            function = getattr(tool, "function", None)
-            if function:
-                func_name = function.get("name")
-                assert func_name is not None, "Function name is required"
-                func_desc = function.get("description", "")
-                func_params = function.get("parameters", {})
-
-                # 转换为字典（如果是 Pydantic 模型）
-                if hasattr(func_params, "dict") or hasattr(func_params, "model_dump"):
-                    func_params = model_to_dict(func_params)
-
-                # 清理参数
-                cleaned_params = clean_parameters(func_params)
-
-                function_declarations.append({
-                    "name": func_name,
-                    "description": func_desc,
-                    "parameters": cleaned_params
-                })
-
-    if function_declarations:
-        return [{"functionDeclarations": function_declarations}]
-
-    return None
+    return gemini_contents
 
 
 def generate_generation_config(
@@ -387,23 +183,6 @@ def prepare_image_request(request_body: Dict[str, Any], model: str) -> Dict[str,
     return request_body
 
 
-
-
-def convert_to_openai_tool_call(function_call: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    将 Antigravity functionCall 转换为 OpenAI tool_call，使用 OpenAIToolCall 模型
-    """
-    tool_call = OpenAIToolCall(
-        id=function_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
-        type="function",
-        function=OpenAIToolFunction(
-            name=function_call.get("name", ""),
-            arguments=json.dumps(function_call.get("args", {}))
-        )
-    )
-    return model_to_dict(tool_call)
-
-
 async def convert_antigravity_stream_to_openai(
     lines_generator: Any,
     stream_ctx: Any,
@@ -415,54 +194,25 @@ async def convert_antigravity_stream_to_openai(
 ):
     """
     将 Antigravity 流式响应转换为 OpenAI 格式的 SSE 流
+    使用 openai2gemini 模块的 gemini_stream_chunk_to_openai 函数
 
     Args:
         lines_generator: 行生成器 (已经过滤的 SSE 行)
     """
-    state = {
-        "thinking_started": False,
-        "tool_calls": [],
-        "content_buffer": "",
-        "thinking_buffer": "",
-        "success_recorded": False
-    }
-
-    created = int(time.time())
+    success_recorded = False
 
     try:
-        def build_content_chunk(content: str) -> str:
-            chunk = {
-                "id": request_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": content},
-                    "finish_reason": None
-                }]
-            }
-            return f"data: {json.dumps(chunk)}\n\n"
-
-        def flush_thinking_buffer() -> Optional[str]:
-            if not state["thinking_started"]:
-                return None
-            state["thinking_buffer"] += "\n</think>\n"
-            thinking_block = state["thinking_buffer"]
-            state["content_buffer"] += thinking_block
-            state["thinking_buffer"] = ""
-            state["thinking_started"] = False
-            return thinking_block
-
         async for line in lines_generator:
             if not line or not line.startswith("data: "):
                 continue
 
             # 记录第一次成功响应
-            if not state["success_recorded"]:
+            if not success_recorded:
                 if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(credential_name, True, mode="antigravity")
-                state["success_recorded"] = True
+                    await credential_manager.record_api_call_result(
+                        credential_name, True, mode="antigravity"
+                    )
+                success_recorded = True
 
             # 解析 SSE 数据
             try:
@@ -470,129 +220,15 @@ async def convert_antigravity_stream_to_openai(
             except:
                 continue
 
-            # 提取 parts
-            parts = data.get("response", {}).get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            # Antigravity 响应格式: {"response": {...}}
+            # 提取内层的 Gemini 格式数据
+            gemini_chunk = data.get("response", data)
 
-            for part in parts:
-                # 处理思考内容
-                if part.get("thought") is True:
-                    if not state["thinking_started"]:
-                        state["thinking_buffer"] = "<think>\n"
-                        state["thinking_started"] = True
-                    state["thinking_buffer"] += part.get("text", "")
+            # 使用 openai2gemini 模块的函数转换为 OpenAI 格式
+            openai_chunk = gemini_stream_chunk_to_openai(gemini_chunk, model, request_id)
 
-                # 处理图片数据 (inlineData)
-                elif "inlineData" in part:
-                    # 如果之前在思考，先结束思考
-                    thinking_block = flush_thinking_buffer()
-                    if thinking_block:
-                        yield build_content_chunk(thinking_block)
-
-                    # 提取图片数据
-                    inline_data = part["inlineData"]
-                    mime_type = inline_data.get("mimeType", "image/png")
-                    base64_data = inline_data.get("data", "")
-
-                    # 转换为 Markdown 格式的图片
-                    image_markdown = f"\n\n![生成的图片](data:{mime_type};base64,{base64_data})\n\n"
-                    state["content_buffer"] += image_markdown
-
-                    # 发送图片块
-                    chunk = {
-                        "id": request_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": image_markdown},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-
-                # 处理普通文本
-                elif "text" in part:
-                    # 如果之前在思考，先结束思考
-                    thinking_block = flush_thinking_buffer()
-                    if thinking_block:
-                        yield build_content_chunk(thinking_block)
-
-                    # 添加文本内容
-                    text = part.get("text", "")
-                    state["content_buffer"] += text
-
-                    # 发送文本块
-                    chunk = {
-                        "id": request_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": text},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-
-                # 处理工具调用
-                elif "functionCall" in part:
-                    tool_call = convert_to_openai_tool_call(part["functionCall"])
-                    # 在流式响应中,每个 tool_call 需要包含 index 字段
-                    tool_call["index"] = len(state["tool_calls"])
-                    state["tool_calls"].append(tool_call)
-
-            # 检查是否结束
-            finish_reason = data.get("response", {}).get("candidates", [{}])[0].get("finishReason")
-            if finish_reason:
-                thinking_block = flush_thinking_buffer()
-                if thinking_block:
-                    yield build_content_chunk(thinking_block)
-
-                # 发送工具调用
-                if state["tool_calls"]:
-                    chunk = {
-                        "id": request_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"tool_calls": state["tool_calls"]},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-
-                # 发送使用统计
-                usage_metadata = data.get("response", {}).get("usageMetadata", {})
-                usage = {
-                    "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-                    "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-                    "total_tokens": usage_metadata.get("totalTokenCount", 0)
-                }
-
-                # 确定 finish_reason
-                openai_finish_reason = "stop"
-                if state["tool_calls"]:
-                    openai_finish_reason = "tool_calls"
-                elif finish_reason == "MAX_TOKENS":
-                    openai_finish_reason = "length"
-
-                chunk = {
-                    "id": request_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {},
-                        "finish_reason": openai_finish_reason
-                    }],
-                    "usage": usage
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
+            # 发送 OpenAI 格式的 chunk
+            yield f"data: {json.dumps(openai_chunk)}\n\n"
 
         # 发送结束标记
         yield "data: [DONE]\n\n"
@@ -630,12 +266,14 @@ def convert_antigravity_response_to_openai(
     # 提取 parts
     parts = response_data.get("response", {}).get("candidates", [{}])[0].get("content", {}).get("parts", [])
 
-    content = ""
+    # 使用 openai2gemini 模块函数提取工具调用和文本内容
+    tool_calls_list, text_content = extract_tool_calls_from_parts(parts, is_streaming=False)
+    
     thinking_content = ""
-    tool_calls_list = []
+    content = text_content  # 使用提取的文本内容作为基础
 
     for part in parts:
-        # 处理思考内容
+        # 处理思考内容（extract_tool_calls_from_parts 不处理思考内容）
         if part.get("thought") is True:
             thinking_content += part.get("text", "")
 
@@ -644,16 +282,8 @@ def convert_antigravity_response_to_openai(
             inline_data = part["inlineData"]
             mime_type = inline_data.get("mimeType", "image/png")
             base64_data = inline_data.get("data", "")
-            # 转换为 Markdown 格式的图片
+            # 转换为 Markdown 格式的图片（需要额外添加到 content，因为 extract_tool_calls_from_parts 不处理图片）
             content += f"\n\n![生成的图片](data:{mime_type};base64,{base64_data})\n\n"
-
-        # 处理普通文本
-        elif "text" in part:
-            content += part.get("text", "")
-
-        # 处理工具调用
-        elif "functionCall" in part:
-            tool_calls_list.append(convert_to_openai_tool_call(part["functionCall"]))
 
     # 拼接思考内容
     if thinking_content:
@@ -868,15 +498,17 @@ async def chat_completions(
 
     log.info(f"[ANTIGRAVITY] Request: model={model} -> {actual_model}, stream={stream}, thinking={enable_thinking}, anti_truncation={use_anti_truncation}")
 
-    # 转换消息格式
+    # 转换消息格式（使用 openai2gemini 模块的通用函数）
     try:
-        contents = openai_messages_to_antigravity_contents(messages)
+        contents, system_instructions = openai_messages_to_gemini_contents(
+            messages, compatibility_mode=False
+        )
     except Exception as e:
         log.error(f"Failed to convert messages: {e}")
         raise HTTPException(status_code=500, detail=f"Message conversion failed: {str(e)}")
 
     # 转换工具定义
-    antigravity_tools = convert_openai_tools_to_antigravity(tools)
+    antigravity_tools = convert_openai_tools_to_gemini(tools)
 
     # 生成配置参数
     parameters = {

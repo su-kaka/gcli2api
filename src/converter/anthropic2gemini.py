@@ -213,9 +213,7 @@ def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[L
 
     gemini_tools: List[Dict[str, Any]] = []
     for tool in anthropic_tools:
-        name = tool.get("name")
-        if not name:
-            continue
+        name = tool.get("name", "nameless_function")
         description = tool.get("description", "")
         input_schema = tool.get("input_schema", {}) or {}
         parameters = clean_json_schema(input_schema)

@@ -924,7 +924,7 @@ def extract_tool_calls_from_parts(
                 "id": f"call_{uuid.uuid4().hex[:24]}",
                 "type": "function",
                 "function": {
-                    "name": function_call.get("name"),
+                    "name": function_call.get("name", "nameless_function"),
                     "arguments": json.dumps(function_call.get("args", {})),
                 },
             }
@@ -938,3 +938,188 @@ def extract_tool_calls_from_parts(
             text_content += part["text"]
 
     return tool_calls, text_content
+
+
+def extract_images_from_content(content: Any) -> Dict[str, Any]:
+    """
+    从 OpenAI content 中提取文本和图片
+    
+    Args:
+        content: OpenAI 消息的 content 字段（可能是字符串或列表）
+    
+    Returns:
+        包含 text 和 images 的字典
+    """
+    result = {"text": "", "images": []}
+
+    if isinstance(content, str):
+        result["text"] = content
+    elif isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    result["text"] += item.get("text", "")
+                elif item.get("type") == "image_url":
+                    image_url = item.get("image_url", {}).get("url", "")
+                    # 解析 data:image/png;base64,xxx 格式
+                    if image_url.startswith("data:image/"):
+                        import re
+                        match = re.match(r"^data:image/(\w+);base64,(.+)$", image_url)
+                        if match:
+                            mime_type = match.group(1)
+                            base64_data = match.group(2)
+                            result["images"].append({
+                                "inlineData": {
+                                    "mimeType": f"image/{mime_type}",
+                                    "data": base64_data
+                                }
+                            })
+
+    return result
+
+
+def openai_messages_to_gemini_contents(
+    messages: List[Any], 
+    compatibility_mode: bool = False
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    将 OpenAI 消息列表转换为 Gemini/Antigravity contents 格式
+    
+    Args:
+        messages: OpenAI 格式的消息列表
+        compatibility_mode: 是否启用兼容性模式（将所有 system 消息转为 user 消息）
+    
+    Returns:
+        (contents, system_instructions) 元组
+    """
+    contents = []
+    system_instructions = []
+    collecting_system = True if not compatibility_mode else False
+
+    for msg in messages:
+        role = getattr(msg, "role", "user")
+        content = getattr(msg, "content", "")
+        tool_calls = getattr(msg, "tool_calls", None)
+        tool_call_id = getattr(msg, "tool_call_id", None)
+
+        # 处理 system 消息
+        if role == "system":
+            if compatibility_mode:
+                role = "user"
+            elif collecting_system:
+                # 收集连续的 system 消息到 system_instructions
+                if isinstance(content, str):
+                    system_instructions.append(content)
+                elif isinstance(content, list):
+                    for part in content:
+                        if part.get("type") == "text" and part.get("text"):
+                            system_instructions.append(part["text"])
+                continue
+            else:
+                # 后续的 system 消息转换为 user 消息
+                role = "user"
+        else:
+            collecting_system = False
+
+        # 处理 tool 消息
+        if role == "tool":
+            func_name = getattr(msg, "name", None)
+            if not func_name:
+                func_name = f"function_{tool_call_id}" if tool_call_id else "unknown_function"
+            
+            # 尝试解析 JSON 响应
+            try:
+                response_data = json.loads(content) if isinstance(content, str) else content
+            except (json.JSONDecodeError, TypeError):
+                response_data = {"output": str(content)}
+            
+            parts = [{
+                "functionResponse": {
+                    "id": tool_call_id,
+                    "name": func_name,
+                    "response": response_data
+                }
+            }]
+            contents.append({"role": "user", "parts": parts})
+            continue
+
+        # 将 OpenAI 角色映射到 Gemini 角色
+        if role == "assistant":
+            role = "model"
+
+        # 处理 assistant 消息中的工具调用
+        if tool_calls:
+            parts = []
+            
+            # 如果有文本内容，先添加文本
+            if content:
+                extracted = extract_images_from_content(content)
+                if extracted["text"]:
+                    parts.append({"text": extracted["text"]})
+                parts.extend(extracted["images"])
+            
+            # 添加工具调用
+            for tool_call in tool_calls:
+                tc_id = getattr(tool_call, "id", None)
+                tc_function = getattr(tool_call, "function", None)
+                
+                if tc_function:
+                    func_name = getattr(tc_function, "name", "")
+                    func_args = getattr(tc_function, "arguments", "{}")
+                    
+                    # 解析 arguments（可能是字符串）
+                    if isinstance(func_args, str):
+                        try:
+                            args_dict = json.loads(func_args)
+                        except:
+                            args_dict = {"query": func_args}
+                    else:
+                        args_dict = func_args
+                    
+                    parts.append({
+                        "functionCall": {
+                            "id": tc_id,
+                            "name": func_name,
+                            "args": args_dict
+                        }
+                    })
+            
+            if parts:
+                contents.append({"role": role, "parts": parts})
+            continue
+
+        # 处理普通内容（user 或 assistant 消息）
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if part.get("type") == "text":
+                    parts.append({"text": part.get("text", "")})
+                elif part.get("type") == "image_url":
+                    image_url = part.get("image_url", {}).get("url")
+                    if image_url:
+                        try:
+                            mime_type, base64_data = image_url.split(";")
+                            _, mime_type = mime_type.split(":")
+                            _, base64_data = base64_data.split(",")
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": base64_data,
+                                }
+                            })
+                        except ValueError:
+                            continue
+            if parts:
+                contents.append({"role": role, "parts": parts})
+        elif content:
+            # 简单文本内容
+            extracted = extract_images_from_content(content)
+            parts = []
+            if extracted["text"]:
+                parts.append({"text": extracted["text"]})
+            parts.extend(extracted["images"])
+            
+            if parts:
+                contents.append({"role": role, "parts": parts})
+
+    return contents, system_instructions
