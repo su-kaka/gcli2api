@@ -18,8 +18,11 @@ from .antigravity_api import (
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
 )
-from .anthropic_converter import convert_anthropic_request_to_antigravity_components
-from .anthropic_streaming import antigravity_sse_to_anthropic_sse
+from .converter.anthropic2gemini import (
+    convert_anthropic_request_to_gemini,
+    convert_gemini_response_to_anthropic,
+    gemini_sse_to_anthropic_sse,
+)
 from .token_estimator import estimate_input_tokens
 
 router = APIRouter()
@@ -241,94 +244,6 @@ def _pick_usage_metadata_from_antigravity_response(response_data: Dict[str, Any]
     return response_usage
 
 
-def _convert_antigravity_response_to_anthropic_message(
-    response_data: Dict[str, Any],
-    *,
-    model: str,
-    message_id: str,
-    fallback_input_tokens: int = 0,
-) -> Dict[str, Any]:
-    candidate = response_data.get("response", {}).get("candidates", [{}])[0] or {}
-    parts = candidate.get("content", {}).get("parts", []) or []
-    usage_metadata = _pick_usage_metadata_from_antigravity_response(response_data)
-
-    content = []
-    has_tool_use = False
-
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-
-        if part.get("thought") is True:
-            block: Dict[str, Any] = {"type": "thinking", "thinking": part.get("text", "")}
-            signature = part.get("thoughtSignature")
-            if signature:
-                block["signature"] = signature
-            content.append(block)
-            continue
-
-        if "text" in part:
-            content.append({"type": "text", "text": part.get("text", "")})
-            continue
-
-        if "functionCall" in part:
-            has_tool_use = True
-            fc = part.get("functionCall", {}) or {}
-            content.append(
-                {
-                    "type": "tool_use",
-                    "id": fc.get("id") or f"toolu_{uuid.uuid4().hex}",
-                    "name": fc.get("name") or "",
-                    "input": _remove_nulls_for_tool_input(fc.get("args", {}) or {}),
-                }
-            )
-            continue
-
-        if "inlineData" in part:
-            inline = part.get("inlineData", {}) or {}
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": inline.get("mimeType", "image/png"),
-                        "data": inline.get("data", ""),
-                    },
-                }
-            )
-            continue
-
-    finish_reason = candidate.get("finishReason")
-    stop_reason = "tool_use" if has_tool_use else "end_turn"
-    if finish_reason == "MAX_TOKENS" and not has_tool_use:
-        stop_reason = "max_tokens"
-
-    input_tokens_present = isinstance(usage_metadata, dict) and "promptTokenCount" in usage_metadata
-    output_tokens_present = isinstance(usage_metadata, dict) and "candidatesTokenCount" in usage_metadata
-
-    input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
-    output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
-
-    if not input_tokens_present:
-        input_tokens = max(0, int(fallback_input_tokens or 0))
-    if not output_tokens_present:
-        output_tokens = 0
-
-    return {
-        "id": message_id,
-        "type": "message",
-        "role": "assistant",
-        "model": model,
-        "content": content,
-        "stop_reason": stop_reason,
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": int(input_tokens or 0),
-            "output_tokens": int(output_tokens or 0),
-        },
-    }
-
-
 @router.post("/antigravity/v1/messages")
 async def anthropic_messages(
     request: Request,
@@ -417,7 +332,7 @@ async def anthropic_messages(
     project_id, session_id = _infer_project_and_session(credential_data)
 
     try:
-        components = convert_anthropic_request_to_antigravity_components(payload)
+        components = convert_anthropic_request_to_gemini(payload)
     except Exception as e:
         log.error(f"[ANTHROPIC] 请求转换失败: {e}")
         return _anthropic_error(
@@ -466,7 +381,7 @@ async def anthropic_messages(
         async def stream_generator():
             try:
                 # response 现在是 filtered_lines 生成器，直接使用
-                async for chunk in antigravity_sse_to_anthropic_sse(
+                async for chunk in gemini_sse_to_anthropic_sse(
                     response,
                     model=str(model),
                     message_id=message_id,
@@ -494,7 +409,7 @@ async def anthropic_messages(
         log.error(f"[ANTHROPIC] 下游非流式请求失败: {e}")
         return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
 
-    anthropic_response = _convert_antigravity_response_to_anthropic_message(
+    anthropic_response = convert_gemini_response_to_anthropic(
         response_data,
         model=str(model),
         message_id=request_id,
