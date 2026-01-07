@@ -33,7 +33,7 @@ from .models import (
     OpenAIToolCall,
     OpenAIToolFunction,
 )
-from .anti_truncation import (
+from src.converter.anti_truncation import (
     apply_anti_truncation_to_stream,
 )
 
