@@ -1,4 +1,3 @@
-import base64
 import platform
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -413,70 +412,6 @@ async def authenticate_gemini_flexible(
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
-    )
-
-
-async def authenticate_sdwebui_flexible(request: Request) -> str:
-    """
-    SD-WebUI 灵活认证：支持 Authorization Basic/Bearer
-
-    此函数可以直接用作 FastAPI 的 Depends 依赖
-
-    Args:
-        request: FastAPI Request 对象
-
-    Returns:
-        验证通过的密码
-
-    Raises:
-        HTTPException: 认证失败时抛出403异常
-
-    使用示例:
-        @router.post("/endpoint")
-        async def endpoint(pwd: str = Depends(authenticate_sdwebui_flexible)):
-            # pwd 已验证通过
-            pass
-    """
-
-
-    password = await get_api_password()
-
-    # 尝试从 Authorization 头获取
-    auth_header = request.headers.get("authorization")
-
-    if auth_header:
-        # 支持 Bearer token 认证
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]  # 移除 "Bearer " 前缀
-            log.debug("Using Bearer token authentication")
-            if token == password:
-                return token
-
-        # 支持 Basic 认证
-        elif auth_header.startswith("Basic "):
-            try:
-                # 解码 Base64
-                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
-                decoded_bytes = base64.b64decode(encoded_credentials)
-                decoded_str = decoded_bytes.decode('utf-8')
-
-                # Basic 认证格式: username:password 或者只有 password
-                # SD-WebUI 可能只发送密码
-                if ':' in decoded_str:
-                    _, pwd = decoded_str.split(':', 1)
-                else:
-                    pwd = decoded_str
-
-                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
-                if pwd == password:
-                    return pwd
-            except Exception as e:
-                log.error(f"Failed to decode Basic auth: {e}")
-
-    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
     )
 
 

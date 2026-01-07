@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from config import get_anti_truncation_max_attempts
 from log import log
-from .utils import is_anti_truncation_model, authenticate_bearer, authenticate_gemini_flexible, authenticate_sdwebui_flexible, get_base_model_from_feature_model
+from .utils import is_anti_truncation_model, authenticate_bearer, authenticate_gemini_flexible, get_base_model_from_feature_model
 from .antigravity_api import (
     build_antigravity_request_body,
     send_antigravity_request_no_stream,
