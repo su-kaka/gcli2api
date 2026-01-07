@@ -21,9 +21,8 @@ from src.utils import (
     should_include_thoughts,
 )
 from log import log
-from pydantic import BaseModel
 
-from .models import ChatCompletionRequest, model_to_dict
+from src.models import ChatCompletionRequest, model_to_dict
 
 
 async def openai_request_to_gemini_payload(

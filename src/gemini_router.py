@@ -25,7 +25,7 @@ from log import log
 from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import get_credential_manager
 from .gcli_chat_api import build_gemini_payload_from_native, send_gemini_request
-from .openai_transfer import _extract_content_and_reasoning
+from .converter.openai2gemini import _extract_content_and_reasoning
 from .task_manager import create_managed_task
 
 # 创建路由器

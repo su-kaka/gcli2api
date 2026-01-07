@@ -27,7 +27,7 @@ from .anti_truncation import apply_anti_truncation_to_stream
 from .credential_manager import CredentialManager
 from .gcli_chat_api import send_gemini_request
 from .models import ChatCompletionRequest, Model, ModelList
-from .openai_transfer import (
+from .converter.openai2gemini import (
     _convert_usage_metadata,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
@@ -283,7 +283,7 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                 reasoning_content = ""
                 if "candidates" in response_data and response_data["candidates"]:
                     # Gemini格式响应 - 使用思维链分离
-                    from .openai_transfer import _extract_content_and_reasoning
+                    from .converter.openai2gemini import _extract_content_and_reasoning
 
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
