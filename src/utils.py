@@ -77,7 +77,7 @@ BASE_MODELS = [
 def get_base_model_name(model_name: str) -> str:
     """Convert variant model name to base model name."""
     # Remove all possible suffixes (supports multiple suffixes in any order)
-    suffixes = ["-maxthinking", "-nothinking", "-search"]
+    suffixes = ["-maxthinking", "-nothinking", "-think", "-search"]
     result = model_name
     # Keep removing suffixes until no more matches
     changed = True
@@ -106,6 +106,11 @@ def is_maxthinking_model(model_name: str) -> bool:
     return "-maxthinking" in model_name
 
 
+def is_think_model(model_name: str) -> bool:
+    """Check if model name indicates thinking should be enabled."""
+    return "-think" in model_name
+
+
 def get_thinking_budget(model_name: str) -> Optional[int]:
     """Get the appropriate thinking budget for a model based on its name and variant."""
     if is_nothinking_model(model_name):
@@ -126,6 +131,9 @@ def should_include_thoughts(model_name: str) -> bool:
         # For nothinking mode, still include thoughts if it's a pro model
         base_model = get_base_model_name(model_name)
         return "pro" in base_model
+    elif is_think_model(model_name):
+        # For think mode, always include thoughts
+        return True
     else:
         # For all other modes, include thoughts
         return True
