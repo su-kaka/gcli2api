@@ -23,6 +23,7 @@ from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .models import Model, model_to_dict
 from .utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
+from .converter.gemini_fix import filter_thoughts_from_stream_chunk
 
 async def _check_should_auto_ban(status_code: int) -> bool:
     """检查是否应该触发自动封禁"""
@@ -114,43 +115,6 @@ def build_antigravity_request_body(
     return request_body
 
 
-async def _filter_thinking_from_stream(lines, return_thoughts: bool):
-    """过滤流式响应中的思维链（如果配置禁用）"""
-    async for line in lines:
-        if not line or not line.startswith("data: "):
-            yield line
-            continue
-
-        raw = line[6:].strip()
-        if raw == "[DONE]":
-            yield line
-            continue
-
-        if not return_thoughts:
-            try:
-                data = json.loads(raw)
-                response = data.get("response", {}) or {}
-                candidate = (response.get("candidates", []) or [{}])[0] or {}
-                parts = (candidate.get("content", {}) or {}).get("parts", []) or []
-
-                # 过滤掉思维链部分
-                filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]
-
-                # 如果过滤后为空，跳过这一行
-                if not filtered_parts and parts:
-                    continue
-
-                # 更新parts
-                if filtered_parts != parts:
-                    candidate["content"]["parts"] = filtered_parts
-                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
-                    continue
-            except Exception:
-                pass
-
-        yield line
-
-
 async def send_antigravity_request_stream(
     request_body: Dict[str, Any],
     credential_manager: CredentialManager,
@@ -210,7 +174,42 @@ async def send_antigravity_request_stream(
                     # 注意: 不在这里记录成功,在流式生成器中第一次收到数据时记录
                     # 获取配置并包装响应流，在源头过滤思维链
                     return_thoughts = await get_return_thoughts_to_frontend()
-                    filtered_lines = _filter_thinking_from_stream(response.aiter_lines(), return_thoughts)
+                    
+                    # 使用新的过滤函数包装响应流
+                    async def filter_stream_lines():
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                yield line
+                                continue
+                            
+                            raw = line[6:].strip()
+                            if raw == "[DONE]":
+                                yield line
+                                continue
+                            
+                            # 如果需要过滤思维内容
+                            if not return_thoughts:
+                                try:
+                                    data = json.loads(raw)
+                                    response_obj = data.get("response", {}) or {}
+                                    
+                                    # 使用 gemini_fix 的过滤函数
+                                    filtered_data = filter_thoughts_from_stream_chunk(response_obj)
+                                    
+                                    # 如果过滤后为空，跳过这一行
+                                    if filtered_data is None:
+                                        continue
+                                    
+                                    # 重新包装数据
+                                    data["response"] = filtered_data
+                                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\\n"
+                                    continue
+                                except Exception:
+                                    pass
+                            
+                            yield line
+                    
+                    filtered_lines = filter_stream_lines()
                     # 返回过滤后的行生成器和资源管理对象,让调用者管理资源生命周期
                     return (filtered_lines, stream_ctx, client), current_file, credential_data
 
