@@ -49,13 +49,7 @@ async def list_gemini_models(token: str = Depends(authenticate_gemini_flexible))
             "version": "001",
             "displayName": model_name,
             "description": f"Gemini {base_model} model",
-            "inputTokenLimit": 1000000,
-            "outputTokenLimit": 8192,
             "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-            "temperature": 1.0,
-            "maxTemperature": 2.0,
-            "topP": 0.95,
-            "topK": 64,
         }
         gemini_models.append(model_info)
 
@@ -327,13 +321,7 @@ async def get_model_info(
         "version": "001",
         "displayName": base_model,
         "description": f"Gemini {base_model} model",
-        "inputTokenLimit": 128000,
-        "outputTokenLimit": 8192,
         "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-        "temperature": 1.0,
-        "maxTemperature": 2.0,
-        "topP": 0.95,
-        "topK": 64,
     }
 
     return JSONResponse(content=model_info)
