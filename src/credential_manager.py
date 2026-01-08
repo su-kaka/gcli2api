@@ -11,6 +11,7 @@ from log import log
 
 from .google_oauth_api import Credentials
 from .storage_adapter import get_storage_adapter
+from .task_manager import create_managed_task
 
 class CredentialManager:
     """
@@ -25,6 +26,20 @@ class CredentialManager:
 
         # 并发控制（简化）
         self._operation_lock = asyncio.Lock()
+        self._refresh_locks: Dict[str, asyncio.Lock] = {}
+        self._refresh_locks_lock = asyncio.Lock()
+        self._record_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._record_worker: Optional[asyncio.Task] = None
+        self._record_stop = asyncio.Event()
+
+    async def _get_refresh_lock(self, credential_name: str) -> asyncio.Lock:
+        """获取指定凭证的刷新锁，避免并发刷新同一凭证"""
+        async with self._refresh_locks_lock:
+            lock = self._refresh_locks.get(credential_name)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._refresh_locks[credential_name] = lock
+            return lock
 
     async def _ensure_initialized(self):
         """确保管理器已初始化（内部使用）"""
@@ -41,9 +56,26 @@ class CredentialManager:
             self._storage_adapter = await get_storage_adapter()
             self._initialized = True
 
+            if self._record_worker is None or self._record_worker.done():
+                self._record_stop.clear()
+                self._record_worker = create_managed_task(
+                    self._record_worker_loop(), name="credential_record_worker"
+                )
+
     async def close(self):
         """清理资源"""
         log.debug("Closing credential manager...")
+        if self._record_worker:
+            self._record_stop.set()
+            try:
+                await asyncio.wait_for(self._record_queue.put(None), timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.QueueFull):
+                log.warning("无法及时发送记录队列停止信号")
+            try:
+                await asyncio.wait_for(self._record_worker, timeout=5.0)
+            except asyncio.TimeoutError:
+                log.warning("Credential record worker shutdown timeout")
+            self._record_worker = None
         self._initialized = False
         log.debug("Credential manager closed")
 
@@ -61,32 +93,35 @@ class CredentialManager:
                       - gcli: "pro" 或 "flash"
         """
         await self._ensure_initialized()
-        async with self._operation_lock:
-            # 使用 SQL 随机查询获取可用凭证
-            if hasattr(self._storage_adapter._backend, 'get_next_available_credential'):
-                # SQLite 后端：直接用智能 SQL（已经是随机选择）
-                result = await self._storage_adapter._backend.get_next_available_credential(
-                    mode=mode, model_key=model_key
-                )
-                if result:
-                    filename, credential_data = result
-                    # Token 刷新检查
-                    if await self._should_refresh_token(credential_data):
-                        log.debug(f"Token需要刷新 - 文件: {filename} (mode={mode})")
-                        refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
+        # 使用 SQL 随机查询获取可用凭证
+        if hasattr(self._storage_adapter._backend, 'get_next_available_credential'):
+            # SQLite 后端：直接用智能 SQL（已经是随机选择）
+            result = await self._storage_adapter._backend.get_next_available_credential(
+                mode=mode, model_key=model_key
+            )
+            if result:
+                filename, credential_data = result
+                # Token 刷新检查
+                if await self._should_refresh_token(credential_data):
+                    log.debug(f"Token需要刷新 - 文件: {filename} (mode={mode})")
+                    refresh_lock = await self._get_refresh_lock(filename)
+                    async with refresh_lock:
+                        latest_data = await self._storage_adapter.get_credential(filename, mode=mode)
+                        if latest_data and not await self._should_refresh_token(latest_data):
+                            return filename, latest_data
+                        refreshed_data = await self._refresh_token(
+                            credential_data, filename, mode=mode
+                        )
                         if refreshed_data:
                             credential_data = refreshed_data
                             log.debug(f"Token刷新成功: {filename} (mode={mode})")
                         else:
                             log.error(f"Token刷新失败: {filename} (mode={mode})")
                             return None
-                    return filename, credential_data
-                return None
-            else:
-                # MongoDB/Postgres 后端：使用传统方法（随机选择）
-                return await self._get_valid_credential_traditional(
-                    mode=mode, model_key=model_key
-                )
+                return filename, credential_data
+            return None
+        # MongoDB/Postgres 后端：使用传统方法（随机选择）
+        return await self._get_valid_credential_traditional(mode=mode, model_key=model_key)
 
     async def _get_valid_credential_traditional(
         self, mode: str = "geminicli", model_key: Optional[str] = None
@@ -132,11 +167,19 @@ class CredentialManager:
 
                 # Token 刷新
                 if await self._should_refresh_token(credential_data):
-                    refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
-                    if refreshed_data:
-                        credential_data = refreshed_data
-                    else:
-                        continue
+                    refresh_lock = await self._get_refresh_lock(filename)
+                    async with refresh_lock:
+                        latest_data = await self._storage_adapter.get_credential(filename, mode=mode)
+                        if latest_data and not await self._should_refresh_token(latest_data):
+                            credential_data = latest_data
+                        else:
+                            refreshed_data = await self._refresh_token(
+                                credential_data, filename, mode=mode
+                            )
+                            if refreshed_data:
+                                credential_data = refreshed_data
+                            else:
+                                continue
 
                 return filename, credential_data
 
@@ -323,50 +366,93 @@ class CredentialManager:
             model_key: 模型键（用于设置模型级冷却）
         """
         await self._ensure_initialized()
+        payload = {
+            "credential_name": credential_name,
+            "success": success,
+            "error_code": error_code,
+            "cooldown_until": cooldown_until,
+            "mode": mode,
+            "model_key": model_key,
+        }
         try:
-            state_updates = {}
+            self._record_queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            log.warning("记录队列已满，回退到同步写入")
+            await self._record_api_call_result_sync(**payload)
 
-            if success:
-                state_updates["last_success"] = time.time()
-                # 清除错误码
-                state_updates["error_codes"] = []
+    async def _record_worker_loop(self) -> None:
+        """后台处理API调用记录，降低请求链路开销"""
+        while True:
+            item = await self._record_queue.get()
+            try:
+                if item is None:
+                    if self._record_stop.is_set():
+                        return
+                    continue
+                await self._record_api_call_result_sync(**item)
+            except Exception as e:
+                log.error(f"Error in record worker: {e}")
+            finally:
+                self._record_queue.task_done()
 
-                # 如果提供了 model_key，清除该模型的冷却
-                if model_key:
-                    if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
-                        await self._storage_adapter._backend.set_model_cooldown(
-                            credential_name, model_key, None, mode=mode
-                        )
+    async def _record_api_call_result_sync(
+        self,
+        credential_name: str,
+        success: bool,
+        error_code: Optional[int] = None,
+        cooldown_until: Optional[float] = None,
+        mode: str = "geminicli",
+        model_key: Optional[str] = None,
+    ) -> None:
+        """同步执行记录逻辑（供后台队列消费）"""
+        await self._ensure_initialized()
+        async with self._operation_lock:
+            try:
+                state_updates = {}
 
-            elif error_code:
-                # 记录错误码
-                current_state = await self._storage_adapter.get_credential_state(credential_name, mode=mode)
-                error_codes = current_state.get("error_codes", [])
+                if success:
+                    state_updates["last_success"] = time.time()
+                    # 清除错误码
+                    state_updates["error_codes"] = []
 
-                if error_code not in error_codes:
-                    error_codes.append(error_code)
-                    # 限制错误码列表长度
-                    if len(error_codes) > 10:
-                        error_codes = error_codes[-10:]
+                    # 如果提供了 model_key，清除该模型的冷却
+                    if model_key:
+                        if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
+                            await self._storage_adapter._backend.set_model_cooldown(
+                                credential_name, model_key, None, mode=mode
+                            )
 
-                state_updates["error_codes"] = error_codes
+                elif error_code:
+                    # 记录错误码
+                    current_state = await self._storage_adapter.get_credential_state(
+                        credential_name, mode=mode
+                    )
+                    error_codes = current_state.get("error_codes", [])
 
-                # 如果提供了冷却时间和模型键，设置模型级冷却
-                if cooldown_until is not None and model_key:
-                    if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
-                        await self._storage_adapter._backend.set_model_cooldown(
-                            credential_name, model_key, cooldown_until, mode=mode
-                        )
-                        log.info(
-                            f"设置模型级冷却: {credential_name}, model_key={model_key}, "
-                            f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
-                        )
+                    if error_code not in error_codes:
+                        error_codes.append(error_code)
+                        # 限制错误码列表长度
+                        if len(error_codes) > 10:
+                            error_codes = error_codes[-10:]
 
-            if state_updates:
-                await self.update_credential_state(credential_name, state_updates, mode=mode)
+                    state_updates["error_codes"] = error_codes
 
-        except Exception as e:
-            log.error(f"Error recording API call result for {credential_name}: {e}")
+                    # 如果提供了冷却时间和模型键，设置模型级冷却
+                    if cooldown_until is not None and model_key:
+                        if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
+                            await self._storage_adapter._backend.set_model_cooldown(
+                                credential_name, model_key, cooldown_until, mode=mode
+                            )
+                            log.info(
+                                f"设置模型级冷却: {credential_name}, model_key={model_key}, "
+                                f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
+                            )
+
+                if state_updates:
+                    await self.update_credential_state(credential_name, state_updates, mode=mode)
+
+            except Exception as e:
+                log.error(f"Error recording API call result for {credential_name}: {e}")
 
     async def _should_refresh_token(self, credential_data: Dict[str, Any]) -> bool:
         """检查token是否需要刷新"""

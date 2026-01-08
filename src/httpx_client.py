@@ -4,6 +4,7 @@
 保持通用性，不与特定业务逻辑耦合
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, Optional
 
@@ -12,13 +13,29 @@ import httpx
 from config import get_proxy_config
 from log import log
 
+_DEFAULT_TIMEOUT = 30.0
+
 
 class HttpxClientManager:
     """通用HTTP客户端管理器"""
 
+    def __init__(self):
+        self._default_timeout = _DEFAULT_TIMEOUT
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_proxy: Optional[str] = None
+        self._client_lock = asyncio.Lock()
+        self._no_timeout_client: Optional[httpx.AsyncClient] = None
+        self._no_timeout_proxy: Optional[str] = None
+        self._no_timeout_lock = asyncio.Lock()
+        self._limits = httpx.Limits(max_connections=200, max_keepalive_connections=50)
+        self._streaming_limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+
     async def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
         client_kwargs = {"timeout": timeout, **kwargs}
+
+        if "limits" not in client_kwargs:
+            client_kwargs["limits"] = self._limits
 
         # 动态读取代理配置，支持热更新
         current_proxy_config = await get_proxy_config()
@@ -27,22 +44,63 @@ class HttpxClientManager:
 
         return client_kwargs
 
+    async def _get_shared_client(self, timeout: Optional[float]) -> httpx.AsyncClient:
+        """获取可复用的HTTP客户端"""
+        current_proxy_config = await get_proxy_config()
+
+        if timeout is None:
+            async with self._no_timeout_lock:
+                if (
+                    self._no_timeout_client
+                    and not self._no_timeout_client.is_closed
+                    and self._no_timeout_proxy == current_proxy_config
+                ):
+                    return self._no_timeout_client
+
+                if self._no_timeout_client and not self._no_timeout_client.is_closed:
+                    await self._no_timeout_client.aclose()
+
+                client_kwargs = await self.get_client_kwargs(timeout=None)
+                self._no_timeout_client = httpx.AsyncClient(**client_kwargs)
+                self._no_timeout_proxy = current_proxy_config
+                return self._no_timeout_client
+
+        async with self._client_lock:
+            if (
+                self._client
+                and not self._client.is_closed
+                and self._client_proxy == current_proxy_config
+            ):
+                return self._client
+
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+
+            client_kwargs = await self.get_client_kwargs(timeout=self._default_timeout)
+            self._client = httpx.AsyncClient(**client_kwargs)
+            self._client_proxy = current_proxy_config
+            return self._client
+
     @asynccontextmanager
     async def get_client(
         self, timeout: float = 30.0, **kwargs
     ) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取配置好的异步HTTP客户端"""
-        client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
+        if kwargs or (timeout not in (self._default_timeout, None)):
+            client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                yield client
+            return
 
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            yield client
+        client = await self._get_shared_client(timeout)
+        yield client
 
     @asynccontextmanager
     async def get_streaming_client(
         self, timeout: float = None, **kwargs
     ) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取用于流式请求的HTTP客户端（无超时限制）"""
-        client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
+        client_kwargs = await self.get_streaming_client_kwargs(timeout=timeout, **kwargs)
 
         # 创建独立的客户端实例用于流式处理
         client = httpx.AsyncClient(**client_kwargs)
@@ -55,9 +113,31 @@ class HttpxClientManager:
             except Exception as e:
                 log.warning(f"Error closing streaming client: {e}")
 
+    async def get_streaming_client_kwargs(
+        self, timeout: float = None, **kwargs
+    ) -> Dict[str, Any]:
+        """获取流式请求的HTTP客户端配置参数"""
+        if "limits" not in kwargs:
+            kwargs["limits"] = self._streaming_limits
+        return await self.get_client_kwargs(timeout=timeout, **kwargs)
+
+    async def close(self):
+        """关闭共享客户端"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+        if self._no_timeout_client and not self._no_timeout_client.is_closed:
+            await self._no_timeout_client.aclose()
+        self._client = None
+        self._no_timeout_client = None
+
 
 # 全局HTTP客户端管理器实例
 http_client = HttpxClientManager()
+try:
+    from .task_manager import register_resource
+    register_resource(http_client)
+except Exception:
+    pass
 
 
 # 通用的异步方法
@@ -213,5 +293,5 @@ async def create_streaming_client_with_kwargs(**kwargs) -> httpx.AsyncClient:
     警告：调用者必须确保调用 client.aclose() 来释放资源
     建议使用 get_streaming_client() 上下文管理器代替此方法
     """
-    client_kwargs = await http_client.get_client_kwargs(timeout=None, **kwargs)
+    client_kwargs = await http_client.get_streaming_client_kwargs(timeout=None, **kwargs)
     return httpx.AsyncClient(**client_kwargs)
