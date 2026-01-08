@@ -15,13 +15,14 @@ from log import log
 
 # Import managers and utilities
 from src.credential_manager import CredentialManager
-from router.geminicli.gemini import router as gemini_router
 
 # Import all routers
-from router.antigravity.openai import router as antigravity_openai_router
-from router.antigravity.gemini import router as antigravity_gemini_router
-from router.antigravity.anthropic import router as antigravity_anthropic_router
-from router.geminicli.openai import router as openai_router
+from src.router.antigravity.openai import router as antigravity_openai_router
+from src.router.antigravity.gemini import router as antigravity_gemini_router
+from src.router.antigravity.anthropic import router as antigravity_anthropic_router
+from src.router.geminicli.openai import router as openai_router
+from src.router.geminicli.gemini import router as gemini_router
+from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
 
@@ -111,6 +112,9 @@ app.include_router(antigravity_gemini_router, prefix="", tags=["Antigravity Gemi
 # Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
 
+# Geminicli Anthropic Messages 路由 - Anthropic Messages 格式兼容 (Geminicli)
+app.include_router(geminicli_anthropic_router, prefix="/geminicli", tags=["Geminicli Anthropic Messages"])
+
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
 
@@ -152,8 +156,10 @@ async def main():
     log.info(f"控制面板: http://127.0.0.1:{port}")
     log.info("=" * 60)
     log.info("API端点:")
-    log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
-    log.info(f"   Gemini原生: http://127.0.0.1:{port}")
+    log.info(f"   Geminicli (OpenAI格式): http://127.0.0.1:{port}/v1")
+    log.info(f"   Geminicli (Claude格式): http://127.0.0.1:{port}/v1")
+    log.info(f"   Geminicli (Gemini格式): http://127.0.0.1:{port}")
+    
     log.info(f"   Antigravity (OpenAI格式): http://127.0.0.1:{port}/antigravity/v1")
     log.info(f"   Antigravity (claude格式): http://127.0.0.1:{port}/antigravity/v1")
     log.info(f"   Antigravity (Gemini格式): http://127.0.0.1:{port}/antigravity")

@@ -108,7 +108,7 @@ async def chat_completions(
         raise HTTPException(status_code=400, detail=f"Request validation error: {str(e)}")
 
     # 健康检查
-    if is_health_check_request(request_data):
+    if is_health_check_request(request_data.model_dump()):
         return JSONResponse(content=create_health_check_response())
 
     # 标准化请求数据（限制max_tokens、设置top_k、过滤空消息）
@@ -330,11 +330,16 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
                     gemini_chunk = parse_gemini_stream_chunk(chunk)
                     if gemini_chunk is None:
                         continue
-                    
+
                     # 转换为 OpenAI 格式
                     openai_chunk = gemini_stream_chunk_to_openai(
                         gemini_chunk, model, response_id
                     )
+
+                    # 跳过空的 choices（可能只包含思维内容）
+                    if not openai_chunk.get("choices"):
+                        continue
+
                     yield f"data: {json.dumps(openai_chunk, separators=(',', ':'))}\n\n".encode()
             else:
                 # 其他类型的响应，尝试直接处理

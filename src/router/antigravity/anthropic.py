@@ -13,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from log import log
 
-from api.antigravity import (
+from src.api.antigravity import (
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
 )

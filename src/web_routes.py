@@ -29,14 +29,14 @@ from starlette.websockets import WebSocketState
 import config
 from log import log
 
-from .auth import (
+from src.auth import (
     asyncio_complete_auth_flow,
     complete_auth_flow_from_callback_url,
     create_auth_url,
     get_auth_status,
     verify_password,
 )
-from .credential_manager import CredentialManager
+from src.credential_manager import CredentialManager
 from .models import (
     LoginRequest,
     AuthStartRequest,
@@ -46,10 +46,10 @@ from .models import (
     CredFileBatchActionRequest,
     ConfigSaveRequest,
 )
-from .storage_adapter import get_storage_adapter
-from .utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
-from .api.antigravity import fetch_quota_info
-from .google_oauth_api import Credentials, fetch_project_id
+from src.storage_adapter import get_storage_adapter
+from src.utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
+from src.api.antigravity import fetch_quota_info
+from src.google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
 
 # 创建路由器

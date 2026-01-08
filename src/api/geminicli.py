@@ -259,36 +259,37 @@ async def send_geminicli_request_no_stream(
             raise Exception(f"Failed to prepare request: {e}")
 
         try:
-            response = await http_client.post(target_url, json=final_payload, headers=headers)
+            async with http_client.get_client(timeout=300.0) as client:
+                response = await client.post(target_url, json=final_payload, headers=headers)
 
-            if response.status_code == 200:
-                await record_api_call_success(
-                    credential_manager, current_file, mode="geminicli", model_key=model_group
+                if response.status_code == 200:
+                    await record_api_call_success(
+                        credential_manager, current_file, mode="geminicli", model_key=model_group
+                    )
+                    response_data = response.json()
+                    return response_data, current_file, credential_data
+
+                # 处理错误
+                error_text = response.text
+
+                cooldown_until = None
+                if response.status_code == 429:
+                    cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
+
+                await record_api_call_error(
+                    credential_manager, current_file, response.status_code,
+                    cooldown_until, mode="geminicli", model_key=model_group
                 )
-                response_data = response.json()
-                return response_data, current_file, credential_data
 
-            # 处理错误
-            error_text = response.text
-            
-            cooldown_until = None
-            if response.status_code == 429:
-                cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
+                should_retry = await handle_error_with_retry(
+                    credential_manager, response.status_code, current_file,
+                    retry_config["retry_enabled"], attempt, max_retries, retry_interval, mode="geminicli"
+                )
 
-            await record_api_call_error(
-                credential_manager, current_file, response.status_code,
-                cooldown_until, mode="geminicli", model_key=model_group
-            )
+                if should_retry:
+                    continue
 
-            should_retry = await handle_error_with_retry(
-                credential_manager, response.status_code, current_file,
-                retry_config["retry_enabled"], attempt, max_retries, retry_interval, mode="geminicli"
-            )
-
-            if should_retry:
-                continue
-
-            raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
+                raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
 
         except Exception as e:
             if attempt < max_retries:
