@@ -180,34 +180,42 @@ class CredentialManager:
 
     async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any], mode: str = "geminicli"):
         """更新凭证状态"""
+        log.info(f"[CredMgr] update_credential_state 开始: credential_name={credential_name}, state_updates={state_updates}, mode={mode}")
+        log.info(f"[CredMgr] 调用 _ensure_initialized...")
         await self._ensure_initialized()
+        log.info(f"[CredMgr] _ensure_initialized 完成")
         try:
+            log.info(f"[CredMgr] 调用 storage_adapter.update_credential_state...")
             success = await self._storage_adapter.update_credential_state(
                 credential_name, state_updates, mode=mode
             )
+            log.info(f"[CredMgr] storage_adapter.update_credential_state 返回: {success}")
             if success:
                 log.debug(f"Updated credential state: {credential_name} (mode={mode})")
             else:
                 log.warning(f"Failed to update credential state: {credential_name} (mode={mode})")
             return success
         except Exception as e:
-            log.error(f"Error updating credential state {credential_name}: {e}")
+            log.error(f"Error updating credential state {credential_name}: {e}", exc_info=True)
             return False
 
     async def set_cred_disabled(self, credential_name: str, disabled: bool, mode: str = "geminicli"):
         """设置凭证的启用/禁用状态"""
-        async with self._operation_lock:
-            try:
-                success = await self.update_credential_state(
-                    credential_name, {"disabled": disabled}, mode=mode
-                )
-                if success:
-                    action = "disabled" if disabled else "enabled"
-                    log.info(f"Credential {action}: {credential_name} (mode={mode})")
-                return success
-            except Exception as e:
-                log.error(f"Error setting credential disabled state {credential_name}: {e}")
-                return False
+        try:
+            log.info(f"[CredMgr] set_cred_disabled 开始: credential_name={credential_name}, disabled={disabled}, mode={mode}")
+            success = await self.update_credential_state(
+                credential_name, {"disabled": disabled}, mode=mode
+            )
+            log.info(f"[CredMgr] update_credential_state 返回: success={success}")
+            if success:
+                action = "disabled" if disabled else "enabled"
+                log.info(f"Credential {action}: {credential_name} (mode={mode})")
+            else:
+                log.warning(f"[CredMgr] 设置禁用状态失败: credential_name={credential_name}, disabled={disabled}")
+            return success
+        except Exception as e:
+            log.error(f"Error setting credential disabled state {credential_name}: {e}")
+            return False
 
     async def get_creds_status(self) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证的状态"""

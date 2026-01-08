@@ -484,6 +484,8 @@ class SQLiteManager:
 
         try:
             table_name = self._get_table_name(mode)
+            log.info(f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
+            
             # 构建动态 SQL
             set_clauses = []
             values = []
@@ -501,34 +503,51 @@ class SQLiteManager:
                         values.append(value)
 
             if not set_clauses:
+                log.info(f"[DB] 没有需要更新的状态字段")
                 return True
 
             set_clauses.append("updated_at = unixepoch()")
             values.append(filename)
 
+            log.info(f"[DB] SQL参数: set_clauses={set_clauses}, values={values}")
+
             async with aiosqlite.connect(self._db_path) as db:
                 # 首先尝试精确匹配更新
-                result = await db.execute(f"""
+                sql_exact = f"""
                     UPDATE {table_name}
                     SET {', '.join(set_clauses)}
                     WHERE filename = ?
-                """, values)
+                """
+                log.info(f"[DB] 执行精确匹配SQL: {sql_exact}")
+                log.info(f"[DB] SQL参数值: {values}")
+                
+                result = await db.execute(sql_exact, values)
                 updated_count = result.rowcount
+                log.info(f"[DB] 精确匹配 rowcount={updated_count}")
 
                 # 如果精确匹配没有更新任何记录，尝试basename匹配
                 if updated_count == 0:
-                    result = await db.execute(f"""
+                    sql_basename = f"""
                         UPDATE {table_name}
                         SET {', '.join(set_clauses)}
                         WHERE filename LIKE '%' || ?
-                    """, values)
+                    """
+                    log.info(f"[DB] 精确匹配失败，尝试basename匹配SQL: {sql_basename}")
+                    result = await db.execute(sql_basename, values)
                     updated_count = result.rowcount
+                    log.info(f"[DB] basename匹配 rowcount={updated_count}")
 
+                # 提交前检查
+                log.info(f"[DB] 准备commit，总更新行数={updated_count}")
                 await db.commit()
-                return updated_count > 0
+                log.info(f"[DB] commit完成")
+                
+                success = updated_count > 0
+                log.info(f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}")
+                return success
 
         except Exception as e:
-            log.error(f"Error updating credential state {filename}: {e}")
+            log.error(f"[DB] Error updating credential state {filename}: {e}", exc_info=True)
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:

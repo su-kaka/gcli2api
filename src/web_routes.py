@@ -1106,15 +1106,25 @@ async def creds_action(
 
         if action == "enable":
             log.info(f"Web请求: 启用文件 {filename} (mode={mode})")
-            await credential_manager.set_cred_disabled(filename, False, mode=mode)
-            log.info(f"Web请求: 文件 {filename} 已启用 (mode={mode})")
-            return JSONResponse(content={"message": f"已启用凭证文件 {os.path.basename(filename)}"})
+            result = await credential_manager.set_cred_disabled(filename, False, mode=mode)
+            log.info(f"[WebRoute] set_cred_disabled 返回结果: {result}")
+            if result:
+                log.info(f"Web请求: 文件 {filename} 已成功启用 (mode={mode})")
+                return JSONResponse(content={"message": f"已启用凭证文件 {os.path.basename(filename)}"})
+            else:
+                log.error(f"Web请求: 文件 {filename} 启用失败 (mode={mode})")
+                raise HTTPException(status_code=500, detail="启用凭证失败，可能凭证不存在")
 
         elif action == "disable":
             log.info(f"Web请求: 禁用文件 {filename} (mode={mode})")
-            await credential_manager.set_cred_disabled(filename, True, mode=mode)
-            log.info(f"Web请求: 文件 {filename} 已禁用 (mode={mode})")
-            return JSONResponse(content={"message": f"已禁用凭证文件 {os.path.basename(filename)}"})
+            result = await credential_manager.set_cred_disabled(filename, True, mode=mode)
+            log.info(f"[WebRoute] set_cred_disabled 返回结果: {result}")
+            if result:
+                log.info(f"Web请求: 文件 {filename} 已成功禁用 (mode={mode})")
+                return JSONResponse(content={"message": f"已禁用凭证文件 {os.path.basename(filename)}"})
+            else:
+                log.error(f"Web请求: 文件 {filename} 禁用失败 (mode={mode})")
+                raise HTTPException(status_code=500, detail="禁用凭证失败，可能凭证不存在")
 
         elif action == "delete":
             try:
