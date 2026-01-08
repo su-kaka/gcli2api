@@ -335,11 +335,6 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
                     openai_chunk = gemini_stream_chunk_to_openai(
                         gemini_chunk, model, response_id
                     )
-
-                    # 跳过空的 choices（可能只包含思维内容）
-                    if not openai_chunk.get("choices"):
-                        continue
-
                     yield f"data: {json.dumps(openai_chunk, separators=(',', ':'))}\n\n".encode()
             else:
                 # 其他类型的响应，尝试直接处理

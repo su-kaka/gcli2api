@@ -70,7 +70,7 @@ def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, st
     return str(project_id), str(session_id)
 
 
-@router.post("v1/messages")
+@router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -204,7 +204,7 @@ async def anthropic_messages(
     return JSONResponse(content=anthropic_response)
 
 
-@router.post("/geminicli/v1/messages/count_tokens")
+@router.post("/v1/messages/count_tokens")
 async def anthropic_messages_count_tokens(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),

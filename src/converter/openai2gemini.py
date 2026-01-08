@@ -408,7 +408,22 @@ def gemini_stream_chunk_to_openai(
     """
     choices = []
 
-    for candidate in gemini_chunk.get("candidates", []):
+    # 调试日志：查看原始 chunk 结构
+    log.debug(f"[STREAM CONVERT] gemini_chunk keys: {gemini_chunk.keys()}")
+
+    # GeminiCLI 返回的格式是 {"response": {...}, "traceId": "..."}
+    # 需要先提取 response 字段
+    if "response" in gemini_chunk:
+        gemini_response = gemini_chunk["response"]
+    else:
+        gemini_response = gemini_chunk
+
+    candidates = gemini_response.get("candidates", [])
+    log.debug(f"[STREAM CONVERT] candidates count: {len(candidates)}")
+    if candidates:
+        log.debug(f"[STREAM CONVERT] first candidate: {candidates[0]}")
+
+    for candidate in candidates:
         role = candidate.get("content", {}).get("role", "assistant")
 
         # 将Gemini角色映射回OpenAI角色
@@ -417,9 +432,11 @@ def gemini_stream_chunk_to_openai(
 
         # 提取并分离thinking tokens和常规内容
         parts = candidate.get("content", {}).get("parts", [])
+        log.debug(f"[STREAM CONVERT] parts: {parts}")
 
         # 提取工具调用和文本内容（流式响应需要 index 字段）
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
+        log.debug(f"[STREAM CONVERT] extracted - tool_calls: {len(tool_calls)}, text_content: '{text_content[:50] if text_content else ''}'...")
 
         # 提取 reasoning content 和 thinking 块
         reasoning_content = ""
@@ -459,6 +476,8 @@ def gemini_stream_chunk_to_openai(
         if finish_reason and tool_calls:
             finish_reason = "tool_calls"
 
+        log.debug(f"[STREAM CONVERT] delta: {delta}, finish_reason: {finish_reason}")
+
         choices.append(
             {
                 "index": candidate.get("index", 0),
@@ -467,8 +486,10 @@ def gemini_stream_chunk_to_openai(
             }
         )
 
+    log.debug(f"[STREAM CONVERT] final choices count: {len(choices)}")
+
     # 转换usageMetadata为OpenAI格式（只在流结束时存在）
-    usage = _convert_usage_metadata(gemini_chunk.get("usageMetadata"))
+    usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
 
     # 构建基础响应数据（确保所有必需字段都存在）
     response_data = {
@@ -982,18 +1003,25 @@ def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]
     try:
         response_data = json.loads(body_str)
 
+        # GeminiCLI 返回的格式是 {"response": {...}, "traceId": "..."}
+        # 需要先提取 response 字段
+        if "response" in response_data:
+            gemini_response = response_data["response"]
+        else:
+            gemini_response = response_data
+
         # 从Gemini响应中提取内容，使用思维链分离逻辑
         content = ""
         reasoning_content = ""
-        if "candidates" in response_data and response_data["candidates"]:
+        if "candidates" in gemini_response and gemini_response["candidates"]:
             # Gemini格式响应 - 使用思维链分离
-            candidate = response_data["candidates"][0]
+            candidate = gemini_response["candidates"][0]
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
                 content, reasoning_content = extract_content_and_reasoning(parts)
-        elif "choices" in response_data and response_data["choices"]:
+        elif "choices" in gemini_response and gemini_response["choices"]:
             # OpenAI格式响应
-            content = response_data["choices"][0].get("message", {}).get("content", "")
+            content = gemini_response["choices"][0].get("message", {}).get("content", "")
 
         # 如果没有正常内容但有思维内容，给出警告
         if not content and reasoning_content:
@@ -1002,11 +1030,11 @@ def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]
         
         # 如果完全没有内容，提供默认回复
         if not content:
-            log.warning(f"No content found in response: {response_data}")
+            log.warning(f"No content found in response: {gemini_response}")
             content = "[响应为空，请重新尝试]"
 
         # 转换usageMetadata为OpenAI格式
-        usage = _convert_usage_metadata(response_data.get("usageMetadata"))
+        usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
         
         return content, reasoning_content, usage
 
