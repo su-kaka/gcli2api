@@ -467,3 +467,172 @@ def build_gemini_request_payload(
         "model": get_base_model_name_func(model_from_path),
         "request": request_data
     }
+
+
+def parse_google_api_response(raw_response: bytes, return_thoughts: bool) -> Dict[str, Any]:
+    """
+    解析 Google API 原始响应
+    
+    Args:
+        raw_response: 原始响应字节
+        return_thoughts: 是否返回思维内容
+    
+    Returns:
+        解析后的标准 Gemini 响应
+    """
+    import json
+    
+    google_api_response = raw_response.decode("utf-8")
+    if google_api_response.startswith("data: "):
+        google_api_response = google_api_response[len("data: "):]
+    
+    google_api_response = json.loads(google_api_response)
+    standard_gemini_response = google_api_response.get("response")
+    
+    # 如果配置为不返回思维链，则过滤
+    if not return_thoughts:
+        standard_gemini_response = filter_thoughts_from_response(standard_gemini_response)
+    
+    return standard_gemini_response
+
+
+def parse_streaming_chunk(chunk: str, return_thoughts: bool) -> Optional[Dict[str, Any]]:
+    """
+    解析单个流式响应块
+    
+    Args:
+        chunk: 流式响应块字符串（以 "data: " 开头）
+        return_thoughts: 是否返回思维内容
+    
+    Returns:
+        解析后的数据字典，如果无效则返回 None
+    """
+    import json
+    
+    if not chunk or not chunk.startswith("data: "):
+        return None
+    
+    payload = chunk[len("data: "):]
+    try:
+        obj = json.loads(payload)
+        if "response" in obj:
+            data = obj["response"]
+            # 如果配置为不返回思维链，则过滤
+            if not return_thoughts:
+                data = filter_thoughts_from_response(data)
+            return data
+        else:
+            return obj
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
+    """
+    从完整响应中提取内容和推理内容（用于假流式）
+    
+    Args:
+        response_data: Gemini API 响应数据
+    
+    Returns:
+        (content, reasoning_content, finish_reason): 内容、推理内容和结束原因的元组
+    """
+    content = ""
+    reasoning_content = ""
+    finish_reason = "STOP"
+    
+    if "candidates" in response_data and response_data["candidates"]:
+        candidate = response_data["candidates"][0]
+        finish_reason = candidate.get("finishReason", "STOP")
+        
+        if "content" in candidate and "parts" in candidate["content"]:
+            parts = candidate["content"]["parts"]
+            content, reasoning_content = extract_content_and_reasoning(parts)
+    
+    return content, reasoning_content, finish_reason
+
+
+def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str) -> List[Dict[str, Any]]:
+    """
+    构建假流式响应的数据块
+    
+    Args:
+        content: 主要内容
+        reasoning_content: 推理内容
+        finish_reason: 结束原因
+    
+    Returns:
+        响应数据块列表
+    """
+    chunks = []
+    
+    # 如果没有正常内容但有思维内容，提供默认回复
+    if not content and reasoning_content:
+        content = "[模型正在思考中，请稍后再试或重新提问]"
+    
+    if content:
+        # 构建包含分离内容的响应
+        parts_response = [{"text": content}]
+        if reasoning_content:
+            parts_response.append({"text": reasoning_content, "thought": True})
+        
+        chunk = {
+            "candidates": [{
+                "content": {"parts": parts_response, "role": "model"},
+                "finishReason": finish_reason,
+                "index": 0,
+            }]
+        }
+        chunks.append(chunk)
+    else:
+        # 提供默认回复
+        chunk = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "[响应为空，请重新尝试]"}],
+                    "role": "model",
+                },
+                "finishReason": "STOP",
+                "index": 0,
+            }]
+        }
+        chunks.append(chunk)
+    
+    return chunks
+
+
+def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
+    """
+    创建 Gemini 格式的心跳数据块
+    
+    Returns:
+        心跳数据块
+    """
+    return {
+        "candidates": [{
+            "content": {"parts": [{"text": ""}], "role": "model"},
+            "finishReason": None,
+            "index": 0,
+        }]
+    }
+
+
+def create_gemini_error_chunk(message: str, error_type: str = "api_error", code: int = 500) -> Dict[str, Any]:
+    """
+    创建 Gemini 格式的错误数据块
+    
+    Args:
+        message: 错误消息
+        error_type: 错误类型
+        code: 错误代码
+    
+    Returns:
+        错误数据块
+    """
+    return {
+        "error": {
+            "message": message,
+            "type": error_type,
+            "code": code,
+        }
+    }

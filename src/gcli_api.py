@@ -21,11 +21,7 @@ from config import (
     get_retry_429_max_retries,
 )
 from src.utils import (
-    DEFAULT_SAFETY_SETTINGS,
     get_base_model_name,
-    get_thinking_budget,
-    is_search_model,
-    should_include_thoughts,
     get_model_group,
 )
 from log import log
@@ -34,9 +30,9 @@ from .credential_manager import CredentialManager
 from .httpx_client import create_streaming_client_with_kwargs, http_client
 from .utils import get_user_agent, parse_quota_reset_timestamp
 from .converter.gemini_fix import (
-    filter_thoughts_from_response,
-    clean_tools_for_gemini,
     build_gemini_request_payload,
+    parse_google_api_response,
+    parse_streaming_chunk,
 )
 
 
@@ -504,9 +500,11 @@ def _handle_streaming_response_managed(
         return_thoughts = await get_return_thoughts_to_frontend()  # 获取配置
         try:
             async for chunk in resp.aiter_lines():
-                if not chunk or not chunk.startswith("data: "):
+                # 使用统一的解析函数
+                parsed_data = parse_streaming_chunk(chunk, return_thoughts)
+                if parsed_data is None:
                     continue
-
+                
                 # 记录第一次成功响应（使用模型组 CD）
                 if not success_recorded:
                     if current_file and credential_manager:
@@ -515,30 +513,18 @@ def _handle_streaming_response_managed(
                         )
                     success_recorded = True
 
-                payload = chunk[len("data: ") :]
-                try:
-                    obj = json.loads(payload)
-                    if "response" in obj:
-                        data = obj["response"]
-                        # 如果配置为不返回思维链，则过滤
-                        if not return_thoughts:
-                            data = filter_thoughts_from_response(data)
-                        chunk_data = f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
-                        yield chunk_data
-                        await asyncio.sleep(0)  # 让其他协程有机会运行
+                chunk_data = f"data: {json.dumps(parsed_data, separators=(',', ':'))}\n\n".encode()
+                yield chunk_data
+                await asyncio.sleep(0)  # 让其他协程有机会运行
 
-                        # 基于传输字节数触发GC，而不是chunk数量
-                        # 每传输约10MB数据时触发一次GC
-                        chunk_count += 1
-                        bytes_transferred += len(chunk_data)
-                        if bytes_transferred > 10 * 1024 * 1024:  # 10MB
-                            gc.collect()
-                            bytes_transferred = 0
-                            log.debug(f"Triggered GC after {chunk_count} chunks (~10MB transferred)")
-                    else:
-                        yield f"data: {json.dumps(obj, separators=(',', ':'))}\n\n".encode()
-                except json.JSONDecodeError:
-                    continue
+                # 基于传输字节数触发GC，而不是chunk数量
+                # 每传输约10MB数据时触发一次GC
+                chunk_count += 1
+                bytes_transferred += len(chunk_data)
+                if bytes_transferred > 10 * 1024 * 1024:  # 10MB
+                    gc.collect()
+                    bytes_transferred = 0
+                    log.debug(f"Triggered GC after {chunk_count} chunks (~10MB transferred)")
 
         except Exception as e:
             log.error(f"Streaming error: {e}")
@@ -577,20 +563,11 @@ async def _handle_non_streaming_response(
                 )
 
             raw = await resp.aread()
-            google_api_response = raw.decode("utf-8")
-            if google_api_response.startswith("data: "):
-                google_api_response = google_api_response[len("data: ") :]
-            google_api_response = json.loads(google_api_response)
-            log.debug(
-                f"Google API原始响应: {json.dumps(google_api_response, ensure_ascii=False)[:500]}..."
-            )
-            standard_gemini_response = google_api_response.get("response")
-
-            # 如果配置为不返回思维链，则过滤
             return_thoughts = await get_return_thoughts_to_frontend()
-            if not return_thoughts:
-                standard_gemini_response = filter_thoughts_from_response(standard_gemini_response)
-
+            
+            # 使用统一的解析函数
+            standard_gemini_response = parse_google_api_response(raw, return_thoughts)
+            
             log.debug(
                 f"提取的response字段: {json.dumps(standard_gemini_response, ensure_ascii=False)[:500]}..."
             )

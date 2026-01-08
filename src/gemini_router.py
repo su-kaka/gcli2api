@@ -24,10 +24,13 @@ from log import log
 
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.credential_manager import get_credential_manager
-from src.gcli_chat_api import build_gemini_payload_from_native, send_gemini_request
+from gcli_api import build_gemini_payload_from_native, send_gemini_request
 from src.converter.gemini_fix import (
-    extract_content_and_reasoning,
     process_generation_config,
+    parse_response_for_fake_stream,
+    build_gemini_fake_stream_chunks,
+    create_gemini_heartbeat_chunk,
+    create_gemini_error_chunk,
 )
 from src.task_manager import create_managed_task
 
@@ -315,13 +318,11 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
             credential_result = await cred_mgr.get_valid_credential()
             if not credential_result:
                 log.error("当前无可用凭证，请去控制台获取")
-                error_chunk = {
-                    "error": {
-                        "message": "当前无凭证，请去控制台获取",
-                        "type": "authentication_error",
-                        "code": 500,
-                    }
-                }
+                error_chunk = create_gemini_error_chunk(
+                    "当前无凭证，请去控制台获取",
+                    "authentication_error",
+                    500
+                )
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
@@ -331,27 +332,17 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 api_payload = build_gemini_payload_from_native(request_data, model)
             except Exception as e:
                 log.error(f"Gemini payload build failed: {e}")
-                error_chunk = {
-                    "error": {
-                        "message": f"Request processing failed: {str(e)}",
-                        "type": "api_error",
-                        "code": 500,
-                    }
-                }
+                error_chunk = create_gemini_error_chunk(
+                    f"Request processing failed: {str(e)}",
+                    "api_error",
+                    500
+                )
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
 
             # 发送心跳
-            heartbeat = {
-                "candidates": [
-                    {
-                        "content": {"parts": [{"text": ""}], "role": "model"},
-                        "finishReason": None,
-                        "index": 0,
-                    }
-                ]
-            }
+            heartbeat = create_gemini_heartbeat_chunk()
             yield f"data: {json.dumps(heartbeat)}\n\n".encode()
 
             # 异步发送实际请求
@@ -389,9 +380,6 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
                 log.error(f"Fake streaming request failed: {e}")
                 raise
 
-            # 发送实际请求
-            # response 已在上面获取
-
             # 处理结果
             try:
                 if hasattr(response, "body"):
@@ -411,91 +399,45 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
 
                 log.debug(f"Gemini fake stream response data: {response_data}")
 
-                # 发送完整内容作为单个chunk，使用思维链分离
-                if "candidates" in response_data and response_data["candidates"]:
-                    candidate = response_data["candidates"][0]
-                    if "content" in candidate and "parts" in candidate["content"]:
-                        parts = candidate["content"]["parts"]
-                        content, reasoning_content = extract_content_and_reasoning(parts)
-                        log.debug(f"Gemini extracted content: {content}")
-                        log.debug(
-                            f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}..."
-                        )
+                # 使用统一的解析函数
+                content, reasoning_content, finish_reason = parse_response_for_fake_stream(response_data)
+                
+                log.debug(f"Gemini extracted content: {content}")
+                log.debug(
+                    f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}..."
+                )
 
-                        # 如果没有正常内容但有思维内容
-                        if not content and reasoning_content:
-                            log.warning(
-                                f"Gemini fake stream contains only thinking content: {reasoning_content[:100]}..."
-                            )
-                            content = "[模型正在思考中，请稍后再试或重新提问]"
-
-                        if content:
-                            # 构建包含分离内容的响应
-                            parts_response = [{"text": content}]
-                            if reasoning_content:
-                                parts_response.append({"text": reasoning_content, "thought": True})
-
-                            content_chunk = {
-                                "candidates": [
-                                    {
-                                        "content": {"parts": parts_response, "role": "model"},
-                                        "finishReason": candidate.get("finishReason", "STOP"),
-                                        "index": 0,
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(content_chunk)}\n\n".encode()
-                        else:
-                            log.warning(f"No content found in Gemini candidate: {candidate}")
-                            # 提供默认回复
-                            error_chunk = {
-                                "candidates": [
-                                    {
-                                        "content": {
-                                            "parts": [{"text": "[响应为空，请重新尝试]"}],
-                                            "role": "model",
-                                        },
-                                        "finishReason": "STOP",
-                                        "index": 0,
-                                    }
-                                ]
-                            }
-                            yield f"data: {json.dumps(error_chunk)}\n\n".encode()
-                    else:
-                        log.warning(f"No content/parts found in Gemini candidate: {candidate}")
-                        # 返回原始响应
-                        yield f"data: {json.dumps(response_data)}\n\n".encode()
-                else:
-                    log.warning(f"No candidates found in Gemini response: {response_data}")
-                    yield f"data: {json.dumps(response_data)}\n\n".encode()
+                # 构建响应块
+                chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason)
+                for chunk in chunks:
+                    yield f"data: {json.dumps(chunk)}\n\n".encode()
 
             except Exception as e:
                 log.error(f"Response parsing failed: {e}")
-                error_chunk = {
-                    "candidates": [
-                        {
-                            "content": {
-                                "parts": [{"text": f"Response parsing error: {str(e)}"}],
-                                "role": "model",
-                            },
-                            "finishReason": "ERROR",
-                            "index": 0,
-                        }
-                    ]
-                }
+                error_chunk = create_gemini_error_chunk(
+                    f"Response parsing error: {str(e)}",
+                    "api_error",
+                    500
+                )
+                error_chunk["candidates"] = [{
+                    "content": {
+                        "parts": [{"text": f"Response parsing error: {str(e)}"}],
+                        "role": "model",
+                    },
+                    "finishReason": "ERROR",
+                    "index": 0,
+                }]
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
 
             yield "data: [DONE]\n\n".encode()
 
         except Exception as e:
             log.error(f"Fake streaming error: {e}")
-            error_chunk = {
-                "error": {
-                    "message": f"Fake streaming error: {str(e)}",
-                    "type": "api_error",
-                    "code": 500,
-                }
-            }
+            error_chunk = create_gemini_error_chunk(
+                f"Fake streaming error: {str(e)}",
+                "api_error",
+                500
+            )
             yield f"data: {json.dumps(error_chunk)}\n\n".encode()
             yield "data: [DONE]\n\n".encode()
 

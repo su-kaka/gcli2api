@@ -18,7 +18,8 @@ from src.credential_manager import CredentialManager
 from src.gemini_router import router as gemini_router
 
 # Import all routers
-from src.antigravity_router import router as antigravity_router
+from src.antigravity_openai_router import router as antigravity_openai_router
+from src.antigravity_gemini_router import router as antigravity_gemini_router
 from src.antigravity_anthropic_router import router as antigravity_anthropic_router
 from src.openai_router import router as openai_router
 from src.task_manager import shutdown_all_tasks
@@ -102,7 +103,10 @@ app.include_router(openai_router, prefix="", tags=["OpenAI Compatible API"])
 app.include_router(gemini_router, prefix="", tags=["Gemini Native API"])
 
 # Antigravity路由 - 处理OpenAI格式请求并转换为Antigravity API
-app.include_router(antigravity_router, prefix="", tags=["Antigravity API"])
+app.include_router(antigravity_openai_router, prefix="", tags=["Antigravity OpenAI API"])
+
+# Antigravity路由 - 处理Gemini格式请求并转换为Antigravity API
+app.include_router(antigravity_gemini_router, prefix="", tags=["Antigravity Gemini API"])
 
 # Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
