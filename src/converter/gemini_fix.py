@@ -348,6 +348,85 @@ def build_antigravity_generation_config(
     return config_dict
 
 
+def build_antigravity_request_body(
+    contents: List[Dict[str, Any]],
+    model: str,
+    project_id: str,
+    session_id: str,
+    system_instruction: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    generation_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    构建 Antigravity API 请求体
+    整合系统提示词注入、工具定义、生成配置等逻辑
+
+    Args:
+        contents: 消息内容列表
+        model: 模型名称
+        project_id: 项目 ID
+        session_id: 会话 ID
+        system_instruction: 系统指令
+        tools: 工具定义列表
+        generation_config: 生成配置
+
+    Returns:
+        Antigravity 格式的请求体
+    """
+    import uuid
+    
+    # 生成请求 ID
+    request_id = f"req-{uuid.uuid4()}"
+    
+    request_body = {
+        "project": project_id,
+        "requestId": request_id,
+        "model": model,
+        "userAgent": "antigravity",
+        "requestType": "agent",
+        "request": {
+            "contents": contents,
+            "session_id": session_id,
+        }
+    }
+
+    # 添加系统指令
+    # Antigravity 的默认系统提示词
+    custom_prompt = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+    
+    if system_instruction:
+        # 存在 systemInstruction，将占位符放在位置0，原有内容降格到位置1及以下
+        if isinstance(system_instruction, dict):
+            parts = system_instruction.get("parts", [])
+            if parts:
+                # 将占位符插入到位置0，原有内容后移
+                system_instruction["parts"] = [{"text": custom_prompt}] + parts
+            else:
+                # parts 为空，创建新的
+                system_instruction["parts"] = [{"text": custom_prompt}]
+        request_body["request"]["systemInstruction"] = system_instruction
+    else:
+        # 不存在 systemInstruction，创建新的
+        request_body["request"]["systemInstruction"] = {
+            "parts": [{"text": custom_prompt}]
+        }
+
+    # 添加工具定义
+    if tools:
+        # 清理工具定义（移除不支持的字段）
+        cleaned_tools = clean_tools_for_gemini(tools)
+        request_body["request"]["tools"] = cleaned_tools
+        request_body["request"]["toolConfig"] = {
+            "functionCallingConfig": {"mode": "VALIDATED"}
+        }
+
+    # 添加生成配置
+    if generation_config:
+        request_body["request"]["generationConfig"] = generation_config
+
+    return request_body
+
+
 def prepare_image_generation_request(
     request_body: Dict[str, Any],
     model: str

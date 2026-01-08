@@ -15,7 +15,6 @@ from config import get_anti_truncation_max_attempts
 from log import log
 from ...utils import is_anti_truncation_model, authenticate_bearer, get_base_model_from_feature_model
 from ...api.antigravity import (
-    build_antigravity_request_body,
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
     fetch_available_models,
@@ -35,6 +34,7 @@ from src.converter.anti_truncation import (
 )
 from src.converter.gemini_fix import (
     build_antigravity_generation_config,
+    build_antigravity_request_body,
     prepare_image_generation_request,
 )
 from src.converter.openai2gemini import (

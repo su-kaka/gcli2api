@@ -1,6 +1,7 @@
 """
-Google API Client - Handles all communication with Google's Gemini API.
+GeminiCli API Client - Handles all communication with GeminiCli API.
 This module is used by both OpenAI compatibility layer and native Gemini endpoints.
+GeminiCli API 客户端 - 处理与 GeminiCli API 的所有通信
 """
 
 import asyncio
@@ -12,13 +13,8 @@ from fastapi import Response
 from fastapi.responses import StreamingResponse
 
 from config import (
-    get_auto_ban_enabled,
-    get_auto_ban_error_codes,
     get_code_assist_endpoint,
     get_return_thoughts_to_frontend,
-    get_retry_429_enabled,
-    get_retry_429_interval,
-    get_retry_429_max_retries,
 )
 from src.utils import (
     get_base_model_name,
@@ -35,9 +31,31 @@ from src.converter.gemini_fix import (
     parse_streaming_chunk,
 )
 
+# 导入共同的基础功能
+from src.api.base_api_client import (
+    check_should_auto_ban,
+    handle_auto_ban,
+    handle_error_with_retry,
+    get_retry_config,
+    record_api_call_success,
+    record_api_call_error,
+    parse_and_log_cooldown,
+)
 
-def _create_error_response(message: str, status_code: int = 500) -> Response:
-    """Create standardized error response."""
+
+# ==================== 错误响应 ====================
+
+def create_error_response(message: str, status_code: int = 500) -> Response:
+    """
+    创建标准化错误响应
+    
+    Args:
+        message: 错误消息
+        status_code: HTTP状态码
+        
+    Returns:
+        FastAPI Response对象
+    """
     return Response(
         content=json.dumps(
             {"error": {"message": message, "type": "api_error", "code": status_code}}
@@ -47,82 +65,25 @@ def _create_error_response(message: str, status_code: int = 500) -> Response:
     )
 
 
-async def _check_should_auto_ban(status_code: int) -> bool:
-    """检查是否应该触发自动封禁"""
-    return (
-        await get_auto_ban_enabled()
-        and status_code in await get_auto_ban_error_codes()
-    )
+# ==================== 请求准备 ====================
 
-
-async def _handle_auto_ban(
-    credential_manager: CredentialManager,
-    status_code: int,
-    credential_name: str
-) -> None:
-    """处理自动封禁：直接禁用凭证（随机选择机制会自动跳过被禁用的凭证）"""
-    if credential_manager and credential_name:
-        log.warning(
-            f"[AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
-        )
-        # 直接禁用凭证，下次get_valid_credential会自动跳过
-        await credential_manager.set_cred_disabled(credential_name, True)
-
-
-async def _handle_error_with_retry(
-    credential_manager: CredentialManager,
-    status_code: int,
-    current_file: str,
-    retry_enabled: bool,
-    attempt: int,
-    max_retries: int,
-    retry_interval: float
-):
-    """
-    统一处理错误和重试逻辑
-
-    仅在以下情况下进行自动重试:
-    1. 429错误(速率限制)
-    2. 导致凭证封禁的错误(AUTO_BAN_ERROR_CODES配置)
-
-    返回值：
-    - True: 需要继续重试（会在下次循环中自动获取新凭证）
-    - False: 不需要重试
-    """
-    # 优先检查自动封禁
-    should_auto_ban = await _check_should_auto_ban(status_code)
-
-    if should_auto_ban:
-        # 触发自动封禁
-        await _handle_auto_ban(credential_manager, status_code, current_file)
-
-        # 自动封禁后，仍然尝试重试（会在下次循环中自动获取新凭证）
-        if retry_enabled and attempt < max_retries:
-            log.warning(
-                f"[RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})"
-            )
-            await asyncio.sleep(retry_interval)
-            return True
-        return False
-
-    # 如果不触发自动封禁，仅对429错误进行重试
-    if status_code == 429 and retry_enabled and attempt < max_retries:
-        log.warning(
-            f"[RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
-        )
-        await asyncio.sleep(retry_interval)
-        return True
-
-    # 其他错误不进行重试
-    return False
-
-
-
-
-async def _prepare_request_headers_and_payload(
+async def prepare_request_headers_and_payload(
     payload: dict, credential_data: dict, target_url: str
 ):
-    """Prepare request headers and final payload from credential data."""
+    """
+    从凭证数据准备请求头和最终payload
+    
+    Args:
+        payload: 原始请求payload
+        credential_data: 凭证数据字典
+        target_url: 目标URL
+        
+    Returns:
+        元组: (headers, final_payload, target_url)
+        
+    Raises:
+        Exception: 如果凭证中缺少必要字段
+    """
     token = credential_data.get("token") or credential_data.get("access_token", "")
     if not token:
         raise Exception("凭证中没有找到有效的访问令牌（token或access_token字段）")
@@ -147,24 +108,29 @@ async def _prepare_request_headers_and_payload(
     return headers, final_payload, target_url
 
 
+# ==================== 主请求函数 ====================
+
 async def send_gemini_request(
     payload: dict, is_streaming: bool = False, credential_manager: CredentialManager = None
 ) -> Response:
     """
-    Send a request to Google's Gemini API.
+    发送请求到 Google's Gemini API
+    
+    使用统一的重试和错误处理逻辑。
 
     Args:
-        payload: The request payload in Gemini format
-        is_streaming: Whether this is a streaming request
-        credential_manager: CredentialManager instance
+        payload: Gemini格式的请求payload
+        is_streaming: 是否是流式请求
+        credential_manager: CredentialManager实例
 
     Returns:
-        FastAPI Response object
+        FastAPI Response对象
     """
     # 获取429重试配置
-    max_retries = await get_retry_429_max_retries()
-    retry_429_enabled = await get_retry_429_enabled()
-    retry_interval = await get_retry_429_interval()
+    retry_config = await get_retry_config()
+    max_retries = retry_config["max_retries"]
+    retry_429_enabled = retry_config["retry_enabled"]
+    retry_interval = retry_config["retry_interval"]
 
     # 动态确定API端点和payload格式
     model_name = payload.get("model", "")
@@ -176,7 +142,7 @@ async def send_gemini_request(
 
     # 确保有credential_manager
     if not credential_manager:
-        return _create_error_response("Credential manager not provided", 500)
+        return create_error_response("Credential manager not provided", 500)
 
     # 获取模型组（用于分组 CD）
     model_group = get_model_group(model_name)
@@ -188,16 +154,16 @@ async def send_gemini_request(
                 mode="geminicli", model_key=model_group
             )
             if not credential_result:
-                return _create_error_response("No valid credentials available", 500)
+                return create_error_response("No valid credentials available", 500)
 
             current_file, credential_data = credential_result
-            headers, final_payload, target_url = await _prepare_request_headers_and_payload(
+            headers, final_payload, target_url = await prepare_request_headers_and_payload(
                 payload, credential_data, target_url
             )
             # 预序列化payload
             final_post_data = json.dumps(final_payload)
         except Exception as e:
-            return _create_error_response(str(e), 500)
+            return create_error_response(str(e), 500)
         try:
             if is_streaming:
                 # 流式请求处理 - 使用httpx_client模块的统一配置
@@ -224,13 +190,9 @@ async def send_gemini_request(
                                 response_content = content_bytes.decode("utf-8", errors="ignore")
                                 # 如果是429错误，尝试解析冷却时间
                                 if resp.status_code == 429:
-                                    try:
-                                        error_data = json.loads(response_content)
-                                        cooldown_until = parse_quota_reset_timestamp(error_data)
-                                        if cooldown_until:
-                                            log.info(f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}")
-                                    except Exception as parse_err:
-                                        log.debug(f"[STREAMING] Failed to parse cooldown time: {parse_err}")
+                                    cooldown_until = await parse_and_log_cooldown(
+                                        response_content, mode="geminicli"
+                                    )
                         except Exception as e:
                             log.debug(f"[STREAMING] Failed to read error response content: {e}")
 
@@ -244,10 +206,15 @@ async def send_gemini_request(
                                 f"Google API returned status {resp.status_code} (STREAMING) - no response details available"
                             )
 
-                        # 记录API调用错误（使用模型组 CD）
+                        # 记录API调用错误
                         if credential_manager and current_file:
-                            await credential_manager.record_api_call_result(
-                                current_file, False, resp.status_code, cooldown_until, model_key=model_group
+                            await record_api_call_error(
+                                credential_manager,
+                                current_file,
+                                resp.status_code,
+                                cooldown_until,
+                                mode="geminicli",
+                                model_key=model_group
                             )
 
                         # 清理资源 - 确保按正确顺序清理
@@ -264,14 +231,15 @@ async def send_gemini_request(
                                 log.debug(f"Error closing client: {cleanup_err}")
 
                         # 使用统一的错误处理和重试逻辑
-                        should_retry = await _handle_error_with_retry(
+                        should_retry = await handle_error_with_retry(
                             credential_manager,
                             resp.status_code,
                             current_file,
                             retry_429_enabled,
                             attempt,
                             max_retries,
-                            retry_interval
+                            retry_interval,
+                            mode="geminicli"
                         )
 
                         if should_retry:
@@ -280,7 +248,7 @@ async def send_gemini_request(
 
                         # 不需要重试，返回错误流
                         error_msg = f"API error: {resp.status_code}"
-                        if await _check_should_auto_ban(resp.status_code):
+                        if await check_should_auto_ban(resp.status_code):
                             error_msg += " (credential auto-banned)"
 
                         async def error_stream():
@@ -300,14 +268,13 @@ async def send_gemini_request(
                         )
                     else:
                         # 成功响应，传递所有资源给流式处理函数管理
-                        return _handle_streaming_response_managed(
+                        return handle_streaming_response(
                             resp,
                             stream_ctx,
                             client,
                             credential_manager,
-                            payload.get("model", ""),
                             current_file,
-                            model_group,  # 传递模型组
+                            model_group,
                         )
 
                 except Exception as e:
@@ -332,7 +299,7 @@ async def send_gemini_request(
 
                     # === 修改：统一处理所有非200状态码，沿用429行为 ===
                     if resp.status_code == 200:
-                        return await _handle_non_streaming_response(
+                        return await handle_non_streaming_response(
                             resp, credential_manager, current_file, model_group
                         )
 
@@ -354,20 +321,26 @@ async def send_gemini_request(
                             log.debug(f"[NON-STREAMING] Failed to parse cooldown time: {parse_err}")
 
                     if credential_manager and current_file:
-                        # 保留 429 的统计码不变（使用模型组 CD）
-                        await credential_manager.record_api_call_result(
-                            current_file, False, 429 if status == 429 else status, cooldown_until, model_key=model_group
+                        # 保留 429 的统计码不变
+                        await record_api_call_error(
+                            credential_manager,
+                            current_file,
+                            429 if status == 429 else status,
+                            cooldown_until,
+                            mode="geminicli",
+                            model_key=model_group
                         )
 
                     # 使用统一的错误处理和重试逻辑
-                    should_retry = await _handle_error_with_retry(
+                    should_retry = await handle_error_with_retry(
                         credential_manager,
                         status,
                         current_file,
                         retry_429_enabled,
                         attempt,
                         max_retries,
-                        retry_interval
+                        retry_interval,
+                        mode="geminicli"
                     )
 
                     if should_retry:
@@ -376,7 +349,7 @@ async def send_gemini_request(
 
                     # 不需要重试，返回错误
                     error_msg = f"{status} error, max retries reached"
-                    if await _check_should_auto_ban(status):
+                    if await check_should_auto_ban(status):
                         error_msg = f"{status} error (credential auto-banned), max retries reached"
                         log.error(f"[AUTO_BAN] {error_msg}")
                     elif status == 429:
@@ -385,7 +358,7 @@ async def send_gemini_request(
                     else:
                         log.error(f"[RETRY] Max retries exceeded for error status {status}")
 
-                    return _create_error_response(error_msg, status)
+                    return create_error_response(error_msg, status)
 
         except Exception as e:
             if attempt < max_retries:
@@ -396,23 +369,36 @@ async def send_gemini_request(
                 continue
             else:
                 log.error(f"Request to Google API failed: {str(e)}")
-                return _create_error_response(f"Request failed: {str(e)}")
+                return create_error_response(f"Request failed: {str(e)}")
 
     # 如果循环结束仍未成功，返回错误
-    return _create_error_response("Max retries exceeded", 429)
+    return create_error_response("Max retries exceeded", 429)
 
 
-def _handle_streaming_response_managed(
+# ==================== 流式响应处理 ====================
+
+def handle_streaming_response(
     resp,
     stream_ctx,
     client,
     credential_manager: CredentialManager = None,
-    model_name: str = "",
-    current_file: str = None,
-    model_group: str = None,
+    credential_name: str = None,
+    model_key: str = None,
 ) -> StreamingResponse:
-    """Handle streaming response with complete resource lifecycle management."""
-
+    """
+    处理 Gemini 流式响应，包装为可管理的生成器
+    
+    Args:
+        resp: HTTP响应对象
+        stream_ctx: 流上下文管理器
+        client: HTTP客户端
+        credential_manager: 凭证管理器
+        credential_name: 凭证名称
+        model_key: 模型键（用于模型级CD）
+        
+    Returns:
+        StreamingResponse对象
+    """
     # 检查HTTP错误
     if resp.status_code != 200:
         # 立即清理资源并返回错误
@@ -466,18 +452,22 @@ def _handle_streaming_response_managed(
                 else:
                     log.error(f"Google API returned status {resp.status_code} (STREAMING)")
 
-            # 记录API调用错误（使用模型组 CD）
-            if credential_manager and current_file:
-                await credential_manager.record_api_call_result(
-                    current_file, False, resp.status_code, cooldown_until, model_key=model_group
+            # 记录API调用错误
+            if credential_manager and credential_name:
+                await record_api_call_error(
+                    credential_manager,
+                    credential_name,
+                    resp.status_code,
+                    cooldown_until,
+                    mode="geminicli",
+                    model_key=model_key
                 )
 
             # 处理429和自动封禁
             if resp.status_code == 429:
-                # 429错误：记录冷却时间，下次get_valid_credential会自动跳过
-                log.warning(f"429 error encountered for credential: {current_file}")
-            elif await _check_should_auto_ban(resp.status_code):
-                await _handle_auto_ban(credential_manager, resp.status_code, current_file)
+                log.warning(f"429 error encountered for credential: {credential_name}")
+            elif await check_should_auto_ban(resp.status_code):
+                await handle_auto_ban(credential_manager, resp.status_code, credential_name, mode="geminicli")
 
             error_response = {
                 "error": {
@@ -495,9 +485,9 @@ def _handle_streaming_response_managed(
     # 正常流式响应处理，确保资源在流结束时被清理
     async def managed_stream_generator():
         success_recorded = False
-        chunk_count = 0  # 使用局部变量代替函数属性
-        bytes_transferred = 0  # 跟踪传输的字节数
-        return_thoughts = await get_return_thoughts_to_frontend()  # 获取配置
+        chunk_count = 0
+        bytes_transferred = 0
+        return_thoughts = await get_return_thoughts_to_frontend()
         try:
             async for chunk in resp.aiter_lines():
                 # 使用统一的解析函数
@@ -505,11 +495,11 @@ def _handle_streaming_response_managed(
                 if parsed_data is None:
                     continue
                 
-                # 记录第一次成功响应（使用模型组 CD）
+                # 记录第一次成功响应
                 if not success_recorded:
-                    if current_file and credential_manager:
-                        await credential_manager.record_api_call_result(
-                            current_file, True, model_key=model_group
+                    if credential_name and credential_manager:
+                        await record_api_call_success(
+                            credential_manager, credential_name, mode="geminicli", model_key=model_key
                         )
                     success_recorded = True
 
@@ -547,19 +537,32 @@ def _handle_streaming_response_managed(
     return StreamingResponse(managed_stream_generator(), media_type="text/event-stream")
 
 
-async def _handle_non_streaming_response(
+# ==================== 非流式响应处理 ====================
+
+async def handle_non_streaming_response(
     resp,
     credential_manager: CredentialManager = None,
-    current_file: str = None,
-    model_group: str = None,
+    credential_name: str = None,
+    model_key: str = None,
 ) -> Response:
-    """Handle non-streaming response from Google API."""
+    """
+    处理 Gemini 非流式响应
+    
+    Args:
+        resp: HTTP响应对象
+        credential_manager: 凭证管理器
+        credential_name: 凭证名称
+        model_key: 模型键（用于模型级CD）
+        
+    Returns:
+        FastAPI Response对象
+    """
     if resp.status_code == 200:
         try:
-            # 记录成功响应（使用模型组 CD）
-            if current_file and credential_manager:
-                await credential_manager.record_api_call_result(
-                    current_file, True, model_key=model_group
+            # 记录成功响应
+            if credential_name and credential_manager:
+                await record_api_call_success(
+                    credential_manager, credential_name, mode="geminicli", model_key=model_key
                 )
 
             raw = await resp.aread()
@@ -626,20 +629,24 @@ async def _handle_non_streaming_response(
             else:
                 log.error(f"Google API returned status {resp.status_code} (NON-STREAMING)")
 
-        # 记录API调用错误（使用模型组 CD）
-        if credential_manager and current_file:
-            await credential_manager.record_api_call_result(
-                current_file, False, resp.status_code, cooldown_until, model_key=model_group
+        # 记录API调用错误
+        if credential_manager and credential_name:
+            await record_api_call_error(
+                credential_manager,
+                credential_name,
+                resp.status_code,
+                cooldown_until,
+                mode="geminicli",
+                model_key=model_key
             )
 
         # 处理429和自动封禁
         if resp.status_code == 429:
-            # 429错误：记录冷却时间，下次get_valid_credential会自动跳过
-            log.warning(f"429 error encountered for credential: {current_file}")
-        elif await _check_should_auto_ban(resp.status_code):
-            await _handle_auto_ban(credential_manager, resp.status_code, current_file)
+            log.warning(f"429 error encountered for credential: {credential_name}")
+        elif await check_should_auto_ban(resp.status_code):
+            await handle_auto_ban(credential_manager, resp.status_code, credential_name, mode="geminicli")
 
-        return _create_error_response(f"API error: {resp.status_code}", resp.status_code)
+        return create_error_response(f"API error: {resp.status_code}", resp.status_code)
 
 
 def build_gemini_payload_from_native(native_request: dict, model_from_path: str) -> dict:

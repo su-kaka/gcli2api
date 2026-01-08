@@ -10,44 +10,41 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from config import (
     get_antigravity_api_url,
-    get_auto_ban_enabled,
-    get_auto_ban_error_codes,
     get_return_thoughts_to_frontend,
-    get_retry_429_enabled,
-    get_retry_429_interval,
-    get_retry_429_max_retries,
 )
 from log import log
 
 from src.credential_manager import CredentialManager
 from src.httpx_client import create_streaming_client_with_kwargs, http_client
 from src.models import Model, model_to_dict
-from src.utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
-from src.converter.gemini_fix import filter_thoughts_from_stream_chunk
+from src.utils import ANTIGRAVITY_USER_AGENT
+from src.converter.gemini_fix import (
+    filter_thoughts_from_stream_chunk,
+    build_antigravity_request_body,
+)
 
-async def _check_should_auto_ban(status_code: int) -> bool:
-    """检查是否应该触发自动封禁"""
-    return (
-        await get_auto_ban_enabled()
-        and status_code in await get_auto_ban_error_codes()
-    )
+# 导入共同的基础功能
+from src.api.base_api_client import (
+    handle_error_with_retry,
+    get_retry_config,
+    record_api_call_success,
+    record_api_call_error,
+    parse_and_log_cooldown,
+)
 
 
-async def _handle_auto_ban(
-    credential_manager: CredentialManager,
-    status_code: int,
-    credential_name: str
-) -> None:
-    """处理自动封禁：直接禁用凭证"""
-    if credential_manager and credential_name:
-        log.warning(
-            f"[ANTIGRAVITY AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
-        )
-        await credential_manager.set_cred_disabled(credential_name, True, mode="antigravity")
-
+# ==================== 辅助函数 ====================
 
 def build_antigravity_headers(access_token: str) -> Dict[str, str]:
-    """构建 Antigravity API 请求头"""
+    """
+    构建 Antigravity API 请求头
+    
+    Args:
+        access_token: 访问令牌
+        
+    Returns:
+        请求头字典
+    """
     return {
         'User-Agent': ANTIGRAVITY_USER_AGENT,
         'Authorization': f'Bearer {access_token}',
@@ -56,81 +53,87 @@ def build_antigravity_headers(access_token: str) -> Dict[str, str]:
     }
 
 
-def generate_request_id() -> str:
-    """生成请求 ID"""
-    import uuid
-    return f"req-{uuid.uuid4()}"
+# ==================== 流式响应处理 ====================
 
-
-def build_antigravity_request_body(
-    contents: List[Dict[str, Any]],
-    model: str,
-    project_id: str,
-    session_id: str,
-    system_instruction: Optional[Dict[str, Any]] = None,
-    tools: Optional[List[Dict[str, Any]]] = None,
-    generation_config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+def handle_streaming_response(
+    response,
+    stream_ctx,
+    client,
+    credential_manager: CredentialManager,
+    credential_name: str,
+    model_key: str = None,
+) -> Tuple[Any, Any, Any]:
     """
-    构建 Antigravity 请求体
-
-    Args:
-        contents: 消息内容列表
-        model: 模型名称
-        project_id: 项目 ID
-        session_id: 会话 ID
-        system_instruction: 系统指令
-        tools: 工具定义列表
-        generation_config: 生成配置
-
-    Returns:
-        Antigravity 格式的请求体
-    """
-    request_body = {
-        "project": project_id,
-        "requestId": generate_request_id(),
-        "model": model,
-        "userAgent": "antigravity",
-        "requestType": "agent",
-        "request": {
-            "contents": contents,
-            "session_id": session_id,
-        }
-    }
-
-    # 添加系统指令
-    custom_prompt = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+    处理 Antigravity 流式响应，包装为可管理的生成器
     
-    if system_instruction:
-        # 存在 systemInstruction，将占位符放在位置0，原有内容降格到位置1及以下
-        if isinstance(system_instruction, dict):
-            parts = system_instruction.get("parts", [])
-            if parts:
-                # 将占位符插入到位置0，原有内容后移
-                system_instruction["parts"] = [{"text": custom_prompt}] + parts
-            else:
-                # parts 为空，创建新的
-                system_instruction["parts"] = [{"text": custom_prompt}]
-        request_body["request"]["systemInstruction"] = system_instruction
-    else:
-        # 不存在 systemInstruction，创建新的
-        request_body["request"]["systemInstruction"] = {
-            "parts": [{"text": custom_prompt}]
-        }
+    Args:
+        response: HTTP响应对象
+        stream_ctx: 流上下文管理器
+        client: HTTP客户端
+        credential_manager: 凭证管理器
+        credential_name: 凭证名称
+        model_key: 模型键（用于模型级CD）
+        
+    Returns:
+        元组: (filtered_lines_generator, stream_ctx, client)
+    """
+    async def filter_stream_lines():
+        """过滤流式响应行，移除思维链内容（如果配置要求）"""
+        success_recorded = False
+        return_thoughts = await get_return_thoughts_to_frontend()
+        
+        try:
+            async for line in response.aiter_lines():
+                # 记录第一次成功响应
+                if not success_recorded:
+                    if credential_name and credential_manager:
+                        await record_api_call_success(
+                            credential_manager,
+                            credential_name,
+                            mode="antigravity",
+                            model_key=model_key
+                        )
+                    success_recorded = True
+                
+                if not line or not line.startswith("data: "):
+                    yield line
+                    continue
+                
+                raw = line[6:].strip()
+                if raw == "[DONE]":
+                    yield line
+                    continue
+                
+                # 如果需要过滤思维内容
+                if not return_thoughts:
+                    try:
+                        data = json.loads(raw)
+                        response_obj = data.get("response", {}) or {}
+                        
+                        # 使用 gemini_fix 的过滤函数
+                        filtered_data = filter_thoughts_from_stream_chunk(response_obj)
+                        
+                        # 如果过滤后为空，跳过这一行
+                        if filtered_data is None:
+                            continue
+                        
+                        # 重新包装数据
+                        data["response"] = filtered_data
+                        yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
+                        continue
+                    except Exception:
+                        pass
+                
+                yield line
+        except Exception as e:
+            log.error(f"[ANTIGRAVITY] Streaming error: {e}")
+            raise
+    
+    filtered_lines = filter_stream_lines()
+    return (filtered_lines, stream_ctx, client)
 
-    # 添加工具定义
-    if tools:
-        request_body["request"]["tools"] = tools
-        request_body["request"]["toolConfig"] = {
-            "functionCallingConfig": {"mode": "VALIDATED"}
-        }
 
-    # 添加生成配置
-    if generation_config:
-        request_body["request"]["generationConfig"] = generation_config
-
-    return request_body
-
+# ==================== 主请求函数 ====================
 
 async def send_antigravity_request_stream(
     request_body: Dict[str, Any],
@@ -138,13 +141,24 @@ async def send_antigravity_request_stream(
 ) -> Tuple[Any, str, Dict[str, Any]]:
     """
     发送 Antigravity 流式请求
-
+    
+    使用统一的重试和错误处理逻辑。
+    
+    Args:
+        request_body: Antigravity格式的请求体
+        credential_manager: 凭证管理器实例
+        
     Returns:
-        (response, credential_name, credential_data)
+        元组: (response_iterator, credential_name, credential_data)
+        其中 response_iterator 是 (filtered_lines, stream_ctx, client) 元组
+        
+    Raises:
+        Exception: 如果所有重试都失败
     """
-    retry_enabled = await get_retry_429_enabled()
-    max_retries = await get_retry_429_max_retries()
-    retry_interval = await get_retry_429_interval()
+    retry_config = await get_retry_config()
+    retry_enabled = retry_config["retry_enabled"]
+    max_retries = retry_config["max_retries"]
+    retry_interval = retry_config["retry_interval"]
 
     # 提取模型名称用于模型级 CD
     model_name = request_body.get("model", "")
@@ -187,48 +201,17 @@ async def send_antigravity_request_stream(
 
                 # 检查响应状态
                 if response.status_code == 200:
-                    log.info(f"[ANTIGRAVITY] Request successful with credential: {current_file}")
-                    # 注意: 不在这里记录成功,在流式生成器中第一次收到数据时记录
-                    # 获取配置并包装响应流，在源头过滤思维链
-                    return_thoughts = await get_return_thoughts_to_frontend()
-                    
-                    # 使用新的过滤函数包装响应流
-                    async def filter_stream_lines():
-                        async for line in response.aiter_lines():
-                            if not line or not line.startswith("data: "):
-                                yield line
-                                continue
-                            
-                            raw = line[6:].strip()
-                            if raw == "[DONE]":
-                                yield line
-                                continue
-                            
-                            # 如果需要过滤思维内容
-                            if not return_thoughts:
-                                try:
-                                    data = json.loads(raw)
-                                    response_obj = data.get("response", {}) or {}
-                                    
-                                    # 使用 gemini_fix 的过滤函数
-                                    filtered_data = filter_thoughts_from_stream_chunk(response_obj)
-                                    
-                                    # 如果过滤后为空，跳过这一行
-                                    if filtered_data is None:
-                                        continue
-                                    
-                                    # 重新包装数据
-                                    data["response"] = filtered_data
-                                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\\n"
-                                    continue
-                                except Exception:
-                                    pass
-                            
-                            yield line
-                    
-                    filtered_lines = filter_stream_lines()
-                    # 返回过滤后的行生成器和资源管理对象,让调用者管理资源生命周期
-                    return (filtered_lines, stream_ctx, client), current_file, credential_data
+                    log.info(f"[ANTIGRAVITY] Streaming request successful with credential: {current_file}")
+                    # 使用独立的响应处理函数
+                    response_iterator = handle_streaming_response(
+                        response,
+                        stream_ctx,
+                        client,
+                        credential_manager,
+                        current_file,
+                        model_key=model_name
+                    )
+                    return response_iterator, current_file, credential_data
 
                 # 处理错误
                 error_body = await response.aread()
@@ -238,29 +221,16 @@ async def send_antigravity_request_stream(
                 # 记录错误（使用模型级 CD）
                 cooldown_until = None
                 if response.status_code == 429:
-                    try:
-                        error_data = json.loads(error_text)
-                        cooldown_until = parse_quota_reset_timestamp(error_data)
-                        if cooldown_until:
-                            log.info(
-                                f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
-                            )
-                    except Exception as parse_err:
-                        log.debug(f"[ANTIGRAVITY] Failed to parse cooldown time: {parse_err}")
+                    cooldown_until = await parse_and_log_cooldown(error_text, mode="antigravity")
 
-                await credential_manager.record_api_call_result(
+                await record_api_call_error(
+                    credential_manager,
                     current_file,
-                    False,
                     response.status_code,
-                    cooldown_until=cooldown_until,
+                    cooldown_until,
                     mode="antigravity",
-                    model_key=model_name  # 传递模型名称用于模型级 CD
+                    model_key=model_name
                 )
-
-                # 检查自动封禁
-                should_auto_ban = await _check_should_auto_ban(response.status_code)
-                if should_auto_ban:
-                    await _handle_auto_ban(credential_manager, response.status_code, current_file)
 
                 # 清理资源
                 try:
@@ -269,18 +239,19 @@ async def send_antigravity_request_stream(
                     pass
                 await client.aclose()
 
-                # 重试逻辑: 仅对429错误或导致凭证封禁的错误进行重试
-                should_retry = False
-                if retry_enabled and attempt < max_retries:
-                    if should_auto_ban:
-                        log.warning(f"[ANTIGRAVITY RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})")
-                        should_retry = True
-                    elif response.status_code == 429:
-                        log.warning(f"[ANTIGRAVITY RETRY] 429 error, retrying ({attempt + 1}/{max_retries})")
-                        should_retry = True
+                # 重试逻辑: 使用统一的错误处理
+                should_retry = await handle_error_with_retry(
+                    credential_manager,
+                    response.status_code,
+                    current_file,
+                    retry_enabled,
+                    attempt,
+                    max_retries,
+                    retry_interval,
+                    mode="antigravity"
+                )
 
                 if should_retry:
-                    await asyncio.sleep(retry_interval)
                     continue
 
                 raise Exception(f"Antigravity API error ({response.status_code}): {error_text[:200]}")
@@ -309,13 +280,23 @@ async def send_antigravity_request_no_stream(
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
     发送 Antigravity 非流式请求
-
+    
+    使用统一的重试和错误处理逻辑。
+    
+    Args:
+        request_body: Antigravity格式的请求体
+        credential_manager: 凭证管理器实例
+        
     Returns:
-        (response_data, credential_name, credential_data)
+        元组: (response_data, credential_name, credential_data)
+        
+    Raises:
+        Exception: 如果所有重试都失败
     """
-    retry_enabled = await get_retry_429_enabled()
-    max_retries = await get_retry_429_max_retries()
-    retry_interval = await get_retry_429_interval()
+    retry_config = await get_retry_config()
+    retry_enabled = retry_config["retry_enabled"]
+    max_retries = retry_config["max_retries"]
+    retry_interval = retry_config["retry_interval"]
 
     # 提取模型名称用于模型级 CD
     model_name = request_body.get("model", "")
@@ -356,8 +337,8 @@ async def send_antigravity_request_no_stream(
                 # 检查响应状态
                 if response.status_code == 200:
                     log.info(f"[ANTIGRAVITY] Request successful with credential: {current_file}")
-                    await credential_manager.record_api_call_result(
-                        current_file, True, mode="antigravity", model_key=model_name
+                    await record_api_call_success(
+                        credential_manager, current_file, mode="antigravity", model_key=model_name
                     )
                     response_data = response.json()
 
@@ -383,42 +364,30 @@ async def send_antigravity_request_no_stream(
                 # 记录错误（使用模型级 CD）
                 cooldown_until = None
                 if response.status_code == 429:
-                    try:
-                        error_data = json.loads(error_body)
-                        cooldown_until = parse_quota_reset_timestamp(error_data)
-                        if cooldown_until:
-                            log.info(
-                                f"检测到quota冷却时间: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
-                            )
-                    except Exception as parse_err:
-                        log.debug(f"[ANTIGRAVITY] Failed to parse cooldown time: {parse_err}")
+                    cooldown_until = await parse_and_log_cooldown(error_body, mode="antigravity")
 
-                await credential_manager.record_api_call_result(
+                await record_api_call_error(
+                    credential_manager,
                     current_file,
-                    False,
                     response.status_code,
-                    cooldown_until=cooldown_until,
+                    cooldown_until,
                     mode="antigravity",
-                    model_key=model_name  # 传递模型名称用于模型级 CD
+                    model_key=model_name
                 )
 
-                # 检查自动封禁
-                should_auto_ban = await _check_should_auto_ban(response.status_code)
-                if should_auto_ban:
-                    await _handle_auto_ban(credential_manager, response.status_code, current_file)
-
-                # 重试逻辑: 仅对429错误或导致凭证封禁的错误进行重试
-                should_retry = False
-                if retry_enabled and attempt < max_retries:
-                    if should_auto_ban:
-                        log.warning(f"[ANTIGRAVITY RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})")
-                        should_retry = True
-                    elif response.status_code == 429:
-                        log.warning(f"[ANTIGRAVITY RETRY] 429 error, retrying ({attempt + 1}/{max_retries})")
-                        should_retry = True
+                # 重试逻辑: 使用统一的错误处理
+                should_retry = await handle_error_with_retry(
+                    credential_manager,
+                    response.status_code,
+                    current_file,
+                    retry_enabled,
+                    attempt,
+                    max_retries,
+                    retry_interval,
+                    mode="antigravity"
+                )
 
                 if should_retry:
-                    await asyncio.sleep(retry_interval)
                     continue
 
                 raise Exception(f"Antigravity API error ({response.status_code}): {error_body[:200]}")
@@ -433,14 +402,22 @@ async def send_antigravity_request_no_stream(
     raise Exception("All antigravity retry attempts failed")
 
 
+# ==================== 模型和配额查询 ====================
+
 async def fetch_available_models(
     credential_manager: CredentialManager,
 ) -> List[Dict[str, Any]]:
     """
     获取可用模型列表，返回符合 OpenAI API 规范的格式
-
+    
+    Args:
+        credential_manager: 凭证管理器实例
+        
     Returns:
         模型列表，格式为字典列表（用于兼容现有代码）
+        
+    Raises:
+        返回空列表如果获取失败
     """
     # 获取可用凭证
     cred_result = await credential_manager.get_valid_credential(mode="antigravity")
@@ -514,21 +491,22 @@ async def fetch_available_models(
 async def fetch_quota_info(access_token: str) -> Dict[str, Any]:
     """
     获取指定凭证的额度信息
-
+    
     Args:
         access_token: Antigravity 访问令牌
-
+        
     Returns:
         包含额度信息的字典，格式为：
         {
-            "success": True,
+            "success": True/False,
             "models": {
-                "gemini-2.0-flash-exp": {
+                "model_name": {
                     "remaining": 0.95,
                     "resetTime": "12-20 10:30",
                     "resetTimeRaw": "2025-12-20T02:30:00Z"
                 }
-            }
+            },
+            "error": "错误信息" (仅在失败时)
         }
     """
 

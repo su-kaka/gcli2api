@@ -14,7 +14,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from log import log
 
 from api.antigravity import (
-    build_antigravity_request_body,
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
 )
@@ -22,6 +21,9 @@ from src.converter.anthropic2gemini import (
     convert_anthropic_request_to_gemini,
     convert_gemini_response_to_anthropic,
     gemini_sse_to_anthropic_sse,
+)
+from src.converter.gemini_fix import (
+    build_antigravity_request_body,
 )
 from src.token_estimator import estimate_input_tokens
 
