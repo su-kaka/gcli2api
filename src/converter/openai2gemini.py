@@ -978,6 +978,156 @@ def extract_images_from_content(content: Any) -> Dict[str, Any]:
     return result
 
 
+def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]]:
+    """
+    从 Gemini 非流式响应中提取内容，用于假流式处理
+    
+    Args:
+        response: Gemini API 响应对象
+    
+    Returns:
+        (content, reasoning_content, usage) 元组
+    """
+    from src.converter.gemini_fix import extract_content_and_reasoning
+    
+    # 解析响应体
+    if hasattr(response, "body"):
+        body_str = (
+            response.body.decode()
+            if isinstance(response.body, bytes)
+            else str(response.body)
+        )
+    elif hasattr(response, "content"):
+        body_str = (
+            response.content.decode()
+            if isinstance(response.content, bytes)
+            else str(response.content)
+        )
+    else:
+        body_str = str(response)
+
+    try:
+        response_data = json.loads(body_str)
+
+        # 从Gemini响应中提取内容，使用思维链分离逻辑
+        content = ""
+        reasoning_content = ""
+        if "candidates" in response_data and response_data["candidates"]:
+            # Gemini格式响应 - 使用思维链分离
+            candidate = response_data["candidates"][0]
+            if "content" in candidate and "parts" in candidate["content"]:
+                parts = candidate["content"]["parts"]
+                content, reasoning_content = extract_content_and_reasoning(parts)
+        elif "choices" in response_data and response_data["choices"]:
+            # OpenAI格式响应
+            content = response_data["choices"][0].get("message", {}).get("content", "")
+
+        # 如果没有正常内容但有思维内容，给出警告
+        if not content and reasoning_content:
+            log.warning("Fake stream response contains only thinking content")
+            content = "[模型正在思考中，请稍后再试或重新提问]"
+        
+        # 如果完全没有内容，提供默认回复
+        if not content:
+            log.warning(f"No content found in response: {response_data}")
+            content = "[响应为空，请重新尝试]"
+
+        # 转换usageMetadata为OpenAI格式
+        usage = _convert_usage_metadata(response_data.get("usageMetadata"))
+        
+        return content, reasoning_content, usage
+
+    except json.JSONDecodeError:
+        # 如果不是JSON，直接返回原始文本
+        return body_str, "", None
+
+
+def create_openai_stream_chunk(
+    content: str,
+    reasoning_content: str = "",
+    usage: Dict[str, int] = None,
+    model: str = "gcli2api-streaming",
+    finish_reason: str = "stop"
+) -> Dict[str, Any]:
+    """
+    创建 OpenAI 格式的流式响应块
+    
+    Args:
+        content: 主要内容
+        reasoning_content: 推理内容（可选）
+        usage: token使用情况（可选）
+        model: 模型名称
+        finish_reason: 结束原因
+    
+    Returns:
+        OpenAI 格式的流式响应块字典
+    """
+    # 构建 delta
+    delta = {"role": "assistant", "content": content}
+    if reasoning_content:
+        delta["reasoning_content"] = reasoning_content
+
+    # 构建完整的OpenAI格式的流式响应块
+    chunk = {
+        "id": str(uuid.uuid4()),
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+    }
+
+    # 只有在有usage数据时才添加usage字段（确保在最后一个chunk中）
+    if usage:
+        chunk["usage"] = usage
+
+    return chunk
+
+
+def create_openai_heartbeat_chunk() -> Dict[str, Any]:
+    """
+    创建 OpenAI 格式的心跳块（用于假流式）
+    
+    Returns:
+        心跳响应块字典
+    """
+    return {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": ""},
+                "finish_reason": None,
+            }
+        ]
+    }
+
+
+def parse_gemini_stream_chunk(chunk: Union[bytes, str]) -> Dict[str, Any]:
+    """
+    解析 Gemini 流式响应的单个块
+    
+    Args:
+        chunk: 原始响应块（bytes 或 str）
+    
+    Returns:
+        解析后的 JSON 字典，如果解析失败返回 None
+    """
+    # 处理不同数据类型
+    if isinstance(chunk, bytes):
+        if not chunk.startswith(b"data: "):
+            return None
+        payload = chunk[len(b"data: ") :]
+    else:
+        chunk_str = str(chunk)
+        if not chunk_str.startswith("data: "):
+            return None
+        payload = chunk_str[len("data: ") :].encode()
+    
+    try:
+        return json.loads(payload.decode())
+    except json.JSONDecodeError:
+        return None
+
+
 def openai_messages_to_gemini_contents(
     messages: List[Any], 
     compatibility_mode: bool = False

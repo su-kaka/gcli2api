@@ -5,7 +5,6 @@ OpenAI Router - Handles OpenAI format API requests
 
 import asyncio
 import json
-import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,12 +27,17 @@ from src.credential_manager import CredentialManager
 from api.geminicli import send_gemini_request
 from src.models import ChatCompletionRequest, Model, ModelList
 from src.converter.openai2gemini import (
-    _convert_usage_metadata,
+    create_openai_heartbeat_chunk,
+    create_openai_stream_chunk,
+    extract_fake_stream_content,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
+    normalize_openai_request,
+    is_health_check_request,
+    create_health_check_response,
     openai_request_to_gemini_payload,
+    parse_gemini_stream_chunk,
 )
-from src.converter.gemini_fix import extract_content_and_reasoning
 from src.task_manager import create_managed_task
 
 # 创建路由器
@@ -80,47 +84,11 @@ async def chat_completions(
         raise HTTPException(status_code=400, detail=f"Request validation error: {str(e)}")
 
     # 健康检查
-    if (
-        len(request_data.messages) == 1
-        and getattr(request_data.messages[0], "role", None) == "user"
-        and getattr(request_data.messages[0], "content", None) == "Hi"
-    ):
-        return JSONResponse(
-            content={
-                "choices": [{"message": {"role": "assistant", "content": "gcli2api正常工作中"}}]
-            }
-        )
+    if is_health_check_request(request_data):
+        return JSONResponse(content=create_health_check_response())
 
-    # 限制max_tokens
-    if getattr(request_data, "max_tokens", None) is not None and request_data.max_tokens > 65535:
-        request_data.max_tokens = 65535
-
-    # 覆写 top_k 为 64
-    setattr(request_data, "top_k", 64)
-
-    # 过滤空消息
-    filtered_messages = []
-    for m in request_data.messages:
-        content = getattr(m, "content", None)
-        if content:
-            if isinstance(content, str) and content.strip():
-                filtered_messages.append(m)
-            elif isinstance(content, list) and len(content) > 0:
-                has_valid_content = False
-                for part in content:
-                    if isinstance(part, dict):
-                        if part.get("type") == "text" and part.get("text", "").strip():
-                            has_valid_content = True
-                            break
-                        elif part.get("type") == "image_url" and part.get("image_url", {}).get(
-                            "url"
-                        ):
-                            has_valid_content = True
-                            break
-                if has_valid_content:
-                    filtered_messages.append(m)
-
-    request_data.messages = filtered_messages
+    # 标准化请求数据（限制max_tokens、设置top_k、过滤空消息）
+    request_data = normalize_openai_request(request_data)
 
     # 处理模型名称和功能检测
     model = request_data.model
@@ -211,15 +179,7 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
     async def stream_generator():
         try:
             # 发送心跳
-            heartbeat = {
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": ""},
-                        "finish_reason": None,
-                    }
-                ]
-            }
+            heartbeat = create_openai_heartbeat_chunk()
             yield f"data: {json.dumps(heartbeat)}\n\n".encode()
 
             # 异步发送实际请求
@@ -257,119 +217,27 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
                 log.error(f"Fake streaming request failed: {e}")
                 raise
 
-            # 发送实际请求
-            # response 已在上面获取
+            # 从响应中提取内容（使用 converter 函数）
+            content, reasoning_content, usage = extract_fake_stream_content(response)
 
-            # 处理结果
-            if hasattr(response, "body"):
-                body_str = (
-                    response.body.decode()
-                    if isinstance(response.body, bytes)
-                    else str(response.body)
-                )
-            elif hasattr(response, "content"):
-                body_str = (
-                    response.content.decode()
-                    if isinstance(response.content, bytes)
-                    else str(response.content)
-                )
-            else:
-                body_str = str(response)
-
-            try:
-                response_data = json.loads(body_str)
-
-                # 从Gemini响应中提取内容，使用思维链分离逻辑
-                content = ""
-                reasoning_content = ""
-                if "candidates" in response_data and response_data["candidates"]:
-                    # Gemini格式响应 - 使用思维链分离
-                    candidate = response_data["candidates"][0]
-                    if "content" in candidate and "parts" in candidate["content"]:
-                        parts = candidate["content"]["parts"]
-                        content, reasoning_content = extract_content_and_reasoning(parts)
-                elif "choices" in response_data and response_data["choices"]:
-                    # OpenAI格式响应
-                    content = response_data["choices"][0].get("message", {}).get("content", "")
-
-                # 如果没有正常内容但有思维内容，给出警告
-                if not content and reasoning_content:
-                    log.warning("Fake stream response contains only thinking content")
-                    content = "[模型正在思考中，请稍后再试或重新提问]"
-
-                if content:
-                    # 构建响应块，包括思维内容（如果有）
-                    delta = {"role": "assistant", "content": content}
-                    if reasoning_content:
-                        delta["reasoning_content"] = reasoning_content
-
-                    # 转换usageMetadata为OpenAI格式
-                    usage = _convert_usage_metadata(response_data.get("usageMetadata"))
-
-                    # 构建完整的OpenAI格式的流式响应块
-                    content_chunk = {
-                        "id": str(uuid.uuid4()),
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": "gcli2api-streaming",
-                        "choices": [{"index": 0, "delta": delta, "finish_reason": "stop"}],
-                    }
-
-                    # 只有在有usage数据时才添加usage字段（确保在最后一个chunk中）
-                    if usage:
-                        content_chunk["usage"] = usage
-
-                    yield f"data: {json.dumps(content_chunk)}\n\n".encode()
-                else:
-                    log.warning(f"No content found in response: {response_data}")
-                    # 如果完全没有内容，提供默认回复
-                    error_chunk = {
-                        "id": str(uuid.uuid4()),
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": "gcli2api-streaming",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"role": "assistant", "content": "[响应为空，请重新尝试]"},
-                                "finish_reason": "stop",
-                            }
-                        ],
-                    }
-                    yield f"data: {json.dumps(error_chunk)}\n\n".encode()
-            except json.JSONDecodeError:
-                error_chunk = {
-                    "id": str(uuid.uuid4()),
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "gcli2api-streaming",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": body_str},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n".encode()
-
+            # 创建响应块（使用 converter 函数）
+            content_chunk = create_openai_stream_chunk(
+                content=content,
+                reasoning_content=reasoning_content,
+                usage=usage,
+                model="gcli2api-streaming",
+                finish_reason="stop"
+            )
+            yield f"data: {json.dumps(content_chunk)}\n\n".encode()
             yield "data: [DONE]\n\n".encode()
 
         except Exception as e:
             log.error(f"Fake streaming error: {e}")
-            error_chunk = {
-                "id": str(uuid.uuid4()),
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "gcli2api-streaming",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": f"Error: {str(e)}"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
+            error_chunk = create_openai_stream_chunk(
+                content=f"Error: {str(e)}",
+                model="gcli2api-streaming",
+                finish_reason="stop"
+            )
             yield f"data: {json.dumps(error_chunk)}\n\n".encode()
             yield "data: [DONE]\n\n".encode()
 
@@ -389,40 +257,24 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
                     if not chunk:
                         continue
 
-                    # 处理不同数据类型的startswith问题
-                    if isinstance(chunk, bytes):
-                        if not chunk.startswith(b"data: "):
-                            continue
-                        payload = chunk[len(b"data: ") :]
-                    else:
-                        chunk_str = str(chunk)
-                        if not chunk_str.startswith("data: "):
-                            continue
-                        payload = chunk_str[len("data: ") :].encode()
-                    try:
-                        gemini_chunk = json.loads(payload.decode())
-                        openai_chunk = gemini_stream_chunk_to_openai(
-                            gemini_chunk, model, response_id
-                        )
-                        yield f"data: {json.dumps(openai_chunk, separators=(',', ':'))}\n\n".encode()
-                    except json.JSONDecodeError:
+                    # 使用 converter 中的解析函数
+                    gemini_chunk = parse_gemini_stream_chunk(chunk)
+                    if gemini_chunk is None:
                         continue
+                    
+                    # 转换为 OpenAI 格式
+                    openai_chunk = gemini_stream_chunk_to_openai(
+                        gemini_chunk, model, response_id
+                    )
+                    yield f"data: {json.dumps(openai_chunk, separators=(',', ':'))}\n\n".encode()
             else:
                 # 其他类型的响应，尝试直接处理
                 log.warning(f"Unexpected response type: {type(gemini_response)}")
-                error_chunk = {
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": "Response type error"},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
+                error_chunk = create_openai_stream_chunk(
+                    content="Response type error",
+                    model=model,
+                    finish_reason="stop"
+                )
                 yield f"data: {json.dumps(error_chunk)}\n\n".encode()
 
             # 发送结束标记
@@ -430,19 +282,11 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
 
         except Exception as e:
             log.error(f"Stream conversion error: {e}")
-            error_chunk = {
-                "id": response_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": f"Stream error: {str(e)}"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
+            error_chunk = create_openai_stream_chunk(
+                content=f"Stream error: {str(e)}",
+                model=model,
+                finish_reason="stop"
+            )
             yield f"data: {json.dumps(error_chunk)}\n\n".encode()
             yield "data: [DONE]\n\n".encode()
 
