@@ -4,7 +4,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 """
 
 from typing import Any, Dict, List, Optional
-from copy import deepcopy
+import json
 
 # ==================== 公共工具函数 ====================
 
@@ -810,3 +810,149 @@ async def convert_antigravity_stream_to_gemini(
                 await client.aclose()
             except Exception as e:
                 log.debug(f"[ANTIGRAVITY GEMINI] Error closing client: {e}")
+
+
+# ==================== Gemini流式回复收集器 ====================
+
+async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
+    """
+    将Gemini流式响应收集为一条完整的非流式响应
+    
+    Args:
+        stream_generator: 流式响应生成器，产生 "data: {json}" 格式的行
+        
+    Returns:
+        合并后的完整响应字典
+        
+    Example:
+        >>> async for line in stream_generator:
+        ...     # line format: "data: {...}"
+        >>> response = await collect_streaming_response(stream_generator)
+    """
+    from log import log
+    
+    # 初始化响应结构
+    merged_response = {
+        "response": {
+            "candidates": [{
+                "content": {
+                    "parts": [],
+                    "role": "model"
+                },
+                "finishReason": None,
+                "safetyRatings": [],
+                "citationMetadata": None
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 0,
+                "candidatesTokenCount": 0,
+                "totalTokenCount": 0
+            }
+        }
+    }
+    
+    collected_text = []  # 用于收集文本内容
+    collected_thought_text = []  # 用于收集思维链内容
+    has_data = False
+    
+    try:
+        async for line in stream_generator:
+            if not isinstance(line, str):
+                continue
+                
+            # 解析流式数据行
+            if not line.startswith("data: "):
+                continue
+                
+            raw = line[6:].strip()
+            if raw == "[DONE]":
+                break
+                
+            try:
+                chunk = json.loads(raw)
+                has_data = True
+                
+                # 提取响应对象
+                response_obj = chunk.get("response", {})
+                if not response_obj:
+                    continue
+                    
+                candidates = response_obj.get("candidates", [])
+                if not candidates:
+                    continue
+                    
+                candidate = candidates[0]
+                
+                # 收集文本内容
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                
+                for part in parts:
+                    if not isinstance(part, dict):
+                        continue
+                    
+                    text = part.get("text", "")
+                    if not text:
+                        continue
+                    
+                    # 区分普通文本和思维链
+                    if part.get("thought", False):
+                        collected_thought_text.append(text)
+                    else:
+                        collected_text.append(text)
+                
+                # 收集其他信息（使用最后一个块的值）
+                if candidate.get("finishReason"):
+                    merged_response["response"]["candidates"][0]["finishReason"] = candidate["finishReason"]
+                
+                if candidate.get("safetyRatings"):
+                    merged_response["response"]["candidates"][0]["safetyRatings"] = candidate["safetyRatings"]
+                
+                if candidate.get("citationMetadata"):
+                    merged_response["response"]["candidates"][0]["citationMetadata"] = candidate["citationMetadata"]
+                
+                # 更新使用元数据
+                usage = response_obj.get("usageMetadata", {})
+                if usage:
+                    merged_response["response"]["usageMetadata"].update(usage)
+                    
+            except json.JSONDecodeError as e:
+                log.debug(f"[STREAM COLLECTOR] Failed to parse JSON chunk: {e}")
+                continue
+            except Exception as e:
+                log.debug(f"[STREAM COLLECTOR] Error processing chunk: {e}")
+                continue
+    
+    except Exception as e:
+        log.error(f"[STREAM COLLECTOR] Error collecting stream: {e}")
+        raise
+    
+    # 如果没有收集到任何数据，返回错误
+    if not has_data:
+        raise Exception("No data collected from stream")
+    
+    # 组装最终的parts
+    final_parts = []
+    
+    # 先添加思维链内容（如果有）
+    if collected_thought_text:
+        final_parts.append({
+            "text": "".join(collected_thought_text),
+            "thought": True
+        })
+    
+    # 再添加普通文本内容
+    if collected_text:
+        final_parts.append({
+            "text": "".join(collected_text)
+        })
+    
+    # 如果没有任何内容，添加空文本
+    if not final_parts:
+        final_parts.append({"text": ""})
+    
+    merged_response["response"]["candidates"][0]["content"]["parts"] = final_parts
+    
+    log.info(f"[STREAM COLLECTOR] Collected {len(collected_text)} text chunks and {len(collected_thought_text)} thought chunks")
+    
+    return merged_response

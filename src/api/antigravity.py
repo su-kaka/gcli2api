@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Tuple
 from config import (
     get_antigravity_api_url,
     get_return_thoughts_to_frontend,
+    get_use_stream_for_non_stream,
 )
 from log import log
 
@@ -19,7 +20,8 @@ from src.httpx_client import create_streaming_client_with_kwargs, http_client
 from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
 from src.converter.gemini_fix import (
-    filter_thoughts_from_stream_chunk
+    filter_thoughts_from_stream_chunk,
+    collect_streaming_response
 )
 
 # 导入共同的基础功能
@@ -281,6 +283,9 @@ async def send_antigravity_request_no_stream(
     发送 Antigravity 非流式请求
     
     使用统一的重试和错误处理逻辑。
+    支持两种模式：
+    1. 传统非流式请求（直接调用非流式API）
+    2. 流式收集模式（调用流式API并收集为完整响应）
     
     Args:
         request_body: Antigravity格式的请求体
@@ -291,6 +296,84 @@ async def send_antigravity_request_no_stream(
         
     Raises:
         Exception: 如果所有重试都失败
+    """
+    # 检查是否启用流式收集模式
+    use_stream_for_non_stream = await get_use_stream_for_non_stream()
+    
+    if use_stream_for_non_stream:
+        log.info("[ANTIGRAVITY] Using stream collection mode for non-stream request")
+        return await _send_antigravity_request_no_stream_via_stream(request_body, credential_manager)
+    else:
+        log.info("[ANTIGRAVITY] Using traditional non-stream mode")
+        return await _send_antigravity_request_no_stream_traditional(request_body, credential_manager)
+
+
+async def _send_antigravity_request_no_stream_via_stream(
+    request_body: Dict[str, Any],
+    credential_manager: CredentialManager,
+) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
+    """
+    通过流式API实现非流式请求（收集完整响应）
+    
+    Args:
+        request_body: Antigravity格式的请求体
+        credential_manager: 凭证管理器实例
+        
+    Returns:
+        元组: (response_data, credential_name, credential_data)
+    """
+    try:
+        # 调用流式请求获取生成器
+        stream_result = await send_antigravity_request_stream(request_body, credential_manager)
+        
+        if not stream_result:
+            raise Exception("Failed to get stream response")
+        
+        response_iterator, credential_name, credential_data = stream_result
+        
+        # 提取实际的生成器（response_iterator是一个元组）
+        if isinstance(response_iterator, tuple):
+            stream_generator = response_iterator[0]
+        else:
+            stream_generator = response_iterator
+        
+        # 收集流式响应
+        log.info("[ANTIGRAVITY] Collecting streaming response...")
+        collected_response = await collect_streaming_response(stream_generator)
+        
+        # 过滤思维链（如果需要）
+        return_thoughts = await get_return_thoughts_to_frontend()
+        if not return_thoughts:
+            try:
+                candidate = (collected_response.get("response", {}) or {}).get("candidates", [{}])[0] or {}
+                parts = (candidate.get("content", {}) or {}).get("parts", []) or []
+                filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]
+                if filtered_parts != parts:
+                    candidate["content"]["parts"] = filtered_parts
+            except Exception as e:
+                log.debug(f"[ANTIGRAVITY] Failed to filter thinking from collected response: {e}")
+        
+        log.info("[ANTIGRAVITY] Successfully collected complete response from stream")
+        return collected_response, credential_name, credential_data
+        
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY] Stream collection failed: {e}")
+        raise
+
+
+async def _send_antigravity_request_no_stream_traditional(
+    request_body: Dict[str, Any],
+    credential_manager: CredentialManager,
+) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
+    """
+    传统的非流式请求实现
+    
+    Args:
+        request_body: Antigravity格式的请求体
+        credential_manager: 凭证管理器实例
+        
+    Returns:
+        元组: (response_data, credential_name, credential_data)
     """
     retry_config = await get_retry_config()
     retry_enabled = retry_config["retry_enabled"]
