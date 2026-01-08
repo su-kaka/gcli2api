@@ -4,6 +4,43 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 """
 
 from typing import Any, Dict, List, Optional
+from copy import deepcopy
+
+# ==================== 公共工具函数 ====================
+
+def safe_get_nested(obj: Any, *keys: str, default: Any = None) -> Any:
+    """安全获取嵌套字典值
+    
+    Args:
+        obj: 字典对象
+        *keys: 嵌套键路径
+        default: 默认值
+    
+    Returns:
+        获取到的值或默认值
+    """
+    for key in keys:
+        if not isinstance(obj, dict):
+            return default
+        obj = obj.get(key, default)
+        if obj is default:
+            return default
+    return obj
+
+
+def update_dict_if_missing(target: Dict[str, Any], updates: Dict[str, Any]) -> None:
+    """仅在键不存在时更新字典
+    
+    Args:
+        target: 目标字典
+        updates: 要更新的键值对
+    """
+    for key, value in updates.items():
+        if key not in target:
+            target[key] = value
+
+
+# ==================== Gemini API 配置 ====================
 
 # Gemini API 不支持的 JSON Schema 字段集合
 # 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
@@ -28,82 +65,86 @@ def extract_content_and_reasoning(parts: list) -> tuple:
     
     Returns:
         (content, reasoning_content): 文本内容和推理内容的元组
-        reasoning_content 现在是字符串（保持向后兼容）
     """
     content = ""
     reasoning_content = ""
 
     for part in parts:
-        # 处理文本内容
-        if part.get("text"):
-            # 检查这个部件是否包含thinking tokens
+        text = part.get("text", "")
+        if text:
             if part.get("thought", False):
-                reasoning_content += part.get("text", "")
+                reasoning_content += text
             else:
-                content += part.get("text", "")
+                content += text
 
     return content, reasoning_content
 
 
-def filter_thoughts_from_response(response_data: dict) -> dict:
+def _filter_parts(parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """过滤掉包含 thought 字段的 parts
+    
+    Args:
+        parts: parts 列表
+    
+    Returns:
+        过滤后的 parts 列表
     """
-    从响应数据中过滤掉思维内容（如果配置禁用）
+    return [
+        part for part in parts
+        if not (isinstance(part, dict) and part.get("thought"))
+    ]
+
+
+def filter_thoughts_from_response(response_data: dict) -> dict:
+    """从响应数据中过滤掉思维内容
     
     Args:
         response_data: Gemini API 响应数据
     
     Returns:
-        修改后的响应数据（已移除 thoughts）
+        修改后的响应数据(已移除 thoughts)
     """
-    if not isinstance(response_data, dict):
-        return response_data
-
-    # 检查是否存在candidates字段
-    if "candidates" not in response_data:
+    if not isinstance(response_data, dict) or "candidates" not in response_data:
         return response_data
 
     # 遍历candidates并移除thoughts
     for candidate in response_data.get("candidates", []):
-        if "content" in candidate and isinstance(candidate["content"], dict):
-            if "parts" in candidate["content"]:
-                # 过滤掉包含thought字段的parts
-                candidate["content"]["parts"] = [
-                    part for part in candidate["content"]["parts"]
-                    if not isinstance(part, dict) or "thought" not in part
-                ]
+        parts = safe_get_nested(candidate, "content", "parts")
+        if parts and isinstance(parts, list):
+            candidate["content"]["parts"] = _filter_parts(parts)
 
     return response_data
 
 
 def filter_thoughts_from_stream_chunk(chunk_data: dict) -> Optional[dict]:
-    """
-    从流式响应块中过滤思维内容
+    """从流式响应块中过滤思维内容
     
     Args:
         chunk_data: 单个流式响应块
     
     Returns:
-        过滤后的响应块，如果过滤后为空则返回 None
+        过滤后的响应块,如果过滤后为空则返回 None
     """
     if not isinstance(chunk_data, dict):
         return chunk_data
 
     # 提取候选响应
-    candidate = (chunk_data.get("candidates", []) or [{}])[0] or {}
-    parts = (candidate.get("content", {}) or {}).get("parts", []) or []
+    candidates = chunk_data.get("candidates", [])
+    if not candidates:
+        return chunk_data
+    
+    candidate = candidates[0] if candidates else {}
+    parts = safe_get_nested(candidate, "content", "parts", default=[])
 
     # 过滤掉思维链部分
-    filtered_parts = [
-        part for part in parts 
-        if not (isinstance(part, dict) and part.get("thought") is True)
-    ]
+    filtered_parts = _filter_parts(parts)
 
-    # 如果过滤后为空且原来有内容，返回 None 表示跳过这个块
+    # 如果过滤后为空且原来有内容,返回 None 表示跳过这个块
     if not filtered_parts and parts:
         return None
 
     # 更新parts
-    if filtered_parts != parts:
+    if filtered_parts != parts and "content" in candidate:
         candidate["content"]["parts"] = filtered_parts
 
     return chunk_data
@@ -178,8 +219,7 @@ def process_generation_config(
     max_output_tokens_limit: int = 65535,
     default_top_k: int = 64
 ) -> Dict[str, Any]:
-    """
-    处理 generationConfig，应用限制和默认值
+    """处理 generationConfig,应用限制和默认值
     
     Args:
         generation_config: 原始的生成配置
@@ -189,21 +229,17 @@ def process_generation_config(
     Returns:
         处理后的 generationConfig
     """
-    if not generation_config:
-        generation_config = {}
-    else:
-        generation_config = generation_config.copy()
+    config = generation_config.copy() if generation_config else {}
     
     # 限制 maxOutputTokens
-    if "maxOutputTokens" in generation_config and generation_config["maxOutputTokens"] is not None:
-        if generation_config["maxOutputTokens"] > max_output_tokens_limit:
-            generation_config["maxOutputTokens"] = max_output_tokens_limit
+    max_tokens = config.get("maxOutputTokens")
+    if max_tokens is not None and max_tokens > max_output_tokens_limit:
+        config["maxOutputTokens"] = max_output_tokens_limit
     
     # 设置默认的 topK
-    if "topK" not in generation_config:
-        generation_config["topK"] = default_top_k
+    update_dict_if_missing(config, {"topK": default_top_k})
     
-    return generation_config
+    return config
 
 
 def setup_thinking_config(
@@ -212,8 +248,7 @@ def setup_thinking_config(
     get_thinking_budget_func,
     should_include_thoughts_func
 ) -> Dict[str, Any]:
-    """
-    设置 thinkingConfig 配置
+    """设置 thinkingConfig 配置
     
     Args:
         generation_config: 生成配置字典
@@ -224,29 +259,27 @@ def setup_thinking_config(
     Returns:
         更新后的 generationConfig
     """
-    generation_config = generation_config.copy()
+    config = generation_config.copy()
+    thinking_budget = get_thinking_budget_func(model_name)
     
-    # 如果未指定 thinkingConfig
-    if "thinkingConfig" not in generation_config:
-        thinking_budget = get_thinking_budget_func(model_name)
-        
-        # 只有在有 thinking budget 时才添加 thinkingConfig
-        if thinking_budget is not None:
-            generation_config["thinkingConfig"] = {
-                "thinkingBudget": thinking_budget,
-                "includeThoughts": should_include_thoughts_func(model_name)
-            }
+    # 只有在有 thinking budget 时才处理
+    if thinking_budget is None:
+        return config
+    
+    # 如果未指定 thinkingConfig,创建新的
+    if "thinkingConfig" not in config:
+        config["thinkingConfig"] = {
+            "thinkingBudget": thinking_budget,
+            "includeThoughts": should_include_thoughts_func(model_name)
+        }
     else:
-        # 如果用户已经提供了 thinkingConfig，但没有设置某些字段，填充默认值
-        thinking_config = generation_config["thinkingConfig"]
-        if "thinkingBudget" not in thinking_config:
-            thinking_budget = get_thinking_budget_func(model_name)
-            if thinking_budget is not None:
-                thinking_config["thinkingBudget"] = thinking_budget
-        if "includeThoughts" not in thinking_config:
-            thinking_config["includeThoughts"] = should_include_thoughts_func(model_name)
+        # 填充缺失的字段
+        update_dict_if_missing(config["thinkingConfig"], {
+            "thinkingBudget": thinking_budget,
+            "includeThoughts": should_include_thoughts_func(model_name)
+        })
     
-    return generation_config
+    return config
 
 
 def setup_search_tools(
@@ -254,8 +287,7 @@ def setup_search_tools(
     model_name: str,
     is_search_model_func
 ) -> Dict[str, Any]:
-    """
-    为搜索模型添加 Google Search 工具
+    """为搜索模型添加 Google Search 工具
     
     Args:
         request_data: 请求数据
@@ -265,27 +297,23 @@ def setup_search_tools(
     Returns:
         更新后的请求数据
     """
-    request_data = request_data.copy()
-    
     if not is_search_model_func(model_name):
         return request_data
     
-    if "tools" not in request_data:
-        request_data["tools"] = []
+    data = request_data.copy()
+    tools = data.setdefault("tools", [])
     
-    # 检查是否已有 functionDeclarations 或 googleSearch 工具
-    has_function_declarations = any(
-        tool.get("functionDeclarations") for tool in request_data["tools"]
-    )
-    has_google_search = any(
-        tool.get("googleSearch") for tool in request_data["tools"]
+    # 检查是否已有工具
+    has_tools = any(
+        tool.get("functionDeclarations") or tool.get("googleSearch")
+        for tool in tools
     )
     
     # 只有在没有任何工具时才添加 googleSearch
-    if not has_function_declarations and not has_google_search:
-        request_data["tools"].append({"googleSearch": {}})
+    if not has_tools:
+        tools.append({"googleSearch": {}})
     
-    return request_data
+    return data
 
 
 def build_antigravity_generation_config(
@@ -293,11 +321,10 @@ def build_antigravity_generation_config(
     enable_thinking: bool,
     model_name: str
 ) -> Dict[str, Any]:
-    """
-    生成 Antigravity generationConfig
+    """生成 Antigravity generationConfig
     
     Args:
-        parameters: 参数字典（temperature, top_p, max_tokens等）
+        parameters: 参数字典(temperature, top_p, max_tokens等)
         enable_thinking: 是否启用思考模式
         model_name: 模型名称
     
@@ -305,47 +332,40 @@ def build_antigravity_generation_config(
         Antigravity 格式的 generationConfig
     """
     # 构建基础配置
-    config_dict = {
+    config = {
         "candidateCount": 1,
         "stopSequences": [
-            "<|user|>",
-            "<|bot|>",
-            "<|context_request|>",
-            "<|endoftext|>",
-            "<|end_of_turn|>"
+            "<|user|>", "<|bot|>", "<|context_request|>",
+            "<|endoftext|>", "<|end_of_turn|>"
         ],
-        "topK": parameters.get("top_k", 50),  # 默认值 50
+        "topK": parameters.get("top_k", 50),
     }
     
-    # 添加可选参数
-    if "temperature" in parameters:
-        config_dict["temperature"] = parameters["temperature"]
+    # 参数映射:parameters key -> config key
+    param_mapping = {
+        "temperature": "temperature",
+        "top_p": "topP",
+        "max_tokens": "maxOutputTokens",
+        "response_modalities": "response_modalities",
+        "image_config": "image_config"
+    }
     
-    if "top_p" in parameters:
-        config_dict["topP"] = parameters["top_p"]
-    
-    if "max_tokens" in parameters:
-        config_dict["maxOutputTokens"] = parameters["max_tokens"]
-    
-    # 图片生成相关参数
-    if "response_modalities" in parameters:
-        config_dict["response_modalities"] = parameters["response_modalities"]
-    
-    if "image_config" in parameters:
-        config_dict["image_config"] = parameters["image_config"]
+    # 批量添加可选参数
+    for param_key, config_key in param_mapping.items():
+        if param_key in parameters:
+            config[config_key] = parameters[param_key]
     
     # 思考模型配置
     if enable_thinking:
-        config_dict["thinkingConfig"] = {
+        config["thinkingConfig"] = {
             "includeThoughts": True,
             "thinkingBudget": 1024
         }
-        
-        # Claude 思考模型：删除 topP 参数
+        # Claude 思考模型:删除 topP 参数
         if "claude" in model_name.lower():
-            config_dict.pop("topP", None)
+            config.pop("topP", None)
     
-    return config_dict
+    return config
 
 
 def build_antigravity_request_body(
@@ -487,8 +507,7 @@ def build_gemini_request_payload(
     is_search_model_func,
     default_safety_settings: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """
-    从原生 Gemini 请求构建完整的 Gemini API payload
+    """从原生 Gemini 请求构建完整的 Gemini API payload
     整合了所有的配置处理、工具清理、安全设置等逻辑
     
     Args:
@@ -503,45 +522,33 @@ def build_gemini_request_payload(
     Returns:
         完整的 Gemini API payload
     """
-    # 创建请求副本以避免修改原始数据
     request_data = native_request.copy()
     
-    # 1. 增量补全安全设置
+    # 增量补全安全设置
     user_settings = list(request_data.get("safetySettings", []))
     existing_categories = {s.get("category") for s in user_settings}
     user_settings.extend(
-        default_setting for default_setting in default_safety_settings
-        if default_setting["category"] not in existing_categories
+        s for s in default_safety_settings
+        if s["category"] not in existing_categories
     )
     request_data["safetySettings"] = user_settings
     
-    # 2. 确保 generationConfig 存在并处理
-    if "generationConfig" not in request_data:
-        request_data["generationConfig"] = {}
-    
-    generation_config = request_data["generationConfig"]
-    
-    # 3. 配置 thinkingConfig
-    generation_config = setup_thinking_config(
-        generation_config,
-        model_from_path,
-        get_thinking_budget_func,
-        should_include_thoughts_func
+    # 配置 thinkingConfig
+    gen_config = request_data.setdefault("generationConfig", {})
+    request_data["generationConfig"] = setup_thinking_config(
+        gen_config, model_from_path,
+        get_thinking_budget_func, should_include_thoughts_func
     )
-    request_data["generationConfig"] = generation_config
     
-    # 4. 清理工具定义中不支持的 JSON Schema 字段
-    if "tools" in request_data and request_data["tools"]:
+    # 清理工具定义
+    if request_data.get("tools"):
         request_data["tools"] = clean_tools_for_gemini(request_data["tools"])
     
-    # 5. 为搜索模型添加 Google Search 工具
+    # 为搜索模型添加 Google Search 工具
     request_data = setup_search_tools(
-        request_data,
-        model_from_path,
-        is_search_model_func
+        request_data, model_from_path, is_search_model_func
     )
     
-    # 6. 构建最终 payload
     return {
         "model": get_base_model_name_func(model_from_path),
         "request": request_data
@@ -607,8 +614,7 @@ def parse_streaming_chunk(chunk: str, return_thoughts: bool) -> Optional[Dict[st
 
 
 def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
-    """
-    从完整响应中提取内容和推理内容（用于假流式）
+    """从完整响应中提取内容和推理内容(用于假流式)
     
     Args:
         response_data: Gemini API 响应数据
@@ -616,24 +622,39 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
     Returns:
         (content, reasoning_content, finish_reason): 内容、推理内容和结束原因的元组
     """
-    content = ""
-    reasoning_content = ""
-    finish_reason = "STOP"
+    candidates = response_data.get("candidates", [])
+    if not candidates:
+        return "", "", "STOP"
     
-    if "candidates" in response_data and response_data["candidates"]:
-        candidate = response_data["candidates"][0]
-        finish_reason = candidate.get("finishReason", "STOP")
-        
-        if "content" in candidate and "parts" in candidate["content"]:
-            parts = candidate["content"]["parts"]
-            content, reasoning_content = extract_content_and_reasoning(parts)
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason", "STOP")
+    parts = safe_get_nested(candidate, "content", "parts", default=[])
+    content, reasoning_content = extract_content_and_reasoning(parts)
     
     return content, reasoning_content, finish_reason
 
 
-def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str) -> List[Dict[str, Any]]:
+def _build_candidate(parts: List[Dict[str, Any]], finish_reason: str = "STOP") -> Dict[str, Any]:
+    """构建标准候选响应结构
+    
+    Args:
+        parts: parts 列表
+        finish_reason: 结束原因
+    
+    Returns:
+        候选响应字典
     """
-    构建假流式响应的数据块
+    return {
+        "candidates": [{
+            "content": {"parts": parts, "role": "model"},
+            "finishReason": finish_reason,
+            "index": 0,
+        }]
+    }
+
+
+def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str) -> List[Dict[str, Any]]:
+    """构建假流式响应的数据块
     
     Args:
         content: 主要内容
@@ -643,57 +664,28 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
     Returns:
         响应数据块列表
     """
-    chunks = []
+    # 如果没有正常内容但有思维内容,提供默认回复
+    if not content:
+        default_text = "[模型正在思考中,请稍后再试或重新提问]" if reasoning_content else "[响应为空,请重新尝试]"
+        return [_build_candidate([{"text": default_text}])]
     
-    # 如果没有正常内容但有思维内容，提供默认回复
-    if not content and reasoning_content:
-        content = "[模型正在思考中，请稍后再试或重新提问]"
+    # 构建包含分离内容的响应
+    parts = [{"text": content}]
+    if reasoning_content:
+        parts.append({"text": reasoning_content, "thought": True})
     
-    if content:
-        # 构建包含分离内容的响应
-        parts_response = [{"text": content}]
-        if reasoning_content:
-            parts_response.append({"text": reasoning_content, "thought": True})
-        
-        chunk = {
-            "candidates": [{
-                "content": {"parts": parts_response, "role": "model"},
-                "finishReason": finish_reason,
-                "index": 0,
-            }]
-        }
-        chunks.append(chunk)
-    else:
-        # 提供默认回复
-        chunk = {
-            "candidates": [{
-                "content": {
-                    "parts": [{"text": "[响应为空，请重新尝试]"}],
-                    "role": "model",
-                },
-                "finishReason": "STOP",
-                "index": 0,
-            }]
-        }
-        chunks.append(chunk)
-    
-    return chunks
+    return [_build_candidate(parts, finish_reason)]
 
 
 def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
-    """
-    创建 Gemini 格式的心跳数据块
+    """创建 Gemini 格式的心跳数据块
     
     Returns:
         心跳数据块
     """
-    return {
-        "candidates": [{
-            "content": {"parts": [{"text": ""}], "role": "model"},
-            "finishReason": None,
-            "index": 0,
-        }]
-    }
+    chunk = _build_candidate([{"text": ""}])
+    chunk["candidates"][0]["finishReason"] = None
+    return chunk
 
 
 def create_gemini_error_chunk(message: str, error_type: str = "api_error", code: int = 500) -> Dict[str, Any]:
