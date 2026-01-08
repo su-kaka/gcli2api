@@ -137,17 +137,25 @@ def handle_geminicli_streaming_response(
         try:
             log.debug(f"[GEMINICLI-STREAM] Starting to iterate response lines")
             async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
+                # 处理 bytes 类型
+                if isinstance(line, bytes):
+                    if not line or not line.startswith(b"data: "):
+                        continue
+                    # 解码 bytes
+                    line_str = line.decode('utf-8', errors='ignore')
+                else:
+                    if not line or not line.startswith("data: "):
+                        continue
+                    line_str = line
 
                 line_count += 1
-                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")
+                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line_str[:100] if line_str else '(empty)'}")
 
                 try:
-                    payload_str = line[6:]  # 去掉 "data: " 前缀
+                    payload_str = line_str[6:]  # 去掉 "data: " 前缀
                     if payload_str.strip() == "[DONE]":
                         log.debug(f"[GEMINICLI-STREAM] Yielding [DONE] marker")
-                        yield f"data: [DONE]\n\n".encode()
+                        yield b"data: [DONE]\n\n"
                         continue
 
                     # 解析 JSON 并去掉包装
@@ -162,7 +170,7 @@ def handle_geminicli_streaming_response(
                 except (json.JSONDecodeError, KeyError) as e:
                     # 解析失败，直接传递原始行（确保格式正确）
                     log.warning(f"[GEMINICLI-STREAM] Failed to parse line, passing through: {e}")
-                    yield f"{line}\n\n".encode()
+                    yield f"{line_str}\n\n".encode()
                     await asyncio.sleep(0)
 
             log.info(f"[GEMINICLI-STREAM] Finished iterating. Total lines: {line_count}")

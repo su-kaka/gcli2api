@@ -102,20 +102,36 @@ def handle_streaming_response(
 
         try:
             async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
+                # 处理 bytes 类型
+                if isinstance(line, bytes):
+                    if not line or not line.startswith(b"data: "):
+                        continue
+                    line_count += 1
+                    log.debug(f"[ANTIGRAVITY STREAM] Received line {line_count}: {line[:200] if line else b'empty'}")
 
-                line_count += 1
-                log.debug(f"[ANTIGRAVITY STREAM] Received line {line_count}: {line[:200] if line else 'empty'}")
+                    raw = line[6:].strip()
+                    if raw == b"[DONE]":
+                        yield b"data: [DONE]\n\n"
+                        continue
 
-                raw = line[6:].strip()
-                if raw == "[DONE]":
-                    yield f"data: [DONE]\n\n".encode()
-                    continue
+                    # 解码 bytes 后再解析 JSON
+                    raw_str = raw.decode('utf-8', errors='ignore')
+                else:
+                    if not line or not line.startswith("data: "):
+                        continue
+                    line_count += 1
+                    log.debug(f"[ANTIGRAVITY STREAM] Received line {line_count}: {line[:200] if line else 'empty'}")
+
+                    raw = line[6:].strip()
+                    if raw == "[DONE]":
+                        yield b"data: [DONE]\n\n"
+                        continue
+
+                    raw_str = raw
 
                 try:
-                    log.debug(f"[ANTIGRAVITY STREAM] Parsing JSON: {raw[:200]}")
-                    data = json.loads(raw)
+                    log.debug(f"[ANTIGRAVITY STREAM] Parsing JSON: {raw_str[:200]}")
+                    data = json.loads(raw_str)
                     log.debug(f"[ANTIGRAVITY STREAM] Parsed data keys: {data.keys() if isinstance(data, dict) else type(data)}")
                     # 去掉 Antigravity 的 response 包装
                     data = unwrap_geminicli_response(data)
