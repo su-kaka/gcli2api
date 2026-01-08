@@ -13,14 +13,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from config import get_anti_truncation_max_attempts
 from log import log
-from ...utils import is_anti_truncation_model, authenticate_bearer, get_base_model_from_feature_model
-from ...api.antigravity import (
+from src.utils import is_anti_truncation_model, authenticate_bearer
+from src.api.antigravity import (
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
     fetch_available_models,
 )
-from ...credential_manager import CredentialManager
-from ...models import (
+from src.credential_manager import CredentialManager
+from src.models import (
     ChatCompletionRequest,
     Model,
     ModelList,
@@ -128,7 +128,7 @@ async def convert_antigravity_stream_to_openai(
             except:
                 continue
 
-            # Antigravity 响应格式: {"response": {...}}
+            # Antigravity 响应格式: {"response": {src.}}
             # 提取内层的 Gemini 格式数据
             gemini_chunk = data.get("response", data)
 
