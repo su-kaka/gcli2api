@@ -1,18 +1,22 @@
 """
-OpenAI Router - Handles OpenAI format API requests
-处理OpenAI格式请求的路由模块
+GeminiCLI OpenAI Router - OpenAI格式API路由
+通过GeminiCLI处理OpenAI格式的聊天完成请求
 """
 
+# 标准库
 import asyncio
 import json
 import uuid
 
+# 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from config import (
-    get_anti_truncation_max_attempts,
-)
+# 本地模块 - 配置和日志
+from config import get_anti_truncation_max_attempts
+from log import log
+
+# 本地模块 - 工具和认证
 from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
@@ -20,12 +24,13 @@ from src.utils import (
     is_fake_streaming_model,
     authenticate_bearer,
 )
-from log import log
 
-from src.converter.anti_truncation import apply_anti_truncation_to_stream
-from src.credential_manager import CredentialManager
-from api.geminicli import send_gemini_request
+# 本地模块 - 模型和API客户端
 from src.models import ChatCompletionRequest, Model, ModelList
+from src.api.geminicli import send_gemini_request
+
+# 本地模块 - 转换器
+from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.converter.openai2gemini import (
     create_openai_heartbeat_chunk,
     create_openai_stream_chunk,
@@ -38,26 +43,29 @@ from src.converter.openai2gemini import (
     openai_request_to_gemini_payload,
     parse_gemini_stream_chunk,
 )
+
+# 本地模块 - 基础路由工具
+from src.router.base_router import get_credential_manager
+
+# 本地模块 - 任务管理
 from src.task_manager import create_managed_task
 
-# 创建路由器
+
+# ==================== 路由器初始化 ====================
+
 router = APIRouter()
 
-# 全局凭证管理器实例
-credential_manager = None
 
-
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    return credential_manager
+# ==================== API 路由 ====================
 
 @router.get("/v1/models", response_model=ModelList)
 async def list_models(token: str = Depends(authenticate_bearer)):
-    """返回OpenAI格式的模型列表"""
+    """
+    返回OpenAI格式的模型列表
+    
+    Returns:
+        ModelList: 可用模型列表
+    """
     models = get_available_models("openai")
     return ModelList(data=[Model(id=m) for m in models])
 
@@ -67,8 +75,22 @@ async def chat_completions(
     request: Request,
     token: str = Depends(authenticate_bearer)
 ):
-    """处理OpenAI格式的聊天完成请求"""
-
+    """
+    处理OpenAI格式的聊天完成请求
+    
+    支持功能：
+    - 健康检查
+    - 假流式响应
+    - 流式抗截断
+    - 标准流式/非流式响应
+    
+    Args:
+        request: FastAPI请求对象
+        token: Bearer认证令牌
+        
+    Returns:
+        JSONResponse或StreamingResponse
+    """
     # 获取原始请求数据
     try:
         raw_data = await request.json()
@@ -100,8 +122,6 @@ async def chat_completions(
     request_data.model = real_model
 
     # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-
     cred_mgr = await get_credential_manager()
 
     # 获取有效凭证
@@ -173,9 +193,21 @@ async def chat_completions(
         raise HTTPException(status_code=500, detail="Response conversion failed")
 
 
-async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -> StreamingResponse:
-    """处理假流式响应"""
+# ==================== 辅助函数 ====================
 
+async def fake_stream_response(api_payload: dict, cred_mgr) -> StreamingResponse:
+    """
+    处理假流式响应
+    
+    通过定期发送心跳保持连接，实际请求完成后一次性返回结果
+    
+    Args:
+        api_payload: Gemini API请求负载
+        cred_mgr: 凭证管理器实例
+        
+    Returns:
+        StreamingResponse: SSE格式的流式响应
+    """
     async def stream_generator():
         try:
             # 发送心跳
@@ -245,7 +277,16 @@ async def fake_stream_response(api_payload: dict, cred_mgr: CredentialManager) -
 
 
 async def convert_streaming_response(gemini_response, model: str) -> StreamingResponse:
-    """转换流式响应为OpenAI格式"""
+    """
+    转换Gemini流式响应为OpenAI格式
+    
+    Args:
+        gemini_response: Gemini API流式响应对象
+        model: 模型名称
+        
+    Returns:
+        StreamingResponse: OpenAI格式的SSE流式响应
+    """
     response_id = str(uuid.uuid4())
 
     async def openai_stream_generator():

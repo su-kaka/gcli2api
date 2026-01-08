@@ -189,10 +189,6 @@ async def stream_generate_content(
         log.error(f"Failed to parse JSON request: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
 
-    # 验证必要字段
-    if "contents" not in request_data or not request_data["contents"]:
-        raise HTTPException(status_code=400, detail="Missing required field: contents")
-
     # 请求预处理：使用统一的配置处理函数
     request_data["generationConfig"] = process_generation_config(
         request_data.get("generationConfig")

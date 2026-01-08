@@ -36,6 +36,9 @@ from src.converter.gemini_fix import (
     build_antigravity_generation_config,
     build_antigravity_request_body,
     prepare_image_generation_request,
+    gemini_contents_to_antigravity_contents,
+    convert_antigravity_response_to_gemini,
+    convert_antigravity_stream_to_gemini,
 )
 
 # 本地模块 - 基础路由工具
@@ -97,108 +100,6 @@ def is_thinking_model(model_name: str) -> bool:
         return True
 
     return False
-
-
-# ==================== 格式转换函数 ====================
-
-def gemini_contents_to_antigravity_contents(gemini_contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    将 Gemini 原生 contents 格式转换为 Antigravity contents 格式
-    
-    Args:
-        gemini_contents: Gemini 格式的 contents
-        
-    Returns:
-        Antigravity 格式的 contents（当前格式一致，直接返回）
-    """
-    return gemini_contents
-
-
-def convert_antigravity_response_to_gemini(
-    response_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    将 Antigravity 非流式响应转换为 Gemini 格式
-    
-    Args:
-        response_data: Antigravity 响应数据
-        
-    Returns:
-        Gemini 格式的响应数据
-        
-    Note:
-        Antigravity 响应格式: {"response": {...}}
-        Gemini 响应格式: {...}
-    """
-    return response_data.get("response", response_data)
-
-
-async def convert_antigravity_stream_to_gemini(
-    lines_generator: Any,
-    stream_ctx: Any,
-    client: Any,
-    credential_manager: Any,
-    credential_name: str
-):
-    """
-    将 Antigravity 流式响应转换为 Gemini 格式的 SSE 流
-
-    Args:
-        lines_generator: 行生成器（已经过滤的 SSE 行）
-        stream_ctx: 流上下文
-        client: HTTP 客户端
-        credential_manager: 凭证管理器
-        credential_name: 凭证名称
-    """
-    success_recorded = False
-
-    try:
-        async for line in lines_generator:
-            if not line or not line.startswith("data: "):
-                continue
-
-            # 记录第一次成功响应
-            if not success_recorded:
-                if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(credential_name, True, mode="antigravity")
-                success_recorded = True
-
-            # 解析 SSE 数据
-            try:
-                data = json.loads(line[6:])  # 去掉 "data: " 前缀
-            except:
-                continue
-
-            # Antigravity 流式响应格式: {"response": {...}}
-            # Gemini 流式响应格式: {...}
-            gemini_data = data.get("response", data)
-
-            # 发送 Gemini 格式的数据
-            yield f"data: {json.dumps(gemini_data)}\n\n"
-
-    except Exception as e:
-        log.error(f"[ANTIGRAVITY GEMINI] Streaming error: {e}")
-        error_response = {
-            "error": {
-                "message": str(e),
-                "code": 500,
-                "status": "INTERNAL"
-            }
-        }
-        yield f"data: {json.dumps(error_response)}\n\n"
-    finally:
-        # 资源清理
-        if stream_ctx:
-            try:
-                await stream_ctx.__aexit__(None, None, None)
-            except Exception as e:
-                log.debug(f"[ANTIGRAVITY GEMINI] Error closing stream context: {e}")
-        
-        if client:
-            try:
-                await client.aclose()
-            except Exception as e:
-                log.debug(f"[ANTIGRAVITY GEMINI] Error closing client: {e}")
 
 
 # ==================== API 路由 ====================

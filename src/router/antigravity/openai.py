@@ -1,25 +1,30 @@
 """
-Antigravity OpenAI Router - Handles OpenAI format requests and converts to Antigravity API
-处理 OpenAI 格式请求并转换为 Antigravity API 格式
+Antigravity OpenAI Router - OpenAI格式API路由
+通过Antigravity处理OpenAI格式的聊天完成请求
 """
 
+# 标准库
 import json
 import time
 import uuid
 from typing import Any, Dict, List
 
+# 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+# 本地模块 - 配置和日志
 from config import get_anti_truncation_max_attempts
 from log import log
-from src.utils import is_anti_truncation_model, authenticate_bearer
-from src.api.antigravity import (
-    send_antigravity_request_no_stream,
-    send_antigravity_request_stream,
-    fetch_available_models,
+
+# 本地模块 - 工具和认证
+from src.utils import (
+    is_anti_truncation_model,
+    get_base_model_from_feature_model,
+    authenticate_bearer,
 )
-from src.credential_manager import CredentialManager
+
+# 本地模块 - 模型和API客户端
 from src.models import (
     ChatCompletionRequest,
     Model,
@@ -29,9 +34,14 @@ from src.models import (
     OpenAIChatCompletionResponse,
     OpenAIChatMessage,
 )
-from src.converter.anti_truncation import (
-    apply_anti_truncation_to_stream,
+from src.api.antigravity import (
+    send_antigravity_request_no_stream,
+    send_antigravity_request_stream,
+    fetch_available_models,
 )
+
+# 本地模块 - 转换器
+from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.converter.gemini_fix import (
     build_antigravity_generation_config,
     build_antigravity_request_body,
@@ -44,31 +54,31 @@ from src.converter.openai2gemini import (
     gemini_stream_chunk_to_openai,
 )
 
-# 创建路由器
+# 本地模块 - 基础路由工具
+from src.router.base_router import get_credential_manager
+
+
+# ==================== 路由器初始化 ====================
+
 router = APIRouter()
 
-# 全局凭证管理器实例
-credential_manager = None
 
+# ==================== 模型名称映射 ====================
 
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    return credential_manager
-
-
-# 模型名称映射
 def model_mapping(model_name: str) -> str:
     """
-    OpenAI 模型名映射到 Antigravity 实际模型名
-
-    参考文档:
+    OpenAI模型名映射到Antigravity实际模型名
+    
+    映射规则：
     - claude-sonnet-4-5-thinking -> claude-sonnet-4-5
     - claude-opus-4-5 -> claude-opus-4-5-thinking
     - gemini-2.5-flash-thinking -> gemini-2.5-flash
+    
+    Args:
+        model_name: OpenAI格式的模型名
+        
+    Returns:
+        Antigravity实际模型名
     """
     mapping = {
         "claude-sonnet-4-5-thinking": "claude-sonnet-4-5",
@@ -79,7 +89,19 @@ def model_mapping(model_name: str) -> str:
 
 
 def is_thinking_model(model_name: str) -> bool:
-    """检测是否是思考模型"""
+    """
+    检测是否是思考模型
+    
+    检测规则：
+    - 包含 -thinking 后缀
+    - 包含 pro 关键词
+    
+    Args:
+        model_name: 模型名称
+        
+    Returns:
+        是否是思考模型
+    """
     # 检查是否包含 -thinking 后缀
     if "-thinking" in model_name:
         return True
@@ -91,6 +113,8 @@ def is_thinking_model(model_name: str) -> bool:
     return False
 
 
+# ==================== 辅助函数 ====================
+
 async def convert_antigravity_stream_to_openai(
     lines_generator: Any,
     stream_ctx: Any,
@@ -101,11 +125,21 @@ async def convert_antigravity_stream_to_openai(
     credential_name: str
 ):
     """
-    将 Antigravity 流式响应转换为 OpenAI 格式的 SSE 流
-    使用 openai2gemini 模块的 gemini_stream_chunk_to_openai 函数
-
+    将Antigravity流式响应转换为OpenAI格式的SSE流
+    
+    使用openai2gemini模块的gemini_stream_chunk_to_openai函数进行格式转换
+    
     Args:
-        lines_generator: 行生成器 (已经过滤的 SSE 行)
+        lines_generator: SSE行生成器（已过滤）
+        stream_ctx: 流上下文管理器
+        client: HTTP客户端
+        model: 模型名称
+        request_id: 请求ID
+        credential_manager: 凭证管理器
+        credential_name: 凭证名称
+        
+    Yields:
+        OpenAI格式的SSE数据块
     """
     success_recorded = False
 
@@ -169,7 +203,21 @@ def convert_antigravity_response_to_openai(
     request_id: str
 ) -> Dict[str, Any]:
     """
-    将 Antigravity 非流式响应转换为 OpenAI 格式
+    将Antigravity非流式响应转换为OpenAI格式
+    
+    处理内容包括：
+    - 工具调用提取
+    - 思考内容处理
+    - 图片数据转换
+    - 使用统计提取
+    
+    Args:
+        response_data: Antigravity响应数据
+        model: 模型名称
+        request_id: 请求ID
+        
+    Returns:
+        OpenAI格式的响应字典
     """
     # 提取 parts
     parts = response_data.get("response", {}).get("candidates", [{}])[0].get("content", {}).get("parts", [])
@@ -241,10 +289,18 @@ def convert_antigravity_response_to_openai(
     return model_to_dict(response)
 
 
+# ==================== API 路由 ====================
+
 @router.get("/antigravity/v1/models", response_model=ModelList)
 async def list_models():
-    """返回 OpenAI 格式的模型列表 - 动态从 Antigravity API 获取"""
-
+    """
+    返回OpenAI格式的模型列表
+    
+    动态从Antigravity API获取可用模型，并自动扩展抗截断版本
+    
+    Returns:
+        ModelList: 可用模型列表（包含原始模型和抗截断版本）
+    """
     try:
         # 获取凭证管理器
         cred_mgr = await get_credential_manager()
@@ -282,7 +338,21 @@ async def chat_completions(
     token: str = Depends(authenticate_bearer)
 ):
     """
-    处理 OpenAI 格式的聊天完成请求，转换为 Antigravity API
+    处理OpenAI格式的聊天完成请求
+    
+    转换为Antigravity API格式并支持：
+    - 健康检查
+    - 流式抗截断
+    - 思考模型
+    - 工具调用
+    - 图像生成
+    
+    Args:
+        request: FastAPI请求对象
+        token: Bearer认证令牌
+        
+    Returns:
+        JSONResponse或StreamingResponse
     """
     # 获取原始请求数据
     try:
@@ -311,7 +381,6 @@ async def chat_completions(
         )
 
     # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
     cred_mgr = await get_credential_manager()
 
     # 提取参数
@@ -324,7 +393,6 @@ async def chat_completions(
     use_anti_truncation = is_anti_truncation_model(model)
     if use_anti_truncation:
         # 去掉 "流式抗截断/" 前缀
-        from src.utils import get_base_model_from_feature_model
         model = get_base_model_from_feature_model(model)
 
     # 模型名称映射
