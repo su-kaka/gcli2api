@@ -21,7 +21,12 @@ from src.converter.anthropic2gemini import (
     convert_anthropic_request_to_gemini,
     convert_gemini_response_to_anthropic,
     gemini_sse_to_anthropic_sse,
+    validate_and_extract_anthropic_request,
+    validate_anthropic_count_tokens_request,
+    AnthropicRequestValidationError,
 )
+from src.router.hi_check import is_health_check_message, create_health_check_response
+from src.router.base_router import get_credential_manager
 from src.converter.gemini_fix import (
     build_antigravity_request_body,
 )
@@ -183,42 +188,6 @@ def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, st
     session_id = f"session-{uuid.uuid4().hex}"   
     return str(project_id), str(session_id)
 
-def _pick_usage_metadata_from_antigravity_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    兼容下游 usageMetadata 的多种落点：
-    - response.usageMetadata
-    - response.candidates[0].usageMetadata
-
-    如两者同时存在，优先选择“字段更完整”的一侧。
-    """
-    response = response_data.get("response", {}) or {}
-    if not isinstance(response, dict):
-        return {}
-
-    response_usage = response.get("usageMetadata", {}) or {}
-    if not isinstance(response_usage, dict):
-        response_usage = {}
-
-    candidate = (response.get("candidates", []) or [{}])[0] or {}
-    if not isinstance(candidate, dict):
-        candidate = {}
-    candidate_usage = candidate.get("usageMetadata", {}) or {}
-    if not isinstance(candidate_usage, dict):
-        candidate_usage = {}
-
-    fields = ("promptTokenCount", "candidatesTokenCount", "totalTokenCount")
-
-    def score(d: Dict[str, Any]) -> int:
-        s = 0
-        for f in fields:
-            if f in d and d.get(f) is not None:
-                s += 1
-        return s
-
-    if score(candidate_usage) > score(response_usage):
-        return candidate_usage
-    return response_usage
-
 
 @router.post("/antigravity/v1/messages")
 async def anthropic_messages(
@@ -246,28 +215,22 @@ async def anthropic_messages(
 
     _debug_log_request_payload(request, payload)
 
-    model = payload.get("model")
-    max_tokens = payload.get("max_tokens")
-    messages = payload.get("messages")
-    stream = bool(payload.get("stream", False))
-    thinking_present = "thinking" in payload
-    thinking_value = payload.get("thinking")
-    thinking_summary = None
-    if thinking_present:
-        if isinstance(thinking_value, dict):
-            thinking_summary = {
-                "type": thinking_value.get("type"),
-                "budget_tokens": thinking_value.get("budget_tokens"),
-            }
-        else:
-            thinking_summary = thinking_value
-
-    if not model or max_tokens is None or not isinstance(messages, list):
+    # 验证并提取请求字段
+    try:
+        extracted = validate_and_extract_anthropic_request(payload)
+    except AnthropicRequestValidationError as e:
         return _anthropic_error(
             status_code=400,
-            message="缺少必填字段：model / max_tokens / messages",
-            error_type="invalid_request_error",
+            message=e.message,
+            error_type=e.error_type,
         )
+    
+    model = extracted["model"]
+    max_tokens = extracted["max_tokens"]
+    messages = extracted["messages"]
+    stream = extracted["stream"]
+    thinking_present = extracted["thinking_present"]
+    thinking_summary = extracted["thinking_summary"]
 
     try:
         client_host = request.client.host if request.client else "unknown"
@@ -283,21 +246,15 @@ async def anthropic_messages(
         f"thinking={thinking_summary}, ua={user_agent}"
     )
 
-    if len(messages) == 1 and messages[0].get("role") == "user" and messages[0].get("content") == "Hi":
+    # 健康检查
+    if is_health_check_message(messages):
         return JSONResponse(
-            content={
-                "id": f"msg_{uuid.uuid4().hex}",
-                "type": "message",
-                "role": "assistant",
-                "model": str(model),
-                "content": [{"type": "text", "text": "antigravity Anthropic Messages 正常工作中"}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
-            }
+            content=create_health_check_response(
+                format="anthropic",
+                model=model,
+                message_id=f"msg_{uuid.uuid4().hex}"
+            )
         )
-
-    from src.credential_manager import get_credential_manager
 
     cred_mgr = await get_credential_manager()
     cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
@@ -425,12 +382,20 @@ async def anthropic_messages_count_tokens(
 
     _debug_log_request_payload(request, payload)
 
-    if not payload.get("model") or not isinstance(payload.get("messages"), list):
+    # 验证并提取请求字段
+    try:
+        extracted = validate_anthropic_count_tokens_request(payload)
+    except AnthropicRequestValidationError as e:
         return _anthropic_error(
             status_code=400,
-            message="缺少必填字段：model / messages",
-            error_type="invalid_request_error",
+            message=e.message,
+            error_type=e.error_type,
         )
+    
+    model = extracted["model"]
+    messages = extracted["messages"]
+    thinking_present = extracted["thinking_present"]
+    thinking_summary = extracted["thinking_summary"]
 
     try:
         client_host = request.client.host if request.client else "unknown"
@@ -439,22 +404,10 @@ async def anthropic_messages_count_tokens(
         client_host = "unknown"
         client_port = "unknown"
 
-    thinking_present = "thinking" in payload
-    thinking_value = payload.get("thinking")
-    thinking_summary = None
-    if thinking_present:
-        if isinstance(thinking_value, dict):
-            thinking_summary = {
-                "type": thinking_value.get("type"),
-                "budget_tokens": thinking_value.get("budget_tokens"),
-            }
-        else:
-            thinking_summary = thinking_value
-
     user_agent = request.headers.get("user-agent", "")
     log.info(
         f"[ANTHROPIC] /messages/count_tokens 收到请求: client={client_host}:{client_port}, "
-        f"model={payload.get('model')}, messages={len(payload.get('messages') or [])}, "
+        f"model={model}, messages={len(messages)}, "
         f"thinking_present={thinking_present}, thinking={thinking_summary}, ua={user_agent}"
     )
 

@@ -574,33 +574,6 @@ def normalize_openai_request(
     return request_data
 
 
-def is_health_check_request(request_data: ChatCompletionRequest) -> bool:
-    """
-    检查是否为健康检查请求
-
-    Args:
-        request_data: 请求对象
-
-    Returns:
-        是否为健康检查请求
-    """
-    return (
-        len(request_data.messages) == 1
-        and getattr(request_data.messages[0], "role", None) == "user"
-        and getattr(request_data.messages[0], "content", None) == "Hi"
-    )
-
-
-def create_health_check_response() -> Dict[str, Any]:
-    """
-    创建健康检查响应
-
-    Returns:
-        健康检查响应字典
-    """
-    return {"choices": [{"message": {"role": "assistant", "content": "gcli2api正常工作中"}}]}
-
-
 def extract_model_settings(model: str) -> Dict[str, Any]:
     """
     从模型名称中提取设置信息

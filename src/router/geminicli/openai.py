@@ -38,14 +38,13 @@ from src.converter.openai2gemini import (
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
     normalize_openai_request,
-    is_health_check_request,
-    create_health_check_response,
     openai_request_to_gemini_payload,
     parse_gemini_stream_chunk,
 )
 
 # 本地模块 - 基础路由工具
 from src.router.base_router import get_credential_manager
+from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # 本地模块 - 任务管理
 from src.task_manager import create_managed_task

@@ -42,10 +42,9 @@ from src.converter.gemini_fix import (
 from src.router.base_router import (
     get_credential_manager,
     create_gemini_model_list,
-    is_health_check_request,
-    create_health_check_response,
     extract_base_model_name,
 )
+from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # 本地模块 - 任务管理
 from src.task_manager import create_managed_task

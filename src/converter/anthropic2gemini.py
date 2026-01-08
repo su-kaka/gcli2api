@@ -19,6 +19,128 @@ DEFAULT_TEMPERATURE = 0.4
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
 
+# ============================================================================
+# 请求验证和提取
+# ============================================================================
+
+class AnthropicRequestValidationError(Exception):
+    """Anthropic 请求验证错误"""
+    def __init__(self, message: str, error_type: str = "invalid_request_error"):
+        self.message = message
+        self.error_type = error_type
+        super().__init__(message)
+
+
+def validate_and_extract_anthropic_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    验证并提取 Anthropic 请求的必要字段。
+    
+    Args:
+        payload: 原始请求体
+        
+    Returns:
+        包含提取字段的字典：
+        - model: 模型名
+        - max_tokens: 最大 token 数
+        - messages: 消息列表
+        - stream: 是否流式
+        - thinking_present: 是否包含 thinking 字段
+        - thinking_value: thinking 字段的值
+        - thinking_summary: thinking 的摘要（用于日志）
+        
+    Raises:
+        AnthropicRequestValidationError: 验证失败时抛出
+    """
+    if not isinstance(payload, dict):
+        raise AnthropicRequestValidationError("请求体必须为 JSON object")
+    
+    model = payload.get("model")
+    max_tokens = payload.get("max_tokens")
+    messages = payload.get("messages")
+    stream = bool(payload.get("stream", False))
+    
+    # 验证必填字段
+    if not model or max_tokens is None or not isinstance(messages, list):
+        raise AnthropicRequestValidationError(
+            "缺少必填字段：model / max_tokens / messages"
+        )
+    
+    # 提取 thinking 相关信息
+    thinking_present = "thinking" in payload
+    thinking_value = payload.get("thinking")
+    thinking_summary = None
+    
+    if thinking_present:
+        if isinstance(thinking_value, dict):
+            thinking_summary = {
+                "type": thinking_value.get("type"),
+                "budget_tokens": thinking_value.get("budget_tokens"),
+            }
+        else:
+            thinking_summary = thinking_value
+    
+    return {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": messages,
+        "stream": stream,
+        "thinking_present": thinking_present,
+        "thinking_value": thinking_value,
+        "thinking_summary": thinking_summary,
+    }
+
+
+def validate_anthropic_count_tokens_request(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    验证并提取 Anthropic count_tokens 请求的必要字段。
+    
+    Args:
+        payload: 原始请求体
+        
+    Returns:
+        包含提取字段的字典
+        
+    Raises:
+        AnthropicRequestValidationError: 验证失败时抛出
+    """
+    if not isinstance(payload, dict):
+        raise AnthropicRequestValidationError("请求体必须为 JSON object")
+    
+    model = payload.get("model")
+    messages = payload.get("messages")
+    
+    if not model or not isinstance(messages, list):
+        raise AnthropicRequestValidationError(
+            "缺少必填字段：model / messages"
+        )
+    
+    # 提取 thinking 相关信息
+    thinking_present = "thinking" in payload
+    thinking_value = payload.get("thinking")
+    thinking_summary = None
+    
+    if thinking_present:
+        if isinstance(thinking_value, dict):
+            thinking_summary = {
+                "type": thinking_value.get("type"),
+                "budget_tokens": thinking_value.get("budget_tokens"),
+            }
+        else:
+            thinking_summary = thinking_value
+    
+    return {
+        "model": model,
+        "messages": messages,
+        "thinking_present": thinking_present,
+        "thinking_value": thinking_value,
+        "thinking_summary": thinking_summary,
+    }
+
+
+# ============================================================================
+# 调试和辅助函数
+# ============================================================================
+
 def _anthropic_debug_enabled() -> bool:
     """检查是否启用 Anthropic 调试模式"""
     return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in _DEBUG_TRUE

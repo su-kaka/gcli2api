@@ -45,11 +45,10 @@ from src.converter.gemini_fix import (
 from src.router.base_router import (
     get_credential_manager,
     create_gemini_model_list,
-    is_health_check_request,
-    create_health_check_response,
     log_request_info,
     extract_base_model_name,
 )
+from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # ==================== 路由器初始化 ====================
 
