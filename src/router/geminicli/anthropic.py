@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -64,12 +64,6 @@ def _extract_api_token(
     return None
 
 
-def _infer_project_and_session(credential_data: Dict[str, Any]) -> tuple[str, str]:
-    project_id = credential_data.get("project_id")
-    session_id = f"session-{uuid.uuid4().hex}"
-    return str(project_id), str(session_id)
-
-
 @router.post("/v1/messages")
 async def anthropic_messages(
     request: Request,
@@ -120,11 +114,6 @@ async def anthropic_messages(
             )
         )
 
-    # API层会自己管理凭证
-    # 从请求中提取必要信息用于构建请求体
-    project_id = ""  # 将由API层从凭证中获取
-    session_id = f"session-{uuid.uuid4().hex}"
-
     try:
         components = convert_anthropic_request_to_gemini(payload)
     except Exception as e:
@@ -153,8 +142,6 @@ async def anthropic_messages(
     request_body = build_antigravity_request_body(
         contents=components["contents"],
         model=components["model"],
-        project_id=project_id,
-        session_id=session_id,
         system_instruction=components["system_instruction"],
         tools=components["tools"],
         generation_config=components["generation_config"],

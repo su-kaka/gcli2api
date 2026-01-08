@@ -913,9 +913,6 @@ async def gemini_sse_to_anthropic_sse(
     model: str,
     message_id: str,
     initial_input_tokens: int = 0,
-    credential_manager: Any = None,
-    credential_name: Optional[str] = None,
-    mode: str = "antigravity",
 ) -> AsyncIterator[bytes]:
     """
     将 Gemini SSE 转换为 Anthropic Messages Streaming SSE。
@@ -924,7 +921,6 @@ async def gemini_sse_to_anthropic_sse(
         mode: 凭证模式，用于记录 API 调用结果（antigravity 或 geminicli）
     """
     state = _StreamingState(message_id=message_id, model=model)
-    success_recorded = False
     message_start_sent = False
     pending_output: list[bytes] = []
 
@@ -998,12 +994,6 @@ async def gemini_sse_to_anthropic_sse(
             raw = line[6:].strip()
             if raw == "[DONE]":
                 break
-
-            if not success_recorded and credential_manager and credential_name:
-                await credential_manager.record_api_call_result(
-                    credential_name, True, mode=mode
-                )
-                success_recorded = True
 
             try:
                 data = json.loads(raw)

@@ -4,9 +4,7 @@ Antigravity Gemini Router - Handles Gemini format requests and converts to Antig
 """
 
 # 标准库
-import json
 import uuid
-from typing import Any, Dict, List
 
 # 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -200,15 +198,9 @@ async def gemini_generate_content(
     actual_model = model_mapping(model)
     enable_thinking = is_thinking_model(model)
     
-    # 获取凭证信息
-    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
-    if not cred_result:
-        log.error("[ANTIGRAVITY GEMINI] 当前无可用 antigravity 凭证")
-        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
-
-    credential_name, credential_data = cred_result
-    log_request_info("ANTIGRAVITY GEMINI", actual_model, credential_name, False)
-
+    # 记录请求信息
+    log.info(f"[ANTIGRAVITY GEMINI] Non-stream request: model={model} -> {actual_model}, thinking={enable_thinking}")
+    
     # 转换 Gemini contents 为 Antigravity contents
     try:
         contents = gemini_contents_to_antigravity_contents(request_data["contents"])
@@ -234,16 +226,6 @@ async def gemini_generate_content(
 
     generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
-    if not cred_result:
-        log.error("当前无可用 antigravity 凭证")
-        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
-
-    _, credential_data = cred_result
-    project_id = credential_data.get("project_id", "default-project")
-    session_id = credential_data.get("session_id", f"session-{uuid.uuid4().hex}")
-
     # 处理 systemInstruction
     system_instruction = None
     if "systemInstruction" in request_data:
@@ -259,8 +241,6 @@ async def gemini_generate_content(
     request_body = build_antigravity_request_body(
         contents=contents,
         model=actual_model,
-        project_id=project_id,
-        session_id=session_id,
         system_instruction=system_instruction,
         tools=antigravity_tools,
         generation_config=generation_config,
@@ -351,16 +331,6 @@ async def gemini_stream_generate_content(
 
     generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
-    if not cred_result:
-        log.error("当前无可用 antigravity 凭证")
-        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
-
-    _, credential_data = cred_result
-    project_id = credential_data.get("project_id", "default-project")
-    session_id = credential_data.get("session_id", f"session-{uuid.uuid4().hex}")
-
     # 处理 systemInstruction
     system_instruction = None
     if "systemInstruction" in request_data:
@@ -376,8 +346,6 @@ async def gemini_stream_generate_content(
     request_body = build_antigravity_request_body(
         contents=contents,
         model=actual_model,
-        project_id=project_id,
-        session_id=session_id,
         system_instruction=system_instruction,
         tools=antigravity_tools,
         generation_config=generation_config,

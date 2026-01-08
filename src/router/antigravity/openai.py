@@ -142,14 +142,6 @@ async def convert_antigravity_stream_to_openai(
             if not line or not line.startswith("data: "):
                 continue
 
-            # 记录第一次成功响应
-            if not success_recorded:
-                if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(
-                        credential_name, True, mode="antigravity"
-                    )
-                success_recorded = True
-
             # 解析 SSE 数据
             try:
                 data = json.loads(line[6:])  # 去掉 "data: " 前缀
@@ -371,9 +363,6 @@ async def chat_completions(
             }
         )
 
-    # 获取凭证管理器
-    cred_mgr = await get_credential_manager()
-
     # 提取参数
     model = request_data.model
     messages = request_data.messages
@@ -415,22 +404,10 @@ async def chat_completions(
 
     generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
 
-    # 获取凭证信息（用于 project_id 和 session_id）
-    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
-    if not cred_result:
-        log.error("当前无可用 antigravity 凭证")
-        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
-
-    _, credential_data = cred_result
-    project_id = credential_data.get("project_id", "default-project")
-    session_id = f"session-{uuid.uuid4().hex}"
-
     # 构建 Antigravity 请求体
     request_body = build_antigravity_request_body(
         contents=contents,
         model=actual_model,
-        project_id=project_id,
-        session_id=session_id,
         tools=antigravity_tools,
         generation_config=generation_config,
     )

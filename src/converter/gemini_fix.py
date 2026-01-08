@@ -385,8 +385,6 @@ def build_antigravity_generation_config(
 def build_antigravity_request_body(
     contents: List[Dict[str, Any]],
     model: str,
-    project_id: str,
-    session_id: str,
     system_instruction: Optional[Dict[str, Any]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     generation_config: Optional[Dict[str, Any]] = None,
@@ -398,8 +396,6 @@ def build_antigravity_request_body(
     Args:
         contents: 消息内容列表
         model: 模型名称
-        project_id: 项目 ID
-        session_id: 会话 ID
         system_instruction: 系统指令
         tools: 工具定义列表
         generation_config: 生成配置
@@ -413,14 +409,12 @@ def build_antigravity_request_body(
     request_id = f"req-{uuid.uuid4()}"
     
     request_body = {
-        "project": project_id,
         "requestId": request_id,
         "model": model,
         "userAgent": "antigravity",
         "requestType": "agent",
         "request": {
             "contents": contents,
-            "session_id": session_id,
         }
     }
 
