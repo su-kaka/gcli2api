@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from fastapi import HTTPException
 from config import (
     get_antigravity_api_url,
     get_return_thoughts_to_frontend,
@@ -172,7 +173,7 @@ async def send_antigravity_request_stream(
         )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
-            raise Exception("No valid antigravity credentials available")
+            raise HTTPException(status_code=503, detail="No valid antigravity credentials available")
 
         current_file, credential_data = cred_result
         access_token = credential_data.get("access_token") or credential_data.get("token")
@@ -258,7 +259,10 @@ async def send_antigravity_request_stream(
                     log.info(f"[ANTIGRAVITY] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
-                raise Exception(f"Antigravity API error ({response.status_code}): {error_text[:200]}")
+                raise HTTPException(
+                    status_code=response.status_code if response.status_code < 600 else 502,
+                    detail=f"Antigravity API error: {error_text[:200]}"
+                )
 
             except Exception as stream_error:
                 # 确保在异常情况下也清理资源
@@ -276,7 +280,7 @@ async def send_antigravity_request_stream(
                 continue
             raise
 
-    raise Exception("All antigravity retry attempts failed")
+    raise HTTPException(status_code=503, detail="All antigravity retry attempts failed for streaming request")
 
 
 async def send_antigravity_request_no_stream(
@@ -327,7 +331,7 @@ async def _send_antigravity_request_no_stream_via_stream(
         stream_result = await send_antigravity_request_stream(request_body)
         
         if not stream_result:
-            raise Exception("Failed to get stream response")
+            raise HTTPException(status_code=500, detail="Failed to get stream response")
         
         response_iterator, credential_name, credential_data = stream_result
         
@@ -395,7 +399,7 @@ async def _send_antigravity_request_no_stream_traditional(
         )
         if not cred_result:
             log.error("[ANTIGRAVITY] No valid credentials available")
-            raise Exception("No valid antigravity credentials available")
+            raise HTTPException(status_code=503, detail="No valid antigravity credentials available")
 
         current_file, credential_data = cred_result
         access_token = credential_data.get("access_token") or credential_data.get("token")
@@ -479,7 +483,10 @@ async def _send_antigravity_request_no_stream_traditional(
                     log.info(f"[ANTIGRAVITY] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
-                raise Exception(f"Antigravity API error ({response.status_code}): {error_body[:200]}")
+                raise HTTPException(
+                    status_code=response.status_code if response.status_code < 600 else 502,
+                    detail=f"Antigravity API error: {error_body[:200]}"
+                )
 
         except Exception as e:
             log.error(f"[ANTIGRAVITY] Request exception with credential {current_file}: {str(e)}")
@@ -489,7 +496,7 @@ async def _send_antigravity_request_no_stream_traditional(
                 continue
             raise
 
-    raise Exception("All antigravity retry attempts failed")
+    raise HTTPException(status_code=503, detail="All antigravity retry attempts failed for non-streaming request")
 
 
 # ==================== 模型和配额查询 ====================

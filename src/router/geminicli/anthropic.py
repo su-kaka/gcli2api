@@ -24,7 +24,7 @@ from src.converter.anthropic2gemini import (
 )
 from src.router.hi_check import is_health_check_message, create_health_check_response
 from src.router.base_router import wrap_stream_with_processor
-from src.converter.gemini_fix import build_antigravity_request_body
+from src.api.geminicli import build_gemini_payload_from_native
 from src.token_estimator import estimate_input_tokens
 
 router = APIRouter()
@@ -139,12 +139,14 @@ async def anthropic_messages(
     except Exception:
         pass
 
-    request_body = build_antigravity_request_body(
-        contents=components["contents"],
-        model=components["model"],
-        system_instruction=components["system_instruction"],
-        tools=components["tools"],
-        generation_config=components["generation_config"],
+    request_body = build_gemini_payload_from_native(
+        {
+            "contents": components["contents"],
+            "systemInstruction": components["system_instruction"],
+            "tools": components["tools"],
+            "generationConfig": components["generation_config"],
+        },
+        components["model"]
     )
 
     if stream:

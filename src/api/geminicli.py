@@ -7,6 +7,7 @@ GeminiCli API 客户端 - 处理与 GeminiCli API 的所有通信
 import asyncio
 from typing import Tuple, Any, Dict, Optional
 
+from fastapi import HTTPException
 from config import get_code_assist_endpoint
 from src.utils import get_model_group
 from log import log
@@ -201,7 +202,7 @@ async def send_geminicli_request_stream(
             mode="geminicli", model_key=model_group
         )
         if not cred_result:
-            raise Exception("No valid geminicli credentials available")
+            raise HTTPException(status_code=503, detail="No valid geminicli credentials available")
 
         current_file, credential_data = cred_result
         
@@ -211,7 +212,7 @@ async def send_geminicli_request_stream(
                 f"{await get_code_assist_endpoint()}/v1internal:streamGenerateContent?alt=sse"
             )
         except Exception as e:
-            raise Exception(f"Failed to prepare request: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to prepare request: {e}")
 
         try:
             client = await create_streaming_client_with_kwargs()
@@ -258,7 +259,10 @@ async def send_geminicli_request_stream(
                 log.info(f"[GEMINICLI-STREAM] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                 continue
 
-            raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
+            raise HTTPException(
+                status_code=response.status_code if response.status_code < 600 else 502,
+                detail=f"GeminiCli API error: {error_text[:200]}"
+            )
 
         except Exception as e:
             log.error(f"[GEMINICLI-STREAM] Request exception with credential {current_file}: {str(e)}")
@@ -273,7 +277,7 @@ async def send_geminicli_request_stream(
                 continue
             raise
 
-    raise Exception("All retry attempts failed")
+    raise HTTPException(status_code=503, detail="All retry attempts failed for GeminiCli streaming request")
 
 
 async def send_geminicli_request_no_stream(
@@ -302,7 +306,7 @@ async def send_geminicli_request_no_stream(
             mode="geminicli", model_key=model_group
         )
         if not cred_result:
-            raise Exception("No valid geminicli credentials available")
+            raise HTTPException(status_code=503, detail="No valid geminicli credentials available")
 
         current_file, credential_data = cred_result
         
@@ -312,7 +316,7 @@ async def send_geminicli_request_no_stream(
                 f"{await get_code_assist_endpoint()}/v1internal:generateContent"
             )
         except Exception as e:
-            raise Exception(f"Failed to prepare request: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to prepare request: {e}")
 
         try:
             async with http_client.get_client(timeout=300.0) as client:
@@ -348,7 +352,10 @@ async def send_geminicli_request_no_stream(
                     log.info(f"[GEMINICLI] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
-                raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
+                raise HTTPException(
+                    status_code=response.status_code if response.status_code < 600 else 502,
+                    detail=f"GeminiCli API error: {error_text[:200]}"
+                )
 
         except Exception as e:
             log.error(f"[GEMINICLI] Request exception with credential {current_file}: {str(e)}")
@@ -358,4 +365,4 @@ async def send_geminicli_request_no_stream(
                 continue
             raise
 
-    raise Exception("All retry attempts failed")
+    raise HTTPException(status_code=503, detail="All retry attempts failed for GeminiCli request")
