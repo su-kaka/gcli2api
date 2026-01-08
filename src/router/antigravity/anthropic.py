@@ -312,7 +312,7 @@ async def anthropic_messages(
             return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
 
         return StreamingResponse(
-            wrap_stream_with_processor(
+            await wrap_stream_with_processor(
                 response, stream_ctx, client,
                 lambda lines: gemini_sse_to_anthropic_sse(
                     lines,

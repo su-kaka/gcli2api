@@ -113,7 +113,7 @@ app.include_router(antigravity_gemini_router, prefix="", tags=["Antigravity Gemi
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
 
 # Geminicli Anthropic Messages 路由 - Anthropic Messages 格式兼容 (Geminicli)
-app.include_router(geminicli_anthropic_router, prefix="/geminicli", tags=["Geminicli Anthropic Messages"])
+app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthropic Messages"])
 
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
