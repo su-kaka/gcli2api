@@ -3,15 +3,19 @@ Gemini Router - Handles native Gemini format API requests
 处理原生Gemini格式请求的路由模块
 """
 
+# 标准库
 import asyncio
 import json
 
+# 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from config import (
-    get_anti_truncation_max_attempts,
-)
+# 本地模块 - 配置和日志
+from config import get_anti_truncation_max_attempts
+from log import log
+
+# 本地模块 - 工具和认证
 from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
@@ -20,11 +24,12 @@ from src.utils import (
     is_fake_streaming_model,
     authenticate_gemini_flexible,
 )
-from log import log
 
+# 本地模块 - API客户端
+from src.api.geminicli import build_gemini_payload_from_native, send_gemini_request
+
+# 本地模块 - 转换器
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
-from src.credential_manager import get_credential_manager
-from api.geminicli import build_gemini_payload_from_native, send_gemini_request
 from src.converter.gemini_fix import (
     process_generation_config,
     parse_response_for_fake_stream,
@@ -32,34 +37,39 @@ from src.converter.gemini_fix import (
     create_gemini_heartbeat_chunk,
     create_gemini_error_chunk,
 )
+
+# 本地模块 - 基础路由工具
+from src.router.base_router import (
+    get_credential_manager,
+    create_gemini_model_list,
+    is_health_check_request,
+    create_health_check_response,
+    extract_base_model_name,
+)
+
+# 本地模块 - 任务管理
 from src.task_manager import create_managed_task
 
-# 创建路由器
+# ==================== 路由器初始化 ====================
+
 router = APIRouter()
+
+
+# ==================== API 路由 ====================
 
 @router.get("/v1beta/models")
 @router.get("/v1/models")
 async def list_gemini_models(token: str = Depends(authenticate_gemini_flexible)):
-    """返回Gemini格式的模型列表"""
+    """
+    返回Gemini格式的模型列表
+    
+    使用 create_gemini_model_list 工具函数创建标准格式
+    """
     models = get_available_models("gemini")
-
-    # 构建符合Gemini API格式的模型列表
-    gemini_models = []
-    for model_name in models:
-        # 获取基础模型名
-        base_model = get_base_model_from_feature_model(model_name)
-
-        model_info = {
-            "name": f"models/{model_name}",
-            "baseModelId": base_model,
-            "version": "001",
-            "displayName": model_name,
-            "description": f"Gemini {base_model} model",
-            "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-        }
-        gemini_models.append(model_info)
-
-    return JSONResponse(content={"models": gemini_models})
+    return JSONResponse(content=create_gemini_model_list(
+        models, 
+        base_name_extractor=get_base_model_from_feature_model
+    ))
 
 @router.post("/v1beta/models/{model:path}:generateContent")
 @router.post("/v1/models/{model:path}:generateContent")
@@ -68,15 +78,15 @@ async def generate_content(
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """处理Gemini格式的内容生成请求（非流式）"""
-    log.debug(f"Non-streaming request received for model: {model}")
-    log.debug(f"Request headers: {dict(request.headers)}")
-    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
-    try:
-        body = await request.body()
-        log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
-    except Exception as e:
-        log.error(f"Failed to read request body: {e}")
+    """
+    处理Gemini格式的内容生成请求（非流式）
+    
+    Args:
+        model: 模型名称
+        request: FastAPI 请求对象
+        api_key: API 密钥
+    """
+    log.debug(f"[GEMINICLI] Non-streaming request for model: {model}")
 
     # 获取原始请求数据
     try:
@@ -108,22 +118,9 @@ async def generate_content(
         log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
 
     # 健康检查
-    if (
-        len(request_data["contents"]) == 1
-        and request_data["contents"][0].get("role") == "user"
-        and request_data["contents"][0].get("parts", [{}])[0].get("text") == "Hi"
-    ):
-        return JSONResponse(
-            content={
-                "candidates": [
-                    {
-                        "content": {"parts": [{"text": "gcli2api工作中"}], "role": "model"},
-                        "finishReason": "STOP",
-                        "index": 0,
-                    }
-                ]
-            }
-        )
+    if is_health_check_request(request_data, format="gemini"):
+        response = create_health_check_response(format="gemini")
+        return JSONResponse(content=response)
 
     cred_mgr = await get_credential_manager()
 
@@ -175,15 +172,15 @@ async def stream_generate_content(
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """处理Gemini格式的流式内容生成请求"""
-    log.debug(f"Stream request received for model: {model}")
-    log.debug(f"Request headers: {dict(request.headers)}")
-    log.debug(f"API key received: {api_key[:10] if api_key else None}...")
-    try:
-        body = await request.body()
-        log.debug(f"request body: {body.decode() if isinstance(body, bytes) else body}")
-    except Exception as e:
-        log.error(f"Failed to read request body: {e}")
+    """
+    处理Gemini格式的流式内容生成请求
+    
+    Args:
+        model: 模型名称
+        request: FastAPI 请求对象
+        api_key: API 密钥
+    """
+    log.debug(f"[GEMINICLI] Streaming request for model: {model}")
 
     # 获取原始请求数据
     try:
@@ -248,7 +245,11 @@ async def count_tokens(
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """模拟Gemini格式的token计数"""
+    """
+    模拟Gemini格式的token计数
+    
+    使用简单的启发式方法：大约4字符=1token
+    """
 
     try:
         request_data = await request.json()
@@ -289,7 +290,13 @@ async def get_model_info(
     model: str = Path(..., description="Model name"),
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """获取特定模型的信息"""
+    """
+    获取特定模型的信息
+    
+    Args:
+        model: 模型名称
+        api_key: API 密钥
+    """
 
     # 获取基础模型名称
     base_model = get_base_model_name(model)
@@ -307,10 +314,26 @@ async def get_model_info(
     return JSONResponse(content=model_info)
 
 
+# ==================== 辅助函数 ====================
+
 async def fake_stream_response_gemini(request_data: dict, model: str):
-    """处理Gemini格式的假流式响应"""
+    """
+    处理Gemini格式的假流式响应
+    
+    Args:
+        request_data: 请求数据
+        model: 模型名称
+        
+    Returns:
+        StreamingResponse: SSE 流式响应
+    """
 
     async def gemini_stream_generator():
+        """
+        Gemini 流式数据生成器
+        
+        生成 SSE 格式的流式数据，包括心跳和实际响应
+        """
         try:
             cred_mgr = await get_credential_manager()
 

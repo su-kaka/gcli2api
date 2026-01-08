@@ -3,56 +3,72 @@ Antigravity Gemini Router - Handles Gemini format requests and converts to Antig
 处理 Gemini 格式请求并转换为 Antigravity API 格式
 """
 
+# 标准库
 import json
 import uuid
 from typing import Any, Dict, List
 
+# 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+# 本地模块 - 配置和日志
 from config import get_anti_truncation_max_attempts
 from log import log
-from ...utils import is_anti_truncation_model, authenticate_gemini_flexible, get_base_model_from_feature_model
-from ...api.antigravity import (
+
+# 本地模块 - 工具和认证
+from src.utils import (
+    is_anti_truncation_model, 
+    authenticate_gemini_flexible, 
+    get_base_model_from_feature_model
+)
+
+# 本地模块 - API客户端
+from src.api.antigravity import (
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
     fetch_available_models,
 )
-from ...credential_manager import CredentialManager
-from src.converter.anti_truncation import (
-    apply_anti_truncation_to_stream,
-)
+
+# 本地模块 - 转换器
+from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.converter.gemini_fix import (
     build_antigravity_generation_config,
     build_antigravity_request_body,
     prepare_image_generation_request,
 )
 
-# 创建路由器
+# 本地模块 - 基础路由工具
+from src.router.base_router import (
+    get_credential_manager,
+    create_gemini_model_list,
+    is_health_check_request,
+    create_health_check_response,
+    log_request_info,
+    extract_base_model_name,
+)
+
+# ==================== 路由器初始化 ====================
+
 router = APIRouter()
 
-# 全局凭证管理器实例
-credential_manager = None
 
+# ==================== 模型名称处理 ====================
 
-async def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    global credential_manager
-    if not credential_manager:
-        credential_manager = CredentialManager()
-        await credential_manager.initialize()
-    return credential_manager
-
-
-# 模型名称映射
 def model_mapping(model_name: str) -> str:
     """
-    OpenAI 模型名映射到 Antigravity 实际模型名
-
-    参考文档:
-    - claude-sonnet-4-5-thinking -> claude-sonnet-4-5
-    - claude-opus-4-5 -> claude-opus-4-5-thinking
-    - gemini-2.5-flash-thinking -> gemini-2.5-flash
+    模型名映射到 Antigravity 实际模型名
+    
+    Args:
+        model_name: 原始模型名称
+        
+    Returns:
+        映射后的模型名称
+        
+    参考映射:
+        - claude-sonnet-4-5-thinking -> claude-sonnet-4-5
+        - claude-opus-4-5 -> claude-opus-4-5-thinking
+        - gemini-2.5-flash-thinking -> gemini-2.5-flash
     """
     mapping = {
         "claude-sonnet-4-5-thinking": "claude-sonnet-4-5",
@@ -63,7 +79,15 @@ def model_mapping(model_name: str) -> str:
 
 
 def is_thinking_model(model_name: str) -> bool:
-    """检测是否是思考模型"""
+    """
+    检测是否是思考模型
+    
+    Args:
+        model_name: 模型名称
+        
+    Returns:
+        是否是思考模型
+    """
     # 检查是否包含 -thinking 后缀
     if "-thinking" in model_name:
         return True
@@ -75,10 +99,17 @@ def is_thinking_model(model_name: str) -> bool:
     return False
 
 
+# ==================== 格式转换函数 ====================
+
 def gemini_contents_to_antigravity_contents(gemini_contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     将 Gemini 原生 contents 格式转换为 Antigravity contents 格式
-    Gemini 和 Antigravity 的 contents 格式完全一致，直接返回
+    
+    Args:
+        gemini_contents: Gemini 格式的 contents
+        
+    Returns:
+        Antigravity 格式的 contents（当前格式一致，直接返回）
     """
     return gemini_contents
 
@@ -88,10 +119,17 @@ def convert_antigravity_response_to_gemini(
 ) -> Dict[str, Any]:
     """
     将 Antigravity 非流式响应转换为 Gemini 格式
-    Antigravity 的响应格式与 Gemini 非常相似，只需要提取 response 字段
+    
+    Args:
+        response_data: Antigravity 响应数据
+        
+    Returns:
+        Gemini 格式的响应数据
+        
+    Note:
+        Antigravity 响应格式: {"response": {...}}
+        Gemini 响应格式: {...}
     """
-    # Antigravity 响应格式: {"response": {...}}
-    # Gemini 响应格式: {...}
     return response_data.get("response", response_data)
 
 
@@ -106,7 +144,11 @@ async def convert_antigravity_stream_to_gemini(
     将 Antigravity 流式响应转换为 Gemini 格式的 SSE 流
 
     Args:
-        lines_generator: 行生成器 (已经过滤的 SSE 行)
+        lines_generator: 行生成器（已经过滤的 SSE 行）
+        stream_ctx: 流上下文
+        client: HTTP 客户端
+        credential_manager: 凭证管理器
+        credential_name: 凭证名称
     """
     success_recorded = False
 
@@ -145,21 +187,30 @@ async def convert_antigravity_stream_to_gemini(
         }
         yield f"data: {json.dumps(error_response)}\n\n"
     finally:
-        # 确保清理所有资源
-        try:
-            await stream_ctx.__aexit__(None, None, None)
-        except Exception as e:
-            log.debug(f"[ANTIGRAVITY GEMINI] Error closing stream context: {e}")
-        try:
-            await client.aclose()
-        except Exception as e:
-            log.debug(f"[ANTIGRAVITY GEMINI] Error closing client: {e}")
+        # 资源清理
+        if stream_ctx:
+            try:
+                await stream_ctx.__aexit__(None, None, None)
+            except Exception as e:
+                log.debug(f"[ANTIGRAVITY GEMINI] Error closing stream context: {e}")
+        
+        if client:
+            try:
+                await client.aclose()
+            except Exception as e:
+                log.debug(f"[ANTIGRAVITY GEMINI] Error closing client: {e}")
 
+
+# ==================== API 路由 ====================
 
 @router.get("/antigravity/v1beta/models")
 @router.get("/antigravity/v1/models")
 async def gemini_list_models(api_key: str = Depends(authenticate_gemini_flexible)):
-    """返回 Gemini 格式的模型列表 - 动态从 Antigravity API 获取"""
+    """
+    返回 Gemini 格式的模型列表
+    
+    动态从 Antigravity API 获取可用模型
+    """
 
     try:
         # 获取凭证管理器
@@ -227,32 +278,18 @@ async def gemini_generate_content(
         raise HTTPException(status_code=400, detail="Missing required field: contents")
 
     # 健康检查
-    if (
-        len(request_data["contents"]) == 1
-        and request_data["contents"][0].get("role") == "user"
-        and request_data["contents"][0].get("parts", [{}])[0].get("text") == "Hi"
-    ):
-        return JSONResponse(
-            content={
-                "candidates": [
-                    {
-                        "content": {"parts": [{"text": "antigravity API 正常工作中"}], "role": "model"},
-                        "finishReason": "STOP",
-                        "index": 0,
-                    }
-                ]
-            }
-        )
+    if is_health_check_request(request_data, format="gemini"):
+        response = create_health_check_response(format="gemini")
+        response["candidates"][0]["content"]["parts"][0]["text"] = "antigravity API 正常工作中"
+        return JSONResponse(content=response)
 
     # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
     cred_mgr = await get_credential_manager()
 
-    # 提取模型名称（移除 "models/" 前缀）
-    if model.startswith("models/"):
-        model = model[7:]
+    # 提取模型名称
+    model = extract_base_model_name(model)
 
-    # 检测并处理抗截断模式（虽然非流式不会使用，但要处理模型名）
+    # 检测并处理抗截断模式
     use_anti_truncation = is_anti_truncation_model(model)
     if use_anti_truncation:
         # 去掉 "流式抗截断/" 前缀
@@ -262,8 +299,15 @@ async def gemini_generate_content(
     # 模型名称映射
     actual_model = model_mapping(model)
     enable_thinking = is_thinking_model(model)
+    
+    # 获取凭证信息
+    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
+    if not cred_result:
+        log.error("[ANTIGRAVITY GEMINI] 当前无可用 antigravity 凭证")
+        raise HTTPException(status_code=500, detail="当前无可用 antigravity 凭证")
 
-    log.info(f"[ANTIGRAVITY GEMINI] Request: model={model} -> {actual_model}, thinking={enable_thinking}")
+    credential_name, credential_data = cred_result
+    log_request_info("ANTIGRAVITY GEMINI", actual_model, credential_name, False)
 
     # 转换 Gemini contents 为 Antigravity contents
     try:

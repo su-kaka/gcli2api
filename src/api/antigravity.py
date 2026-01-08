@@ -6,7 +6,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from config import (
     get_antigravity_api_url,
@@ -19,8 +19,7 @@ from src.httpx_client import create_streaming_client_with_kwargs, http_client
 from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
 from src.converter.gemini_fix import (
-    filter_thoughts_from_stream_chunk,
-    build_antigravity_request_body,
+    filter_thoughts_from_stream_chunk
 )
 
 # 导入共同的基础功能
