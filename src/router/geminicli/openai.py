@@ -325,6 +325,7 @@ async def convert_streaming_response(gemini_response, model: str) -> StreamingRe
                         gemini_chunk, model, response_id
                     )
                     yield f"data: {json.dumps(openai_chunk, separators=(',', ':'))}\n\n".encode()
+                    await asyncio.sleep(0)  # 让出执行权，立即推送数据
             else:
                 # 其他类型的响应，尝试直接处理
                 log.warning(f"Unexpected response type: {type(gemini_response)}")

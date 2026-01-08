@@ -988,15 +988,17 @@ async def gemini_sse_to_anthropic_sse(
     try:
         async for line in lines:
             ready_output: list[bytes] = []
-            if not line or not line.startswith("data: "):
+            # 处理 bytes 类型的流式数据
+            if not line or not line.startswith(b"data: "):
                 continue
 
             raw = line[6:].strip()
-            if raw == "[DONE]":
+            if raw == b"[DONE]":
                 break
 
             try:
-                data = json.loads(raw)
+                # 解码 bytes 后再解析 JSON
+                data = json.loads(raw.decode('utf-8', errors='ignore'))
             except Exception:
                 continue
 

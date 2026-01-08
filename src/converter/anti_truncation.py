@@ -240,9 +240,12 @@ class AntiTruncationStreamProcessor:
                         yield line
                         continue
 
-                    # 将行转换为字符串
-                    line_str = line.decode() if isinstance(line, bytes) else str(line)
-                    line_str = line_str.strip()
+                    # 处理 bytes 类型的流式数据
+                    if isinstance(line, bytes):
+                        # 解码 bytes 为字符串
+                        line_str = line.decode('utf-8', errors='ignore').strip()
+                    else:
+                        line_str = str(line).strip()
 
                     # 跳过空行
                     if not line_str:

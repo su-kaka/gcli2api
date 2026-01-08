@@ -1109,26 +1109,26 @@ def create_openai_heartbeat_chunk() -> Dict[str, Any]:
 def parse_gemini_stream_chunk(chunk: Union[bytes, str]) -> Dict[str, Any]:
     """
     解析 Gemini 流式响应的单个块
-    
+
     Args:
         chunk: 原始响应块（bytes 或 str）
-    
+
     Returns:
         解析后的 JSON 字典，如果解析失败返回 None
     """
-    # 处理不同数据类型
+    # 处理 bytes 类型
     if isinstance(chunk, bytes):
         if not chunk.startswith(b"data: "):
             return None
-        payload = chunk[len(b"data: ") :]
-    else:
-        chunk_str = str(chunk)
-        if not chunk_str.startswith("data: "):
+        # 解码 bytes 后再解析
+        payload = chunk[len(b"data: "):].strip()
+        try:
+            return json.loads(payload.decode('utf-8', errors='ignore'))
+        except json.JSONDecodeError:
             return None
-        payload = chunk_str[len("data: ") :].encode()
-    
+
     try:
-        return json.loads(payload.decode())
+        return json.loads(payload)
     except json.JSONDecodeError:
         return None
 

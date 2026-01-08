@@ -139,12 +139,20 @@ async def convert_antigravity_stream_to_openai(
     """
     try:
         async for line in lines_generator:
-            if not line or not line.startswith("data: "):
-                continue
+            # 处理 bytes 类型
+            if isinstance(line, bytes):
+                if not line.startswith(b"data: "):
+                    continue
+                # 解码 bytes 后再解析
+                line_str = line.decode('utf-8', errors='ignore')
+            else:
+                line_str = str(line)
+                if not line_str.startswith("data: "):
+                    continue
 
             # 解析 SSE 数据
             try:
-                data = json.loads(line[6:])  # 去掉 "data: " 前缀
+                data = json.loads(line_str[6:])  # 去掉 "data: " 前缀
             except:
                 continue
 

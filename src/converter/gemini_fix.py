@@ -771,12 +771,20 @@ async def convert_antigravity_stream_to_gemini(
 
     try:
         async for line in lines_generator:
-            if not line or not line.startswith("data: "):
-                continue
+            # 处理 bytes 类型
+            if isinstance(line, bytes):
+                if not line.startswith(b"data: "):
+                    continue
+                # 解码 bytes 后再解析
+                line_str = line.decode('utf-8', errors='ignore')
+            else:
+                line_str = str(line)
+                if not line_str.startswith("data: "):
+                    continue
 
             # 解析 SSE 数据
             try:
-                data = json.loads(line[6:])  # 去掉 "data: " 前缀
+                data = json.loads(line_str[6:])  # 去掉 "data: " 前缀
             except:
                 continue
 
@@ -861,17 +869,24 @@ async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
     try:
         async for line in stream_generator:
             line_count += 1
-            log.debug(f"[STREAM COLLECTOR] Processing line {line_count}: {str(line)[:200] if line else 'empty'}")
-            if not isinstance(line, str):
-                log.debug(f"[STREAM COLLECTOR] Skipping non-string line: {type(line)}")
+
+            # 处理 bytes 类型
+            if isinstance(line, bytes):
+                line_str = line.decode('utf-8', errors='ignore')
+                log.debug(f"[STREAM COLLECTOR] Processing bytes line {line_count}: {line_str[:200] if line_str else 'empty'}")
+            elif isinstance(line, str):
+                line_str = line
+                log.debug(f"[STREAM COLLECTOR] Processing line {line_count}: {line_str[:200] if line_str else 'empty'}")
+            else:
+                log.debug(f"[STREAM COLLECTOR] Skipping non-string/bytes line: {type(line)}")
                 continue
-                
+
             # 解析流式数据行
-            if not line.startswith("data: "):
-                log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line[:100]}")
+            if not line_str.startswith("data: "):
+                log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line_str[:100]}")
                 continue
-                
-            raw = line[6:].strip()
+
+            raw = line_str[6:].strip()
             if raw == "[DONE]":
                 log.debug("[STREAM COLLECTOR] Received [DONE] marker")
                 break
