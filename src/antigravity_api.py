@@ -90,6 +90,7 @@ def build_antigravity_request_body(
         "requestId": generate_request_id(),
         "model": model,
         "userAgent": "antigravity",
+        "requestType": "agent",
         "request": {
             "contents": contents,
             "session_id": session_id,
@@ -97,8 +98,24 @@ def build_antigravity_request_body(
     }
 
     # 添加系统指令
+    custom_prompt = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+    
     if system_instruction:
+        # 存在 systemInstruction，将占位符放在位置0，原有内容降格到位置1及以下
+        if isinstance(system_instruction, dict):
+            parts = system_instruction.get("parts", [])
+            if parts:
+                # 将占位符插入到位置0，原有内容后移
+                system_instruction["parts"] = [{"text": custom_prompt}] + parts
+            else:
+                # parts 为空，创建新的
+                system_instruction["parts"] = [{"text": custom_prompt}]
         request_body["request"]["systemInstruction"] = system_instruction
+    else:
+        # 不存在 systemInstruction，创建新的
+        request_body["request"]["systemInstruction"] = {
+            "parts": [{"text": custom_prompt}]
+        }
 
     # 添加工具定义
     if tools:
