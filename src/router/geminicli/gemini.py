@@ -26,7 +26,11 @@ from src.utils import (
 )
 
 # 本地模块 - API客户端
-from src.api.geminicli import build_gemini_payload_from_native, send_gemini_request
+from src.api.geminicli import (
+    build_gemini_payload_from_native,
+    send_geminicli_request_stream,
+    send_geminicli_request_no_stream,
+)
 
 # 本地模块 - 转换器
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
@@ -43,6 +47,7 @@ from src.router.base_router import (
     get_credential_manager,
     create_gemini_model_list,
     extract_base_model_name,
+    wrap_stream_with_cleanup,
 )
 from src.router.hi_check import is_health_check_request, create_health_check_response
 
@@ -137,32 +142,8 @@ async def generate_content(
         raise HTTPException(status_code=500, detail="Request processing failed")
 
     # 发送请求（429重试已在google_api_client中处理）
-    response = await send_gemini_request(api_payload, False, cred_mgr)
-
-    # 处理响应
-    try:
-        if hasattr(response, "body"):
-            response_data = json.loads(
-                response.body.decode() if isinstance(response.body, bytes) else response.body
-            )
-        elif hasattr(response, "content"):
-            response_data = json.loads(
-                response.content.decode()
-                if isinstance(response.content, bytes)
-                else response.content
-            )
-        else:
-            response_data = json.loads(str(response))
-
-        return JSONResponse(content=response_data)
-
-    except Exception as e:
-        log.error(f"Response processing failed: {e}")
-        # 返回原始响应
-        if hasattr(response, "content"):
-            return JSONResponse(content=json.loads(response.content))
-        else:
-            raise HTTPException(status_code=500, detail="Response processing failed")
+    response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+    return JSONResponse(content=response_data)
 
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/v1/models/{model:path}:streamGenerateContent")
@@ -224,15 +205,24 @@ async def stream_generate_content(
         log.info("启用流式抗截断功能")
         # 使用流式抗截断处理器
         max_attempts = await get_anti_truncation_max_attempts()
+        async def stream_request(payload):
+            resources, _, _ = await send_geminicli_request_stream(payload, cred_mgr)
+            filtered_lines, stream_ctx, client = resources
+            return StreamingResponse(
+                wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+                media_type="text/event-stream"
+            )
         return await apply_anti_truncation_to_stream(
-            lambda payload: send_gemini_request(payload, True, cred_mgr), api_payload, max_attempts
+            stream_request, api_payload, max_attempts
         )
 
     # 常规流式请求（429重试已在google_api_client中处理）
-    response = await send_gemini_request(api_payload, True, cred_mgr)
-
-    # 直接返回流式响应
-    return response
+    resources, _, _ = await send_geminicli_request_stream(api_payload, cred_mgr)
+    filtered_lines, stream_ctx, client = resources
+    return StreamingResponse(
+        wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+        media_type="text/event-stream"
+    )
 
 @router.post("/v1beta/models/{model:path}:countTokens")
 @router.post("/v1/models/{model:path}:countTokens")
@@ -365,7 +355,12 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
 
             # 异步发送实际请求
             async def get_response():
-                return await send_gemini_request(api_payload, False, cred_mgr)
+                response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+                from fastapi import Response
+                return Response(
+                    content=json.dumps(response_data),
+                    media_type="application/json"
+                )
 
             # 创建请求任务
             response_task = create_managed_task(get_response(), name="gemini_fake_stream_request")

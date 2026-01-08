@@ -261,3 +261,122 @@ def log_request_info(
         f"[{mode}] {request_type.capitalize()} request for model: {model}, "
         f"using credential: {credential_name}"
     )
+
+
+# ==================== 统一流式包装器 ====================
+
+from typing import AsyncGenerator, Tuple, Any, Callable, Awaitable
+from fastapi.responses import StreamingResponse
+
+
+def wrap_stream_with_cleanup(
+    filtered_lines: AsyncGenerator,
+    stream_ctx: Any,
+    client: Any
+) -> AsyncGenerator:
+    """
+    包装流式响应，自动清理资源
+    
+    这个函数是所有流式响应的统一包装器，确保在流结束时正确清理资源。
+    适用于 antigravity 和 geminicli 的所有流式 API。
+    
+    Args:
+        filtered_lines: 原始行生成器
+        stream_ctx: 流上下文管理器
+        client: HTTP 客户端
+        
+    Returns:
+        带资源清理的行生成器
+        
+    示例:
+        ```python
+        resources, _, _ = await send_xxx_request_stream(payload, cred_mgr)
+        filtered_lines, stream_ctx, client = resources
+        
+        return StreamingResponse(
+            wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+            media_type="text/event-stream"
+        )
+        ```
+    """
+    async def line_generator():
+        try:
+            async for line in filtered_lines:
+                yield line
+        finally:
+            await cleanup_stream_resources(stream_ctx, client)
+    
+    return line_generator()
+
+
+async def wrap_stream_with_processor(
+    filtered_lines: AsyncGenerator,
+    stream_ctx: Any,
+    client: Any,
+    processor: Callable[[Any], Awaitable[Any]]
+) -> AsyncGenerator:
+    """
+    包装流式响应，应用处理器并清理资源
+    
+    这个函数用于需要对流式数据进行转换处理的场景（如 Anthropic SSE 转换）。
+    
+    Args:
+        filtered_lines: 原始行生成器
+        stream_ctx: 流上下文管理器
+        client: HTTP 客户端
+        processor: 异步处理器函数，接收原始流并产出处理后的数据
+        
+    Returns:
+        带处理和资源清理的生成器
+        
+    示例:
+        ```python
+        resources, cred_name, _ = await send_xxx_request_stream(payload, cred_mgr)
+        filtered_lines, stream_ctx, client = resources
+        
+        return StreamingResponse(
+            wrap_stream_with_processor(
+                filtered_lines, stream_ctx, client,
+                lambda lines: gemini_sse_to_anthropic_sse(
+                    lines, model=model, message_id=msg_id, ...
+                )
+            ),
+            media_type="text/event-stream"
+        )
+        ```
+    """
+    async def processed_generator():
+        try:
+            async for chunk in processor(filtered_lines):
+                yield chunk
+        finally:
+            await cleanup_stream_resources(stream_ctx, client)
+    
+    return processed_generator()
+
+
+def create_streaming_response_from_resources(
+    resources: Tuple[AsyncGenerator, Any, Any],
+    media_type: str = "text/event-stream"
+) -> StreamingResponse:
+    """
+    从流式资源创建 StreamingResponse（最简单的包装）
+    
+    Args:
+        resources: (filtered_lines, stream_ctx, client) 元组
+        media_type: 响应的媒体类型
+        
+    Returns:
+        StreamingResponse 对象
+        
+    示例:
+        ```python
+        resources, _, _ = await send_xxx_request_stream(payload, cred_mgr)
+        return create_streaming_response_from_resources(resources)
+        ```
+    """
+    filtered_lines, stream_ctx, client = resources
+    return StreamingResponse(
+        wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+        media_type=media_type
+    )

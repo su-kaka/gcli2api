@@ -26,7 +26,7 @@ from src.converter.anthropic2gemini import (
     AnthropicRequestValidationError,
 )
 from src.router.hi_check import is_health_check_message, create_health_check_response
-from src.router.base_router import get_credential_manager
+from src.router.base_router import get_credential_manager, wrap_stream_with_processor
 from src.converter.gemini_fix import (
     build_antigravity_request_body,
 )
@@ -311,29 +311,20 @@ async def anthropic_messages(
             log.error(f"[ANTHROPIC] 下游流式请求失败: {e}")
             return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
 
-        async def stream_generator():
-            try:
-                # response 现在是 filtered_lines 生成器，直接使用
-                async for chunk in gemini_sse_to_anthropic_sse(
-                    response,
+        return StreamingResponse(
+            wrap_stream_with_processor(
+                response, stream_ctx, client,
+                lambda lines: gemini_sse_to_anthropic_sse(
+                    lines,
                     model=str(model),
                     message_id=message_id,
                     initial_input_tokens=estimated_tokens,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
-                ):
-                    yield chunk
-            finally:
-                try:
-                    await stream_ctx.__aexit__(None, None, None)
-                except Exception as e:
-                    log.debug(f"[ANTHROPIC] 关闭 stream_ctx 失败: {e}")
-                try:
-                    await client.aclose()
-                except Exception as e:
-                    log.debug(f"[ANTHROPIC] 关闭 client 失败: {e}")
-
-        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+                )
+            ),
+            media_type="text/event-stream"
+        )
 
     request_id = f"msg_{int(time.time() * 1000)}"
     try:

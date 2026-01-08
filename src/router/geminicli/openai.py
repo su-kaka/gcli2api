@@ -27,7 +27,10 @@ from src.utils import (
 
 # 本地模块 - 模型和API客户端
 from src.models import ChatCompletionRequest, Model, ModelList
-from src.api.geminicli import send_gemini_request
+from src.api.geminicli import (
+    send_geminicli_request_stream,
+    send_geminicli_request_no_stream,
+)
 
 # 本地模块 - 转换器
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
@@ -43,7 +46,7 @@ from src.converter.openai2gemini import (
 )
 
 # 本地模块 - 基础路由工具
-from src.router.base_router import get_credential_manager
+from src.router.base_router import get_credential_manager, wrap_stream_with_cleanup
 from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # 本地模块 - 任务管理
@@ -151,8 +154,16 @@ async def chat_completions(
         max_attempts = await get_anti_truncation_max_attempts()
 
         # 使用流式抗截断处理器
+        async def stream_request(payload):
+            resources, _, _ = await send_geminicli_request_stream(payload, cred_mgr)
+            filtered_lines, stream_ctx, client = resources
+            return StreamingResponse(
+                wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+                media_type="text/event-stream"
+            )
+        
         gemini_response = await apply_anti_truncation_to_stream(
-            lambda api_payload: send_gemini_request(api_payload, is_streaming, cred_mgr),
+            stream_request,
             api_payload,
             max_attempts,
         )
@@ -164,11 +175,24 @@ async def chat_completions(
     # 发送请求（429重试已在google_api_client中处理）
     is_streaming = getattr(request_data, "stream", False)
     log.debug(f"Sending request: streaming={is_streaming}, model={real_model}")
-    response = await send_gemini_request(api_payload, is_streaming, cred_mgr)
-
-    # 如果是流式响应，直接返回
+    
     if is_streaming:
+        # 流式请求
+        resources, _, _ = await send_geminicli_request_stream(api_payload, cred_mgr)
+        filtered_lines, stream_ctx, client = resources
+        response = StreamingResponse(
+            wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
+            media_type="text/event-stream"
+        )
         return await convert_streaming_response(response, model)
+    
+    # 非流式请求
+    response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+    from fastapi import Response
+    response = Response(
+        content=json.dumps(response_data),
+        media_type="application/json"
+    )
 
     # 转换非流式响应
     try:
@@ -215,7 +239,12 @@ async def fake_stream_response(api_payload: dict, cred_mgr) -> StreamingResponse
 
             # 异步发送实际请求
             async def get_response():
-                return await send_gemini_request(api_payload, False, cred_mgr)
+                response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+                from fastapi import Response
+                return Response(
+                    content=json.dumps(response_data),
+                    media_type="application/json"
+                )
 
             # 创建请求任务
             response_task = create_managed_task(get_response(), name="openai_fake_stream_request")
