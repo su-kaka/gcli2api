@@ -315,6 +315,10 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         OpenAI聊天完成格式的字典
     """
 
+    # 处理GeminiCLI的response包装格式
+    if "response" in gemini_response:
+        gemini_response = gemini_response["response"]
+
     choices = []
 
     for candidate in gemini_response.get("candidates", []):

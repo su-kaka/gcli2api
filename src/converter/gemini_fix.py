@@ -97,23 +97,37 @@ def _filter_parts(parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def filter_thoughts_from_response(response_data: dict) -> dict:
     """从响应数据中过滤掉思维内容
-    
+
     Args:
         response_data: Gemini API 响应数据
-    
+
     Returns:
         修改后的响应数据(已移除 thoughts)
     """
-    if not isinstance(response_data, dict) or "candidates" not in response_data:
+    if not isinstance(response_data, dict):
+        return response_data
+
+    # 处理GeminiCLI的response包装格式
+    has_wrapper = False
+    if "response" in response_data and "candidates" not in response_data:
+        has_wrapper = True
+        actual_response = response_data["response"]
+    else:
+        actual_response = response_data
+
+    if "candidates" not in actual_response:
         return response_data
 
     # 遍历candidates并移除thoughts
-    for candidate in response_data.get("candidates", []):
+    for candidate in actual_response.get("candidates", []):
         parts = safe_get_nested(candidate, "content", "parts")
         if parts and isinstance(parts, list):
             candidate["content"]["parts"] = _filter_parts(parts)
 
-    return response_data
+    # 如果有包装，返回包装后的结果
+    if has_wrapper:
+        return {"response": actual_response}
+    return actual_response
 
 
 def filter_thoughts_from_stream_chunk(chunk_data: dict) -> Optional[dict]:
@@ -615,22 +629,26 @@ def parse_streaming_chunk(chunk: str, return_thoughts: bool) -> Optional[Dict[st
 
 def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
     """从完整响应中提取内容和推理内容(用于假流式)
-    
+
     Args:
         response_data: Gemini API 响应数据
-    
+
     Returns:
         (content, reasoning_content, finish_reason): 内容、推理内容和结束原因的元组
     """
+    # 处理GeminiCLI的response包装格式
+    if "response" in response_data and "candidates" not in response_data:
+        response_data = response_data["response"]
+
     candidates = response_data.get("candidates", [])
     if not candidates:
         return "", "", "STOP"
-    
+
     candidate = candidates[0]
     finish_reason = candidate.get("finishReason", "STOP")
     parts = safe_get_nested(candidate, "content", "parts", default=[])
     content, reasoning_content = extract_content_and_reasoning(parts)
-    
+
     return content, reasoning_content, finish_reason
 
 

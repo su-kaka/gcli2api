@@ -143,6 +143,7 @@ async def generate_content(
 
     # 发送请求（429重试已在google_api_client中处理）
     response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+
     return JSONResponse(content=response_data)
 
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")

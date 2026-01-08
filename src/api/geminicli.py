@@ -22,6 +22,7 @@ from src.api.base_api_client import (
     record_api_call_success,
     record_api_call_error,
     parse_and_log_cooldown,
+    unwrap_geminicli_response,
 )
 
 
@@ -108,7 +109,10 @@ def handle_geminicli_streaming_response(
 ):
     """
     处理 GeminiCli 流式响应，返回原始行迭代器（用于 Anthropic 转换）
+    同时去掉 GeminiCLI 的 response 包装
     """
+    import json
+
     async def filtered_lines():
         success_recorded = False
         try:
@@ -118,7 +122,27 @@ def handle_geminicli_streaming_response(
                         credential_manager, credential_name, mode="geminicli", model_key=model_key
                     )
                     success_recorded = True
-                yield line
+
+                # 处理 SSE 格式的数据行，去掉 response 包装
+                if line.startswith("data: "):
+                    try:
+                        payload_str = line[6:]  # 去掉 "data: " 前缀
+                        if payload_str.strip() == "[DONE]":
+                            yield line  # [DONE] 标记直接传递
+                            continue
+
+                        # 解析 JSON 并去掉包装
+                        data = json.loads(payload_str)
+                        data = unwrap_geminicli_response(data)
+
+                        # 重新编码为 SSE 行
+                        yield f"data: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}"
+                    except (json.JSONDecodeError, KeyError):
+                        # 解析失败，直接传递原始行
+                        yield line
+                else:
+                    # 非 data: 开头的行，直接传递
+                    yield line
         except Exception as e:
             log.error(f"[GEMINICLI-STREAM] Error during streaming: {e}")
             raise
@@ -267,6 +291,7 @@ async def send_geminicli_request_no_stream(
                         credential_manager, current_file, mode="geminicli", model_key=model_group
                     )
                     response_data = response.json()
+                    response_data = unwrap_geminicli_response(response_data)
                     return response_data, current_file, credential_data
 
                 # 处理错误

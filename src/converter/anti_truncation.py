@@ -231,69 +231,78 @@ class AntiTruncationStreamProcessor:
                     yield await self._handle_non_streaming_response(response)
                     return
 
-                # 处理流式响应
+                # 处理流式响应（按行处理）
                 chunk_buffer = io.StringIO()  # 使用 StringIO 缓存当前轮次的chunk
                 found_done_marker = False
 
-                async for chunk in response.body_iterator:
-                    if not chunk:
-                        yield chunk
+                async for line in response.body_iterator:
+                    if not line:
+                        yield line
                         continue
 
-                    # 处理不同数据类型的startswith问题
-                    if isinstance(chunk, bytes):
-                        if not chunk.startswith(b"data: "):
-                            yield chunk
+                    # 将行转换为字符串
+                    line_str = line.decode() if isinstance(line, bytes) else str(line)
+                    line_str = line_str.strip()
+
+                    # 跳过空行
+                    if not line_str:
+                        yield line
+                        continue
+
+                    # 处理 SSE 格式的数据行
+                    if line_str.startswith("data: "):
+                        payload_str = line_str[6:]  # 去掉 "data: " 前缀
+
+                        # 检查是否是 [DONE] 标记
+                        if payload_str.strip() == "[DONE]":
+                            if found_done_marker:
+                                log.info("Anti-truncation: Found [done] marker, output complete")
+                                yield line
+                                # 清理内存
+                                chunk_buffer.close()
+                                self._clear_content()
+                                return
+                            else:
+                                log.warning("Anti-truncation: Stream ended without [done] marker")
+                                # 不发送[DONE]，准备继续
+                                break
+
+                        # 尝试解析 JSON 数据
+                        try:
+                            data = json.loads(payload_str)
+                            content = self._extract_content_from_chunk(data)
+
+                            log.debug(f"Anti-truncation: Extracted content: {repr(content[:100] if content else '')}")
+
+                            if content:
+                                chunk_buffer.write(content)
+
+                                # 检查是否包含done标记
+                                has_marker = self._check_done_marker_in_chunk_content(content)
+                                log.debug(f"Anti-truncation: Check done marker result: {has_marker}, DONE_MARKER='{DONE_MARKER}'")
+                                if has_marker:
+                                    found_done_marker = True
+                                    log.info(f"Anti-truncation: Found [done] marker in chunk, content: {content[:200]}")
+
+                            # 清理行中的[done]标记后再发送
+                            cleaned_line = self._remove_done_marker_from_line(line, line_str, data)
+                            yield cleaned_line
+
+                        except (json.JSONDecodeError, ValueError):
+                            # 无法解析的行，直接传递
+                            yield line
                             continue
-                        payload_data = chunk[len(b"data: ") :]
                     else:
-                        chunk_str = str(chunk)
-                        if not chunk_str.startswith("data: "):
-                            yield chunk
-                            continue
-                        payload_data = chunk_str[len("data: ") :].encode()
-
-                    # 解析chunk内容
-
-                    if payload_data.strip() == b"[DONE]":
-                        # 检查是否找到了done标记
-                        if found_done_marker:
-                            log.info("Anti-truncation: Found [done] marker, output complete")
-                            yield chunk
-                            # 清理内存
-                            chunk_buffer.close()
-                            self._clear_content()
-                            return
-                        else:
-                            log.warning("Anti-truncation: Stream ended without [done] marker")
-                            # 不发送[DONE]，准备继续
-                            break
-
-                    try:
-                        data = json.loads(payload_data.decode())
-                        content = self._extract_content_from_chunk(data)
-
-                        if content:
-                            chunk_buffer.write(content)
-
-                            # 检查是否包含done标记
-                            if self._check_done_marker_in_chunk_content(content):
-                                found_done_marker = True
-                                log.info("Anti-truncation: Found [done] marker in chunk")
-
-                        # 清理chunk中的[done]标记后再发送
-                        cleaned_chunk = self._remove_done_marker_from_chunk(chunk, data)
-                        yield cleaned_chunk
-
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        yield chunk
-                        continue
+                        # 非 data: 开头的行，直接传递
+                        yield line
 
                 # 更新收集的内容 - 使用 StringIO 高效处理
                 chunk_text = chunk_buffer.getvalue()
                 if chunk_text:
                     self._append_content(chunk_text)
                 chunk_buffer.close()
+
+                log.debug(f"Anti-truncation: After processing stream, found_done_marker={found_done_marker}")
 
                 # 如果找到了done标记，结束
                 if found_done_marker:
@@ -397,7 +406,6 @@ class AntiTruncationStreamProcessor:
         """从chunk数据中提取文本内容"""
         content = ""
 
-        # 处理Gemini格式
         if "candidates" in data:
             for candidate in data["candidates"]:
                 if "content" in candidate:
@@ -405,14 +413,6 @@ class AntiTruncationStreamProcessor:
                     for part in parts:
                         if "text" in part:
                             content += part["text"]
-
-        # 处理OpenAI格式
-        elif "choices" in data:
-            for choice in data["choices"]:
-                if "delta" in choice and "content" in choice["delta"]:
-                    content += choice["delta"]["content"]
-                elif "message" in choice and "content" in choice["message"]:
-                    content += choice["message"]["content"]
 
         return content
 
@@ -533,15 +533,12 @@ class AntiTruncationStreamProcessor:
 
         return content
 
-    def _remove_done_marker_from_chunk(self, chunk: bytes, data: Dict[str, Any]) -> bytes:
-        """使用正则表达式从chunk中移除[done]标记"""
+    def _remove_done_marker_from_line(self, line: bytes, line_str: str, data: Dict[str, Any]) -> bytes:
+        """从行中移除[done]标记"""
         try:
-            # 首先检查是否真的包含[done]标记，如果没有则直接返回原始chunk
-            chunk_text = (
-                chunk.decode("utf-8", errors="ignore") if isinstance(chunk, bytes) else str(chunk)
-            )
-            if "[done]" not in chunk_text.lower():
-                return chunk  # 没有[done]标记，直接返回原始chunk
+            # 首先检查是否真的包含[done]标记
+            if "[done]" not in line_str.lower():
+                return line  # 没有[done]标记，直接返回原始行
 
             # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
             done_pattern = re.compile(r"\s*\[done\]\s*", re.IGNORECASE)
@@ -573,16 +570,9 @@ class AntiTruncationStreamProcessor:
                         modified_candidate["content"] = modified_content
                     modified_data["candidates"].append(modified_candidate)
 
-                # 重新编码为chunk格式，保持原始的换行符
-                if isinstance(chunk, bytes):
-                    prefix = b"data: "
-                    suffix = b"\n\n"  # 确保有正确的换行符
-                    json_data = json.dumps(
-                        modified_data, separators=(",", ":"), ensure_ascii=False
-                    ).encode("utf-8")
-                    return prefix + json_data + suffix
-                else:
-                    return f"data: {json.dumps(modified_data, separators=(',', ':'), ensure_ascii=False)}\n\n"
+                # 重新编码为行格式
+                json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
+                return f"data: {json_str}\n".encode("utf-8")
 
             # 处理OpenAI格式
             elif "choices" in data:
@@ -597,29 +587,20 @@ class AntiTruncationStreamProcessor:
                         modified_choice["delta"] = modified_delta
                     elif "message" in choice and "content" in choice["message"]:
                         modified_message = choice["message"].copy()
-                        modified_message["content"] = done_pattern.sub(
-                            "", choice["message"]["content"]
-                        )
+                        modified_message["content"] = done_pattern.sub("", choice["message"]["content"])
                         modified_choice["message"] = modified_message
                     modified_data["choices"].append(modified_choice)
 
-                # 重新编码为chunk格式，保持原始的换行符
-                if isinstance(chunk, bytes):
-                    prefix = b"data: "
-                    suffix = b"\n\n"  # 确保有正确的换行符
-                    json_data = json.dumps(
-                        modified_data, separators=(",", ":"), ensure_ascii=False
-                    ).encode("utf-8")
-                    return prefix + json_data + suffix
-                else:
-                    return f"data: {json.dumps(modified_data, separators=(',', ':'), ensure_ascii=False)}\n\n"
+                # 重新编码为行格式
+                json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
+                return f"data: {json_str}\n".encode("utf-8")
 
-            # 如果没有找到支持的格式，返回原始chunk
-            return chunk
+            # 如果没有找到支持的格式，返回原始行
+            return line
 
         except Exception as e:
-            log.warning(f"Failed to remove [done] marker from chunk: {str(e)}")
-            return chunk
+            log.warning(f"Failed to remove [done] marker from line: {str(e)}")
+            return line
 
 
 async def apply_anti_truncation_to_stream(

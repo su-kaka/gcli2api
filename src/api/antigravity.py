@@ -31,6 +31,7 @@ from src.api.base_api_client import (
     record_api_call_success,
     record_api_call_error,
     parse_and_log_cooldown,
+    unwrap_geminicli_response,
 )
 
 
@@ -79,10 +80,10 @@ def handle_streaming_response(
         元组: (filtered_lines_generator, stream_ctx, client)
     """
     async def filter_stream_lines():
-        """过滤流式响应行，移除思维链内容（如果配置要求）"""
+        """过滤流式响应行，移除思维链内容（如果配置要求）并去掉 response 包装"""
         success_recorded = False
         return_thoughts = await get_return_thoughts_to_frontend()
-        
+
         try:
             async for line in response.aiter_lines():
                 # 记录第一次成功响应
@@ -95,37 +96,33 @@ def handle_streaming_response(
                             model_key=model_key
                         )
                     success_recorded = True
-                
+
                 if not line or not line.startswith("data: "):
                     yield line
                     continue
-                
+
                 raw = line[6:].strip()
                 if raw == "[DONE]":
                     yield line
                     continue
-                
-                # 如果需要过滤思维内容
-                if not return_thoughts:
-                    try:
-                        data = json.loads(raw)
-                        response_obj = data.get("response", {}) or {}
-                        
-                        # 使用 gemini_fix 的过滤函数
-                        filtered_data = filter_thoughts_from_stream_chunk(response_obj)
-                        
+
+                try:
+                    data = json.loads(raw)
+                    # 去掉 Antigravity 的 response 包装
+                    data = unwrap_geminicli_response(data)
+
+                    # 如果需要过滤思维内容
+                    if not return_thoughts:
+                        filtered_data = filter_thoughts_from_stream_chunk(data)
                         # 如果过滤后为空，跳过这一行
                         if filtered_data is None:
                             continue
-                        
-                        # 重新包装数据
-                        data["response"] = filtered_data
-                        yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
-                        continue
-                    except Exception:
-                        pass
-                
-                yield line
+                        data = filtered_data
+
+                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
+                except Exception:
+                    # 解析失败，传递原始行
+                    yield line
         except Exception as e:
             log.error(f"[ANTIGRAVITY] Streaming error: {e}")
             raise
@@ -340,19 +337,23 @@ async def _send_antigravity_request_no_stream_via_stream(
         # 收集流式响应
         log.info("[ANTIGRAVITY] Collecting streaming response...")
         collected_response = await collect_streaming_response(stream_generator)
-        
+
+        # collect_streaming_response 返回的格式是 {"response": {...}}
+        # 需要去掉包装
+        collected_response = unwrap_geminicli_response(collected_response)
+
         # 过滤思维链（如果需要）
         return_thoughts = await get_return_thoughts_to_frontend()
         if not return_thoughts:
             try:
-                candidate = (collected_response.get("response", {}) or {}).get("candidates", [{}])[0] or {}
+                candidate = (collected_response.get("candidates", [{}])[0]) or {}
                 parts = (candidate.get("content", {}) or {}).get("parts", []) or []
                 filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]
                 if filtered_parts != parts:
                     candidate["content"]["parts"] = filtered_parts
             except Exception as e:
                 log.debug(f"[ANTIGRAVITY] Failed to filter thinking from collected response: {e}")
-        
+
         log.info("[ANTIGRAVITY] Successfully collected complete response from stream")
         return collected_response, credential_name, credential_data
         
@@ -423,12 +424,13 @@ async def _send_antigravity_request_no_stream_traditional(
                         credential_manager, current_file, mode="antigravity", model_key=model_name
                     )
                     response_data = response.json()
+                    response_data = unwrap_geminicli_response(response_data)
 
                     # 从源头过滤思维链
                     return_thoughts = await get_return_thoughts_to_frontend()
                     if not return_thoughts:
                         try:
-                            candidate = (response_data.get("response", {}) or {}).get("candidates", [{}])[0] or {}
+                            candidate = (response_data.get("candidates", [{}])[0]) or {}
                             parts = (candidate.get("content", {}) or {}).get("parts", []) or []
                             # 过滤掉思维链部分
                             filtered_parts = [part for part in parts if not (isinstance(part, dict) and part.get("thought") is True)]

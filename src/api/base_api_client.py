@@ -317,3 +317,23 @@ async def execute_request_with_retry(
             raise
 
     raise Exception(f"All {mode} retry attempts failed")
+
+
+# ==================== 响应数据处理 ====================
+
+def unwrap_geminicli_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    从 GeminiCLI/Antigravity 响应中提取 response 字段
+
+    GeminiCLI/Antigravity 返回格式: {"response": {...}, "traceId": ...}
+    提取后格式: {...}
+
+    Args:
+        data: GeminiCLI/Antigravity 响应数据
+
+    Returns:
+        提取后的响应数据（无包装）
+    """
+    if isinstance(data, dict) and "response" in data:
+        return data["response"]
+    return data
