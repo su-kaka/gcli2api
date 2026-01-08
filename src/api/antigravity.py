@@ -97,11 +97,16 @@ def handle_streaming_response(
     async def filter_stream_lines():
         """过滤流式响应行，移除思维链内容（如果配置要求）并去掉 response 包装"""
         return_thoughts = await get_return_thoughts_to_frontend()
+        log.debug(f"[ANTIGRAVITY STREAM] Starting to filter stream lines, return_thoughts={return_thoughts}")
+        line_count = 0
 
         try:
             async for line in response.aiter_lines():
+                line_count += 1
+                log.debug(f"[ANTIGRAVITY STREAM] Received line {line_count}: {line[:200] if line else 'empty'}")
 
                 if not line or not line.startswith("data: "):
+                    log.debug(f"[ANTIGRAVITY STREAM] Skipping line (not data): {line[:100] if line else 'empty'}")
                     yield line
                     continue
 
@@ -111,25 +116,34 @@ def handle_streaming_response(
                     continue
 
                 try:
+                    log.debug(f"[ANTIGRAVITY STREAM] Parsing JSON: {raw[:200]}")
                     data = json.loads(raw)
+                    log.debug(f"[ANTIGRAVITY STREAM] Parsed data keys: {data.keys() if isinstance(data, dict) else type(data)}")
                     # 去掉 Antigravity 的 response 包装
                     data = unwrap_geminicli_response(data)
+                    log.debug(f"[ANTIGRAVITY STREAM] After unwrap, data keys: {data.keys() if isinstance(data, dict) else type(data)}")
 
                     # 如果需要过滤思维内容
                     if not return_thoughts:
                         filtered_data = filter_thoughts_from_stream_chunk(data)
                         # 如果过滤后为空，跳过这一行
                         if filtered_data is None:
+                            log.debug(f"[ANTIGRAVITY STREAM] Filtered data is None, skipping")
                             continue
                         data = filtered_data
 
-                    yield f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
-                except Exception:
+                    output_line = f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
+                    log.debug(f"[ANTIGRAVITY STREAM] Yielding filtered line: {output_line[:200]}")
+                    yield output_line
+                except Exception as e:
                     # 解析失败，传递原始行
+                    log.debug(f"[ANTIGRAVITY STREAM] JSON parse error: {e}, yielding raw line: {line[:200]}")
                     yield line
         except Exception as e:
-            log.error(f"[ANTIGRAVITY] Streaming error: {e}")
+            log.error(f"[ANTIGRAVITY] Streaming error after {line_count} lines: {e}")
             raise
+        
+        log.info(f"[ANTIGRAVITY STREAM] Finished filtering, processed {line_count} lines total")
     
     filtered_lines = filter_stream_lines()
     return (filtered_lines, stream_ctx, client)

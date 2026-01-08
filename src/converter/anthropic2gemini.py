@@ -715,8 +715,8 @@ def convert_anthropic_request_to_gemini(payload: Dict[str, Any]) -> Dict[str, An
 # ============================================================================
 
 def _pick_usage_metadata(response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """兼容下游 usageMetadata 的多种落点"""
-    response = response_data.get("response", {}) or {}
+    """兼容下游 usageMetadata 的多种落点（response_data 已 unwrap，无 'response' 包装）"""
+    response = response_data or {}
     if not isinstance(response, dict):
         return {}
 
@@ -753,9 +753,9 @@ def convert_gemini_response_to_anthropic(
     fallback_input_tokens: int = 0,
 ) -> Dict[str, Any]:
     """
-    将 Gemini 响应转换为 Anthropic Message 格式。
+    将 Gemini 响应转换为 Anthropic Message 格式（response_data 已 unwrap，无 'response' 包装）。
     """
-    candidate = response_data.get("response", {}).get("candidates", [{}])[0] or {}
+    candidate = response_data.get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
     usage_metadata = _pick_usage_metadata(response_data)
 

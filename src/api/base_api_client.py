@@ -336,6 +336,13 @@ def unwrap_geminicli_response(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         提取后的响应数据（无包装）
     """
+    from log import log
+    
     if isinstance(data, dict) and "response" in data:
-        return data["response"]
+        log.debug(f"[UNWRAP] Unwrapping response, keys before: {list(data.keys())}")
+        unwrapped = data["response"]
+        log.debug(f"[UNWRAP] Unwrapped keys: {list(unwrapped.keys()) if isinstance(unwrapped, dict) else type(unwrapped)}")
+        return unwrapped
+    
+    log.debug(f"[UNWRAP] No unwrapping needed, data type: {type(data)}, keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
     return data

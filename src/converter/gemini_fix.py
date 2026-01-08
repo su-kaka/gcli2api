@@ -854,31 +854,44 @@ async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
     collected_text = []  # 用于收集文本内容
     collected_thought_text = []  # 用于收集思维链内容
     has_data = False
+    line_count = 0
+    
+    log.debug("[STREAM COLLECTOR] Starting to collect streaming response")
     
     try:
         async for line in stream_generator:
+            line_count += 1
+            log.debug(f"[STREAM COLLECTOR] Processing line {line_count}: {str(line)[:200] if line else 'empty'}")
             if not isinstance(line, str):
+                log.debug(f"[STREAM COLLECTOR] Skipping non-string line: {type(line)}")
                 continue
                 
             # 解析流式数据行
             if not line.startswith("data: "):
+                log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line[:100]}")
                 continue
                 
             raw = line[6:].strip()
             if raw == "[DONE]":
+                log.debug("[STREAM COLLECTOR] Received [DONE] marker")
                 break
                 
             try:
+                log.debug(f"[STREAM COLLECTOR] Parsing JSON: {raw[:200]}")
                 chunk = json.loads(raw)
                 has_data = True
+                log.debug(f"[STREAM COLLECTOR] Chunk keys: {chunk.keys() if isinstance(chunk, dict) else type(chunk)}")
                 
                 # 提取响应对象
                 response_obj = chunk.get("response", {})
                 if not response_obj:
-                    continue
+                    log.debug("[STREAM COLLECTOR] No 'response' key in chunk, trying direct access")
+                    response_obj = chunk  # 尝试直接使用chunk
                     
                 candidates = response_obj.get("candidates", [])
+                log.debug(f"[STREAM COLLECTOR] Found {len(candidates)} candidates")
                 if not candidates:
+                    log.debug(f"[STREAM COLLECTOR] No candidates in chunk, chunk structure: {list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}")
                     continue
                     
                 candidate = candidates[0]
@@ -886,6 +899,7 @@ async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
                 # 收集文本内容
                 content = candidate.get("content", {})
                 parts = content.get("parts", [])
+                log.debug(f"[STREAM COLLECTOR] Processing {len(parts)} parts from candidate")
                 
                 for part in parts:
                     if not isinstance(part, dict):
@@ -898,8 +912,10 @@ async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
                     # 区分普通文本和思维链
                     if part.get("thought", False):
                         collected_thought_text.append(text)
+                        log.debug(f"[STREAM COLLECTOR] Collected thought text: {text[:100]}")
                     else:
                         collected_text.append(text)
+                        log.debug(f"[STREAM COLLECTOR] Collected regular text: {text[:100]}")
                 
                 # 收集其他信息（使用最后一个块的值）
                 if candidate.get("finishReason"):
@@ -924,11 +940,14 @@ async def collect_streaming_response(stream_generator) -> Dict[str, Any]:
                 continue
     
     except Exception as e:
-        log.error(f"[STREAM COLLECTOR] Error collecting stream: {e}")
+        log.error(f"[STREAM COLLECTOR] Error collecting stream after {line_count} lines: {e}")
         raise
+    
+    log.debug(f"[STREAM COLLECTOR] Finished iteration, has_data={has_data}, line_count={line_count}")
     
     # 如果没有收集到任何数据，返回错误
     if not has_data:
+        log.error(f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines")
         raise Exception("No data collected from stream")
     
     # 组装最终的parts

@@ -198,15 +198,15 @@ def convert_antigravity_response_to_openai(
     - 使用统计提取
     
     Args:
-        response_data: Antigravity响应数据
+        response_data: Antigravity响应数据（已unwrap，无"response"包装）
         model: 模型名称
         request_id: 请求ID
         
     Returns:
         OpenAI格式的响应字典
     """
-    # 提取 parts
-    parts = response_data.get("response", {}).get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    # 提取 parts（response_data 已经是 unwrap 后的数据，直接访问）
+    parts = response_data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
 
     # 使用 openai2gemini 模块函数提取工具调用和文本内容
     tool_calls_list, text_content = extract_tool_calls_from_parts(parts, is_streaming=False)
@@ -243,12 +243,12 @@ def convert_antigravity_response_to_openai(
     if tool_calls_list:
         finish_reason = "tool_calls"
 
-    finish_reason_raw = response_data.get("response", {}).get("candidates", [{}])[0].get("finishReason")
+    finish_reason_raw = response_data.get("candidates", [{}])[0].get("finishReason")
     if finish_reason_raw == "MAX_TOKENS":
         finish_reason = "length"
 
     # 提取使用统计
-    usage_metadata = response_data.get("response", {}).get("usageMetadata", {})
+    usage_metadata = response_data.get("usageMetadata", {})
     usage = {
         "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
         "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
