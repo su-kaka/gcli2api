@@ -406,6 +406,7 @@ class AntiTruncationStreamProcessor:
         """从chunk数据中提取文本内容"""
         content = ""
 
+        # 处理 Gemini 格式
         if "candidates" in data:
             for candidate in data["candidates"]:
                 if "content" in candidate:
@@ -413,6 +414,14 @@ class AntiTruncationStreamProcessor:
                     for part in parts:
                         if "text" in part:
                             content += part["text"]
+        
+        # 处理 OpenAI 流式格式（choices/delta）
+        elif "choices" in data:
+            for choice in data["choices"]:
+                if "delta" in choice and "content" in choice["delta"]:
+                    delta_content = choice["delta"]["content"]
+                    if delta_content:
+                        content += delta_content
 
         return content
 
@@ -570,9 +579,9 @@ class AntiTruncationStreamProcessor:
                         modified_candidate["content"] = modified_content
                     modified_data["candidates"].append(modified_candidate)
 
-                # 重新编码为行格式
+                # 重新编码为行格式 - SSE格式需要两个换行符
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
-                return f"data: {json_str}\n".encode("utf-8")
+                return f"data: {json_str}\n\n".encode("utf-8")
 
             # 处理OpenAI格式
             elif "choices" in data:
@@ -591,9 +600,9 @@ class AntiTruncationStreamProcessor:
                         modified_choice["message"] = modified_message
                     modified_data["choices"].append(modified_choice)
 
-                # 重新编码为行格式
+                # 重新编码为行格式 - SSE格式需要两个换行符
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
-                return f"data: {json_str}\n".encode("utf-8")
+                return f"data: {json_str}\n\n".encode("utf-8")
 
             # 如果没有找到支持的格式，返回原始行
             return line
