@@ -217,7 +217,8 @@ async def send_geminicli_request_stream(
             # 处理错误
             error_body = await response.aread()
             error_text = error_body.decode('utf-8', errors='ignore')
-            
+            log.error(f"[GEMINICLI-STREAM] API error ({response.status_code}) with credential {current_file}: {error_text[:500]}")
+
             cooldown_until = None
             if response.status_code == 429:
                 cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
@@ -239,17 +240,20 @@ async def send_geminicli_request_stream(
             )
 
             if should_retry:
+                log.info(f"[GEMINICLI-STREAM] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                 continue
 
             raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
 
         except Exception as e:
+            log.error(f"[GEMINICLI-STREAM] Request exception with credential {current_file}: {str(e)}")
             try:
                 await client.aclose()
             except Exception:
                 pass
-            
+
             if attempt < max_retries:
+                log.info(f"[GEMINICLI-STREAM] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise
@@ -308,6 +312,7 @@ async def send_geminicli_request_no_stream(
 
                 # 处理错误
                 error_text = response.text
+                log.error(f"[GEMINICLI] API error ({response.status_code}) with credential {current_file}: {error_text[:500]}")
 
                 cooldown_until = None
                 if response.status_code == 429:
@@ -324,12 +329,15 @@ async def send_geminicli_request_no_stream(
                 )
 
                 if should_retry:
+                    log.info(f"[GEMINICLI] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
                 raise Exception(f"GeminiCli API error ({response.status_code}): {error_text[:200]}")
 
         except Exception as e:
+            log.error(f"[GEMINICLI] Request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
+                log.info(f"[GEMINICLI] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise

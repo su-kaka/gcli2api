@@ -214,7 +214,7 @@ async def send_antigravity_request_stream(
                 # 处理错误
                 error_body = await response.aread()
                 error_text = error_body.decode('utf-8', errors='ignore')
-                log.error(f"[ANTIGRAVITY] API error ({response.status_code}): {error_text[:500]}")
+                log.error(f"[ANTIGRAVITY] API error ({response.status_code}) with credential {current_file}: {error_text[:500]}")
 
                 # 记录错误（使用模型级 CD）
                 cooldown_until = None
@@ -250,6 +250,7 @@ async def send_antigravity_request_stream(
                 )
 
                 if should_retry:
+                    log.info(f"[ANTIGRAVITY] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
                 raise Exception(f"Antigravity API error ({response.status_code}): {error_text[:200]}")
@@ -263,8 +264,9 @@ async def send_antigravity_request_stream(
                 raise stream_error
 
         except Exception as e:
-            log.error(f"[ANTIGRAVITY] Request failed with credential {current_file}: {e}")
+            log.error(f"[ANTIGRAVITY] Request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
+                log.info(f"[ANTIGRAVITY] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise
@@ -443,7 +445,7 @@ async def _send_antigravity_request_no_stream_traditional(
 
                 # 处理错误
                 error_body = response.text
-                log.error(f"[ANTIGRAVITY] API error ({response.status_code}): {error_body[:500]}")
+                log.error(f"[ANTIGRAVITY] API error ({response.status_code}) with credential {current_file}: {error_body[:500]}")
 
                 # 记录错误（使用模型级 CD）
                 cooldown_until = None
@@ -472,13 +474,15 @@ async def _send_antigravity_request_no_stream_traditional(
                 )
 
                 if should_retry:
+                    log.info(f"[ANTIGRAVITY] Retrying request (attempt {attempt + 2}/{max_retries + 1})...")
                     continue
 
                 raise Exception(f"Antigravity API error ({response.status_code}): {error_body[:200]}")
 
         except Exception as e:
-            log.error(f"[ANTIGRAVITY] Request failed with credential {current_file}: {e}")
+            log.error(f"[ANTIGRAVITY] Request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
+                log.info(f"[ANTIGRAVITY] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise

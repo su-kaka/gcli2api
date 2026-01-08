@@ -183,6 +183,7 @@ async def anthropic_messages(
                     initial_input_tokens=estimated_tokens,
                     credential_manager=cred_mgr,
                     credential_name=cred_name,
+                    mode="geminicli",
                 )
             ),
             media_type="text/event-stream"

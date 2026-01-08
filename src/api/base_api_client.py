@@ -100,8 +100,9 @@ async def handle_error_with_retry(
 
         # 自动封禁后，仍然尝试重试（会在下次循环中自动获取新凭证）
         if retry_enabled and attempt < max_retries:
-            log.warning(
-                f"[{mode.upper()} RETRY] Retrying with next credential after auto-ban ({attempt + 1}/{max_retries})"
+            log.info(
+                f"[{mode.upper()} RETRY] Retrying with next credential after auto-ban "
+                f"(status {status_code}, attempt {attempt + 1}/{max_retries})"
             )
             await asyncio.sleep(retry_interval)
             return True
@@ -109,8 +110,9 @@ async def handle_error_with_retry(
 
     # 如果不触发自动封禁，仅对429错误进行重试
     if status_code == 429 and retry_enabled and attempt < max_retries:
-        log.warning(
-            f"[{mode.upper()} RETRY] 429 error encountered, retrying ({attempt + 1}/{max_retries})"
+        log.info(
+            f"[{mode.upper()} RETRY] 429 rate limit encountered, retrying "
+            f"(attempt {attempt + 1}/{max_retries})"
         )
         await asyncio.sleep(retry_interval)
         return True
