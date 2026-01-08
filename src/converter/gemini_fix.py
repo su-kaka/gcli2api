@@ -763,8 +763,6 @@ async def convert_antigravity_stream_to_gemini(
     lines_generator: Any,
     stream_ctx: Any,
     client: Any,
-    credential_manager: Any,
-    credential_name: str
 ):
     """
     将 Antigravity 流式响应转换为 Gemini 格式的 SSE 流
@@ -773,24 +771,14 @@ async def convert_antigravity_stream_to_gemini(
         lines_generator: 行生成器（已经过滤的 SSE 行）
         stream_ctx: 流上下文
         client: HTTP 客户端
-        credential_manager: 凭证管理器
-        credential_name: 凭证名称
     """
     import json
     from log import log
-    
-    success_recorded = False
 
     try:
         async for line in lines_generator:
             if not line or not line.startswith("data: "):
                 continue
-
-            # 记录第一次成功响应
-            if not success_recorded:
-                if credential_name and credential_manager:
-                    await credential_manager.record_api_call_result(credential_name, True, mode="antigravity")
-                success_recorded = True
 
             # 解析 SSE 数据
             try:

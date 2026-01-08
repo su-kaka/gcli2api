@@ -55,7 +55,7 @@ from src.converter.openai2gemini import (
 )
 
 # 本地模块 - 基础路由工具
-from src.router.base_router import get_credential_manager
+# 已不需要从 base_router 导入 get_credential_manager
 
 
 # ==================== 路由器初始化 ====================
@@ -121,8 +121,6 @@ async def convert_antigravity_stream_to_openai(
     client: Any,
     model: str,
     request_id: str,
-    credential_manager: Any,
-    credential_name: str
 ):
     """
     将Antigravity流式响应转换为OpenAI格式的SSE流
@@ -135,14 +133,10 @@ async def convert_antigravity_stream_to_openai(
         client: HTTP客户端
         model: 模型名称
         request_id: 请求ID
-        credential_manager: 凭证管理器
-        credential_name: 凭证名称
         
     Yields:
         OpenAI格式的SSE数据块
     """
-    success_recorded = False
-
     try:
         async for line in lines_generator:
             if not line or not line.startswith("data: "):
@@ -302,11 +296,8 @@ async def list_models():
         ModelList: 可用模型列表（包含原始模型和抗截断版本）
     """
     try:
-        # 获取凭证管理器
-        cred_mgr = await get_credential_manager()
-
         # 从 Antigravity API 获取模型列表（返回 OpenAI 格式的字典列表）
-        models = await fetch_available_models(cred_mgr)
+        models = await fetch_available_models()
 
         if not models:
             # 如果获取失败，直接返回空列表
@@ -461,13 +452,13 @@ async def chat_completions(
 
                 # 包装请求函数以适配抗截断处理器
                 async def antigravity_request_func(payload):
-                    resources, cred_name, cred_data = await send_antigravity_request_stream(
-                        payload, cred_mgr
+                    resources, _, _ = await send_antigravity_request_stream(
+                        payload
                     )
                     response, stream_ctx, client = resources
                     return StreamingResponse(
                         convert_antigravity_stream_to_openai(
-                            response, stream_ctx, client, model, request_id, cred_mgr, cred_name
+                            response, stream_ctx, client, model, request_id
                         ),
                         media_type="text/event-stream"
                     )
@@ -477,8 +468,8 @@ async def chat_completions(
                 )
 
             # 流式请求（无抗截断）
-            resources, cred_name, cred_data = await send_antigravity_request_stream(
-                request_body, cred_mgr
+            resources, _, _ = await send_antigravity_request_stream(
+                request_body
             )
             # resources 是一个元组: (response, stream_ctx, client)
             response, stream_ctx, client = resources
@@ -487,14 +478,14 @@ async def chat_completions(
             # response 现在是 filtered_lines 生成器
             return StreamingResponse(
                 convert_antigravity_stream_to_openai(
-                    response, stream_ctx, client, model, request_id, cred_mgr, cred_name
+                    response, stream_ctx, client, model, request_id
                 ),
                 media_type="text/event-stream"
             )
         else:
             # 非流式请求
-            response_data, cred_name, cred_data = await send_antigravity_request_no_stream(
-                request_body, cred_mgr
+            response_data, _, _ = await send_antigravity_request_no_stream(
+                request_body
             )
 
             # 转换并返回响应

@@ -1,35 +1,14 @@
 """
 Base Router - 共用的路由基础功能
-提供凭证管理器初始化、模型列表处理、通用响应等共同功能
+提供模型列表处理、通用响应等共同功能
 """
 
 from typing import List, Optional
 from fastapi import Response
 
-from src.credential_manager import CredentialManager
 from src.models import Model, ModelList
 from log import log
 import json
-
-
-# ==================== 凭证管理器 ====================
-
-# 全局凭证管理器实例
-_credential_manager: Optional[CredentialManager] = None
-
-
-async def get_credential_manager() -> CredentialManager:
-    """
-    获取全局凭证管理器实例（单例模式）
-    
-    Returns:
-        CredentialManager实例
-    """
-    global _credential_manager
-    if not _credential_manager:
-        _credential_manager = CredentialManager()
-        await _credential_manager.initialize()
-    return _credential_manager
 
 
 # ==================== 错误响应 ====================

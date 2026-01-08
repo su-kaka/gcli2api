@@ -5,7 +5,7 @@ GeminiCli API 客户端 - 处理与 GeminiCli API 的所有通信
 """
 
 import asyncio
-from typing import Tuple, Any, Dict
+from typing import Tuple, Any, Dict, Optional
 
 from config import get_code_assist_endpoint
 from src.utils import get_model_group
@@ -24,6 +24,26 @@ from src.api.base_api_client import (
     parse_and_log_cooldown,
     unwrap_geminicli_response,
 )
+
+
+# ==================== 全局凭证管理器 ====================
+
+# 全局凭证管理器实例（单例模式）
+_credential_manager: Optional[CredentialManager] = None
+
+
+async def _get_credential_manager() -> CredentialManager:
+    """
+    获取全局凭证管理器实例
+    
+    Returns:
+        CredentialManager实例
+    """
+    global _credential_manager
+    if not _credential_manager:
+        _credential_manager = CredentialManager()
+        await _credential_manager.initialize()
+    return _credential_manager
 
 
 # ==================== 请求准备 ====================
@@ -103,9 +123,6 @@ def handle_geminicli_streaming_response(
     response,
     stream_ctx,
     client,
-    credential_manager: CredentialManager,
-    credential_name: str,
-    model_key: str = None
 ):
     """
     处理 GeminiCli 流式响应，返回原始行迭代器
@@ -114,19 +131,12 @@ def handle_geminicli_streaming_response(
     import json
 
     async def filtered_lines():
-        success_recorded = False
         line_count = 0
         try:
             log.debug(f"[GEMINICLI-STREAM] Starting to iterate response lines")
             async for line in response.aiter_lines():
                 line_count += 1
-                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")
-
-                if not success_recorded:
-                    await record_api_call_success(
-                        credential_manager, credential_name, mode="geminicli", model_key=model_key
-                    )
-                    success_recorded = True
+                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")                
 
                 # 处理 SSE 格式的数据行，去掉 response 包装
                 if line.startswith("data: "):
@@ -165,14 +175,12 @@ def handle_geminicli_streaming_response(
 
 async def send_geminicli_request_stream(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Any, str, Dict[str, Any]]:
     """
     发送 GeminiCli 流式请求（Anthropic 兼容层专用）
     
     Args:
         request_body: GeminiCli格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_iterator, credential_name, credential_data)
@@ -184,6 +192,9 @@ async def send_geminicli_request_stream(
 
     model_name = request_body.get("model", "")
     model_group = get_model_group(model_name)
+
+    # 获取凭证管理器
+    credential_manager = await _get_credential_manager()
 
     for attempt in range(max_retries + 1):
         cred_result = await credential_manager.get_valid_credential(
@@ -209,8 +220,12 @@ async def send_geminicli_request_stream(
 
             if response.status_code == 200:
                 log.info(f"[GEMINICLI-STREAM] Request successful with credential: {current_file}")
+                # 记录API调用成功
+                await record_api_call_success(
+                    credential_manager, current_file, mode="geminicli", model_key=model_group
+                )
                 response_iterator = handle_geminicli_streaming_response(
-                    response, stream_ctx, client, credential_manager, current_file, model_key=model_group
+                    response, stream_ctx, client
                 )
                 return response_iterator, current_file, credential_data
 
@@ -263,13 +278,11 @@ async def send_geminicli_request_stream(
 
 async def send_geminicli_request_no_stream(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
     发送 GeminiCli 非流式请求
     Args:
         request_body: GeminiCli格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_data, credential_name, credential_data)
@@ -280,6 +293,9 @@ async def send_geminicli_request_no_stream(
 
     model_name = request_body.get("model", "")
     model_group = get_model_group(model_name)
+
+    # 获取凭证管理器
+    credential_manager = await _get_credential_manager()
 
     for attempt in range(max_retries + 1):
         cred_result = await credential_manager.get_valid_credential(

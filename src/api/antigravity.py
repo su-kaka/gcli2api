@@ -6,7 +6,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from config import (
     get_antigravity_api_url,
@@ -35,6 +35,26 @@ from src.api.base_api_client import (
 )
 
 
+# ==================== 全局凭证管理器 ====================
+
+# 全局凭证管理器实例（单例模式）
+_credential_manager: Optional[CredentialManager] = None
+
+
+async def _get_credential_manager() -> CredentialManager:
+    """
+    获取全局凭证管理器实例
+    
+    Returns:
+        CredentialManager实例
+    """
+    global _credential_manager
+    if not _credential_manager:
+        _credential_manager = CredentialManager()
+        await _credential_manager.initialize()
+    return _credential_manager
+
+
 # ==================== 辅助函数 ====================
 
 def build_antigravity_headers(access_token: str) -> Dict[str, str]:
@@ -61,9 +81,6 @@ def handle_streaming_response(
     response,
     stream_ctx,
     client,
-    credential_manager: CredentialManager,
-    credential_name: str,
-    model_key: str = None,
 ) -> Tuple[Any, Any, Any]:
     """
     处理 Antigravity 流式响应，包装为可管理的生成器
@@ -72,30 +89,16 @@ def handle_streaming_response(
         response: HTTP响应对象
         stream_ctx: 流上下文管理器
         client: HTTP客户端
-        credential_manager: 凭证管理器
-        credential_name: 凭证名称
-        model_key: 模型键（用于模型级CD）
         
     Returns:
         元组: (filtered_lines_generator, stream_ctx, client)
     """
     async def filter_stream_lines():
         """过滤流式响应行，移除思维链内容（如果配置要求）并去掉 response 包装"""
-        success_recorded = False
         return_thoughts = await get_return_thoughts_to_frontend()
 
         try:
             async for line in response.aiter_lines():
-                # 记录第一次成功响应
-                if not success_recorded:
-                    if credential_name and credential_manager:
-                        await record_api_call_success(
-                            credential_manager,
-                            credential_name,
-                            mode="antigravity",
-                            model_key=model_key
-                        )
-                    success_recorded = True
 
                 if not line or not line.startswith("data: "):
                     yield line
@@ -135,7 +138,6 @@ def handle_streaming_response(
 
 async def send_antigravity_request_stream(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Any, str, Dict[str, Any]]:
     """
     发送 Antigravity 流式请求
@@ -144,7 +146,6 @@ async def send_antigravity_request_stream(
     
     Args:
         request_body: Antigravity格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_iterator, credential_name, credential_data)
@@ -160,6 +161,9 @@ async def send_antigravity_request_stream(
 
     # 提取模型名称用于模型级 CD
     model_name = request_body.get("model", "")
+
+    # 获取凭证管理器
+    credential_manager = await _get_credential_manager()
 
     for attempt in range(max_retries + 1):
         # 获取可用凭证（传递模型名称）
@@ -200,14 +204,15 @@ async def send_antigravity_request_stream(
                 # 检查响应状态
                 if response.status_code == 200:
                     log.info(f"[ANTIGRAVITY] Streaming request successful with credential: {current_file}")
+                    # 记录API调用成功
+                    await record_api_call_success(
+                        credential_manager, current_file, mode="antigravity", model_key=model_name
+                    )
                     # 使用独立的响应处理函数
                     response_iterator = handle_streaming_response(
                         response,
                         stream_ctx,
                         client,
-                        credential_manager,
-                        current_file,
-                        model_key=model_name
                     )
                     return response_iterator, current_file, credential_data
 
@@ -276,7 +281,6 @@ async def send_antigravity_request_stream(
 
 async def send_antigravity_request_no_stream(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
     发送 Antigravity 非流式请求
@@ -288,7 +292,6 @@ async def send_antigravity_request_no_stream(
     
     Args:
         request_body: Antigravity格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_data, credential_name, credential_data)
@@ -301,29 +304,27 @@ async def send_antigravity_request_no_stream(
     
     if use_stream_for_non_stream:
         log.info("[ANTIGRAVITY] Using stream collection mode for non-stream request")
-        return await _send_antigravity_request_no_stream_via_stream(request_body, credential_manager)
+        return await _send_antigravity_request_no_stream_via_stream(request_body)
     else:
         log.info("[ANTIGRAVITY] Using traditional non-stream mode")
-        return await _send_antigravity_request_no_stream_traditional(request_body, credential_manager)
+        return await _send_antigravity_request_no_stream_traditional(request_body)
 
 
 async def _send_antigravity_request_no_stream_via_stream(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
     通过流式API实现非流式请求（收集完整响应）
     
     Args:
         request_body: Antigravity格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_data, credential_name, credential_data)
     """
     try:
         # 调用流式请求获取生成器
-        stream_result = await send_antigravity_request_stream(request_body, credential_manager)
+        stream_result = await send_antigravity_request_stream(request_body)
         
         if not stream_result:
             raise Exception("Failed to get stream response")
@@ -366,14 +367,12 @@ async def _send_antigravity_request_no_stream_via_stream(
 
 async def _send_antigravity_request_no_stream_traditional(
     request_body: Dict[str, Any],
-    credential_manager: CredentialManager,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
     传统的非流式请求实现
     
     Args:
         request_body: Antigravity格式的请求体
-        credential_manager: 凭证管理器实例
         
     Returns:
         元组: (response_data, credential_name, credential_data)
@@ -385,6 +384,9 @@ async def _send_antigravity_request_no_stream_traditional(
 
     # 提取模型名称用于模型级 CD
     model_name = request_body.get("model", "")
+
+    # 获取凭证管理器
+    credential_manager = await _get_credential_manager()
 
     for attempt in range(max_retries + 1):
         # 获取可用凭证（传递模型名称）
@@ -492,22 +494,18 @@ async def _send_antigravity_request_no_stream_traditional(
 
 # ==================== 模型和配额查询 ====================
 
-async def fetch_available_models(
-    credential_manager: CredentialManager,
-) -> List[Dict[str, Any]]:
+async def fetch_available_models() -> List[Dict[str, Any]]:
     """
     获取可用模型列表，返回符合 OpenAI API 规范的格式
     
-    Args:
-        credential_manager: 凭证管理器实例
-        
     Returns:
         模型列表，格式为字典列表（用于兼容现有代码）
         
     Raises:
         返回空列表如果获取失败
     """
-    # 获取可用凭证
+    # 获取凭证管理器和可用凭证
+    credential_manager = await _get_credential_manager()
     cred_result = await credential_manager.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("[ANTIGRAVITY] No valid credentials available for fetching models")

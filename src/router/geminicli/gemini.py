@@ -44,7 +44,6 @@ from src.converter.gemini_fix import (
 
 # 本地模块 - 基础路由工具
 from src.router.base_router import (
-    get_credential_manager,
     create_gemini_model_list,
     extract_base_model_name,
     wrap_stream_with_cleanup,
@@ -126,23 +125,15 @@ async def generate_content(
         response = create_health_check_response(format="gemini")
         return JSONResponse(content=response)
 
-    cred_mgr = await get_credential_manager()
-
-    # 获取有效凭证
-    credential_result = await cred_mgr.get_valid_credential()
-    if not credential_result:
-        log.error("当前无可用凭证，请去控制台获取")
-        raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    # 构建Google API payload
+    # 构建Google API payload（API层自己管理凭证）
     try:
         api_payload = build_gemini_payload_from_native(request_data, real_model)
     except Exception as e:
         log.error(f"Gemini payload build failed: {e}")
         raise HTTPException(status_code=500, detail="Request processing failed")
 
-    # 发送请求（429重试已在google_api_client中处理）
-    response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+    # 发送请求（API层自己管理凭证）
+    response_data, _, _ = await send_geminicli_request_no_stream(api_payload)
 
     return JSONResponse(content=response_data)
 
@@ -186,15 +177,7 @@ async def stream_generate_content(
     if use_fake_streaming:
         return await fake_stream_response_gemini(request_data, real_model)
     
-    cred_mgr = await get_credential_manager()
-
-    # 获取有效凭证
-    credential_result = await cred_mgr.get_valid_credential()
-    if not credential_result:
-        log.error("当前无可用凭证，请去控制台获取")
-        raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    # 构建Google API payload
+    # 构建Google API payload（API层自己管理凭证）
     try:
         api_payload = build_gemini_payload_from_native(request_data, real_model)
     except Exception as e:
@@ -207,7 +190,7 @@ async def stream_generate_content(
         # 使用流式抗截断处理器
         max_attempts = await get_anti_truncation_max_attempts()
         async def stream_request(payload):
-            resources, _, _ = await send_geminicli_request_stream(payload, cred_mgr)
+            resources, _, _ = await send_geminicli_request_stream(payload)
             filtered_lines, stream_ctx, client = resources
             return StreamingResponse(
                 wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
@@ -217,8 +200,8 @@ async def stream_generate_content(
             stream_request, api_payload, max_attempts
         )
 
-    # 常规流式请求（429重试已在google_api_client中处理）
-    resources, _, _ = await send_geminicli_request_stream(api_payload, cred_mgr)
+    # 常规流式请求（API层自己管理凭证）
+    resources, _, _ = await send_geminicli_request_stream(api_payload)
     filtered_lines, stream_ctx, client = resources
     return StreamingResponse(
         wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
@@ -321,22 +304,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
         生成 SSE 格式的流式数据，包括心跳和实际响应
         """
         try:
-            cred_mgr = await get_credential_manager()
-
-            # 获取有效凭证
-            credential_result = await cred_mgr.get_valid_credential()
-            if not credential_result:
-                log.error("当前无可用凭证，请去控制台获取")
-                error_chunk = create_gemini_error_chunk(
-                    "当前无凭证，请去控制台获取",
-                    "authentication_error",
-                    500
-                )
-                yield f"data: {json.dumps(error_chunk)}\n\n".encode()
-                yield "data: [DONE]\n\n".encode()
-                return
-
-            # 构建Google API payload
+            # 构建Google API payload（API层自己管理凭证）
             try:
                 api_payload = build_gemini_payload_from_native(request_data, model)
             except Exception as e:
@@ -356,7 +324,7 @@ async def fake_stream_response_gemini(request_data: dict, model: str):
 
             # 异步发送实际请求
             async def get_response():
-                response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+                response_data, _, _ = await send_geminicli_request_no_stream(api_payload)
                 from fastapi import Response
                 return Response(
                     content=json.dumps(response_data),

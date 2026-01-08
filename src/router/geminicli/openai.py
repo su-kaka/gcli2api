@@ -46,7 +46,7 @@ from src.converter.openai2gemini import (
 )
 
 # 本地模块 - 基础路由工具
-from src.router.base_router import get_credential_manager, wrap_stream_with_cleanup
+from src.router.base_router import wrap_stream_with_cleanup
 from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # 本地模块 - 任务管理
@@ -123,17 +123,7 @@ async def chat_completions(
     real_model = get_base_model_from_feature_model(model)
     request_data.model = real_model
 
-    # 获取凭证管理器
-    cred_mgr = await get_credential_manager()
-
-    # 获取有效凭证
-    credential_result = await cred_mgr.get_valid_credential()
-    if not credential_result:
-        log.error("当前无可用凭证，请去控制台获取")
-        raise HTTPException(status_code=500, detail="当前无可用凭证，请去控制台获取")
-
-    current_file = credential_result
-    log.debug(f"Using credential: {current_file}")
+    # 获取有效凭证（API层自己管理）
 
     # 转换为Gemini API payload格式
     try:
@@ -145,7 +135,7 @@ async def chat_completions(
     # 处理假流式
     if use_fake_streaming and getattr(request_data, "stream", False):
         request_data.stream = False
-        return await fake_stream_response(api_payload, cred_mgr)
+        return await fake_stream_response(api_payload)
 
     # 处理抗截断 (仅流式传输时有效)
     is_streaming = getattr(request_data, "stream", False)
@@ -155,7 +145,7 @@ async def chat_completions(
 
         # 使用流式抗截断处理器
         async def stream_request(payload):
-            resources, _, _ = await send_geminicli_request_stream(payload, cred_mgr)
+            resources, _, _ = await send_geminicli_request_stream(payload)
             filtered_lines, stream_ctx, client = resources
             return StreamingResponse(
                 wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
@@ -178,7 +168,7 @@ async def chat_completions(
     
     if is_streaming:
         # 流式请求
-        resources, _, _ = await send_geminicli_request_stream(api_payload, cred_mgr)
+        resources, _, _ = await send_geminicli_request_stream(api_payload)
         filtered_lines, stream_ctx, client = resources
         response = StreamingResponse(
             wrap_stream_with_cleanup(filtered_lines, stream_ctx, client),
@@ -187,7 +177,7 @@ async def chat_completions(
         return await convert_streaming_response(response, model)
     
     # 非流式请求
-    response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+    response_data, _, _ = await send_geminicli_request_no_stream(api_payload)
     from fastapi import Response
     response = Response(
         content=json.dumps(response_data),

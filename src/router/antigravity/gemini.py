@@ -270,10 +270,10 @@ async def gemini_generate_content(
     if "-image" in model:
         request_body = prepare_image_generation_request(request_body, model)
 
-    # 发送非流式请求
+    # 发送非流式请求（API层自己管理凭证）
     try:
-        response_data, cred_name, cred_data = await send_antigravity_request_no_stream(
-            request_body, cred_mgr
+        response_data, _, _ = await send_antigravity_request_no_stream(
+            request_body
         )
 
         # 转换并返回 Gemini 格式响应
@@ -396,13 +396,13 @@ async def gemini_stream_generate_content(
 
             # 包装请求函数以适配抗截断处理器
             async def antigravity_gemini_request_func(payload):
-                resources, cred_name, cred_data = await send_antigravity_request_stream(
-                    payload, cred_mgr
+                resources, _, _ = await send_antigravity_request_stream(
+                    payload
                 )
                 response, stream_ctx, client = resources
                 return StreamingResponse(
                     convert_antigravity_stream_to_gemini(
-                        response, stream_ctx, client, cred_mgr, cred_name
+                        response, stream_ctx, client
                     ),
                     media_type="text/event-stream"
                 )
@@ -412,8 +412,8 @@ async def gemini_stream_generate_content(
             )
 
         # 流式请求（无抗截断）
-        resources, cred_name, cred_data = await send_antigravity_request_stream(
-            request_body, cred_mgr
+        resources, _, _ = await send_antigravity_request_stream(
+            request_body
         )
         # resources 是一个元组: (response, stream_ctx, client)
         response, stream_ctx, client = resources
@@ -422,7 +422,7 @@ async def gemini_stream_generate_content(
         # response 现在是 filtered_lines 生成器
         return StreamingResponse(
             convert_antigravity_stream_to_gemini(
-                response, stream_ctx, client, cred_mgr, cred_name
+                response, stream_ctx, client
             ),
             media_type="text/event-stream"
         )

@@ -26,7 +26,7 @@ from src.converter.anthropic2gemini import (
     AnthropicRequestValidationError,
 )
 from src.router.hi_check import is_health_check_message, create_health_check_response
-from src.router.base_router import get_credential_manager, wrap_stream_with_processor
+from src.router.base_router import wrap_stream_with_processor
 from src.converter.gemini_fix import (
     build_antigravity_request_body,
 )
@@ -256,13 +256,12 @@ async def anthropic_messages(
             )
         )
 
-    cred_mgr = await get_credential_manager()
-    cred_result = await cred_mgr.get_valid_credential(mode="antigravity")
-    if not cred_result:
-        return _anthropic_error(status_code=500, message="当前无可用 antigravity 凭证")
-
-    _, credential_data = cred_result
-    project_id, session_id = _infer_project_and_session(credential_data)
+    # API层会自己管理凭证
+    # 从请求中提取必要信息用于构建请求体
+    # 注意：project_id 和 session_id 实际上在 antigravity 中由 API 层通过凭证获取
+    # 这里暂时保留以兼容现有流程，后续可以进一步简化
+    project_id = ""  # 将由API层从凭证中获取
+    session_id = f"session-{uuid.uuid4().hex}"
 
     try:
         components = convert_anthropic_request_to_gemini(payload)
@@ -305,7 +304,7 @@ async def anthropic_messages(
         message_id = f"msg_{uuid.uuid4().hex}"
 
         try:
-            resources, cred_name, _ = await send_antigravity_request_stream(request_body, cred_mgr)
+            resources, _, _ = await send_antigravity_request_stream(request_body)
             response, stream_ctx, client = resources
         except Exception as e:
             log.error(f"[ANTHROPIC] 下游流式请求失败: {e}")
@@ -319,8 +318,6 @@ async def anthropic_messages(
                     model=str(model),
                     message_id=message_id,
                     initial_input_tokens=estimated_tokens,
-                    credential_manager=cred_mgr,
-                    credential_name=cred_name,
                     mode="antigravity",
                 )
             ),
@@ -329,7 +326,7 @@ async def anthropic_messages(
 
     request_id = f"msg_{int(time.time() * 1000)}"
     try:
-        response_data, _, _ = await send_antigravity_request_no_stream(request_body, cred_mgr)
+        response_data, _, _ = await send_antigravity_request_no_stream(request_body)
     except Exception as e:
         log.error(f"[ANTHROPIC] 下游非流式请求失败: {e}")
         return _anthropic_error(status_code=500, message="下游请求失败", error_type="api_error")
