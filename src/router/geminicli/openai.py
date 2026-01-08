@@ -25,15 +25,15 @@ from log import log
 
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.credential_manager import CredentialManager
-from gcli_api import send_gemini_request
+from api.geminicli import send_gemini_request
 from src.models import ChatCompletionRequest, Model, ModelList
-from .converter.openai2gemini import (
+from src.converter.openai2gemini import (
     _convert_usage_metadata,
     gemini_response_to_openai,
     gemini_stream_chunk_to_openai,
     openai_request_to_gemini_payload,
 )
-from .converter.gemini_fix import extract_content_and_reasoning
+from src.converter.gemini_fix import extract_content_and_reasoning
 from src.task_manager import create_managed_task
 
 # 创建路由器

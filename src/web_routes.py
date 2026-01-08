@@ -48,7 +48,7 @@ from .models import (
 )
 from .storage_adapter import get_storage_adapter
 from .utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
-from .antigravity_api import fetch_quota_info
+from .api.antigravity import fetch_quota_info
 from .google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
 

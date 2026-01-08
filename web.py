@@ -15,13 +15,13 @@ from log import log
 
 # Import managers and utilities
 from src.credential_manager import CredentialManager
-from src.gemini_router import router as gemini_router
+from router.gcli.gemini import router as gemini_router
 
 # Import all routers
-from src.antigravity_openai_router import router as antigravity_openai_router
-from src.antigravity_gemini_router import router as antigravity_gemini_router
-from src.antigravity_anthropic_router import router as antigravity_anthropic_router
-from src.openai_router import router as openai_router
+from router.antigravity.openai import router as antigravity_openai_router
+from router.antigravity.gemini import router as antigravity_gemini_router
+from router.antigravity.anthropic import router as antigravity_anthropic_router
+from router.gcli.openai import router as openai_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
 

@@ -24,7 +24,7 @@ from log import log
 
 from src.converter.anti_truncation import apply_anti_truncation_to_stream
 from src.credential_manager import get_credential_manager
-from gcli_api import build_gemini_payload_from_native, send_gemini_request
+from api.geminicli import build_gemini_payload_from_native, send_gemini_request
 from src.converter.gemini_fix import (
     process_generation_config,
     parse_response_for_fake_stream,

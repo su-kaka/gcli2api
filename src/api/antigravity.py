@@ -19,11 +19,11 @@ from config import (
 )
 from log import log
 
-from .credential_manager import CredentialManager
-from .httpx_client import create_streaming_client_with_kwargs, http_client
-from .models import Model, model_to_dict
-from .utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
-from .converter.gemini_fix import filter_thoughts_from_stream_chunk
+from src.credential_manager import CredentialManager
+from src.httpx_client import create_streaming_client_with_kwargs, http_client
+from src.models import Model, model_to_dict
+from src.utils import ANTIGRAVITY_USER_AGENT, parse_quota_reset_timestamp
+from src.converter.gemini_fix import filter_thoughts_from_stream_chunk
 
 async def _check_should_auto_ban(status_code: int) -> bool:
     """检查是否应该触发自动封禁"""

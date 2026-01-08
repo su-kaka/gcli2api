@@ -26,10 +26,10 @@ from src.utils import (
 )
 from log import log
 
-from .credential_manager import CredentialManager
-from .httpx_client import create_streaming_client_with_kwargs, http_client
-from .utils import get_user_agent, parse_quota_reset_timestamp
-from .converter.gemini_fix import (
+from src.credential_manager import CredentialManager
+from src.httpx_client import create_streaming_client_with_kwargs, http_client
+from src.utils import get_user_agent, parse_quota_reset_timestamp
+from src.converter.gemini_fix import (
     build_gemini_request_payload,
     parse_google_api_response,
     parse_streaming_chunk,

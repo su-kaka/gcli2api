@@ -13,17 +13,17 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from log import log
 
-from .antigravity_api import (
+from api.antigravity import (
     build_antigravity_request_body,
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
 )
-from .converter.anthropic2gemini import (
+from src.converter.anthropic2gemini import (
     convert_anthropic_request_to_gemini,
     convert_gemini_response_to_anthropic,
     gemini_sse_to_anthropic_sse,
 )
-from .token_estimator import estimate_input_tokens
+from src.token_estimator import estimate_input_tokens
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)

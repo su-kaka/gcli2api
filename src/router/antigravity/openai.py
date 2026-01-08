@@ -13,15 +13,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from config import get_anti_truncation_max_attempts
 from log import log
-from .utils import is_anti_truncation_model, authenticate_bearer, get_base_model_from_feature_model
-from .antigravity_api import (
+from ...utils import is_anti_truncation_model, authenticate_bearer, get_base_model_from_feature_model
+from ...api.antigravity import (
     build_antigravity_request_body,
     send_antigravity_request_no_stream,
     send_antigravity_request_stream,
     fetch_available_models,
 )
-from .credential_manager import CredentialManager
-from .models import (
+from ...credential_manager import CredentialManager
+from ...models import (
     ChatCompletionRequest,
     Model,
     ModelList,
