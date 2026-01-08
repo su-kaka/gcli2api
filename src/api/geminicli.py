@@ -108,15 +108,20 @@ def handle_geminicli_streaming_response(
     model_key: str = None
 ):
     """
-    处理 GeminiCli 流式响应，返回原始行迭代器（用于 Anthropic 转换）
+    处理 GeminiCli 流式响应，返回原始行迭代器
     同时去掉 GeminiCLI 的 response 包装
     """
     import json
 
     async def filtered_lines():
         success_recorded = False
+        line_count = 0
         try:
+            log.debug(f"[GEMINICLI-STREAM] Starting to iterate response lines")
             async for line in response.aiter_lines():
+                line_count += 1
+                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")
+
                 if not success_recorded:
                     await record_api_call_success(
                         credential_manager, credential_name, mode="geminicli", model_key=model_key
@@ -128,21 +133,29 @@ def handle_geminicli_streaming_response(
                     try:
                         payload_str = line[6:]  # 去掉 "data: " 前缀
                         if payload_str.strip() == "[DONE]":
-                            yield line  # [DONE] 标记直接传递
+                            log.debug(f"[GEMINICLI-STREAM] Yielding [DONE] marker")
+                            # 确保[DONE]标记也以\n\n结尾
+                            yield line if line.endswith('\n\n') else f"{line}\n\n"
                             continue
 
                         # 解析 JSON 并去掉包装
                         data = json.loads(payload_str)
                         data = unwrap_geminicli_response(data)
 
-                        # 重新编码为 SSE 行
-                        yield f"data: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}"
-                    except (json.JSONDecodeError, KeyError):
-                        # 解析失败，直接传递原始行
-                        yield line
+                        # 重新编码为 SSE 行（必须以 \n\n 结尾）
+                        output_line = f"data: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}\n\n"
+                        log.debug(f"[GEMINICLI-STREAM] Yielding processed line: {output_line[:100]}")
+                        yield output_line
+                    except (json.JSONDecodeError, KeyError) as e:
+                        # 解析失败，直接传递原始行（确保格式正确）
+                        log.warning(f"[GEMINICLI-STREAM] Failed to parse line, passing through: {e}")
+                        yield line if line.endswith('\n\n') else f"{line}\n\n"
                 else:
-                    # 非 data: 开头的行，直接传递
-                    yield line
+                    # 非 data: 开头的行，直接传递（保持原样，因为可能是空行）
+                    log.debug(f"[GEMINICLI-STREAM] Yielding non-data line: {repr(line)}")
+                    yield line if line else "\n"
+
+            log.info(f"[GEMINICLI-STREAM] Finished iterating. Total lines: {line_count}")
         except Exception as e:
             log.error(f"[GEMINICLI-STREAM] Error during streaming: {e}")
             raise
@@ -249,8 +262,7 @@ async def send_geminicli_request_no_stream(
     credential_manager: CredentialManager,
 ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
     """
-    发送 GeminiCli 非流式请求（Anthropic 兼容层专用）
-    
+    发送 GeminiCli 非流式请求
     Args:
         request_body: GeminiCli格式的请求体
         credential_manager: 凭证管理器实例
