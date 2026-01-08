@@ -6,8 +6,7 @@ Antigravity OpenAI Router - OpenAI格式API路由
 # 标准库
 import json
 import time
-import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 # 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Request
