@@ -484,7 +484,7 @@ class SQLiteManager:
 
         try:
             table_name = self._get_table_name(mode)
-            log.info(f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
+            log.debug(f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
             
             # 构建动态 SQL
             set_clauses = []
@@ -518,12 +518,12 @@ class SQLiteManager:
                     SET {', '.join(set_clauses)}
                     WHERE filename = ?
                 """
-                log.info(f"[DB] 执行精确匹配SQL: {sql_exact}")
-                log.info(f"[DB] SQL参数值: {values}")
+                log.debug(f"[DB] 执行精确匹配SQL: {sql_exact}")
+                log.debug(f"[DB] SQL参数值: {values}")
                 
                 result = await db.execute(sql_exact, values)
                 updated_count = result.rowcount
-                log.info(f"[DB] 精确匹配 rowcount={updated_count}")
+                log.debug(f"[DB] 精确匹配 rowcount={updated_count}")
 
                 # 如果精确匹配没有更新任何记录，尝试basename匹配
                 if updated_count == 0:
@@ -532,7 +532,7 @@ class SQLiteManager:
                         SET {', '.join(set_clauses)}
                         WHERE filename LIKE '%' || ?
                     """
-                    log.info(f"[DB] 精确匹配失败，尝试basename匹配SQL: {sql_basename}")
+                    log.debug(f"[DB] 精确匹配失败，尝试basename匹配SQL: {sql_basename}")
                     result = await db.execute(sql_basename, values)
                     updated_count = result.rowcount
                     log.info(f"[DB] basename匹配 rowcount={updated_count}")

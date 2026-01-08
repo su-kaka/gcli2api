@@ -180,16 +180,16 @@ class CredentialManager:
 
     async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any], mode: str = "geminicli"):
         """更新凭证状态"""
-        log.info(f"[CredMgr] update_credential_state 开始: credential_name={credential_name}, state_updates={state_updates}, mode={mode}")
-        log.info(f"[CredMgr] 调用 _ensure_initialized...")
+        log.debug(f"[CredMgr] update_credential_state 开始: credential_name={credential_name}, state_updates={state_updates}, mode={mode}")
+        log.debug(f"[CredMgr] 调用 _ensure_initialized...")
         await self._ensure_initialized()
-        log.info(f"[CredMgr] _ensure_initialized 完成")
+        log.debug(f"[CredMgr] _ensure_initialized 完成")
         try:
-            log.info(f"[CredMgr] 调用 storage_adapter.update_credential_state...")
+            log.debug(f"[CredMgr] 调用 storage_adapter.update_credential_state...")
             success = await self._storage_adapter.update_credential_state(
                 credential_name, state_updates, mode=mode
             )
-            log.info(f"[CredMgr] storage_adapter.update_credential_state 返回: {success}")
+            log.debug(f"[CredMgr] storage_adapter.update_credential_state 返回: {success}")
             if success:
                 log.debug(f"Updated credential state: {credential_name} (mode={mode})")
             else:
