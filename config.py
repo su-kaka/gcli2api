@@ -306,22 +306,22 @@ async def get_return_thoughts_to_frontend() -> bool:
     return bool(await get_config_value("return_thoughts_to_frontend", True))
 
 
-async def get_use_stream_for_non_stream() -> bool:
+async def get_antigravity_stream2nostream() -> bool:
     """
     Get use stream for non-stream setting.
 
     控制antigravity非流式请求是否使用流式API并收集为完整响应。
     启用后，非流式请求将在后端使用流式API，然后收集所有块后再返回完整响应。
 
-    Environment variable: USE_STREAM_FOR_NON_STREAM
-    Database config key: use_stream_for_non_stream
+    Environment variable: ANTIGRAVITY_STREAM2NOSTREAM
+    Database config key: antigravity_stream2nostream
     Default: False
     """
-    env_value = os.getenv("USE_STREAM_FOR_NON_STREAM")
+    env_value = os.getenv("ANTIGRAVITY_STREAM2NOSTREAM")
     if env_value:
         return env_value.lower() in ("true", "1", "yes", "on")
 
-    return bool(await get_config_value("use_stream_for_non_stream", True))
+    return bool(await get_config_value("antigravity_stream2nostream", True))
 
 
 async def get_oauth_proxy_url() -> str:

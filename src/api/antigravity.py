@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from config import (
     get_antigravity_api_url,
     get_return_thoughts_to_frontend,
-    get_use_stream_for_non_stream,
+    get_antigravity_stream2nostream,
 )
 from log import log
 
@@ -300,9 +300,9 @@ async def send_antigravity_request_no_stream(
         Exception: 如果所有重试都失败
     """
     # 检查是否启用流式收集模式
-    use_stream_for_non_stream = await get_use_stream_for_non_stream()
+    antigravity_stream2nostream = await get_antigravity_stream2nostream()
     
-    if use_stream_for_non_stream:
+    if antigravity_stream2nostream:
         log.info("[ANTIGRAVITY] Using stream collection mode for non-stream request")
         return await _send_antigravity_request_no_stream_via_stream(request_body)
     else:

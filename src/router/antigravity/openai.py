@@ -55,6 +55,7 @@ from src.converter.openai2gemini import (
 
 # 本地模块 - 基础路由工具
 # 已不需要从 base_router 导入 get_credential_manager
+from src.router.hi_check import is_health_check_request, create_health_check_response
 
 
 # ==================== 路由器初始化 ====================
@@ -350,16 +351,10 @@ async def chat_completions(
         log.error(f"Request validation failed: {e}")
         raise HTTPException(status_code=400, detail=f"Request validation error: {str(e)}")
 
-    # 健康检查
-    if (
-        len(request_data.messages) == 1
-        and getattr(request_data.messages[0], "role", None) == "user"
-        and getattr(request_data.messages[0], "content", None) == "Hi"
-    ):
+    # 健康检查 - 使用统一的 hi_check 模块
+    if is_health_check_request(raw_data, format="openai"):
         return JSONResponse(
-            content={
-                "choices": [{"message": {"role": "assistant", "content": "antigravity API 正常工作中"}}]
-            }
+            content=create_health_check_response(format="openai")
         )
 
     # 提取参数
