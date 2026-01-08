@@ -5,6 +5,7 @@ GeminiCli API 客户端 - 处理与 GeminiCli API 的所有通信
 """
 
 import asyncio
+import json
 from typing import Tuple, Any, Dict, Optional
 
 from fastapi import HTTPException
@@ -136,35 +137,33 @@ def handle_geminicli_streaming_response(
         try:
             log.debug(f"[GEMINICLI-STREAM] Starting to iterate response lines")
             async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+
                 line_count += 1
-                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")                
+                log.debug(f"[GEMINICLI-STREAM] Received line #{line_count}: {line[:100] if line else '(empty)'}")
 
-                # 处理 SSE 格式的数据行，去掉 response 包装
-                if line.startswith("data: "):
-                    try:
-                        payload_str = line[6:]  # 去掉 "data: " 前缀
-                        if payload_str.strip() == "[DONE]":
-                            log.debug(f"[GEMINICLI-STREAM] Yielding [DONE] marker")
-                            # 确保[DONE]标记也以\n\n结尾
-                            yield line if line.endswith('\n\n') else f"{line}\n\n"
-                            continue
+                try:
+                    payload_str = line[6:]  # 去掉 "data: " 前缀
+                    if payload_str.strip() == "[DONE]":
+                        log.debug(f"[GEMINICLI-STREAM] Yielding [DONE] marker")
+                        yield f"data: [DONE]\n\n".encode()
+                        continue
 
-                        # 解析 JSON 并去掉包装
-                        data = json.loads(payload_str)
-                        data = unwrap_geminicli_response(data)
+                    # 解析 JSON 并去掉包装
+                    data = json.loads(payload_str)
+                    data = unwrap_geminicli_response(data)
 
-                        # 重新编码为 SSE 行（必须以 \n\n 结尾）
-                        output_line = f"data: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}\n\n"
-                        log.debug(f"[GEMINICLI-STREAM] Yielding processed line: {output_line[:100]}")
-                        yield output_line
-                    except (json.JSONDecodeError, KeyError) as e:
-                        # 解析失败，直接传递原始行（确保格式正确）
-                        log.warning(f"[GEMINICLI-STREAM] Failed to parse line, passing through: {e}")
-                        yield line if line.endswith('\n\n') else f"{line}\n\n"
-                else:
-                    # 非 data: 开头的行，直接传递（保持原样，因为可能是空行）
-                    log.debug(f"[GEMINICLI-STREAM] Yielding non-data line: {repr(line)}")
-                    yield line if line else "\n"
+                    # 重新编码为 SSE 行（必须以 \n\n 结尾），返回 bytes
+                    output_line = f"data: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}\n\n".encode()
+                    log.debug(f"[GEMINICLI-STREAM] Yielding processed line")
+                    yield output_line
+                    await asyncio.sleep(0)  # 关键：让出执行权，立即推送数据
+                except (json.JSONDecodeError, KeyError) as e:
+                    # 解析失败，直接传递原始行（确保格式正确）
+                    log.warning(f"[GEMINICLI-STREAM] Failed to parse line, passing through: {e}")
+                    yield f"{line}\n\n".encode()
+                    await asyncio.sleep(0)
 
             log.info(f"[GEMINICLI-STREAM] Finished iterating. Total lines: {line_count}")
         except Exception as e:
@@ -215,8 +214,11 @@ async def send_geminicli_request_stream(
             raise HTTPException(status_code=500, detail=f"Failed to prepare request: {e}")
 
         try:
+            # 预序列化 payload 以避免额外的序列化开销
+            final_post_data = json.dumps(final_payload)
+
             client = await create_streaming_client_with_kwargs()
-            stream_ctx = client.stream("POST", target_url, json=final_payload, headers=headers)
+            stream_ctx = client.stream("POST", target_url, content=final_post_data, headers=headers)
             response = await stream_ctx.__aenter__()
 
             if response.status_code == 200:

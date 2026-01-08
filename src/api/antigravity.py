@@ -102,17 +102,15 @@ def handle_streaming_response(
 
         try:
             async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+
                 line_count += 1
                 log.debug(f"[ANTIGRAVITY STREAM] Received line {line_count}: {line[:200] if line else 'empty'}")
 
-                if not line or not line.startswith("data: "):
-                    log.debug(f"[ANTIGRAVITY STREAM] Skipping line (not data): {line[:100] if line else 'empty'}")
-                    yield line
-                    continue
-
                 raw = line[6:].strip()
                 if raw == "[DONE]":
-                    yield line
+                    yield f"data: [DONE]\n\n".encode()
                     continue
 
                 try:
@@ -132,17 +130,19 @@ def handle_streaming_response(
                             continue
                         data = filtered_data
 
-                    output_line = f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n"
-                    log.debug(f"[ANTIGRAVITY STREAM] Yielding filtered line: {output_line[:200]}")
+                    output_line = f"data: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n".encode()
+                    log.debug(f"[ANTIGRAVITY STREAM] Yielding filtered line")
                     yield output_line
+                    await asyncio.sleep(0)  # 关键：让出执行权，立即推送数据
                 except Exception as e:
                     # 解析失败，传递原始行
-                    log.debug(f"[ANTIGRAVITY STREAM] JSON parse error: {e}, yielding raw line: {line[:200]}")
-                    yield line
+                    log.debug(f"[ANTIGRAVITY STREAM] JSON parse error: {e}, yielding raw line")
+                    yield f"{line}\n\n".encode()
+                    await asyncio.sleep(0)
         except Exception as e:
             log.error(f"[ANTIGRAVITY] Streaming error after {line_count} lines: {e}")
             raise
-        
+
         log.info(f"[ANTIGRAVITY STREAM] Finished filtering, processed {line_count} lines total")
     
     filtered_lines = filter_stream_lines()
@@ -207,11 +207,14 @@ async def send_antigravity_request_stream(
             antigravity_url = await get_antigravity_api_url()
 
             try:
+                # 预序列化 payload 以避免额外的序列化开销
+                request_data = json.dumps(request_body)
+
                 # 使用stream方法但不在async with块中消费数据
                 stream_ctx = client.stream(
                     "POST",
                     f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse",
-                    json=request_body,
+                    content=request_data,
                     headers=headers,
                 )
                 response = await stream_ctx.__aenter__()
