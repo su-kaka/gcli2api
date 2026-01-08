@@ -90,6 +90,7 @@ def build_antigravity_request_body(
         "requestId": generate_request_id(),
         "model": model,
         "userAgent": "antigravity",
+        "requestType": "agent",
         "request": {
             "contents": contents,
             "session_id": session_id,
