@@ -3,9 +3,6 @@ Antigravity Gemini Router - Handles Gemini format requests and converts to Antig
 处理 Gemini 格式请求并转换为 Antigravity API 格式
 """
 
-# 标准库
-import uuid
-
 # 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -41,9 +38,6 @@ from src.converter.gemini_fix import (
 
 # 本地模块 - 基础路由工具
 from src.router.base_router import (
-    get_credential_manager,
-    create_gemini_model_list,
-    log_request_info,
     extract_base_model_name,
 )
 from src.router.hi_check import is_health_check_request, create_health_check_response
@@ -111,11 +105,8 @@ async def gemini_list_models(api_key: str = Depends(authenticate_gemini_flexible
     """
 
     try:
-        # 获取凭证管理器
-        cred_mgr = await get_credential_manager()
-
         # 从 Antigravity API 获取模型列表（返回 OpenAI 格式的字典列表）
-        models = await fetch_available_models(cred_mgr)
+        models = await fetch_available_models()
 
         if not models:
             # 如果获取失败，返回空列表
@@ -180,9 +171,6 @@ async def gemini_generate_content(
         response = create_health_check_response(format="gemini")
         response["candidates"][0]["content"]["parts"][0]["text"] = "antigravity API 正常工作中"
         return JSONResponse(content=response)
-
-    # 获取凭证管理器
-    cred_mgr = await get_credential_manager()
 
     # 提取模型名称
     model = extract_base_model_name(model)
@@ -285,10 +273,6 @@ async def gemini_stream_generate_content(
     # 验证必要字段
     if "contents" not in request_data or not request_data["contents"]:
         raise HTTPException(status_code=400, detail="Missing required field: contents")
-
-    # 获取凭证管理器
-    from src.credential_manager import get_credential_manager
-    cred_mgr = await get_credential_manager()
 
     # 提取模型名称（移除 "models/" 前缀）
     if model.startswith("models/"):

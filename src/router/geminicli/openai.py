@@ -208,7 +208,7 @@ async def chat_completions(
 
 # ==================== 辅助函数 ====================
 
-async def fake_stream_response(api_payload: dict, cred_mgr) -> StreamingResponse:
+async def fake_stream_response(api_payload: dict) -> StreamingResponse:
     """
     处理假流式响应
     
@@ -216,7 +216,6 @@ async def fake_stream_response(api_payload: dict, cred_mgr) -> StreamingResponse
     
     Args:
         api_payload: Gemini API请求负载
-        cred_mgr: 凭证管理器实例
         
     Returns:
         StreamingResponse: SSE格式的流式响应
@@ -229,7 +228,7 @@ async def fake_stream_response(api_payload: dict, cred_mgr) -> StreamingResponse
 
             # 异步发送实际请求
             async def get_response():
-                response_data, _, _ = await send_geminicli_request_no_stream(api_payload, cred_mgr)
+                response_data, _, _ = await send_geminicli_request_no_stream(api_payload)
                 from fastapi import Response
                 return Response(
                     content=json.dumps(response_data),

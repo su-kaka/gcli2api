@@ -308,8 +308,7 @@ async def anthropic_messages(
                     lines,
                     model=str(model),
                     message_id=message_id,
-                    initial_input_tokens=estimated_tokens,
-                    mode="antigravity",
+                    initial_input_tokens=estimated_tokens
                 )
             ),
             media_type="text/event-stream"
