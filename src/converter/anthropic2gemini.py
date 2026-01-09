@@ -12,6 +12,7 @@ import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from log import log
+from src.converter.gemini_fix import normalize_gemini_request, build_system_instruction_from_list
 
 
 DEFAULT_THINKING_BUDGET = 1024
@@ -539,28 +540,31 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 # ============================================================================
 
 def build_system_instruction(system: Any) -> Optional[Dict[str, Any]]:
-    """将 Anthropic system 字段转换为下游 systemInstruction"""
+    """
+    将 Anthropic system 字段转换为下游 systemInstruction
+
+    统一使用 gemini_fix.build_system_instruction_from_list 来处理
+    """
     if not system:
         return None
 
-    parts: List[Dict[str, Any]] = []
+    system_instructions: List[str] = []
+
     if isinstance(system, str):
         if _is_non_whitespace_text(system):
-            parts.append({"text": str(system)})
+            system_instructions.append(str(system))
     elif isinstance(system, list):
         for item in system:
             if isinstance(item, dict) and item.get("type") == "text":
                 text = item.get("text", "")
                 if _is_non_whitespace_text(text):
-                    parts.append({"text": str(text)})
+                    system_instructions.append(str(text))
     else:
         if _is_non_whitespace_text(system):
-            parts.append({"text": str(system)})
+            system_instructions.append(str(system))
 
-    if not parts:
-        return None
-
-    return {"role": "user", "parts": parts}
+    # 使用统一的函数构建 systemInstruction
+    return build_system_instruction_from_list(system_instructions)
 
 
 # ============================================================================
@@ -571,12 +575,13 @@ def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bo
     """
     根据 Anthropic Messages 请求构造下游 generationConfig。
 
+    注意: topK 和 maxOutputTokens 的限制已移至统一的 normalize_gemini_request 函数中
+
     Returns:
         (generation_config, should_include_thinking): 元组
     """
     config: Dict[str, Any] = {
         "topP": 1,
-        "topK": 40,
         "candidateCount": 1,
         "stopSequences": [
             "<|user|>",
@@ -671,7 +676,7 @@ def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bo
         else:
             if _anthropic_debug_enabled():
                 log.info("[ANTHROPIC][thinking] thinking=null，视为未启用 thinking")
-    
+
     return config, should_include_thinking
 
 
@@ -701,12 +706,39 @@ def convert_anthropic_request_to_gemini(payload: Dict[str, Any]) -> Dict[str, An
     system_instruction = build_system_instruction(payload.get("system"))
     tools = convert_tools(payload.get("tools"))
 
+    # 构建基础请求数据
+    request_data = {
+        "contents": contents,
+        "generationConfig": generation_config,
+    }
+
+    # 使用统一的后处理函数（注意: Anthropic 不需要 compatibility_mode）
+    # 由于 Anthropic 的 thinking 已经在 generation_config 中处理,这里不传递 thinking_config_override
+    # 由于 Anthropic 没有搜索模型,不传递 is_search_model_func
+    request_data = normalize_gemini_request(
+        request_data,
+        model=model,
+        system_instruction=system_instruction,
+        tools=tools,
+        thinking_config_override=None,  # Anthropic 的 thinking 已在 build_generation_config 中处理
+        compatibility_mode=False,  # Anthropic 不使用兼容性模式
+        default_safety_settings=[
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ],
+        get_thinking_budget_func=None,  # 不使用自动 thinking 配置
+        should_include_thoughts_func=None,  # 不使用自动 thinking 配置
+        is_search_model_func=None,  # Anthropic 没有搜索模型
+    )
+
     return {
         "model": model,
-        "contents": contents,
-        "system_instruction": system_instruction,
-        "tools": tools,
-        "generation_config": generation_config,
+        "contents": request_data["contents"],
+        "system_instruction": request_data.get("systemInstruction"),
+        "tools": request_data.get("tools"),
+        "generation_config": request_data["generationConfig"],
     }
 
 

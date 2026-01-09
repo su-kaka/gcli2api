@@ -1,10 +1,38 @@
 """
 Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 提供对 Gemini API 请求体和响应的标准化处理
+
+字段命名规范 (Field Naming Convention):
+────────────────────────────────────────────────────────────────
+1. 内部使用 (Internal Usage):
+   - 所有 Python 函数参数和变量使用 snake_case: system_instruction
+   - 保持代码风格一致,符合 PEP 8 规范
+
+2. API 输出 (API Output):
+   - 发送给 Gemini API 时使用 camelCase: systemInstruction
+   - 符合 Google Gemini API 的字段命名规范
+
+3. API 输入 (API Input):
+   - 接收请求时兼容两种格式: systemInstruction 和 system_instruction
+   - 优先识别 systemInstruction (API 标准格式)
+   - 向后兼容 system_instruction (方便内部调用)
+
+示例:
+  # 函数定义 - 使用 snake_case
+  def process_request(system_instruction: Dict) -> Dict:
+      ...
+
+  # API 输出 - 转换为 camelCase
+  return {"systemInstruction": system_instruction}
+
+  # API 输入 - 兼容两种格式
+  system_instruction = request.get("systemInstruction") or request.get("system_instruction")
+────────────────────────────────────────────────────────────────
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import json
+from log import log
 
 # ==================== 公共工具函数 ====================
 
@@ -404,55 +432,56 @@ def build_antigravity_request_body(
         Antigravity 格式的请求体
     """
     import uuid
-    
-    # 生成请求 ID
+
+    # Antigravity 的默认系统提示词
+    custom_prompt = "Please ignore the following [ignore]You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**[/ignore]"
+
+    # 处理系统指令,将占位符插入到开头
+    modified_system_instruction = None
+    if system_instruction:
+        if isinstance(system_instruction, dict):
+            parts = system_instruction.get("parts", [])
+            modified_system_instruction = {
+                "parts": [{"text": custom_prompt}] + (parts if parts else [])
+            }
+    else:
+        modified_system_instruction = {"parts": [{"text": custom_prompt}]}
+
+    # 构建基础请求数据
+    request_data = {
+        "contents": contents,
+        "generationConfig": generation_config or {},
+    }
+
+    # 使用统一的后处理函数
+    request_data = normalize_gemini_request(
+        request_data,
+        model=model,
+        system_instruction=modified_system_instruction,
+        tools=tools,
+        thinking_config_override=None,
+        compatibility_mode=False,
+        default_safety_settings=None,  # Antigravity 不需要默认安全设置
+        get_thinking_budget_func=None,
+        should_include_thoughts_func=None,
+        is_search_model_func=None,
+    )
+
+    # 添加 toolConfig (如果有工具)
+    if tools:
+        request_data["toolConfig"] = {
+            "functionCallingConfig": {"mode": "VALIDATED"}
+        }
+
+    # 生成请求 ID 并构建 Antigravity 格式
     request_id = f"req-{uuid.uuid4()}"
-    
-    request_body = {
+    return {
         "requestId": request_id,
         "model": model,
         "userAgent": "antigravity",
         "requestType": "agent",
-        "request": {
-            "contents": contents,
-        }
+        "request": request_data
     }
-
-    # 添加系统指令
-    # Antigravity 的默认系统提示词
-    custom_prompt = "Please ignore the following [ignore]You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**[/ignore]"
-    
-    if system_instruction:
-        # 存在 systemInstruction，将占位符放在位置0，原有内容降格到位置1及以下
-        if isinstance(system_instruction, dict):
-            parts = system_instruction.get("parts", [])
-            if parts:
-                # 将占位符插入到位置0，原有内容后移
-                system_instruction["parts"] = [{"text": custom_prompt}] + parts
-            else:
-                # parts 为空，创建新的
-                system_instruction["parts"] = [{"text": custom_prompt}]
-        request_body["request"]["systemInstruction"] = system_instruction
-    else:
-        # 不存在 systemInstruction，创建新的
-        request_body["request"]["systemInstruction"] = {
-            "parts": [{"text": custom_prompt}]
-        }
-
-    # 添加工具定义
-    if tools:
-        # 清理工具定义（移除不支持的字段）
-        cleaned_tools = clean_tools_for_gemini(tools)
-        request_body["request"]["tools"] = cleaned_tools
-        request_body["request"]["toolConfig"] = {
-            "functionCallingConfig": {"mode": "VALIDATED"}
-        }
-
-    # 添加生成配置
-    if generation_config:
-        request_body["request"]["generationConfig"] = generation_config
-
-    return request_body
 
 
 def prepare_image_generation_request(
@@ -517,7 +546,12 @@ def build_gemini_request_payload(
 ) -> Dict[str, Any]:
     """从原生 Gemini 请求构建完整的 Gemini API payload
     整合了所有的配置处理、工具清理、安全设置等逻辑
-    
+
+    字段命名规范:
+    - 接收请求时兼容两种格式: systemInstruction (API格式) 和 system_instruction (Python格式)
+    - 内部处理统一使用 system_instruction (snake_case)
+    - 输出到 API 使用 systemInstruction (camelCase)
+
     Args:
         native_request: 原生 Gemini 格式请求
         model_from_path: 从路径中提取的模型名称
@@ -526,37 +560,34 @@ def build_gemini_request_payload(
         should_include_thoughts_func: 判断是否包含 thoughts 的函数
         is_search_model_func: 判断是否为搜索模型的函数
         default_safety_settings: 默认安全设置列表
-    
+
     Returns:
         完整的 Gemini API payload
     """
     request_data = native_request.copy()
-    
-    # 增量补全安全设置
-    user_settings = list(request_data.get("safetySettings", []))
-    existing_categories = {s.get("category") for s in user_settings}
-    user_settings.extend(
-        s for s in default_safety_settings
-        if s["category"] not in existing_categories
+
+    # 兼容两种格式: systemInstruction (camelCase) 和 system_instruction (snake_case)
+    # 优先使用 systemInstruction (API 标准格式)
+    system_instruction = request_data.pop("systemInstruction", None)
+    if system_instruction is None:
+        system_instruction = request_data.pop("system_instruction", None)
+
+    tools = request_data.pop("tools", None)
+
+    # 使用统一的后处理函数
+    request_data = normalize_gemini_request(
+        request_data,
+        model=model_from_path,
+        system_instruction=system_instruction,
+        tools=tools,
+        thinking_config_override=None,
+        compatibility_mode=False,
+        default_safety_settings=default_safety_settings,
+        get_thinking_budget_func=get_thinking_budget_func,
+        should_include_thoughts_func=should_include_thoughts_func,
+        is_search_model_func=is_search_model_func,
     )
-    request_data["safetySettings"] = user_settings
-    
-    # 配置 thinkingConfig
-    gen_config = request_data.setdefault("generationConfig", {})
-    request_data["generationConfig"] = setup_thinking_config(
-        gen_config, model_from_path,
-        get_thinking_budget_func, should_include_thoughts_func
-    )
-    
-    # 清理工具定义
-    if request_data.get("tools"):
-        request_data["tools"] = clean_tools_for_gemini(request_data["tools"])
-    
-    # 为搜索模型添加 Google Search 工具
-    request_data = setup_search_tools(
-        request_data, model_from_path, is_search_model_func
-    )
-    
+
     return {
         "model": get_base_model_name_func(model_from_path),
         "request": request_data
@@ -703,12 +734,12 @@ def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
 def create_gemini_error_chunk(message: str, error_type: str = "api_error", code: int = 500) -> Dict[str, Any]:
     """
     创建 Gemini 格式的错误数据块
-    
+
     Args:
         message: 错误消息
         error_type: 错误类型
         code: 错误代码
-    
+
     Returns:
         错误数据块
     """
@@ -719,6 +750,180 @@ def create_gemini_error_chunk(message: str, error_type: str = "api_error", code:
             "code": code,
         }
     }
+
+
+# ==================== 统一的 Gemini 请求后处理 ====================
+
+def normalize_gemini_request(
+    request_data: Dict[str, Any],
+    *,
+    model: str,
+    system_instruction: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    thinking_config_override: Optional[Dict[str, Any]] = None,
+    compatibility_mode: bool = False,
+    default_safety_settings: Optional[List[Dict[str, Any]]] = None,
+    get_thinking_budget_func=None,
+    should_include_thoughts_func=None,
+    is_search_model_func=None
+) -> Dict[str, Any]:
+    """
+    统一的 Gemini 请求后处理函数
+
+    负责处理所有转换器共同的后处理逻辑:
+    1. 参数规范化 (topK=64, maxOutputTokens≤65535)
+    2. System instruction 处理
+    3. Thinking config 处理
+    4. Tools 清理和处理
+    5. 搜索工具添加
+    6. 安全设置补全
+
+    字段命名规范:
+    - 内部参数使用 system_instruction (snake_case)
+    - 输出到 API 使用 systemInstruction (camelCase)
+    - 这样保持 Python 代码风格一致,同时符合 Gemini API 规范
+
+    Args:
+        request_data: 基础请求数据 (包含 contents 和 generationConfig)
+        model: 模型名称
+        system_instruction: 系统指令 (可选,内部使用 snake_case)
+        tools: 工具定义列表 (可选)
+        thinking_config_override: 显式的 thinking 配置 (可选,优先级最高)
+        compatibility_mode: 兼容性模式,影响 system instruction 处理
+        default_safety_settings: 默认安全设置列表
+        get_thinking_budget_func: 获取 thinking budget 的函数
+        should_include_thoughts_func: 判断是否包含 thoughts 的函数
+        is_search_model_func: 判断是否为搜索模型的函数
+
+    Returns:
+        标准化后的 Gemini 请求数据 (包含 systemInstruction 字段,符合 API 规范)
+    """
+    result = request_data.copy()
+
+    # 1. 处理 generationConfig
+    generation_config = result.setdefault("generationConfig", {})
+
+    # 1.1 限制 maxOutputTokens
+    max_tokens = generation_config.get("maxOutputTokens")
+    if max_tokens is not None and max_tokens > 65535:
+        generation_config["maxOutputTokens"] = 65535
+        log.debug(f"Limited maxOutputTokens from {max_tokens} to 65535")
+
+    # 1.2 设置默认 topK=64 (统一默认值)
+    if "topK" not in generation_config:
+        generation_config["topK"] = 64
+
+    # 1.3 处理 thinking config
+    if thinking_config_override:
+        # 优先使用显式传入的 thinking config
+        generation_config["thinkingConfig"] = thinking_config_override
+    elif "thinkingConfig" not in generation_config and get_thinking_budget_func and should_include_thoughts_func:
+        # 根据模型自动配置 thinking
+        thinking_budget = get_thinking_budget_func(model)
+        if thinking_budget is not None:
+            generation_config["thinkingConfig"] = {
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": should_include_thoughts_func(model)
+            }
+
+    result["generationConfig"] = generation_config
+
+    # 2. 处理 system instruction (如果未启用兼容性模式)
+    # 注意: 这里将内部的 system_instruction (snake_case) 转换为 API 的 systemInstruction (camelCase)
+    if system_instruction and not compatibility_mode:
+        result["systemInstruction"] = system_instruction
+
+    # 3. 处理 tools
+    if tools:
+        # 清理工具定义中不支持的 JSON Schema 字段
+        cleaned_tools = clean_tools_for_gemini(tools)
+        result["tools"] = cleaned_tools
+
+    # 4. 为搜索模型添加 Google Search 工具
+    if is_search_model_func and is_search_model_func(model):
+        result_tools = result.setdefault("tools", [])
+        # 检查是否已有 Google Search 工具
+        has_google_search = any(
+            tool.get("googleSearch") for tool in result_tools
+        )
+        if not has_google_search:
+            result_tools.append({"googleSearch": {}})
+            log.debug(f"Added Google Search tool for search model: {model}")
+
+    # 5. 补全安全设置
+    if default_safety_settings:
+        user_settings = list(result.get("safetySettings", []))
+        existing_categories = {s.get("category") for s in user_settings}
+        user_settings.extend(
+            s for s in default_safety_settings
+            if s["category"] not in existing_categories
+        )
+        result["safetySettings"] = user_settings
+
+    # 6. 移除 None 值
+    result = {k: v for k, v in result.items() if v is not None}
+
+    return result
+
+
+def process_system_messages(
+    messages: List[Any],
+    compatibility_mode: bool = False
+) -> Tuple[List[str], int]:
+    """
+    从消息列表中提取连续的 system 消息
+
+    Args:
+        messages: 消息列表
+        compatibility_mode: 兼容性模式下不提取 system 消息
+
+    Returns:
+        (system_instructions, first_non_system_index): 系统消息列表和第一个非系统消息的索引
+    """
+    if compatibility_mode:
+        return [], 0
+
+    system_instructions = []
+    first_non_system_index = 0
+
+    for i, message in enumerate(messages):
+        role = getattr(message, "role", None) if hasattr(message, "role") else message.get("role")
+
+        if role != "system":
+            first_non_system_index = i
+            break
+
+        # 提取 system 消息内容
+        content = getattr(message, "content", None) if hasattr(message, "content") else message.get("content")
+
+        if isinstance(content, str):
+            system_instructions.append(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                    system_instructions.append(part["text"])
+    else:
+        # 所有消息都是 system 消息
+        first_non_system_index = len(messages)
+
+    return system_instructions, first_non_system_index
+
+
+def build_system_instruction_from_list(system_instructions: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    从系统消息列表构建 systemInstruction 对象
+
+    Args:
+        system_instructions: 系统消息字符串列表
+
+    Returns:
+        Gemini 格式的 systemInstruction,如果列表为空则返回 None
+    """
+    if not system_instructions:
+        return None
+
+    combined_text = "\n\n".join(system_instructions)
+    return {"parts": [{"text": combined_text}]}
 
 
 # ==================== Antigravity 格式转换 ====================

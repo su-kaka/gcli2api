@@ -23,6 +23,10 @@ from src.utils import (
 from log import log
 
 from src.models import ChatCompletionRequest, model_to_dict
+from src.converter.gemini_fix import (
+    normalize_gemini_request,
+    build_system_instruction_from_list,
+)
 
 
 async def openai_request_to_gemini_payload(
@@ -202,71 +206,57 @@ async def openai_request_to_gemini_payload(
     if not contents:
         contents.append({"role": "user", "parts": [{"text": "请根据系统指令回答。"}]})
 
-    # 构建请求数据
+    # 构建基础请求数据
     request_data = {
         "contents": contents,
         "generationConfig": generation_config,
-        "safetySettings": DEFAULT_SAFETY_SETTINGS,
     }
-
-    # 如果有系统消息且未启用兼容性模式，添加systemInstruction
-    if system_instructions and not compatibility_mode:
-        combined_system_instruction = "\n\n".join(system_instructions)
-        request_data["systemInstruction"] = {"parts": [{"text": combined_system_instruction}]}
 
     log.debug(
         f"Request prepared: {len(contents)} messages, compatibility_mode: {compatibility_mode}"
     )
 
     # 从extra_body中取得thinking配置
-    thinking_override = None
+    thinking_config_override = None
     try:
         thinking_override = (
             openai_request.extra_body.get("google", {}).get("thinking_config")
             if openai_request.extra_body
             else None
         )
-    except Exception:
-        thinking_override = None
-
-    if thinking_override:  # 使用OPENAI的额外参数作为thinking参数
-        request_data["generationConfig"]["thinkingConfig"] = {
-            "thinkingBudget": thinking_override.get("thinking_budget"),
-            "includeThoughts": thinking_override.get("include_thoughts", False),
-        }
-    else:  # 如无提供的参数，则为thinking模型添加thinking配置
-        thinking_budget = get_thinking_budget(openai_request.model)
-        if thinking_budget is not None:
-            request_data["generationConfig"]["thinkingConfig"] = {
-                "thinkingBudget": thinking_budget,
-                "includeThoughts": should_include_thoughts(openai_request.model),
+        if thinking_override:  # 使用OPENAI的额外参数作为thinking参数
+            thinking_config_override = {
+                "thinkingBudget": thinking_override.get("thinking_budget"),
+                "includeThoughts": thinking_override.get("include_thoughts", False),
             }
+    except Exception:
+        pass
 
     # 处理工具定义和配置
-    # 首先检查是否有自定义工具
+    gemini_tools = None
     if hasattr(openai_request, "tools") and openai_request.tools:
         gemini_tools = convert_openai_tools_to_gemini(openai_request.tools)
-        if gemini_tools:
-            request_data["tools"] = gemini_tools
-
-    # 为搜索模型添加Google Search工具（如果还没有tools）
-    if is_search_model(openai_request.model):
-        if "tools" not in request_data:
-            request_data["tools"] = [{"googleSearch": {}}]
-        else:
-            # 如果已有工具，检查是否需要添加 Google Search
-            has_google_search = any(
-                tool.get("googleSearch") for tool in request_data.get("tools", [])
-            )
-            if not has_google_search:
-                request_data["tools"].append({"googleSearch": {}})
 
     # 处理 tool_choice
     if hasattr(openai_request, "tool_choice") and openai_request.tool_choice:
         request_data["toolConfig"] = convert_tool_choice_to_tool_config(openai_request.tool_choice)
 
-    # 移除None值
-    request_data = {k: v for k, v in request_data.items() if v is not None}
+    # 构建 system instruction
+    system_instruction = build_system_instruction_from_list(system_instructions)
+
+    # 使用统一的后处理函数
+    request_data = normalize_gemini_request(
+        request_data,
+        model=openai_request.model,
+        system_instruction=system_instruction,
+        tools=gemini_tools,
+        thinking_config_override=thinking_config_override,
+        compatibility_mode=compatibility_mode,
+        default_safety_settings=DEFAULT_SAFETY_SETTINGS,
+        get_thinking_budget_func=get_thinking_budget,
+        should_include_thoughts_func=should_include_thoughts,
+        is_search_model_func=is_search_model,
+    )
 
     # 返回完整的Gemini API payload格式
     return {"model": get_base_model_name(openai_request.model), "request": request_data}
@@ -559,19 +549,14 @@ def normalize_openai_request(
     """
     标准化OpenAI请求数据，应用默认值和限制
 
+    注意: maxTokens 和 topK 的处理已移至统一的 normalize_gemini_request 函数中
+
     Args:
         request_data: 原始请求对象
 
     Returns:
         标准化后的请求对象
     """
-    # 限制max_tokens
-    if getattr(request_data, "max_tokens", None) is not None and request_data.max_tokens > 65535:
-        request_data.max_tokens = 65535
-
-    # 覆写 top_k 为 64
-    setattr(request_data, "top_k", 64)
-
     # 过滤空消息
     filtered_messages = []
     for m in request_data.messages:
