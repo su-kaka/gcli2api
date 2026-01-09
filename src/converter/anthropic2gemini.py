@@ -375,8 +375,8 @@ def _extract_tool_result_output(content: Any) -> str:
 
 
 def convert_messages_to_contents(
-    messages: List[Dict[str, Any]], 
-    *, 
+    messages: List[Dict[str, Any]],
+    *,
     include_thinking: bool = True
 ) -> List[Dict[str, Any]]:
     """
@@ -387,6 +387,18 @@ def convert_messages_to_contents(
         include_thinking: 是否包含 thinking 块
     """
     contents: List[Dict[str, Any]] = []
+
+    # 第一遍：构建 tool_use_id -> name 的映射
+    tool_use_names: Dict[str, str] = {}
+    for msg in messages:
+        raw_content = msg.get("content", "")
+        if isinstance(raw_content, list):
+            for item in raw_content:
+                if isinstance(item, dict) and item.get("type") == "tool_use":
+                    tool_id = item.get("id")
+                    tool_name = item.get("name")
+                    if tool_id and tool_name:
+                        tool_use_names[str(tool_id)] = tool_name
 
     for msg in messages:
         role = msg.get("role", "user")
@@ -467,11 +479,18 @@ def convert_messages_to_contents(
                     )
                 elif item_type == "tool_result":
                     output = _extract_tool_result_output(item.get("content"))
+                    tool_use_id = item.get("tool_use_id")
+                    # 从 tool_result 获取 name，如果没有则从映射中查找
+                    func_name = item.get("name")
+                    if not func_name and tool_use_id:
+                        func_name = tool_use_names.get(str(tool_use_id))
+                    if not func_name:
+                        func_name = "unknown_function"
                     parts.append(
                         {
                             "functionResponse": {
-                                "id": item.get("tool_use_id"),
-                                "name": item.get("name", ""),
+                                "id": tool_use_id,
+                                "name": func_name,
                                 "response": {"output": output},
                             }
                         }

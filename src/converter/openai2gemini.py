@@ -863,13 +863,32 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
 
     Args:
         message: OpenAI 格式的工具消息
-        all_messages: 所有消息的列表（未使用，保留用于兼容性）
+        all_messages: 所有消息的列表，用于查找 tool_call_id 对应的函数名
 
     Returns:
         Gemini 格式的 functionResponse part
     """
-    # 获取 name 字段，如果缺失则使用默认值
-    name = getattr(message, "name", "unknown")
+    # 获取 name 字段
+    name = getattr(message, "name", None)
+    tool_call_id = getattr(message, "tool_call_id", None)
+
+    # 如果没有 name，尝试从 all_messages 中查找对应的 tool_call_id
+    if not name and tool_call_id and all_messages:
+        for msg in all_messages:
+            if getattr(msg, "role", None) == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    if getattr(tool_call, "id", None) == tool_call_id:
+                        func = getattr(tool_call, "function", None)
+                        if func:
+                            name = getattr(func, "name", None)
+                            break
+                if name:
+                    break
+
+    # 最终兜底：如果仍然没有 name，使用默认值
+    if not name:
+        name = "unknown_function"
+        log.warning(f"Tool message missing function name, using default: {name}")
 
     try:
         # 尝试将 content 解析为 JSON
@@ -1164,8 +1183,24 @@ def openai_messages_to_gemini_contents(
         # 处理 tool 消息
         if role == "tool":
             func_name = getattr(msg, "name", None)
+
+            # 如果没有 name，尝试从之前的 assistant 消息中查找对应的 tool_call_id
+            if not func_name and tool_call_id:
+                for prev_msg in messages:
+                    if getattr(prev_msg, "role", None) == "assistant":
+                        prev_tool_calls = getattr(prev_msg, "tool_calls", None)
+                        if prev_tool_calls:
+                            for tc in prev_tool_calls:
+                                if getattr(tc, "id", None) == tool_call_id:
+                                    tc_func = getattr(tc, "function", None)
+                                    if tc_func:
+                                        func_name = getattr(tc_func, "name", None)
+                                        break
+                            if func_name:
+                                break
+
             if not func_name:
-                func_name = f"function_{tool_call_id}" if tool_call_id else "unknown_function"
+                func_name = "unknown_function"
             
             # 尝试解析 JSON 响应
             try:
