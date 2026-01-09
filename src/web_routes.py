@@ -403,29 +403,9 @@ def validate_mode(mode: str = "geminicli") -> str:
 def get_env_locked_keys() -> set:
     """获取被环境变量锁定的配置键集合"""
     env_locked_keys = set()
-    env_mappings = {
-        "CODE_ASSIST_ENDPOINT": "code_assist_endpoint",
-        "CREDENTIALS_DIR": "credentials_dir",
-        "PROXY": "proxy",
-        "OAUTH_PROXY_URL": "oauth_proxy_url",
-        "GOOGLEAPIS_PROXY_URL": "googleapis_proxy_url",
-        "RESOURCE_MANAGER_API_URL": "resource_manager_api_url",
-        "SERVICE_USAGE_API_URL": "service_usage_api_url",
-        "AUTO_BAN": "auto_ban_enabled",
-        "RETRY_429_MAX_RETRIES": "retry_429_max_retries",
-        "RETRY_429_ENABLED": "retry_429_enabled",
-        "RETRY_429_INTERVAL": "retry_429_interval",
-        "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
-        "COMPATIBILITY_MODE": "compatibility_mode_enabled",
-        "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
-        "HOST": "host",
-        "PORT": "port",
-        "API_PASSWORD": "api_password",
-        "PANEL_PASSWORD": "panel_password",
-        "PASSWORD": "password",
-    }
 
-    for env_key, config_key in env_mappings.items():
+    # 使用 config.py 中统一维护的映射表
+    for env_key, config_key in config.ENV_MAPPINGS.items():
         if os.getenv(env_key):
             env_locked_keys.add(config_key)
 
@@ -1382,6 +1362,9 @@ async def get_config(token: str = Depends(verify_panel_token)):
         # 思维链返回配置
         current_config["return_thoughts_to_frontend"] = await config.get_return_thoughts_to_frontend()
 
+        # Antigravity流式转非流式配置
+        current_config["antigravity_stream2nostream"] = await config.get_antigravity_stream2nostream()
+
         # 服务器配置
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
@@ -1456,6 +1439,10 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         if "return_thoughts_to_frontend" in new_config:
             if not isinstance(new_config["return_thoughts_to_frontend"], bool):
                 raise HTTPException(status_code=400, detail="思维链返回开关必须是布尔值")
+
+        if "antigravity_stream2nostream" in new_config:
+            if not isinstance(new_config["antigravity_stream2nostream"], bool):
+                raise HTTPException(status_code=400, detail="Antigravity流式转非流式开关必须是布尔值")
 
         # 验证服务器配置
         if "host" in new_config:

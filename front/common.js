@@ -2211,6 +2211,7 @@ function populateConfigForm() {
 
     document.getElementById('compatibilityModeEnabled').checked = Boolean(c.compatibility_mode_enabled);
     document.getElementById('returnThoughtsToFrontend').checked = Boolean(c.return_thoughts_to_frontend !== false);
+    document.getElementById('antigravityStream2nostream').checked = Boolean(c.antigravity_stream2nostream !== false);
 
     setConfigField('antiTruncationMaxAttempts', c.anti_truncation_max_attempts || 3);
 }
@@ -2260,6 +2261,7 @@ async function saveConfig() {
             retry_429_interval: getFloat('retry429Interval', 0.1),
             compatibility_mode_enabled: getChecked('compatibilityModeEnabled'),
             return_thoughts_to_frontend: getChecked('returnThoughtsToFrontend'),
+            antigravity_stream2nostream: getChecked('antigravityStream2nostream'),
             anti_truncation_max_attempts: getInt('antiTruncationMaxAttempts', 3)
         };
 

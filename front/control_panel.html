@@ -1883,6 +1883,21 @@
                                     Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
                                 </div>
                             </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="antigravityStream2nostream" class="config-checkbox" />
+                                    Antigravity流式转非流式
+                                </label>
+                                <small class="config-note">启用后，非流式请求将使用流式API并收集为完整响应 <span
+                                        style="color: #28a745;">✓ 支持热更新</span></small>
+                                <div class="config-info"
+                                    style="background-color: #f3e5f5; border: 1px solid #9c27b0; color: #4a148c;">
+                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
+                                    <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
+                                    <br><strong>默认：</strong>已启用
+                                </div>
+                            </div>
                         </div>
 
                         <div class="config-group">
