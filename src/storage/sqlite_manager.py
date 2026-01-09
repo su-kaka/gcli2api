@@ -509,7 +509,7 @@ class SQLiteManager:
             set_clauses.append("updated_at = unixepoch()")
             values.append(filename)
 
-            log.info(f"[DB] SQL参数: set_clauses={set_clauses}, values={values}")
+            log.debug(f"[DB] SQL参数: set_clauses={set_clauses}, values={values}")
 
             async with aiosqlite.connect(self._db_path) as db:
                 # 首先尝试精确匹配更新

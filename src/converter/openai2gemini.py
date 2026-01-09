@@ -26,6 +26,7 @@ from src.models import ChatCompletionRequest, model_to_dict
 from src.converter.gemini_fix import (
     normalize_gemini_request,
     build_system_instruction_from_list,
+    prepare_image_generation_request,
 )
 
 
@@ -258,8 +259,16 @@ async def openai_request_to_gemini_payload(
         is_search_model_func=is_search_model,
     )
 
+    # 构建基础 payload
+    payload = {"model": get_base_model_name(openai_request.model), "request": request_data}
+
+    # 图像生成模型特殊处理
+    if "-image" in openai_request.model:
+        log.debug(f"Detected image generation model: {openai_request.model}")
+        payload = prepare_image_generation_request(payload, openai_request.model)
+
     # 返回完整的Gemini API payload格式
-    return {"model": get_base_model_name(openai_request.model), "request": request_data}
+    return payload
 
 
 def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
@@ -324,6 +333,21 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         # 提取工具调用和文本内容
         tool_calls, text_content = extract_tool_calls_from_parts(parts)
 
+        # 提取图片数据
+        images = []
+        for part in parts:
+            if "inlineData" in part:
+                inline_data = part["inlineData"]
+                mime_type = inline_data.get("mimeType", "image/png")
+                base64_data = inline_data.get("data", "")
+                # 转换为 OpenAI 的 data URI 格式
+                images.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64_data}"
+                    }
+                })
+
         # 提取 reasoning content 和 thinking 块
         reasoning_content = ""
         thinking_blocks = []
@@ -348,6 +372,16 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
             # content 可以是 None 或包含文本
             message["content"] = text_content if text_content else None
             finish_reason = "tool_calls"
+        # 如果有图片，构建包含图片的内容
+        elif images:
+            content_list = []
+            # 如果有文本，先添加文本
+            if text_content:
+                content_list.append({"type": "text", "text": text_content})
+            # 添加所有图片
+            content_list.extend(images)
+            message["content"] = content_list
+            finish_reason = _map_finish_reason(candidate.get("finishReason"))
         else:
             message["content"] = text_content
             finish_reason = _map_finish_reason(candidate.get("finishReason"))
@@ -355,7 +389,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         # 添加 reasoning content（如果有）- 保持向后兼容
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
-        
+
         # 添加结构化的 thinking 块（如果有 signature）
         if thinking_blocks:
             message["thinking_blocks"] = thinking_blocks
@@ -432,6 +466,21 @@ def gemini_stream_chunk_to_openai(
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
         log.debug(f"[STREAM CONVERT] extracted - tool_calls: {len(tool_calls)}, text_content: '{text_content[:50] if text_content else ''}'...")
 
+        # 提取图片数据
+        images = []
+        for part in parts:
+            if "inlineData" in part:
+                inline_data = part["inlineData"]
+                mime_type = inline_data.get("mimeType", "image/png")
+                base64_data = inline_data.get("data", "")
+                # 转换为 OpenAI 的 data URI 格式
+                images.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64_data}"
+                    }
+                })
+
         # 提取 reasoning content 和 thinking 块
         reasoning_content = ""
         thinking_blocks = []
@@ -455,12 +504,22 @@ def gemini_stream_chunk_to_openai(
             delta["tool_calls"] = tool_calls
             if text_content:
                 delta["content"] = text_content
+        elif images:
+            # 流式响应中的图片：以 markdown 格式返回
+            # 注意：OpenAI 流式响应的 delta.content 必须是字符串
+            markdown_images = [f"![Generated Image]({img['image_url']['url']})" for img in images]
+            if text_content:
+                # 如果有文本，将图片 markdown 附加在文本后
+                delta["content"] = text_content + "\n\n" + "\n\n".join(markdown_images)
+            else:
+                # 只有图片，返回图片 markdown
+                delta["content"] = "\n\n".join(markdown_images)
         elif text_content:
             delta["content"] = text_content
 
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
-        
+
         # 添加结构化的 thinking 块（如果有 signature）
         if thinking_blocks:
             delta["thinking_blocks"] = thinking_blocks
