@@ -1,6 +1,6 @@
 # GeminiCLI to API
 
-**将 GeminiCLI 和 antigravity 转换为 OpenAI 和 GEMINI API 接口**
+**将 GeminiCLI 和 antigravity 转换为 OpenAI 、GEMINI 和 Claude API 接口**
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: CNC-1.0](https://img.shields.io/badge/License-CNC--1.0-red.svg)](LICENSE)
