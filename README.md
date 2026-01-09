@@ -1,6 +1,6 @@
 # GeminiCLI to API
 
-**将 GeminiCLI 和 antigravity 转换为 OpenAI 、GEMINI 和 Claude API 接口**
+**将 GeminiCLI 和 antigravity 转换为 OpenAI 、GEMINI 和 Claude API 兼容接口**
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: CNC-1.0](https://img.shields.io/badge/License-CNC--1.0-red.svg)](LICENSE)
@@ -36,7 +36,7 @@
 
 ### 🔄 API 端点和格式支持
 
-**多端点双格式支持**
+**多端点多格式支持**
 - **OpenAI 兼容端点**：`/v1/chat/completions` 和 `/v1/models`
   - 支持标准 OpenAI 格式（messages 结构）
   - 支持 Gemini 原生格式（contents 结构）
@@ -45,9 +45,15 @@
 - **Gemini 原生端点**：`/v1/models/{model}:generateContent` 和 `streamGenerateContent`
   - 支持完整的 Gemini 原生 API 规范
   - 多种认证方式：Bearer Token、x-goog-api-key 头部、URL 参数 key
-- **Antigravity API 支持**：同时支持 OpenAI 和 Gemini 格式
+- **Claude 格式兼容**：完整支持 Claude API 格式
+  - 端点：`/v1/messages`（遵循 Claude API 规范）
+  - 支持 Claude 标准的 messages 格式
+  - 支持 system 参数和 Claude 特有功能
+  - 自动转换为后端支持的格式
+- **Antigravity API 支持**：同时支持 OpenAI、Gemini 和 Claude 格式
   - OpenAI 格式端点：`/antigravity/v1/chat/completions`
   - Gemini 格式端点：`/antigravity/v1/models/{model}:generateContent` 和 `streamGenerateContent`
+  - Claude 格式端点：`/antigravity/v1/messages`
   - 支持所有 Antigravity 模型（Claude、Gemini 等）
   - 自动模型名称映射和思维模式检测
 
@@ -74,8 +80,6 @@
 - 实时凭证健康检查
 - 错误码追踪（429、403、500 等）
 - 自动封禁机制（可配置）
-- 凭证轮换策略（基于调用次数）
-- 使用统计和配额监控
 
 ### 🌊 流式传输和响应处理
 
@@ -127,8 +131,6 @@
 **性能和稳定性配置**
 - 429 错误自动重试（可配置间隔和次数）
 - 抗截断最大重试次数
-- 凭证轮换策略
-- 并发请求管理
 
 **日志和调试**
 - 多级日志系统（DEBUG、INFO、WARNING、ERROR）
@@ -661,9 +663,47 @@ curl -X POST "http://127.0.0.1:7861/v1/models/gemini-2.5-pro:streamGenerateConte
   }'
 ```
 
-#### 3. Antigravity API 端点
+#### 3. Claude API 格式端点
 
-**支持双格式：OpenAI 和 Gemini**
+**端点：** `/v1/messages`
+**认证：** `x-api-key: your_api_password` 或 `Authorization: Bearer your_api_password`
+
+**请求示例：**
+```bash
+curl -X POST "http://127.0.0.1:7861/v1/messages" \
+  -H "x-api-key: your_api_password" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello, Claude!"}
+    ]
+  }'
+```
+
+**支持 system 参数：**
+```json
+{
+  "model": "gemini-2.5-pro",
+  "max_tokens": 1024,
+  "system": "You are a helpful assistant",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ]
+}
+```
+
+**说明：**
+- 完全兼容 Claude API 格式规范
+- 自动转换为 Gemini 格式调用后端
+- 支持 Claude 的所有标准参数
+- 响应格式符合 Claude API 规范
+
+#### 4. Antigravity API 端点
+
+**支持三种格式：OpenAI、Gemini 和 Claude**
 
 ##### Antigravity OpenAI 格式端点
 
@@ -719,12 +759,32 @@ curl -X POST "http://127.0.0.1:7861/antigravity/v1/models/gemini-2.5-flash:strea
   }'
 ```
 
+##### Antigravity Claude 格式端点
+
+**端点：** `/antigravity/v1/messages`
+**认证：** `x-api-key: your_api_password`
+
+**请求示例：**
+```bash
+curl -X POST "http://127.0.0.1:7861/antigravity/v1/messages" \
+  -H "x-api-key: your_api_password" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
+```
+
 **支持的 Antigravity 模型：**
 - Claude 系列：`claude-sonnet-4-5`、`claude-opus-4-5` 等
 - Gemini 系列：`gemini-2.5-flash`、`gemini-2.5-pro` 等
 - 自动支持思维模型（thinking models）
 
-**Gemini 原生banana：**
+**Gemini 原生示例：**
 ```python
 from io import BytesIO
 from PIL import Image
@@ -892,14 +952,6 @@ export COMPATIBILITY_MODE=true
 **QQ 群号：937681997**
 
 <img src="docs/qq群.jpg" width="200" alt="QQ群二维码">
-
----
-
-## 支持项目
-
-如果这个项目对您有帮助，欢迎支持项目的持续发展！
-
-详细捐赠信息请查看：[📖 捐赠说明文档](docs/DONATE.md)
 
 ---
 
