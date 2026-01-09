@@ -803,8 +803,19 @@
         <!-- 主界面 -->
         <div id="mainSection" class="hidden">
             <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                <h1 style="margin: 0; font-size: 20px;">GCLI2API 移动端控制面板</h1>
+                style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; flex-direction: column; gap: 6px; flex: 1;">
+                    <h1 style="margin: 0; font-size: 20px;">GCLI2API 移动端控制面板</h1>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span id="versionInfo" style="font-size: 11px; color: #666;">
+                            <span id="versionText">加载中...</span>
+                        </span>
+                        <button onclick="checkForUpdates()" id="checkUpdateBtn"
+                            style="padding: 2px 8px; background-color: #17a2b8; color: white; border: none; border-radius: 3px; font-size: 10px; cursor: pointer; white-space: nowrap;">
+                            检查更新
+                        </button>
+                    </div>
+                </div>
                 <button onclick="logout()"
                     style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
                     退出登录
