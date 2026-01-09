@@ -60,6 +60,22 @@ class AutoVerifyService:
 
         log.info("自动检验服务已停止")
 
+    async def reload(self):
+        """重新加载配置并根据需要启动/停止服务"""
+        from config import get_config_value
+
+        enabled = await get_config_value("auto_verify_enabled", False)
+
+        if enabled and not self._running:
+            await self.start()
+        elif not enabled and self._running:
+            await self.stop()
+
+    @property
+    def is_running(self) -> bool:
+        """返回服务是否正在运行"""
+        return self._running
+
     async def _run_loop(self):
         """主循环 - 定时检查凭证状态"""
         from config import get_auto_verify_interval

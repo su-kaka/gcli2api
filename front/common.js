@@ -2205,6 +2205,11 @@ function populateConfigForm() {
     setConfigField('autoBanErrorCodes', (c.auto_ban_error_codes || []).join(','));
     setConfigField('callsPerRotation', c.calls_per_rotation || 10);
 
+    // 自动检验恢复配置
+    document.getElementById('autoVerifyEnabled').checked = Boolean(c.auto_verify_enabled);
+    setConfigField('autoVerifyInterval', c.auto_verify_interval || 300);
+    setConfigField('autoVerifyErrorCodes', (c.auto_verify_error_codes || []).join(','));
+
     document.getElementById('retry429Enabled').checked = Boolean(c.retry_429_enabled);
     setConfigField('retry429MaxRetries', c.retry_429_max_retries || 20);
     setConfigField('retry429Interval', c.retry_429_interval || 0.1);
@@ -2256,6 +2261,11 @@ async function saveConfig() {
             auto_ban_error_codes: getValue('autoBanErrorCodes').split(',')
                 .map(c => parseInt(c.trim())).filter(c => !isNaN(c)),
             calls_per_rotation: getInt('callsPerRotation', 10),
+            // 自动检验恢复配置
+            auto_verify_enabled: getChecked('autoVerifyEnabled'),
+            auto_verify_interval: getInt('autoVerifyInterval', 300),
+            auto_verify_error_codes: getValue('autoVerifyErrorCodes').split(',')
+                .map(c => parseInt(c.trim())).filter(c => !isNaN(c)),
             retry_429_enabled: getChecked('retry429Enabled'),
             retry_429_max_retries: getInt('retry429MaxRetries', 20),
             retry_429_interval: getFloat('retry429Interval', 0.1),

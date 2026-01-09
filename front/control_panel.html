@@ -1837,6 +1837,38 @@
                         </div>
 
                         <div class="config-group">
+                            <h4>自动检验恢复配置</h4>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="autoVerifyEnabled" class="config-checkbox" />
+                                    启用自动检验恢复
+                                </label>
+                                <small class="config-note">定时检测被封禁的凭证并尝试自动恢复 <span
+                                        style="color: #28a745;">✓ 支持热更新</span></small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="autoVerifyInterval">检验间隔(秒):</label>
+                                <input type="number" id="autoVerifyInterval" class="config-input" min="60" max="3600" />
+                                <small class="config-note">每隔多少秒检查一次被封禁的凭证，最小60秒</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="autoVerifyErrorCodes">触发检验的错误码:</label>
+                                <input type="text" id="autoVerifyErrorCodes" class="config-input"
+                                    placeholder="例如: 400,403" />
+                                <small class="config-note">用逗号分隔的错误码列表，凭证因这些错误码被封禁时会尝试自动恢复</small>
+                            </div>
+
+                            <div class="config-info"
+                                style="background-color: #e3f2fd; border: 1px solid #2196f3; color: #0d47a1;">
+                                <strong>💡 说明：</strong>启用后，系统会定期检查因指定错误码被封禁的凭证，并尝试重新验证。
+                                如果验证通过，凭证会自动恢复可用状态，无需手动点击"检验"按钮。
+                            </div>
+                        </div>
+
+                        <div class="config-group">
                             <h4>429重试配置</h4>
 
                             <div class="form-group">

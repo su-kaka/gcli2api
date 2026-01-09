@@ -1348,6 +1348,11 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["auto_ban_enabled"] = await config.get_auto_ban_enabled()
         current_config["auto_ban_error_codes"] = await config.get_auto_ban_error_codes()
 
+        # 自动检验恢复配置
+        current_config["auto_verify_enabled"] = await config.get_auto_verify_enabled()
+        current_config["auto_verify_interval"] = await config.get_auto_verify_interval()
+        current_config["auto_verify_error_codes"] = await config.get_auto_verify_error_codes()
+
         # 429重试配置
         current_config["retry_429_max_retries"] = await config.get_retry_429_max_retries()
         current_config["retry_429_enabled"] = await config.get_retry_429_enabled()
@@ -1444,6 +1449,23 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
             if not isinstance(new_config["antigravity_stream2nostream"], bool):
                 raise HTTPException(status_code=400, detail="Antigravity流式转非流式开关必须是布尔值")
 
+        # 验证自动检验恢复配置
+        if "auto_verify_enabled" in new_config:
+            if not isinstance(new_config["auto_verify_enabled"], bool):
+                raise HTTPException(status_code=400, detail="自动检验恢复开关必须是布尔值")
+
+        if "auto_verify_interval" in new_config:
+            if (
+                not isinstance(new_config["auto_verify_interval"], int)
+                or new_config["auto_verify_interval"] < 60
+                or new_config["auto_verify_interval"] > 3600
+            ):
+                raise HTTPException(status_code=400, detail="自动检验间隔必须是60-3600之间的整数")
+
+        if "auto_verify_error_codes" in new_config:
+            if not isinstance(new_config["auto_verify_error_codes"], list):
+                raise HTTPException(status_code=400, detail="自动检验错误码必须是列表")
+
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
@@ -1482,6 +1504,15 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
 
         # 重新加载配置缓存（关键！）
         await config.reload_config()
+
+        # 如果自动检验配置有变更，重新加载自动检验服务
+        if "auto_verify_enabled" in new_config:
+            try:
+                from .auto_verify import get_auto_verify_service
+                service = await get_auto_verify_service()
+                await service.reload()
+            except Exception as e:
+                log.warning(f"重新加载自动检验服务失败: {e}")
 
         # 验证保存后的结果
         test_api_password = await config.get_api_password()
@@ -1997,7 +2028,7 @@ async def get_auto_verify_status(
         return JSONResponse(content={
             "success": True,
             "enabled": await get_auto_verify_enabled(),
-            "running": service._running,
+            "running": service.is_running,
             "interval": await get_auto_verify_interval(),
             "error_codes": await get_auto_verify_error_codes()
         })
