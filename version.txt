@@ -1,4 +1,4 @@
-full_hash=4a5fe00a0485106d5ae079fa75016d826f386736
-short_hash=4a5fe00
-message=更新说明
-date=2026-01-09 10:04:43 +0800
+full_hash=fc7c65f3433420570d1b55bef2087e9c40f0e98f
+short_hash=fc7c65f
+message=Update update-version.yml
+date=2026-01-09 12:21:27 +0800
