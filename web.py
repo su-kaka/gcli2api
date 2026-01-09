@@ -15,6 +15,7 @@ from log import log
 
 # Import managers and utilities
 from src.credential_manager import CredentialManager
+from src.auto_verify import start_auto_verify_service, stop_auto_verify_service
 
 # Import all routers
 from src.router.antigravity.openai import router as antigravity_openai_router
@@ -54,6 +55,12 @@ async def lifespan(app: FastAPI):
         log.error(f"凭证管理器初始化失败: {e}")
         global_credential_manager = None
 
+    # 启动自动检验服务
+    try:
+        await start_auto_verify_service()
+    except Exception as e:
+        log.error(f"自动检验服务启动失败: {e}")
+
     # OAuth回调服务器将在需要时按需启动
 
     yield
@@ -61,7 +68,14 @@ async def lifespan(app: FastAPI):
     # 清理资源
     log.info("开始关闭 GCLI2API 主服务")
 
-    # 首先关闭所有异步任务
+    # 首先停止自动检验服务
+    try:
+        await stop_auto_verify_service()
+        log.info("自动检验服务已停止")
+    except Exception as e:
+        log.error(f"停止自动检验服务时出错: {e}")
+
+    # 关闭所有异步任务
     try:
         await shutdown_all_tasks(timeout=10.0)
         log.info("所有异步任务已关闭")

@@ -39,6 +39,9 @@ ENV_MAPPINGS = {
     "COMPATIBILITY_MODE": "compatibility_mode_enabled",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
     "ANTIGRAVITY_STREAM2NOSTREAM": "antigravity_stream2nostream",
+    "AUTO_VERIFY_ENABLED": "auto_verify_enabled",
+    "AUTO_VERIFY_INTERVAL": "auto_verify_interval",
+    "AUTO_VERIFY_ERROR_CODES": "auto_verify_error_codes",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -439,3 +442,65 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
+
+
+async def get_auto_verify_enabled() -> bool:
+    """
+    Get auto verify enabled setting.
+
+    自动检验功能：启用后会定时检查凭证状态，发现错误码自动执行检验恢复。
+
+    Environment variable: AUTO_VERIFY_ENABLED
+    Database config key: auto_verify_enabled
+    Default: False
+    """
+    env_value = os.getenv("AUTO_VERIFY_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("auto_verify_enabled", False))
+
+
+async def get_auto_verify_interval() -> int:
+    """
+    Get auto verify interval in seconds.
+
+    自动检验的检查间隔（秒）。
+
+    Environment variable: AUTO_VERIFY_INTERVAL
+    Database config key: auto_verify_interval
+    Default: 300 (5 minutes)
+    Minimum: 60 (1 minute)
+    """
+    env_value = os.getenv("AUTO_VERIFY_INTERVAL")
+    if env_value:
+        try:
+            return max(60, int(env_value))
+        except ValueError:
+            pass
+
+    interval = await get_config_value("auto_verify_interval", 300)
+    return max(60, int(interval))
+
+
+async def get_auto_verify_error_codes() -> list:
+    """
+    Get auto verify error codes.
+
+    需要自动检验的错误码列表。
+
+    Environment variable: AUTO_VERIFY_ERROR_CODES (comma-separated, e.g., "400,403")
+    Database config key: auto_verify_error_codes
+    Default: [400, 403]
+    """
+    env_value = os.getenv("AUTO_VERIFY_ERROR_CODES")
+    if env_value:
+        try:
+            return [int(code.strip()) for code in env_value.split(",") if code.strip()]
+        except ValueError:
+            pass
+
+    codes = await get_config_value("auto_verify_error_codes")
+    if codes and isinstance(codes, list):
+        return codes
+    return [400, 403]

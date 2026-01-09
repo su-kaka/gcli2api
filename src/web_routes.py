@@ -1954,5 +1954,58 @@ async def get_version_info(check_update: bool = False):
         })
 
 
+# ==================== 自动检验相关接口 ====================
+
+@router.post("/auto-verify/trigger")
+async def trigger_auto_verify(
+    token: str = Depends(verify_panel_token)
+):
+    """
+    手动触发一次自动检验
+    立即检查所有凭证状态，对有错误码的凭证执行检验恢复
+    """
+    try:
+        from .auto_verify import get_auto_verify_service
+
+        service = await get_auto_verify_service()
+        result = await service.trigger_verify_now()
+
+        return JSONResponse(content=result)
+
+    except Exception as e:
+        log.error(f"触发自动检验失败: {e}")
+        raise HTTPException(status_code=500, detail=f"触发检验失败: {str(e)}")
+
+
+@router.get("/auto-verify/status")
+async def get_auto_verify_status(
+    token: str = Depends(verify_panel_token)
+):
+    """
+    获取自动检验服务状态
+    """
+    try:
+        from .auto_verify import get_auto_verify_service
+        from config import (
+            get_auto_verify_enabled,
+            get_auto_verify_interval,
+            get_auto_verify_error_codes
+        )
+
+        service = await get_auto_verify_service()
+
+        return JSONResponse(content={
+            "success": True,
+            "enabled": await get_auto_verify_enabled(),
+            "running": service._running,
+            "interval": await get_auto_verify_interval(),
+            "error_codes": await get_auto_verify_error_codes()
+        })
+
+    except Exception as e:
+        log.error(f"获取自动检验状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+
 
 
