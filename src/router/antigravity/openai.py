@@ -285,7 +285,9 @@ def convert_antigravity_response_to_openai(
 
 # ==================== API 路由 ====================
 
-@router.get("/antigravity/v1/models", response_model=ModelList)
+@router.get("/antigravity/v1/models", 
+            response_model=ModelList,
+            dependencies=[Depends(authenticate_bearer)])
 async def list_models():
     """
     返回OpenAI格式的模型列表
