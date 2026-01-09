@@ -3,12 +3,37 @@ OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API format
 被openai-router调用，负责OpenAI格式与Gemini格式的双向转换
 """
 
+import base64
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pypinyin import Style, lazy_pinyin
+
+# 在工具调用ID中嵌入thoughtSignature的分隔符
+# 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段
+THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
+
+
+def _encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str:
+    """将thoughtSignature编码到工具调用ID中，以便往返保留。"""
+    if not signature:
+        return tool_id
+    return f"{tool_id}{THOUGHT_SIGNATURE_SEPARATOR}{signature}"
+
+
+def _decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
+    """从编码的ID中提取原始工具ID和thoughtSignature。"""
+    if not encoded_id or THOUGHT_SIGNATURE_SEPARATOR not in encoded_id:
+        return encoded_id, None
+    parts = encoded_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)
+    return parts[0], parts[1] if len(parts) == 2 else None
+
+
+def _generate_dummy_signature() -> str:
+    """在缺失时为Gemini 3+模型生成占位签名。"""
+    return base64.b64encode(b"skip_thought_signature_validator").decode()
 
 from config import (
     get_compatibility_mode_enabled,
@@ -112,7 +137,25 @@ async def openai_request_to_gemini_payload(
                         if isinstance(tool_call.function.arguments, str)
                         else tool_call.function.arguments
                     )
-                    parts.append({"functionCall": {"name": tool_call.function.name, "args": args}})
+                    # 解码工具调用ID以提取原始ID和签名
+                    encoded_id = getattr(tool_call, "id", "") or ""
+                    original_id, signature = _decode_tool_id_and_signature(encoded_id)
+
+                    fc_part: Dict[str, Any] = {
+                        "functionCall": {
+                            "id": original_id,
+                            "name": tool_call.function.name,
+                            "args": args
+                        }
+                    }
+
+                    # 如果提取到签名则添加，否则为Gemini 3+生成占位签名
+                    if signature:
+                        fc_part["thoughtSignature"] = signature
+                    else:
+                        fc_part["thoughtSignature"] = _generate_dummy_signature()
+
+                    parts.append(fc_part)
                     parsed_count += 1
                 except (json.JSONDecodeError, AttributeError) as e:
                     log.error(
@@ -870,14 +913,18 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
     """
     # 获取 name 字段
     name = getattr(message, "name", None)
-    tool_call_id = getattr(message, "tool_call_id", None)
+    encoded_tool_call_id = getattr(message, "tool_call_id", None) or ""
+
+    # 解码获取原始ID（functionResponse不需要签名）
+    original_tool_call_id, _ = _decode_tool_id_and_signature(encoded_tool_call_id)
 
     # 如果没有 name，尝试从 all_messages 中查找对应的 tool_call_id
-    if not name and tool_call_id and all_messages:
+    # 注意：使用编码ID查找，因为存储的是编码ID
+    if not name and encoded_tool_call_id and all_messages:
         for msg in all_messages:
             if getattr(msg, "role", None) == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls:
                 for tool_call in msg.tool_calls:
-                    if getattr(tool_call, "id", None) == tool_call_id:
+                    if getattr(tool_call, "id", None) == encoded_tool_call_id:
                         func = getattr(tool_call, "function", None)
                         if func:
                             name = getattr(func, "name", None)
@@ -899,7 +946,7 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
         # 如果不是有效的 JSON，包装为对象
         response_data = {"result": str(message.content)}
 
-    return {"functionResponse": {"name": name, "response": response_data}}
+    return {"functionResponse": {"id": original_tool_call_id, "name": name, "response": response_data}}
 
 
 def extract_tool_calls_from_parts(
@@ -922,8 +969,14 @@ def extract_tool_calls_from_parts(
         # 检查是否是函数调用
         if "functionCall" in part:
             function_call = part["functionCall"]
+            # 获取原始ID或生成新ID
+            original_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:24]}"
+            # 将thoughtSignature编码到ID中以便往返保留
+            signature = part.get("thoughtSignature")
+            encoded_id = _encode_tool_id_with_signature(original_id, signature)
+
             tool_call = {
-                "id": f"call_{uuid.uuid4().hex[:24]}",
+                "id": encoded_id,
                 "type": "function",
                 "function": {
                     "name": function_call.get("name", "nameless_function"),
@@ -1183,15 +1236,20 @@ def openai_messages_to_gemini_contents(
         # 处理 tool 消息
         if role == "tool":
             func_name = getattr(msg, "name", None)
+            encoded_tool_call_id = tool_call_id or ""
+
+            # 解码获取原始ID（functionResponse不需要签名）
+            original_tool_call_id, _ = _decode_tool_id_and_signature(encoded_tool_call_id)
 
             # 如果没有 name，尝试从之前的 assistant 消息中查找对应的 tool_call_id
-            if not func_name and tool_call_id:
+            # 注意：使用编码ID查找，因为存储的是编码ID
+            if not func_name and encoded_tool_call_id:
                 for prev_msg in messages:
                     if getattr(prev_msg, "role", None) == "assistant":
                         prev_tool_calls = getattr(prev_msg, "tool_calls", None)
                         if prev_tool_calls:
                             for tc in prev_tool_calls:
-                                if getattr(tc, "id", None) == tool_call_id:
+                                if getattr(tc, "id", None) == encoded_tool_call_id:
                                     tc_func = getattr(tc, "function", None)
                                     if tc_func:
                                         func_name = getattr(tc_func, "name", None)
@@ -1201,16 +1259,16 @@ def openai_messages_to_gemini_contents(
 
             if not func_name:
                 func_name = "unknown_function"
-            
+
             # 尝试解析 JSON 响应
             try:
                 response_data = json.loads(content) if isinstance(content, str) else content
             except (json.JSONDecodeError, TypeError):
                 response_data = {"output": str(content)}
-            
+
             parts = [{
                 "functionResponse": {
-                    "id": tool_call_id,
+                    "id": original_tool_call_id,  # 使用解码后的ID以匹配functionCall
                     "name": func_name,
                     "response": response_data
                 }
@@ -1235,13 +1293,13 @@ def openai_messages_to_gemini_contents(
             
             # 添加工具调用
             for tool_call in tool_calls:
-                tc_id = getattr(tool_call, "id", None)
+                encoded_tc_id = getattr(tool_call, "id", None) or ""
                 tc_function = getattr(tool_call, "function", None)
-                
+
                 if tc_function:
                     func_name = getattr(tc_function, "name", "")
                     func_args = getattr(tc_function, "arguments", "{}")
-                    
+
                     # 解析 arguments（可能是字符串）
                     if isinstance(func_args, str):
                         try:
@@ -1250,14 +1308,25 @@ def openai_messages_to_gemini_contents(
                             args_dict = {"query": func_args}
                     else:
                         args_dict = func_args
-                    
-                    parts.append({
+
+                    # 解码工具调用ID以提取原始ID和签名
+                    original_id, signature = _decode_tool_id_and_signature(encoded_tc_id)
+
+                    fc_part: Dict[str, Any] = {
                         "functionCall": {
-                            "id": tc_id,
+                            "id": original_id,
                             "name": func_name,
                             "args": args_dict
                         }
-                    })
+                    }
+
+                    # 如果提取到签名则添加，否则为Gemini 3+生成占位签名
+                    if signature:
+                        fc_part["thoughtSignature"] = signature
+                    else:
+                        fc_part["thoughtSignature"] = _generate_dummy_signature()
+
+                    parts.append(fc_part)
             
             if parts:
                 contents.append({"role": role, "parts": parts})
