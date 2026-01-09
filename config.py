@@ -307,13 +307,13 @@ async def get_compatibility_mode_enabled() -> bool:
 
     Environment variable: COMPATIBILITY_MODE
     Database config key: compatibility_mode_enabled
-    Default: True
+    Default: False
     """
     env_value = os.getenv("COMPATIBILITY_MODE")
     if env_value:
         return env_value.lower() in ("true", "1", "yes", "on")
 
-    return bool(await get_config_value("compatibility_mode_enabled", True))
+    return bool(await get_config_value("compatibility_mode_enabled", False))
 
 
 async def get_return_thoughts_to_frontend() -> bool:
