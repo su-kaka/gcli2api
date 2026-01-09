@@ -15,35 +15,15 @@ from log import log
 from src.converter.gemini_fix import normalize_gemini_request, build_system_instruction_from_list
 
 
-import base64
+from src.converter.thoughtSignature_fix import (
+    encode_tool_id_with_signature,
+    decode_tool_id_and_signature,
+    generate_dummy_signature,
+)
 
 DEFAULT_THINKING_BUDGET = 1024
 DEFAULT_TEMPERATURE = 0.4
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
-
-# 在工具调用ID中嵌入thoughtSignature的分隔符
-# 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段
-THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
-
-
-def _encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str:
-    """将thoughtSignature编码到工具调用ID中，以便往返保留。"""
-    if not signature:
-        return tool_id
-    return f"{tool_id}{THOUGHT_SIGNATURE_SEPARATOR}{signature}"
-
-
-def _decode_tool_id_and_signature(encoded_id: str) -> tuple[str, Optional[str]]:
-    """从编码的ID中提取原始工具ID和thoughtSignature。"""
-    if not encoded_id or THOUGHT_SIGNATURE_SEPARATOR not in encoded_id:
-        return encoded_id, None
-    parts = encoded_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)
-    return parts[0], parts[1] if len(parts) == 2 else None
-
-
-def _generate_dummy_signature() -> str:
-    """在缺失时为Gemini 3+模型生成占位签名。"""
-    return base64.b64encode(b"skip_thought_signature_validator").decode()
 
 
 # ============================================================================
@@ -495,7 +475,7 @@ def convert_messages_to_contents(
                         )
                 elif item_type == "tool_use":
                     encoded_id = item.get("id") or ""
-                    original_id, signature = _decode_tool_id_and_signature(encoded_id)
+                    original_id, signature = decode_tool_id_and_signature(encoded_id)
 
                     fc_part: Dict[str, Any] = {
                         "functionCall": {
@@ -509,14 +489,14 @@ def convert_messages_to_contents(
                     if signature:
                         fc_part["thoughtSignature"] = signature
                     else:
-                        fc_part["thoughtSignature"] = _generate_dummy_signature()
+                        fc_part["thoughtSignature"] = generate_dummy_signature()
 
                     parts.append(fc_part)
                 elif item_type == "tool_result":
                     output = _extract_tool_result_output(item.get("content"))
                     encoded_tool_use_id = item.get("tool_use_id") or ""
                     # 解码获取原始ID（functionResponse不需要签名）
-                    original_tool_use_id, _ = _decode_tool_id_and_signature(encoded_tool_use_id)
+                    original_tool_use_id, _ = decode_tool_id_and_signature(encoded_tool_use_id)
 
                     # 从 tool_result 获取 name，如果没有则从映射中查找
                     func_name = item.get("name")
@@ -873,7 +853,7 @@ def convert_gemini_response_to_anthropic(
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
             signature = part.get("thoughtSignature")
-            encoded_id = _encode_tool_id_with_signature(original_id, signature)
+            encoded_id = encode_tool_id_with_signature(original_id, signature)
             content.append(
                 {
                     "type": "tool_use",
@@ -1270,7 +1250,7 @@ async def gemini_sse_to_anthropic_sse(
                     fc = part.get("functionCall", {}) or {}
                     original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
                     signature = part.get("thoughtSignature")
-                    tool_id = _encode_tool_id_with_signature(original_id, signature)
+                    tool_id = encode_tool_id_with_signature(original_id, signature)
                     tool_name = fc.get("name") or ""
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
