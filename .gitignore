@@ -8,7 +8,6 @@
 creds/
 CLAUDE.md
 GEMINI.md
-.github
 .kiro
 # Environment configuration
 .env
