@@ -235,14 +235,11 @@ def convert_antigravity_response_to_openai(
             # 转换为 Markdown 格式的图片（需要额外添加到 content，因为 extract_tool_calls_from_parts 不处理图片）
             content += f"\n\n![生成的图片](data:{mime_type};base64,{base64_data})\n\n"
 
-    # 拼接思考内容
-    if thinking_content:
-        content = f"<think>\n{thinking_content}\n</think>\n{content}"
-
     # 使用 OpenAIChatMessage 模型构建消息
     message = OpenAIChatMessage(
         role="assistant",
         content=content,
+        reasoning_content=thinking_content if thinking_content else None,
         tool_calls=tool_calls_list if tool_calls_list else None
     )
 

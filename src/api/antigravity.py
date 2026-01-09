@@ -305,10 +305,14 @@ async def send_antigravity_request_stream(
                     pass
                 raise stream_error
 
+        except HTTPException:
+            # HTTPException 已经被正确处理，直接向上抛出，不进行重试
+            raise
         except Exception as e:
-            log.error(f"[ANTIGRAVITY] Request exception with credential {current_file}: {str(e)}")
+            # 只对网络错误等非预期异常进行重试
+            log.error(f"[ANTIGRAVITY] Unexpected request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
-                log.info(f"[ANTIGRAVITY] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[ANTIGRAVITY] Retrying after unexpected exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise
@@ -521,10 +525,14 @@ async def _send_antigravity_request_no_stream_traditional(
                     detail=f"Antigravity API error: {error_body[:200]}"
                 )
 
+        except HTTPException:
+            # HTTPException 已经被正确处理，直接向上抛出，不进行重试
+            raise
         except Exception as e:
-            log.error(f"[ANTIGRAVITY] Request exception with credential {current_file}: {str(e)}")
+            # 只对网络错误等非预期异常进行重试
+            log.error(f"[ANTIGRAVITY] Unexpected request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
-                log.info(f"[ANTIGRAVITY] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[ANTIGRAVITY] Retrying after unexpected exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise

@@ -809,10 +809,12 @@ def normalize_gemini_request(
         generation_config["maxOutputTokens"] = 65535
         log.debug(f"Limited maxOutputTokens from {max_tokens} to 65535")
 
-    # 1.2 设置默认 topK=64 (统一默认值)
-    if "topK" not in generation_config:
+    # 1.2 限制 topK
+    topK = generation_config.get("topK")
+    if topK is not None and topK > 64:
         generation_config["topK"] = 64
-
+        log.debug(f"Limited topK from {topK} to 64")
+    
     # 1.3 处理 thinking config
     if thinking_config_override:
         # 优先使用显式传入的 thinking config

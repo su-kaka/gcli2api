@@ -274,15 +274,19 @@ async def send_geminicli_request_stream(
                 detail=f"GeminiCli API error: {error_text[:200]}"
             )
 
+        except HTTPException:
+            # HTTPException 已经被正确处理，直接向上抛出，不进行重试
+            raise
         except Exception as e:
-            log.error(f"[GEMINICLI-STREAM] Request exception with credential {current_file}: {str(e)}")
+            # 只对网络错误等非预期异常进行重试
+            log.error(f"[GEMINICLI-STREAM] Unexpected request exception with credential {current_file}: {str(e)}")
             try:
                 await client.aclose()
             except Exception:
                 pass
 
             if attempt < max_retries:
-                log.info(f"[GEMINICLI-STREAM] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[GEMINICLI-STREAM] Retrying after unexpected exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise
@@ -367,10 +371,14 @@ async def send_geminicli_request_no_stream(
                     detail=f"GeminiCli API error: {error_text[:200]}"
                 )
 
+        except HTTPException:
+            # HTTPException 已经被正确处理，直接向上抛出，不进行重试
+            raise
         except Exception as e:
-            log.error(f"[GEMINICLI] Request exception with credential {current_file}: {str(e)}")
+            # 只对网络错误等非预期异常进行重试
+            log.error(f"[GEMINICLI] Unexpected request exception with credential {current_file}: {str(e)}")
             if attempt < max_retries:
-                log.info(f"[GEMINICLI] Retrying after exception (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[GEMINICLI] Retrying after unexpected exception (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             raise
