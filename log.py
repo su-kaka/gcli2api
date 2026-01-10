@@ -20,7 +20,7 @@ _disable_reason = None
 
 def _get_current_log_level():
     """获取当前日志级别"""
-    level = os.getenv("LOG_LEVEL", "info").lower()
+    level = os.getenv("LOG_LEVEL", "debug").lower()
     return LOG_LEVELS.get(level, LOG_LEVELS["info"])
 
 

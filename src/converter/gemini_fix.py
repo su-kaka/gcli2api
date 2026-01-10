@@ -6,6 +6,8 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 
 from typing import Any, Dict, List, Optional
 
+from log import log
+
 # ==================== Gemini API 配置 ====================
 
 # Gemini API 不支持的 JSON Schema 字段集合
@@ -212,9 +214,12 @@ async def normalize_gemini_request(
 
     result = request.copy()
     model = result.get("model", "")
-    generation_config = result.get("generationConfig", {})
+    generation_config = result.get("generationConfig", {}).copy()  # 创建副本避免修改原对象
     tools = result.get("tools")
     system_instruction = result.get("systemInstruction") or result.get("system_instructions")
+    
+    # 记录原始请求
+    log.debug(f"[GEMINI_FIX] 原始请求 - 模型: {model}, mode: {mode}, generationConfig: {generation_config}")
 
     # 获取配置值
     return_thoughts = await get_return_thoughts_to_frontend()
@@ -274,12 +279,29 @@ async def normalize_gemini_request(
                 # 移除 -thinking 后缀
                 model = model.replace("-thinking", "")
 
+            import re
+            # 处理两种日期格式：
+            # 1. claude-{type}-{version}-{date} 格式，如 claude-sonnet-4-20250514
+            m = re.match(r"^(claude-(?:opus|sonnet|haiku)-(?:4|4-5|3-5))-\d{8}$", model)
+            if m:
+                model = m.group(1)
+            # 2. claude-{version}-{type}-{date} 格式，如 claude-3-5-haiku-20241022
+            m = re.match(r"^(claude-(?:3-5|3|4)-(?:opus|sonnet|haiku))-\d{8}$", model)
+            if m:
+                model = m.group(1)
+            
             # 4. 特殊模型映射
             model_mapping = {
                 "claude-opus-4-5": "claude-opus-4-5-thinking",
-                "claude-haiku-4": "gemini-2.5-flash"
+                "claude-haiku-4": "claude-sonnet-4-5-thinking",
+                "claude-haiku-3-5": "claude-sonnet-4-5-thinking",
+                "claude-3-5-haiku": "claude-sonnet-4-5-thinking",
+                "claude-opus-4": "claude-opus-4-5-thinking",
+                "claude-sonnet-4": "claude-sonnet-4-5-thinking",
+                
             }
             result["model"] = model_mapping.get(model, model)
+            log.debug(f"[ANTIGRAVITY] 映射模型: {model} -> {result['model']}")
 
     # ========== 公共处理 ==========
     # 1. 字段名转换
@@ -290,7 +312,7 @@ async def normalize_gemini_request(
     if generation_config:
         max_tokens = generation_config.get("maxOutputTokens")
         if max_tokens is not None:
-            generation_config["maxOutputTokens"] = 65535
+            generation_config["maxOutputTokens"] = 64000
 
         top_k = generation_config.get("topK")
         if top_k is not None:
