@@ -257,6 +257,11 @@ def convert_messages_to_contents(
 
     for msg in messages:
         role = msg.get("role", "user")
+        
+        # system 消息已经由 merge_system_messages 处理，这里跳过
+        if role == "system":
+            continue
+        
         gemini_role = "model" if role == "assistant" else "user"
         raw_content = msg.get("content", "")
 
@@ -575,6 +580,10 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
         "contents": contents,
         "generationConfig": generation_config,
     }
+    
+    # 如果 merge_system_messages 已经添加了 systemInstruction，使用它
+    if "systemInstruction" in payload:
+        gemini_request["systemInstruction"] = payload["systemInstruction"]
     
     if tools:
         gemini_request["tools"] = tools
