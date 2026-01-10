@@ -283,9 +283,42 @@ async def stream_generate_content(
             max_attempts
         )
 
-        # 直接迭代 process_stream() 生成器
+        # 迭代 process_stream() 生成器，并展开 response 包装
         async for chunk in processor.process_stream():
-            yield chunk
+            if isinstance(chunk, (str, bytes)):
+                chunk_str = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
+
+                # 解析并展开 response 包装
+                if chunk_str.startswith("data: "):
+                    json_str = chunk_str[6:].strip()
+
+                    # 跳过 [DONE] 标记
+                    if json_str == "[DONE]":
+                        yield chunk
+                        continue
+
+                    try:
+                        # 解析JSON
+                        data = json.loads(json_str)
+
+                        # 展开 response 包装
+                        if "response" in data and "candidates" not in data:
+                            log.debug(f"[GEMINICLI-ANTI-TRUNCATION] 展开response包装")
+                            unwrapped_data = data["response"]
+                            # 重新构建SSE格式
+                            yield f"data: {json.dumps(unwrapped_data, ensure_ascii=False)}\n\n".encode('utf-8')
+                        else:
+                            # 已经是展开的格式，直接返回
+                            yield chunk
+                    except json.JSONDecodeError:
+                        # JSON解析失败，直接返回原始chunk
+                        yield chunk
+                else:
+                    # 不是SSE格式，直接返回
+                    yield chunk
+            else:
+                # 其他类型，直接返回
+                yield chunk
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():

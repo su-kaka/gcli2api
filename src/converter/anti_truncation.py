@@ -285,7 +285,7 @@ class AntiTruncationStreamProcessor:
                                 log.debug(f"Anti-truncation: Check done marker result: {has_marker}, DONE_MARKER='{DONE_MARKER}'")
                                 if has_marker:
                                     found_done_marker = True
-                                    log.info(f"Anti-truncation: Found [done] marker in chunk, content: {content[:200]}")
+                                    log.debug(f"Anti-truncation: Found [done] marker in chunk, content: {content[:200]}")
 
                             # 清理行中的[done]标记后再发送
                             cleaned_line = self._remove_done_marker_from_line(line, line_str, data)
