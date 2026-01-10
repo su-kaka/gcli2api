@@ -53,6 +53,7 @@ class CredentialManager:
         """
         获取有效的凭证 - 随机负载均衡版
         每次随机选择一个可用的凭证（未禁用、未冷却）
+        如果刷新失败会自动禁用失效凭证并重试获取下一个可用凭证
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
@@ -61,89 +62,42 @@ class CredentialManager:
                       - gcli: "pro" 或 "flash"
         """
         await self._ensure_initialized()
-        async with self._operation_lock:
-            # 使用 SQL 随机查询获取可用凭证
-            if hasattr(self._storage_adapter._backend, 'get_next_available_credential'):
-                # SQLite 后端：直接用智能 SQL（已经是随机选择）
-                result = await self._storage_adapter._backend.get_next_available_credential(
-                    mode=mode, model_key=model_key
-                )
-                if result:
-                    filename, credential_data = result
-                    # Token 刷新检查
-                    if await self._should_refresh_token(credential_data):
-                        log.debug(f"Token需要刷新 - 文件: {filename} (mode={mode})")
-                        refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
-                        if refreshed_data:
-                            credential_data = refreshed_data
-                            log.debug(f"Token刷新成功: {filename} (mode={mode})")
-                        else:
-                            log.error(f"Token刷新失败: {filename} (mode={mode})")
-                            return None
-                    return filename, credential_data
+
+        # 最多重试3次
+        max_retries = 3
+        for attempt in range(max_retries):
+            result = await self._storage_adapter._backend.get_next_available_credential(
+                mode=mode, model_key=model_key
+            )
+
+            # 如果没有可用凭证，直接返回None
+            if not result:
+                if attempt == 0:
+                    log.warning(f"没有可用凭证 (mode={mode}, model_key={model_key})")
                 return None
+
+            filename, credential_data = result
+
+            # Token 刷新检查
+            if await self._should_refresh_token(credential_data):
+                log.debug(f"Token需要刷新 - 文件: {filename} (mode={mode})")
+                refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
+                if refreshed_data:
+                    # 刷新成功，返回凭证
+                    credential_data = refreshed_data
+                    log.debug(f"Token刷新成功: {filename} (mode={mode})")
+                    return filename, credential_data
+                else:
+                    # 刷新失败（_refresh_token内部已自动禁用失效凭证）
+                    log.warning(f"Token刷新失败，尝试获取下一个凭证: {filename} (mode={mode}, attempt={attempt+1}/{max_retries})")
+                    # 继续循环，尝试获取下一个可用凭证
+                    continue
             else:
-                # MongoDB/Postgres 后端：使用传统方法（随机选择）
-                return await self._get_valid_credential_traditional(
-                    mode=mode, model_key=model_key
-                )
-
-    async def _get_valid_credential_traditional(
-        self, mode: str = "geminicli", model_key: Optional[str] = None
-    ) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """
-        传统方式获取凭证（用于 MongoDB/Postgres 后端）- 随机选择
-
-        Args:
-            mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_key: 模型键，用于模型级冷却检查
-        """
-        import random
-
-        all_creds = await self._storage_adapter.list_credentials(mode=mode)
-        if not all_creds:
-            return None
-
-        # 随机打乱凭证列表
-        random.shuffle(all_creds)
-
-        for filename in all_creds:
-            try:
-                # 检查禁用状态
-                state = await self._storage_adapter.get_credential_state(filename, mode=mode)
-                if state.get("disabled", False):
-                    continue
-
-                # 如果提供了 model_key，检查模型级冷却
-                if model_key:
-                    model_cooldowns = state.get("model_cooldowns", {})
-                    model_cooldown = model_cooldowns.get(model_key)
-
-                    if model_cooldown is not None:
-                        current_time = time.time()
-                        if current_time < model_cooldown:
-                            # 该模型仍在冷却中
-                            continue
-
-                # 加载凭证
-                credential_data = await self._storage_adapter.get_credential(filename, mode=mode)
-                if not credential_data:
-                    continue
-
-                # Token 刷新
-                if await self._should_refresh_token(credential_data):
-                    refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
-                    if refreshed_data:
-                        credential_data = refreshed_data
-                    else:
-                        continue
-
+                # Token有效，直接返回
                 return filename, credential_data
 
-            except Exception as e:
-                log.error(f"Error checking credential {filename} (mode={mode}): {e}")
-                continue
-
+        # 重试次数用尽
+        log.error(f"重试{max_retries}次后仍无可用凭证 (mode={mode}, model_key={model_key})")
         return None
 
     async def add_credential(self, credential_name: str, credential_data: Dict[str, Any]):
