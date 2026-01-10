@@ -138,15 +138,24 @@ def get_available_models(router_type: str = "openai") -> List[str]:
 # ====================== Authentication Functions ======================
 
 async def authenticate_bearer(
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None, alias="x-api-key"),
+    access_token: Optional[str] = Header(None, alias="access_token")
 ) -> str:
     """
     Bearer Token 认证
 
     此函数可以直接用作 FastAPI 的 Depends 依赖
 
+    支持的认证字段:
+        - authorization (Bearer token)
+        - x-api-key
+        - access_token
+
     Args:
         authorization: Authorization 头部值（自动注入）
+        x_api_key: x-api-key 头部值（自动注入）
+        access_token: access_token 头部值（自动注入）
 
     Returns:
         验证通过的token
@@ -162,30 +171,33 @@ async def authenticate_bearer(
     """
 
     password = await get_api_password()
+    token = None
 
-    # 检查是否提供了 Authorization 头
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # 1. 尝试从 x-api-key 获取
+    if x_api_key:
+        token = x_api_key
 
-    # 检查是否是 Bearer token
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication scheme. Use 'Bearer <token>'",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # 2. 尝试从 access_token 获取
+    elif access_token:
+        token = access_token
 
-    # 提取 token
-    token = authorization[7:]  # 移除 "Bearer " 前缀
+    # 3. 尝试从 authorization 获取
+    elif authorization:
+        # 检查是否是 Bearer token
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication scheme. Use 'Bearer <token>'",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # 提取 token
+        token = authorization[7:]  # 移除 "Bearer " 前缀
 
+    # 检查是否提供了任何认证凭据
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Missing authentication credentials. Use 'Authorization: Bearer <token>', 'x-api-key: <token>', or 'access_token: <token>'",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
