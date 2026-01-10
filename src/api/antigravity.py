@@ -166,7 +166,12 @@ async def stream_request(
 
                     # 如果错误码是429或者不在禁用码当中，做好记录后进行重试
                     if status_code == 429 or status_code not in DISABLE_ERROR_CODES:
-                        log.warning(f"[ANTIGRAVITY STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}")
+                        # 解析错误响应内容
+                        try:
+                            error_body = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
+                            log.warning(f"[ANTIGRAVITY STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500]}")
+                        except Exception:
+                            log.warning(f"[ANTIGRAVITY STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}")
 
                         # 记录错误
                         cooldown_until = None
@@ -231,7 +236,11 @@ async def stream_request(
                             return
                     else:
                         # 错误码在禁用码当中，直接返回，无需重试
-                        log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
+                        try:
+                            error_body = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
+                            log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500]}")
+                        except Exception:
+                            log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
                             None, mode="antigravity", model_key=model_name
@@ -381,7 +390,11 @@ async def non_stream_request(
 
             # 判断是否需要重试
             if status_code == 429 or status_code not in DISABLE_ERROR_CODES:
-                log.warning(f"[ANTIGRAVITY] 非流式请求失败 (status={status_code}), 凭证: {current_file}")
+                try:
+                    error_text = response.text
+                    log.warning(f"[ANTIGRAVITY] 非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500]}")
+                except Exception:
+                    log.warning(f"[ANTIGRAVITY] 非流式请求失败 (status={status_code}), 凭证: {current_file}")
 
                 # 记录错误
                 cooldown_until = None
@@ -443,7 +456,11 @@ async def non_stream_request(
                     return last_error_response
             else:
                 # 错误码在禁用码当中，直接返回，无需重试
-                log.error(f"[ANTIGRAVITY] 非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
+                try:
+                    error_text = response.text
+                    log.error(f"[ANTIGRAVITY] 非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500]}")
+                except Exception:
+                    log.error(f"[ANTIGRAVITY] 非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
                 await record_api_call_error(
                     credential_manager, current_file, status_code,
                     None, mode="antigravity", model_key=model_name
