@@ -241,13 +241,14 @@ async def messages(
                 return
 
             # 使用统一的解析函数
-            content, reasoning_content, finish_reason = parse_response_for_fake_stream(gemini_response)
+            content, reasoning_content, finish_reason, images = parse_response_for_fake_stream(gemini_response)
 
             log.debug(f"Anthropic extracted content: {content}")
             log.debug(f"Anthropic extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
+            log.debug(f"Anthropic extracted images count: {len(images)}")
 
             # 构建响应块
-            chunks = build_anthropic_fake_stream_chunks(content, reasoning_content, finish_reason, real_model)
+            chunks = build_anthropic_fake_stream_chunks(content, reasoning_content, finish_reason, real_model, images)
             for idx, chunk in enumerate(chunks):
                 chunk_json = json.dumps(chunk)
                 log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")
@@ -327,8 +328,8 @@ async def messages(
         from src.api.geminicli import stream_request
         from fastapi import Response
 
-        # 调用 API 层的流式请求（使用 native 模式）
-        stream_gen = stream_request(body=api_request, native=True)
+        # 调用 API 层的流式请求（不使用 native 模式）
+        stream_gen = stream_request(body=api_request, native=False)
 
         # yield所有数据,处理可能的错误Response
         async for chunk in stream_gen:

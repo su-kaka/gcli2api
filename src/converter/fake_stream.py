@@ -30,7 +30,7 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
         response_data: Gemini API 响应数据
 
     Returns:
-        (content, reasoning_content, finish_reason): 内容、推理内容和结束原因的元组
+        (content, reasoning_content, finish_reason, images): 内容、推理内容、结束原因和图片数据的元组
     """
     import json
 
@@ -42,16 +42,16 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
     candidates = response_data.get("candidates", [])
     log.debug(f"[FAKE_STREAM] Found {len(candidates)} candidates")
     if not candidates:
-        return "", "", "STOP"
+        return "", "", "STOP", []
 
     candidate = candidates[0]
     finish_reason = candidate.get("finishReason", "STOP")
     parts = safe_get_nested(candidate, "content", "parts", default=[])
     log.debug(f"[FAKE_STREAM] Extracted {len(parts)} parts: {json.dumps(parts, ensure_ascii=False)}")
-    content, reasoning_content = extract_content_and_reasoning(parts)
-    log.debug(f"[FAKE_STREAM] Content length: {len(content)}, Reasoning length: {len(reasoning_content)}")
+    content, reasoning_content, images = extract_content_and_reasoning(parts)
+    log.debug(f"[FAKE_STREAM] Content length: {len(content)}, Reasoning length: {len(reasoning_content)}, Images count: {len(images)}")
 
-    return content, reasoning_content, finish_reason
+    return content, reasoning_content, finish_reason, images
 
 def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]]:
     """
@@ -94,12 +94,13 @@ def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]
         # 从Gemini响应中提取内容，使用思维链分离逻辑
         content = ""
         reasoning_content = ""
+        images = []
         if "candidates" in gemini_response and gemini_response["candidates"]:
             # Gemini格式响应 - 使用思维链分离
             candidate = gemini_response["candidates"][0]
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
-                content, reasoning_content = extract_content_and_reasoning(parts)
+                content, reasoning_content, images = extract_content_and_reasoning(parts)
         elif "choices" in gemini_response and gemini_response["choices"]:
             # OpenAI格式响应
             content = gemini_response["choices"][0].get("message", {}).get("content", "")
@@ -158,19 +159,23 @@ def create_openai_heartbeat_chunk() -> Dict[str, Any]:
         ]
     }
 
-def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
+def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
     """构建假流式响应的数据块
 
     Args:
         content: 主要内容
         reasoning_content: 推理内容
         finish_reason: 结束原因
+        images: 图片数据列表（可选）
         chunk_size: 每个chunk的字符数（默认50）
 
     Returns:
         响应数据块列表
     """
-    log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
+    if images is None:
+        images = []
+
+    log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
 
     # 如果没有正常内容但有思维内容,提供默认回复
@@ -179,11 +184,35 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
         return [_build_candidate([{"text": default_text}], finish_reason)]
 
     # 分块发送主要内容
+    first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
         chunk_finish_reason = finish_reason if is_last_chunk else None
-        chunk_data = _build_candidate([{"text": chunk_text}], chunk_finish_reason)
+
+        # 如果是第一个chunk且有图片，将图片包含在parts中
+        parts = []
+        if first_chunk and images:
+            # 在Gemini格式中，需要将image_url格式转换为inlineData格式
+            for img in images:
+                if img.get("type") == "image_url":
+                    url = img.get("image_url", {}).get("url", "")
+                    # 解析 data URL: data:{mime_type};base64,{data}
+                    if url.startswith("data:"):
+                        parts_of_url = url.split(";base64,")
+                        if len(parts_of_url) == 2:
+                            mime_type = parts_of_url[0].replace("data:", "")
+                            base64_data = parts_of_url[1]
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": base64_data
+                                }
+                            })
+            first_chunk = False
+
+        parts.append({"text": chunk_text})
+        chunk_data = _build_candidate(parts, chunk_finish_reason)
         log.debug(f"[build_gemini_fake_stream_chunks] Generated chunk: {chunk_data}")
         chunks.append(chunk_data)
 
@@ -210,7 +239,7 @@ def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
     return chunk
 
 
-def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
+def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
     """构建 OpenAI 格式的假流式响应数据块
 
     Args:
@@ -218,6 +247,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
         reasoning_content: 推理内容
         finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
         model: 模型名称
+        images: 图片数据列表（可选）
         chunk_size: 每个chunk的字符数（默认50）
 
     Returns:
@@ -226,7 +256,10 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
     import time
     import uuid
 
-    log.debug(f"[build_openai_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
+    if images is None:
+        images = []
+
+    log.debug(f"[build_openai_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
     response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
@@ -256,10 +289,20 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
         }]
 
     # 分块发送主要内容
+    first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
         chunk_finish = openai_finish_reason if is_last_chunk else None
+
+        delta_content = {}
+
+        # 如果是第一个chunk且有图片，构建包含图片的content数组
+        if first_chunk and images:
+            delta_content["content"] = images + [{"type": "text", "text": chunk_text}]
+            first_chunk = False
+        else:
+            delta_content["content"] = chunk_text
 
         chunk_data = {
             "id": response_id,
@@ -268,7 +311,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
             "model": model,
             "choices": [{
                 "index": 0,
-                "delta": {"content": chunk_text},
+                "delta": delta_content,
                 "finish_reason": chunk_finish,
             }]
         }
@@ -310,7 +353,7 @@ def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
     }
 
 
-def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
+def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
     """构建 Anthropic 格式的假流式响应数据块
 
     Args:
@@ -318,6 +361,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         reasoning_content: 推理内容（thinking content）
         finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
         model: 模型名称
+        images: 图片数据列表（可选）
         chunk_size: 每个chunk的字符数（默认50）
 
     Returns:
@@ -325,7 +369,10 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
     """
     import uuid
 
-    log.debug(f"[build_anthropic_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
+    if images is None:
+        images = []
+
+    log.debug(f"[build_anthropic_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
     message_id = f"msg_{uuid.uuid4().hex}"
 
@@ -417,7 +464,41 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
         block_index += 1
 
-    # 3. 发送主要内容（text 块）
+    # 3. 如果有图片，发送图片块
+    if images:
+        for img in images:
+            if img.get("type") == "image_url":
+                url = img.get("image_url", {}).get("url", "")
+                # 解析 data URL: data:{mime_type};base64,{data}
+                if url.startswith("data:"):
+                    parts_of_url = url.split(";base64,")
+                    if len(parts_of_url) == 2:
+                        mime_type = parts_of_url[0].replace("data:", "")
+                        base64_data = parts_of_url[1]
+
+                        # image content_block_start
+                        chunks.append({
+                            "type": "content_block_start",
+                            "index": block_index,
+                            "content_block": {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": base64_data
+                                }
+                            }
+                        })
+
+                        # image content_block_stop
+                        chunks.append({
+                            "type": "content_block_stop",
+                            "index": block_index
+                        })
+
+                        block_index += 1
+
+    # 4. 发送主要内容（text 块）
     # text content_block_start
     chunks.append({
         "type": "content_block_start",
@@ -440,14 +521,14 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         "index": block_index
     })
 
-    # 4. 发送 message_delta
+    # 5. 发送 message_delta
     chunks.append({
         "type": "message_delta",
         "delta": {"stop_reason": anthropic_stop_reason, "stop_sequence": None},
         "usage": {"output_tokens": len(content) + len(reasoning_content)}
     })
 
-    # 5. 发送 message_stop
+    # 6. 发送 message_stop
     chunks.append({
         "type": "message_stop"
     })

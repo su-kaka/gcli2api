@@ -801,17 +801,26 @@ async def gemini_stream_to_anthropic_stream(
     # 处理流式数据
     try:
         async for chunk in gemini_stream:
+            # 记录接收到的原始chunk
+            log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
+
             # 解析 Gemini 流式块
             if not chunk or not chunk.startswith(b"data: "):
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)")
                 continue
 
             raw = chunk[6:].strip()
             if raw == b"[DONE]":
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
                 break
+
+            log.debug(f"[GEMINI_TO_ANTHROPIC] Parsing JSON: {raw[:200]}")
 
             try:
                 data = json.loads(raw.decode('utf-8', errors='ignore'))
-            except Exception:
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Parsed data: {json.dumps(data, ensure_ascii=False)[:300]}")
+            except Exception as e:
+                log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
                 continue
 
             # 处理 GeminiCLI 的 response 包装格式

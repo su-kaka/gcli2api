@@ -105,6 +105,15 @@ async def generate_content(
     from src.api.antigravity import non_stream_request
     response = await non_stream_request(body=api_request)
 
+    # 对于图片模型，处理响应以确保前端可读
+    if "image" in real_model.lower():
+        from src.converter.gemini_fix import process_image_response
+        # 提取响应体并处理
+        if hasattr(response, "body"):
+            processed_body = process_image_response(response.body, is_streaming=False)
+            # 更新响应体
+            response.body = processed_body if isinstance(processed_body, bytes) else processed_body.encode('utf-8')
+
     # 直接返回响应（response已经是FastAPI Response对象）
     return response
 
@@ -229,13 +238,14 @@ async def stream_generate_content(
                 return
 
             # 使用统一的解析函数
-            content, reasoning_content, finish_reason = parse_response_for_fake_stream(response_data)
+            content, reasoning_content, finish_reason, images = parse_response_for_fake_stream(response_data)
 
             log.debug(f"Gemini extracted content: {content}")
             log.debug(f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
+            log.debug(f"Gemini extracted images count: {len(images)}")
 
             # 构建响应块
-            chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason)
+            chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason, images)
             for idx, chunk in enumerate(chunks):
                 chunk_json = json.dumps(chunk)
                 log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")
@@ -279,7 +289,7 @@ async def stream_generate_content(
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():
-        from src.converter.gemini_fix import normalize_gemini_request
+        from src.converter.gemini_fix import normalize_gemini_request, process_image_response
         from src.api.antigravity import stream_request
         from fastapi import Response
 
@@ -291,8 +301,12 @@ async def stream_generate_content(
             "request": normalized_req
         }
 
-        # 调用 API 层的流式请求（使用 native 模式）
-        stream_gen = stream_request(body=api_request, native=True)
+        # 对于图片模型请求，不使用 native 模式（需要后处理）
+        use_native = "image" not in real_model.lower()
+        is_image_model = "image" in real_model.lower()
+
+        # 调用 API 层的流式请求
+        stream_gen = stream_request(body=api_request, native=use_native)
 
         # yield所有数据,处理可能的错误Response
         async for chunk in stream_gen:
@@ -305,8 +319,13 @@ async def stream_generate_content(
                 yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
                 return
             else:
-                # 正常的bytes数据,直接yield
-                yield chunk
+                # 对于图片模型，处理chunk以确保前端可读
+                if is_image_model:
+                    processed_chunk = process_image_response(chunk, is_streaming=True)
+                    yield processed_chunk if isinstance(processed_chunk, bytes) else processed_chunk.encode('utf-8')
+                else:
+                    # 正常的bytes数据,直接yield
+                    yield chunk
 
     # ========== 根据模式选择生成器 ==========
     if use_fake_streaming:

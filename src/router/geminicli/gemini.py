@@ -229,13 +229,14 @@ async def stream_generate_content(
                 return
 
             # 使用统一的解析函数
-            content, reasoning_content, finish_reason = parse_response_for_fake_stream(response_data)
+            content, reasoning_content, finish_reason, images = parse_response_for_fake_stream(response_data)
 
             log.debug(f"Gemini extracted content: {content}")
             log.debug(f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
+            log.debug(f"Gemini extracted images count: {len(images)}")
 
             # 构建响应块
-            chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason)
+            chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason, images)
             for idx, chunk in enumerate(chunks):
                 chunk_json = json.dumps(chunk)
                 log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")

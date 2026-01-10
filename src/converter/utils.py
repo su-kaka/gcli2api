@@ -8,12 +8,23 @@ def extract_content_and_reasoning(parts: list) -> tuple:
         parts: Gemini 响应中的 parts 列表
 
     Returns:
-        (content, reasoning_content): 文本内容和推理内容的元组
+        (content, reasoning_content, images): 文本内容、推理内容和图片数据的元组
+        - content: 文本内容字符串
+        - reasoning_content: 推理内容字符串
+        - images: 图片数据列表,每个元素格式为:
+          {
+              "type": "image_url",
+              "image_url": {
+                  "url": "data:{mime_type};base64,{base64_data}"
+              }
+          }
     """
     content = ""
     reasoning_content = ""
+    images = []
 
     for part in parts:
+        # 提取文本内容
         text = part.get("text", "")
         if text:
             if part.get("thought", False):
@@ -21,7 +32,19 @@ def extract_content_and_reasoning(parts: list) -> tuple:
             else:
                 content += text
 
-    return content, reasoning_content
+        # 提取图片数据
+        if "inlineData" in part:
+            inline_data = part["inlineData"]
+            mime_type = inline_data.get("mimeType", "image/png")
+            base64_data = inline_data.get("data", "")
+            images.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{base64_data}"
+                }
+            })
+
+    return content, reasoning_content, images
 
 
 async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:

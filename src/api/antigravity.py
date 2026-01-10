@@ -246,10 +246,19 @@ async def stream_request(
                             credential_manager, current_file, mode="antigravity", model_key=model_name
                         )
                         success_recorded = True
+                        log.info(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
+
+                    # 记录原始chunk内容（用于调试）
+                    if isinstance(chunk, bytes):
+                        log.debug(f"[ANTIGRAVITY STREAM RAW] chunk(bytes): {chunk}")
+                    else:
+                        log.debug(f"[ANTIGRAVITY STREAM RAW] chunk(str): {chunk}")
 
                     yield chunk
 
             # 流式请求成功完成，退出重试循环
+            if success_recorded:
+                log.info(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
             return
 
         except Exception as e:
