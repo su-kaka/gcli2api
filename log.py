@@ -20,7 +20,7 @@ _disable_reason = None
 
 def _get_current_log_level():
     """获取当前日志级别"""
-    level = os.getenv("LOG_LEVEL", "info").lower()
+    level = os.getenv("LOG_LEVEL", "debug").lower()
     return LOG_LEVELS.get(level, LOG_LEVELS["info"])
 
 
@@ -71,6 +71,10 @@ def _log(level: str, message: str):
     current_level = _get_current_log_level()
     if LOG_LEVELS[level] < current_level:
         return
+
+    # 截断日志消息到最多100个字符
+    if len(message) > 100:
+        message = message[:100] + "..."
 
     # 格式化日志消息
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

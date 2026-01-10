@@ -268,7 +268,7 @@ async def collect_streaming_response(stream) -> Response:
 
             # 解析SSE格式的每一行，合并所有chunk
             merged_response = None
-            collected_text = []
+            all_parts = []
 
             for line in content_str.split('\n'):
                 line = line.strip()
@@ -283,19 +283,18 @@ async def collect_streaming_response(stream) -> Response:
                     try:
                         json_data = json.loads(json_str)
 
-                        # 提取文本内容并累积
+                        # 提取内容并累积
                         if "response" in json_data:
                             # 如果是第一个chunk，保存完整结构
                             if merged_response is None:
                                 merged_response = json_data
 
-                            # 提取并累积text
+                            # 提取并累积所有parts（包括text、inlineData、fileData等）
                             candidates = json_data.get("response", {}).get("candidates", [])
                             if candidates:
                                 parts = candidates[0].get("content", {}).get("parts", [])
-                                for part in parts:
-                                    if "text" in part:
-                                        collected_text.append(part["text"])
+                                # 保留所有类型的parts
+                                all_parts.extend(parts)
 
                         log.debug(f"[STREAM COLLECT] 处理chunk: {json.dumps(json_data, ensure_ascii=False)[:100]}")
                     except json.JSONDecodeError:
@@ -303,13 +302,11 @@ async def collect_streaming_response(stream) -> Response:
                         continue
 
             if merged_response:
-                # 将合并后的文本放回第一个chunk的结构中
-                if collected_text:
-                    merged_response["response"]["candidates"][0]["content"]["parts"] = [
-                        {"text": "".join(collected_text)}
-                    ]
+                # 将所有parts放回响应结构中
+                if all_parts:
+                    merged_response["response"]["candidates"][0]["content"]["parts"] = all_parts
 
-                log.debug(f"[STREAM COLLECT] 合并了 {len(collected_text)} 个text片段")
+                log.debug(f"[STREAM COLLECT] 合并了 {len(all_parts)} 个parts（包括文本、图片等）")
 
                 # 返回纯JSON格式
                 return Response(

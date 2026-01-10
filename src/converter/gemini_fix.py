@@ -158,14 +158,14 @@ def prepare_image_generation_request(
         image_config["imageSize"] = image_size
 
     request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
-    request_body["request"]["generationConfig"] = {
+    request_body["generationConfig"] = {
         "candidateCount": 1,
         "imageConfig": image_config
     }
-    
+
     # 移除不需要的字段
     for key in ("systemInstruction", "tools", "toolConfig"):
-        request_body["request"].pop(key, None)
+        request_body.pop(key, None)
     
     return request_body
 
@@ -220,7 +220,7 @@ def is_thinking_model(model_name: str) -> bool:
     return "-thinking" in model_name or "pro" in model_name.lower()
 
 
-def normalize_gemini_request(
+async def normalize_gemini_request(
     request: Dict[str, Any],
     mode: str = "geminicli"
 ) -> Dict[str, Any]:
@@ -240,20 +240,28 @@ def normalize_gemini_request(
     Returns:
         规范化后的请求
     """
+    # 导入配置函数
+    from config import get_return_thoughts_to_frontend
+
     result = request.copy()
     model = result.get("model", "")
     generation_config = result.get("generationConfig", {})
     tools = result.get("tools")
     system_instruction = result.get("systemInstruction") or result.get("system_instructions")
 
+    # 获取配置值
+    return_thoughts = await get_return_thoughts_to_frontend()
+
     # ========== 模式特定处理 ==========
     if mode == "geminicli":
         # 1. 思考设置
         thinking_budget, include_thoughts = get_thinking_settings(model)
         if thinking_budget is not None and "thinkingConfig" not in generation_config:
+            # 如果配置为不返回thoughts，则强制设置为False；否则使用模型默认设置
+            final_include_thoughts = include_thoughts if return_thoughts else False
             generation_config["thinkingConfig"] = {
                 "thinkingBudget": thinking_budget,
-                "includeThoughts": include_thoughts
+                "includeThoughts": final_include_thoughts
             }
 
         # 2. 工具清理和处理
@@ -294,7 +302,7 @@ def normalize_gemini_request(
                 if "thinkingConfig" not in generation_config:
                     generation_config["thinkingConfig"] = {
                         "thinkingBudget": 32768,
-                        "includeThoughts": True
+                        "includeThoughts": return_thoughts
                     }
                 # 移除 -thinking 后缀
                 model = model.replace("-thinking", "")

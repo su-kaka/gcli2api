@@ -101,7 +101,7 @@ async def chat_completions(
 
     # 规范化 Gemini 请求 (使用 geminicli 模式)
     from src.converter.gemini_fix import normalize_gemini_request
-    gemini_dict = normalize_gemini_request(gemini_dict, mode="geminicli")
+    gemini_dict = await normalize_gemini_request(gemini_dict, mode="geminicli")
 
     # 准备API请求格式 - 提取model并将其他字段放入request中
     api_request = {

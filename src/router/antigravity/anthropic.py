@@ -55,7 +55,7 @@ router = APIRouter()
 
 # ==================== API 路由 ====================
 
-@router.post("/v1/messages")
+@router.post("/antigravity/v1/messages")
 async def messages(
     claude_request: ClaudeRequest,
     _token: str = Depends(authenticate_bearer)
@@ -101,7 +101,7 @@ async def messages(
 
     # 规范化 Gemini 请求 (使用 antigravity 模式)
     from src.converter.gemini_fix import normalize_gemini_request
-    gemini_dict = normalize_gemini_request(gemini_dict, mode="antigravity")
+    gemini_dict = await normalize_gemini_request(gemini_dict, mode="antigravity")
 
     # 准备API请求格式 - 提取model并将其他字段放入request中
     api_request = {
@@ -429,12 +429,12 @@ if __name__ == "__main__":
     def test_non_stream_request():
         """测试非流式请求"""
         print("\n" + "=" * 80)
-        print("【测试1】非流式请求 (POST /v1/messages)")
+        print("【测试1】非流式请求 (POST /antigravity/v1/messages)")
         print("=" * 80)
         print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
 
         response = client.post(
-            "/v1/messages",
+            "/antigravity/v1/messages",
             json=test_request_body,
             headers={"Authorization": test_token}
         )
@@ -461,7 +461,7 @@ if __name__ == "__main__":
     def test_stream_request():
         """测试流式请求"""
         print("\n" + "=" * 80)
-        print("【测试2】流式请求 (POST /v1/messages)")
+        print("【测试2】流式请求 (POST /antigravity/v1/messages)")
         print("=" * 80)
 
         stream_request_body = test_request_body.copy()
@@ -474,7 +474,7 @@ if __name__ == "__main__":
 
         with client.stream(
             "POST",
-            "/v1/messages",
+            "/antigravity/v1/messages",
             json=stream_request_body,
             headers={"Authorization": test_token}
         ) as response:
@@ -519,7 +519,7 @@ if __name__ == "__main__":
     def test_fake_stream_request():
         """测试假流式请求"""
         print("\n" + "=" * 80)
-        print("【测试3】假流式请求 (POST /v1/messages with 假流式 prefix)")
+        print("【测试3】假流式请求 (POST /antigravity/v1/messages with 假流式 prefix)")
         print("=" * 80)
 
         fake_stream_request_body = test_request_body.copy()
@@ -533,7 +533,7 @@ if __name__ == "__main__":
 
         with client.stream(
             "POST",
-            "/v1/messages",
+            "/antigravity/v1/messages",
             json=fake_stream_request_body,
             headers={"Authorization": test_token}
         ) as response:
