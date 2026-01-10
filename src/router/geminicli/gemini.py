@@ -111,8 +111,11 @@ async def generate_content(
     from src.converter.gemini_fix import normalize_gemini_request
     normalized_dict = normalize_gemini_request(normalized_dict, mode="geminicli")
 
-    # 准备API请求格式
-    api_request = normalized_dict
+    # 准备API请求格式 - 提取model并将其他字段放入request中
+    api_request = {
+        "model": normalized_dict.pop("model"),
+        "request": normalized_dict
+    }
 
     # 调用 API 层的非流式请求
     from src.api.geminicli import non_stream_request
@@ -154,8 +157,11 @@ async def stream_generate_content(
         from src.converter.gemini_fix import normalize_gemini_request
         normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
 
-        # 准备API请求格式
-        api_request = normalized_dict
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model"),
+            "request": normalized_req
+        }
 
         # 发送心跳
         heartbeat = create_gemini_heartbeat_chunk()
@@ -196,7 +202,30 @@ async def stream_generate_content(
             log.error(f"Fake streaming request failed: {e}")
             raise
 
-        # 处理结果 - 直接yield响应内容,不进行包装
+        # 检查响应状态码
+        if hasattr(response, "status_code") and response.status_code != 200:
+            # 错误响应 - 提取错误信息并以SSE格式返回
+            log.error(f"Fake streaming got error response: status={response.status_code}")
+
+            if hasattr(response, "body"):
+                error_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+            elif hasattr(response, "content"):
+                error_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+            else:
+                error_body = str(response)
+
+            try:
+                error_data = json.loads(error_body)
+                # 以SSE格式返回错误
+                yield f"data: {json.dumps(error_data)}\n\n".encode()
+            except Exception:
+                # 如果无法解析为JSON，包装成错误对象
+                yield f"data: {json.dumps({'error': error_body})}\n\n".encode()
+
+            yield "data: [DONE]\n\n".encode()
+            return
+
+        # 处理成功响应 - 提取响应内容
         if hasattr(response, "body"):
             response_body = response.body.decode() if isinstance(response.body, bytes) else response.body
         elif hasattr(response, "content"):
@@ -207,6 +236,13 @@ async def stream_generate_content(
         try:
             response_data = json.loads(response_body)
             log.debug(f"Gemini fake stream response data: {response_data}")
+
+            # 检查是否是错误响应（有些错误可能status_code是200但包含error字段）
+            if "error" in response_data:
+                log.error(f"Fake streaming got error in response body: {response_data['error']}")
+                yield f"data: {json.dumps(response_data)}\n\n".encode()
+                yield "data: [DONE]\n\n".encode()
+                return
 
             # 使用统一的解析函数
             content, reasoning_content, finish_reason = parse_response_for_fake_stream(response_data)
@@ -234,8 +270,11 @@ async def stream_generate_content(
 
         normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
 
-        # 准备API请求格式
-        api_request = normalized_dict
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model"),
+            "request": normalized_req
+        }
 
         max_attempts = await get_anti_truncation_max_attempts()
 
@@ -272,8 +311,11 @@ async def stream_generate_content(
 
         normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
 
-        # 准备API请求格式
-        api_request = normalized_dict
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model"),
+            "request": normalized_req
+        }
 
         # 调用 API 层的流式请求（使用 native 模式）
         stream_gen = stream_request(body=api_request, native=True)

@@ -32,18 +32,24 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
     Returns:
         (content, reasoning_content, finish_reason): 内容、推理内容和结束原因的元组
     """
+    import json
+
     # 处理GeminiCLI的response包装格式
     if "response" in response_data and "candidates" not in response_data:
+        log.debug(f"[FAKE_STREAM] Unwrapping response field")
         response_data = response_data["response"]
 
     candidates = response_data.get("candidates", [])
+    log.debug(f"[FAKE_STREAM] Found {len(candidates)} candidates")
     if not candidates:
         return "", "", "STOP"
 
     candidate = candidates[0]
     finish_reason = candidate.get("finishReason", "STOP")
     parts = safe_get_nested(candidate, "content", "parts", default=[])
+    log.debug(f"[FAKE_STREAM] Extracted {len(parts)} parts: {json.dumps(parts, ensure_ascii=False)}")
     content, reasoning_content = extract_content_and_reasoning(parts)
+    log.debug(f"[FAKE_STREAM] Content length: {len(content)}, Reasoning length: {len(reasoning_content)}")
 
     return content, reasoning_content, finish_reason
 
