@@ -409,6 +409,10 @@ class AntiTruncationStreamProcessor:
         """从chunk数据中提取文本内容"""
         content = ""
 
+        # 先尝试解包 response 字段（Gemini API 格式）
+        if "response" in data:
+            data = data["response"]
+
         # 处理 Gemini 格式
         if "candidates" in data:
             for candidate in data["candidates"]:
@@ -528,6 +532,10 @@ class AntiTruncationStreamProcessor:
         """从响应数据中提取文本内容"""
         content = ""
 
+        # 先尝试解包 response 字段（Gemini API 格式）
+        if "response" in data:
+            data = data["response"]
+
         # 处理Gemini格式
         if "candidates" in data:
             for candidate in data["candidates"]:
@@ -552,18 +560,35 @@ class AntiTruncationStreamProcessor:
             if "[done]" not in line_str.lower():
                 return line  # 没有[done]标记，直接返回原始行
 
+            log.info(f"Anti-truncation: Attempting to remove [done] marker from line")
+            log.debug(f"Anti-truncation: Original line (first 200 chars): {line_str[:200]}")
+
             # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
             done_pattern = re.compile(r"\s*\[done\]\s*", re.IGNORECASE)
 
-            # 处理Gemini格式
-            if "candidates" in data:
-                modified_data = data.copy()
-                modified_data["candidates"] = []
+            # 检查是否有 response 包裹层
+            has_response_wrapper = "response" in data
+            log.debug(f"Anti-truncation: has_response_wrapper={has_response_wrapper}, data keys={list(data.keys())}")
+            if has_response_wrapper:
+                # 需要保留外层的 response 字段
+                inner_data = data["response"]
+            else:
+                inner_data = data
+            
+            log.debug(f"Anti-truncation: inner_data keys={list(inner_data.keys())}")
 
-                for i, candidate in enumerate(data["candidates"]):
+            log.debug(f"Anti-truncation: inner_data keys={list(inner_data.keys())}")
+
+            # 处理Gemini格式
+            if "candidates" in inner_data:
+                log.info(f"Anti-truncation: Processing Gemini format to remove [done] marker")
+                modified_inner = inner_data.copy()
+                modified_inner["candidates"] = []
+
+                for i, candidate in enumerate(inner_data["candidates"]):
                     modified_candidate = candidate.copy()
                     # 只在最后一个candidate中清理[done]标记
-                    is_last_candidate = i == len(data["candidates"]) - 1
+                    is_last_candidate = i == len(inner_data["candidates"]) - 1
 
                     if "content" in candidate:
                         modified_content = candidate["content"].copy()
@@ -572,26 +597,38 @@ class AntiTruncationStreamProcessor:
                             for part in modified_content["parts"]:
                                 if "text" in part and isinstance(part["text"], str):
                                     modified_part = part.copy()
+                                    original_text = part["text"]
                                     # 只在最后一个candidate中清理[done]标记
                                     if is_last_candidate:
                                         modified_part["text"] = done_pattern.sub("", part["text"])
+                                        if "[done]" in original_text.lower():
+                                            log.debug(f"Anti-truncation: Removed [done] from text: '{original_text[:100]}' -> '{modified_part['text'][:100]}'")
                                     modified_parts.append(modified_part)
                                 else:
                                     modified_parts.append(part)
                             modified_content["parts"] = modified_parts
                         modified_candidate["content"] = modified_content
-                    modified_data["candidates"].append(modified_candidate)
+                    modified_inner["candidates"].append(modified_candidate)
+
+                # 如果有 response 包裹层，需要重新包装
+                if has_response_wrapper:
+                    modified_data = data.copy()
+                    modified_data["response"] = modified_inner
+                else:
+                    modified_data = modified_inner
 
                 # 重新编码为行格式 - SSE格式需要两个换行符
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
-                return f"data: {json_str}\n\n".encode("utf-8")
+                result = f"data: {json_str}\n\n".encode("utf-8")
+                log.debug(f"Anti-truncation: Modified line (first 200 chars): {result.decode('utf-8', errors='ignore')[:200]}")
+                return result
 
             # 处理OpenAI格式
-            elif "choices" in data:
-                modified_data = data.copy()
-                modified_data["choices"] = []
+            elif "choices" in inner_data:
+                modified_inner = inner_data.copy()
+                modified_inner["choices"] = []
 
-                for choice in data["choices"]:
+                for choice in inner_data["choices"]:
                     modified_choice = choice.copy()
                     if "delta" in choice and "content" in choice["delta"]:
                         modified_delta = choice["delta"].copy()
@@ -601,7 +638,14 @@ class AntiTruncationStreamProcessor:
                         modified_message = choice["message"].copy()
                         modified_message["content"] = done_pattern.sub("", choice["message"]["content"])
                         modified_choice["message"] = modified_message
-                    modified_data["choices"].append(modified_choice)
+                    modified_inner["choices"].append(modified_choice)
+
+                # 如果有 response 包裹层，需要重新包装
+                if has_response_wrapper:
+                    modified_data = data.copy()
+                    modified_data["response"] = modified_inner
+                else:
+                    modified_data = modified_inner
 
                 # 重新编码为行格式 - SSE格式需要两个换行符
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
