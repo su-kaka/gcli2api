@@ -95,7 +95,8 @@ async def stream_post_async(
             # 错误直接返回
             if r.status_code != 200:
                 from fastapi import Response
-                return Response(await r.aread(), r.status_code, dict(r.headers))
+                yield Response(await r.aread(), r.status_code, dict(r.headers))
+                return
 
             # 如果native=True，直接返回bytes流
             if native:
