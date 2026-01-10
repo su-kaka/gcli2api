@@ -1,4 +1,4 @@
-full_hash=4309751727f69b3c7878be2156e5e0f7d7d838c5
-short_hash=4309751
-message=避免不必要的重试
-date=2026-01-09 21:28:50 +0800
+full_hash=71b786c260a6324a02170705c18245037e25849e
+short_hash=71b786c
+message=Merge pull request #263 from su-kaka/dev
+date=2026-01-10 20:36:42 +0800
