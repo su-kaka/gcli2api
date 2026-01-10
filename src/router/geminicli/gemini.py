@@ -28,8 +28,8 @@ from src.utils import (
     get_available_models,
     get_base_model_from_feature_model,
     is_anti_truncation_model,
-    is_fake_streaming_model,
     authenticate_gemini_flexible,
+    is_fake_streaming_model
 )
 
 # 本地模块 - 转换器（假流式需要）
@@ -252,8 +252,10 @@ async def stream_generate_content(
 
             # 构建响应块
             chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason)
-            for chunk in chunks:
-                yield f"data: {json.dumps(chunk)}\n\n".encode()
+            for idx, chunk in enumerate(chunks):
+                chunk_json = json.dumps(chunk)
+                log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")
+                yield f"data: {chunk_json}\n\n".encode()
 
         except Exception as e:
             log.error(f"Response parsing failed: {e}, directly yield original response")
@@ -265,10 +267,13 @@ async def stream_generate_content(
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
         from src.converter.gemini_fix import normalize_gemini_request
-        from src.converter.anti_truncation import normalize_gemini_response_stream
+        from src.converter.anti_truncation import anti_truncation_gemini_request, anti_truncation_gemini_response_stream
         from src.api.geminicli import stream_request
 
+        # 先进行基础标准化
         normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
+        # 再应用抗截断处理
+        normalized_req = anti_truncation_gemini_request(normalized_req)
 
         # 准备API请求格式 - 提取model并将其他字段放入request中
         api_request = {
@@ -284,24 +289,20 @@ async def stream_generate_content(
             # 获取原始流（使用 native=False 获取str流）
             original_stream = stream_request(body=api_request, native=False)
 
-            # 包装到标准化生成器中
-            gen = normalize_gemini_response_stream(original_stream)
+            # 包装到标准化生成器中，返回StreamWrapper对象（不需要await）
+            wrapper = anti_truncation_gemini_response_stream(original_stream)
 
-            try:
-                # 持续yield数据
-                async for chunk in gen:
-                    yield chunk
+            # 持续yield数据
+            async for chunk in wrapper.generator:
+                yield chunk
 
-            except StopIteration as e:
-                # 获取是否找到DONE_MARKER
-                found_done = e.value
-
-                if found_done:
-                    log.info("流式输出完成（发现DONE标记）")
-                    break  # 完成，退出循环
-                else:
-                    log.warning(f"流式输出未完成（未发现DONE标记），重试 {attempt + 1}/{max_attempts}")
-                    # 继续下一次循环，再次请求
+            # 检查是否找到DONE_MARKER
+            if wrapper.found_done_marker:
+                log.info("流式输出完成（发现DONE标记）")
+                break  # 完成，退出循环
+            else:
+                log.warning(f"流式输出未完成（未发现DONE标记），重试 {attempt + 1}/{max_attempts}")
+                # 继续下一次循环，再次请求
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():
@@ -326,13 +327,9 @@ async def stream_generate_content(
             if isinstance(chunk, Response):
                 # 将Response转换为SSE格式的错误消息
                 error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
-                try:
-                    error_json = json.loads(error_content.decode('utf-8'))
-                    # 以SSE格式返回错误
-                    yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
-                except Exception:
-                    # 如果无法解析为JSON,直接返回原始内容
-                    yield f"data: {json.dumps({'error': error_content.decode('utf-8', errors='ignore')})}\n\n".encode('utf-8')
+                error_json = json.loads(error_content.decode('utf-8'))
+                # 以SSE格式返回错误
+                yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
                 return
             else:
                 # 正常的bytes数据,直接yield
@@ -491,18 +488,23 @@ if __name__ == "__main__":
                         chunk_str = chunk.decode('utf-8')
                         print(f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
 
-                        # 如果是SSE格式，尝试解析
+                        # 如果是SSE格式，尝试解析每一行
                         if chunk_str.startswith("data: "):
-                            data_line = chunk_str.strip()
-                            if data_line == "data: [DONE]":
-                                print(f"  => 流结束标记")
-                            else:
-                                try:
-                                    json_str = data_line[6:]  # 去掉 "data: " 前缀
-                                    json_data = json.loads(json_str)
-                                    print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
-                                except Exception as e:
-                                    print(f"  SSE解析失败: {e}")
+                            # 按行分割，处理每个SSE事件
+                            for line in chunk_str.strip().split('\n'):
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                if line == "data: [DONE]":
+                                    print(f"  => 流结束标记")
+                                elif line.startswith("data: "):
+                                    try:
+                                        json_str = line[6:]  # 去掉 "data: " 前缀
+                                        json_data = json.loads(json_str)
+                                        print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                                    except Exception as e:
+                                        print(f"  SSE解析失败: {e}")
                     except Exception as e:
                         print(f"  解码失败: {e}")
 
@@ -533,24 +535,86 @@ if __name__ == "__main__":
                     chunk_count += 1
                     chunk_str = chunk.decode('utf-8')
 
-                    if "heartbeat" in chunk_str:
-                        print(f"Chunk #{chunk_count}: [心跳包]")
-                    else:
-                        print(f"\nChunk #{chunk_count}:")
-                        print(f"  内容: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
+                    print(f"\nChunk #{chunk_count}:")
+                    print(f"  长度: {len(chunk_str)} 字节")
 
-                        # 尝试解析SSE
+                    # 解析chunk中的所有SSE事件
+                    events = []
+                    for line in chunk_str.split('\n'):
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            events.append(line)
+
+                    print(f"  包含 {len(events)} 个SSE事件")
+
+                    # 显示每个事件
+                    for event_idx, event_line in enumerate(events, 1):
+                        if event_line == "data: [DONE]":
+                            print(f"  事件 #{event_idx}: [DONE]")
+                        else:
+                            try:
+                                json_str = event_line[6:]  # 去掉 "data: " 前缀
+                                json_data = json.loads(json_str)
+                                # 提取text内容
+                                text = json_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                                finish_reason = json_data.get("candidates", [{}])[0].get("finishReason")
+                                print(f"  事件 #{event_idx}: text={repr(text[:50])}{'...' if len(text) > 50 else ''}, finishReason={finish_reason}")
+                            except Exception as e:
+                                print(f"  事件 #{event_idx}: 解析失败 - {e}")
+
+            print(f"\n总共收到 {chunk_count} 个HTTP chunk")
+
+    def test_anti_truncation_stream_request():
+        """测试流式抗截断请求"""
+        print("\n" + "=" * 80)
+        print("【测试5】流式抗截断请求 (POST /v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent)")
+        print("=" * 80)
+        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
+
+        print("流式抗截断响应数据 (每个chunk):")
+        print("-" * 80)
+
+        with client.stream(
+            "POST",
+            "/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent",
+            json=test_request_body,
+            params={"key": test_api_key}
+        ) as response:
+            print(f"状态码: {response.status_code}")
+            print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
+
+            chunk_count = 0
+            for chunk in response.iter_bytes():
+                if chunk:
+                    chunk_count += 1
+                    print(f"\nChunk #{chunk_count}:")
+                    print(f"  类型: {type(chunk).__name__}")
+                    print(f"  长度: {len(chunk)}")
+
+                    # 解码chunk
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        print(f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
+
+                        # 如果是SSE格式，尝试解析每一行
                         if chunk_str.startswith("data: "):
-                            data_line = chunk_str.strip()
-                            if data_line == "data: [DONE]":
-                                print(f"  => 流结束标记")
-                            else:
-                                try:
-                                    json_str = data_line[6:]
-                                    json_data = json.loads(json_str)
-                                    print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
-                                except Exception:
-                                    pass
+                            # 按行分割，处理每个SSE事件
+                            for line in chunk_str.strip().split('\n'):
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                if line == "data: [DONE]":
+                                    print(f"  => 流结束标记")
+                                elif line.startswith("data: "):
+                                    try:
+                                        json_str = line[6:]  # 去掉 "data: " 前缀
+                                        json_data = json.loads(json_str)
+                                        print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                                    except Exception as e:
+                                        print(f"  SSE解析失败: {e}")
+                    except Exception as e:
+                        print(f"  解码失败: {e}")
 
             print(f"\n总共收到 {chunk_count} 个chunk")
 
@@ -564,6 +628,9 @@ if __name__ == "__main__":
 
         # 测试假流式请求
         test_fake_stream_request()
+
+        # 测试流式抗截断请求
+        test_anti_truncation_stream_request()
 
         print("\n" + "=" * 80)
         print("测试完成")

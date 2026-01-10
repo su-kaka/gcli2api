@@ -538,12 +538,12 @@ class SQLiteManager:
                     log.info(f"[DB] basename匹配 rowcount={updated_count}")
 
                 # 提交前检查
-                log.info(f"[DB] 准备commit，总更新行数={updated_count}")
+                log.debug(f"[DB] 准备commit，总更新行数={updated_count}")
                 await db.commit()
-                log.info(f"[DB] commit完成")
+                log.debug(f"[DB] commit完成")
                 
                 success = updated_count > 0
-                log.info(f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}")
+                log.debug(f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}")
                 return success
 
         except Exception as e:

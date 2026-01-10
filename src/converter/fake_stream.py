@@ -170,6 +170,7 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
     Returns:
         响应数据块列表
     """
+    log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
     chunks = []
 
     # 如果没有正常内容但有思维内容,提供默认回复
@@ -182,7 +183,9 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
         chunk_text = content[i:i + chunk_size]
         is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
         chunk_finish_reason = finish_reason if is_last_chunk else None
-        chunks.append(_build_candidate([{"text": chunk_text}], chunk_finish_reason))
+        chunk_data = _build_candidate([{"text": chunk_text}], chunk_finish_reason)
+        log.debug(f"[build_gemini_fake_stream_chunks] Generated chunk: {chunk_data}")
+        chunks.append(chunk_data)
 
     # 如果有推理内容，分块发送
     if reasoning_content:
@@ -192,6 +195,7 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
             chunk_finish_reason = finish_reason if is_last_chunk else None
             chunks.append(_build_candidate([{"text": chunk_text, "thought": True}], chunk_finish_reason))
 
+    log.debug(f"[build_gemini_fake_stream_chunks] Total chunks generated: {len(chunks)}")
     return chunks
 
 
