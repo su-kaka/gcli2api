@@ -272,6 +272,7 @@ async def messages(
     async def anti_truncation_generator():
         from src.converter.anti_truncation import apply_anti_truncation_to_stream
         from src.api.antigravity import non_stream_request
+        from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
 
         max_attempts = await get_anti_truncation_max_attempts()
 
@@ -283,105 +284,66 @@ async def messages(
             max_attempts
         )
 
-        # yield StreamingResponse 的内容，并转换为 Anthropic 格式
-        async for chunk in streaming_response.body_iterator:
-            if not chunk:
-                continue
+        # 包装以确保是bytes流
+        async def bytes_wrapper():
+            async for chunk in streaming_response.body_iterator:
+                if isinstance(chunk, str):
+                    yield chunk.encode('utf-8')
+                else:
+                    yield chunk
 
-            # 解析 Gemini SSE 格式
-            chunk_str = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
-
-            # 跳过空行和 [DONE] 标记
-            if not chunk_str.strip() or chunk_str.strip() == "data: [DONE]":
-                continue
-
-            # 解析 "data: {...}" 格式
-            if chunk_str.startswith("data: "):
-                try:
-                    # 转换为 Anthropic 格式
-                    from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
-                    # 注意：这里需要将chunk转换为async iterator
-                    async def single_chunk_iter():
-                        yield chunk_str.encode('utf-8')
-
-                    async for anthropic_chunk in gemini_stream_to_anthropic_stream(
-                        single_chunk_iter(),
-                        real_model,
-                        200
-                    ):
-                        if anthropic_chunk:
-                            yield anthropic_chunk
-
-                except Exception as e:
-                    log.error(f"Failed to convert chunk: {e}")
-                    continue
-
-        # 发送结束标记
-        yield "data: [DONE]\n\n".encode()
+        # 直接将整个流传递给转换器
+        async for anthropic_chunk in gemini_stream_to_anthropic_stream(
+            bytes_wrapper(),
+            real_model,
+            200
+        ):
+            if anthropic_chunk:
+                yield anthropic_chunk
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():
         from src.api.antigravity import stream_request
         from fastapi import Response
+        from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
 
         # 调用 API 层的流式请求（不使用 native 模式）
         stream_gen = stream_request(body=api_request, native=False)
 
-        # yield所有数据,处理可能的错误Response
-        async for chunk in stream_gen:
-            # 检查是否是Response对象（错误情况）
-            if isinstance(chunk, Response):
-                # 将Response转换为SSE格式的错误消息
-                error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
-                try:
-                    gemini_error = json.loads(error_content.decode('utf-8'))
-                    # 转换为 Anthropic 格式错误
-                    from src.converter.anthropic2gemini import gemini_to_anthropic_response
-                    anthropic_error = gemini_to_anthropic_response(
-                        gemini_error,
-                        real_model,
-                        chunk.status_code
-                    )
-                    yield f"data: {json.dumps(anthropic_error)}\n\n".encode('utf-8')
-                except Exception:
-                    yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode('utf-8')
-                return
-            else:
-                # 正常的bytes数据，转换为 Anthropic 格式
-                chunk_str = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
-
-                # 跳过空行
-                if not chunk_str.strip():
-                    continue
-
-                # 处理 [DONE] 标记
-                if chunk_str.strip() == "data: [DONE]":
-                    yield "data: [DONE]\n\n".encode('utf-8')
-                    return
-
-                # 解析并转换 Gemini chunk 为 Anthropic 格式
-                if chunk_str.startswith("data: "):
+        # 包装流式生成器以处理错误响应
+        async def gemini_chunk_wrapper():
+            async for chunk in stream_gen:
+                # 检查是否是Response对象（错误情况）
+                if isinstance(chunk, Response):
+                    # 错误响应，不进行转换，直接传递
+                    error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
                     try:
-                        # 转换为 Anthropic 格式
-                        from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
-                        # 创建单个chunk的异步迭代器
-                        async def single_chunk_iter():
-                            yield chunk_str.encode('utf-8')
-
-                        async for anthropic_chunk in gemini_stream_to_anthropic_stream(
-                            single_chunk_iter(),
+                        gemini_error = json.loads(error_content.decode('utf-8'))
+                        from src.converter.anthropic2gemini import gemini_to_anthropic_response
+                        anthropic_error = gemini_to_anthropic_response(
+                            gemini_error,
                             real_model,
-                            200
-                        ):
-                            if anthropic_chunk:
-                                yield anthropic_chunk
+                            chunk.status_code
+                        )
+                        yield f"data: {json.dumps(anthropic_error)}\n\n".encode('utf-8')
+                    except Exception:
+                        yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode('utf-8')
+                    return
+                else:
+                    # 确保是bytes类型
+                    if isinstance(chunk, str):
+                        yield chunk.encode('utf-8')
+                    else:
+                        yield chunk
 
-                    except Exception as e:
-                        log.error(f"Failed to convert chunk: {e}")
-                        continue
-
-        # 发送结束标记
-        yield "data: [DONE]\n\n".encode('utf-8')
+        # 使用转换器处理整个流
+        async for anthropic_chunk in gemini_stream_to_anthropic_stream(
+            gemini_chunk_wrapper(),
+            real_model,
+            200
+        ):
+            if anthropic_chunk:
+                yield anthropic_chunk
 
     # ========== 根据模式选择生成器 ==========
     if use_fake_streaming:

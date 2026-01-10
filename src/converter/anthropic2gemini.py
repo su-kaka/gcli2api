@@ -29,7 +29,7 @@ _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
 def _anthropic_debug_enabled() -> bool:
     """检查是否启用 Anthropic 调试模式"""
-    return str(os.getenv("ANTHROPIC_DEBUG", "")).strip().lower() in _DEBUG_TRUE
+    return str(os.getenv("ANTHROPIC_DEBUG", "true")).strip().lower() in _DEBUG_TRUE
 
 
 def _is_non_whitespace_text(value: Any) -> bool:
@@ -822,7 +822,14 @@ async def gemini_stream_to_anthropic_stream(
                     tool_name = fc.get("name") or ""
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
+                    if _anthropic_debug_enabled():
+                        log.info(
+                            f"[ANTHROPIC][tool_use] 处理工具调用: name={tool_name}, "
+                            f"id={tool_id}, has_signature={signature is not None}"
+                        )
+
                     current_block_index += 1
+                    # 注意：工具调用不设置 current_block_type，因为它是独立完整的块
 
                     yield _sse_event(
                         "content_block_start",
@@ -852,6 +859,11 @@ async def gemini_stream_to_anthropic_stream(
                         "content_block_stop",
                         {"type": "content_block_stop", "index": current_block_index},
                     )
+                    # 工具调用块已完全关闭，current_block_type 保持为 None
+                    
+                    if _anthropic_debug_enabled():
+                        log.info(f"[ANTHROPIC][tool_use] 工具调用块已关闭: index={current_block_index}")
+                    
                     continue
 
             # 检查是否结束
@@ -868,6 +880,13 @@ async def gemini_stream_to_anthropic_stream(
         stop_reason = "tool_use" if has_tool_use else "end_turn"
         if finish_reason == "MAX_TOKENS" and not has_tool_use:
             stop_reason = "max_tokens"
+
+        if _anthropic_debug_enabled():
+            log.info(
+                f"[ANTHROPIC][stream_end] 流式结束: stop_reason={stop_reason}, "
+                f"has_tool_use={has_tool_use}, finish_reason={finish_reason}, "
+                f"input_tokens={input_tokens}, output_tokens={output_tokens}"
+            )
 
         # 发送 message_delta 和 message_stop
         yield _sse_event(
