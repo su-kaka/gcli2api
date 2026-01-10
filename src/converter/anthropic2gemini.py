@@ -7,18 +7,16 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from log import log
-from src.converter.gemini_fix import normalize_gemini_request, build_system_instruction_from_list
-
+from src.converter.gemini_fix import build_system_instruction_from_list
+from src.converter.utils import merge_system_messages
 
 from src.converter.thoughtSignature_fix import (
     encode_tool_id_with_signature,
-    decode_tool_id_and_signature,
-    generate_dummy_signature,
+    decode_tool_id_and_signature
 )
 
 DEFAULT_THINKING_BUDGET = 1024
@@ -30,123 +28,6 @@ _DEBUG_TRUE = {"1", "true", "yes", "on"}
 # 请求验证和提取
 # ============================================================================
 
-class AnthropicRequestValidationError(Exception):
-    """Anthropic 请求验证错误"""
-    def __init__(self, message: str, error_type: str = "invalid_request_error"):
-        self.message = message
-        self.error_type = error_type
-        super().__init__(message)
-
-
-def validate_and_extract_anthropic_request(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    验证并提取 Anthropic 请求的必要字段。
-    
-    Args:
-        payload: 原始请求体
-        
-    Returns:
-        包含提取字段的字典：
-        - model: 模型名
-        - max_tokens: 最大 token 数
-        - messages: 消息列表
-        - stream: 是否流式
-        - thinking_present: 是否包含 thinking 字段
-        - thinking_value: thinking 字段的值
-        - thinking_summary: thinking 的摘要（用于日志）
-        
-    Raises:
-        AnthropicRequestValidationError: 验证失败时抛出
-    """
-    if not isinstance(payload, dict):
-        raise AnthropicRequestValidationError("请求体必须为 JSON object")
-    
-    model = payload.get("model")
-    max_tokens = payload.get("max_tokens")
-    messages = payload.get("messages")
-    stream = bool(payload.get("stream", False))
-    
-    # 验证必填字段
-    if not model or max_tokens is None or not isinstance(messages, list):
-        raise AnthropicRequestValidationError(
-            "缺少必填字段：model / max_tokens / messages"
-        )
-    
-    # 提取 thinking 相关信息
-    thinking_present = "thinking" in payload
-    thinking_value = payload.get("thinking")
-    thinking_summary = None
-    
-    if thinking_present:
-        if isinstance(thinking_value, dict):
-            thinking_summary = {
-                "type": thinking_value.get("type"),
-                "budget_tokens": thinking_value.get("budget_tokens"),
-            }
-        else:
-            thinking_summary = thinking_value
-    
-    return {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": messages,
-        "stream": stream,
-        "thinking_present": thinking_present,
-        "thinking_value": thinking_value,
-        "thinking_summary": thinking_summary,
-    }
-
-
-def validate_anthropic_count_tokens_request(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    验证并提取 Anthropic count_tokens 请求的必要字段。
-    
-    Args:
-        payload: 原始请求体
-        
-    Returns:
-        包含提取字段的字典
-        
-    Raises:
-        AnthropicRequestValidationError: 验证失败时抛出
-    """
-    if not isinstance(payload, dict):
-        raise AnthropicRequestValidationError("请求体必须为 JSON object")
-    
-    model = payload.get("model")
-    messages = payload.get("messages")
-    
-    if not model or not isinstance(messages, list):
-        raise AnthropicRequestValidationError(
-            "缺少必填字段：model / messages"
-        )
-    
-    # 提取 thinking 相关信息
-    thinking_present = "thinking" in payload
-    thinking_value = payload.get("thinking")
-    thinking_summary = None
-    
-    if thinking_present:
-        if isinstance(thinking_value, dict):
-            thinking_summary = {
-                "type": thinking_value.get("type"),
-                "budget_tokens": thinking_value.get("budget_tokens"),
-            }
-        else:
-            thinking_summary = thinking_value
-    
-    return {
-        "model": model,
-        "messages": messages,
-        "thinking_present": thinking_present,
-        "thinking_value": thinking_value,
-        "thinking_summary": thinking_summary,
-    }
-
-
-# ============================================================================
-# 调试和辅助函数
-# ============================================================================
 
 def _anthropic_debug_enabled() -> bool:
     """检查是否启用 Anthropic 调试模式"""
@@ -193,37 +74,6 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
         return cleaned_list
 
     return value
-
-
-# ============================================================================
-# 1. 模型映射
-# ============================================================================
-
-def map_claude_model_to_gemini(claude_model: str) -> str:
-    """
-    将 Claude 模型名映射为下游 Gemini 模型名。
-    非 Claude 模型直接透传。
-    """
-    claude_model = str(claude_model or "").strip()
-    if not claude_model:
-        return "claude-sonnet-4-5"
-
-    # 版本化模型名规范化（例如 claude-opus-4-5-20251101 -> claude-opus-4-5）
-    m = re.match(r"^(claude-(?:opus|sonnet|haiku)-4-5)-\d{8}$", claude_model)
-    if m:
-        claude_model = m.group(1)
-
-    # Claude 模型映射
-    model_mapping = {
-        "claude-opus-4-5": "claude-opus-4-5-thinking",
-        "claude-haiku-4-5": "gemini-2.5-flash",
-        "claude-opus-4": "claude-opus-4-5-thinking",
-        "claude-haiku-4": "gemini-2.5-flash",
-    }
-
-    # 如果在映射表中找到，返回映射值；否则直接透传
-    return model_mapping.get(claude_model, claude_model)
-
 
 # ============================================================================
 # 2. Thinking 配置
@@ -485,11 +335,9 @@ def convert_messages_to_contents(
                         }
                     }
 
-                    # 如果提取到签名则添加，否则为Gemini 3+生成占位签名
+                    # 如果提取到签名则添加
                     if signature:
                         fc_part["thoughtSignature"] = signature
-                    else:
-                        fc_part["thoughtSignature"] = generate_dummy_signature()
 
                     parts.append(fc_part)
                 elif item_type == "tool_result":
@@ -613,8 +461,6 @@ def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bo
     """
     根据 Anthropic Messages 请求构造下游 generationConfig。
 
-    注意: topK 和 maxOutputTokens 的限制已移至统一的 normalize_gemini_request 函数中
-
     Returns:
         (generation_config, should_include_thinking): 元组
     """
@@ -719,116 +565,106 @@ def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bo
 
 
 # ============================================================================
-# 8. 请求转换（主函数）
+# 8. 主要转换函数
 # ============================================================================
 
-def convert_anthropic_request_to_gemini(payload: Dict[str, Any]) -> Dict[str, Any]:
+async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    将 Anthropic Messages 请求转换为 Gemini 请求所需的组件。
+    将 Anthropic 格式请求体转换为 Gemini 格式请求体
 
-    返回字段：
-    - model: 下游模型名
-    - contents: 下游 contents[]
-    - system_instruction: 下游 systemInstruction（可选）
-    - tools: 下游 tools（可选）
-    - generation_config: 下游 generationConfig
+    注意: 此函数只负责基础转换，不包含 normalize_gemini_request 中的处理
+    (如 thinking config 自动设置、search tools、参数范围限制等)
+
+    Args:
+        payload: Anthropic 格式的请求体字典
+
+    Returns:
+        Gemini 格式的请求体字典，包含:
+        - contents: 转换后的消息内容
+        - generationConfig: 生成配置
+        - systemInstruction: 系统指令 (如果有)
+        - tools: 工具定义 (如果有)
     """
-    model = map_claude_model_to_gemini(str(payload.get("model", "")))
+    # 处理连续的system消息（兼容性模式）
+    payload = await merge_system_messages(payload)
+
+    # 提取和转换基础信息
     messages = payload.get("messages") or []
     if not isinstance(messages, list):
         messages = []
 
+    # 构建生成配置（包含thinking配置）
     generation_config, should_include_thinking = build_generation_config(payload)
+
+    # 转换消息内容
     contents = convert_messages_to_contents(messages, include_thinking=should_include_thinking)
     contents = reorganize_tool_messages(contents)
+
+    # 转换系统指令
     system_instruction = build_system_instruction(payload.get("system"))
+
+    # 如果merge_system_messages已经添加了systemInstruction，优先使用它
+    if "systemInstruction" in payload and not system_instruction:
+        system_instruction = payload["systemInstruction"]
+
+    # 转换工具
     tools = convert_tools(payload.get("tools"))
 
     # 构建基础请求数据
-    request_data = {
+    gemini_request = {
         "contents": contents,
         "generationConfig": generation_config,
     }
 
-    # 使用统一的后处理函数（注意: Anthropic 不需要 compatibility_mode）
-    # 由于 Anthropic 的 thinking 已经在 generation_config 中处理,这里不传递 thinking_config_override
-    # 由于 Anthropic 没有搜索模型,不传递 is_search_model_func
-    request_data = normalize_gemini_request(
-        request_data,
-        model=model,
-        system_instruction=system_instruction,
-        tools=tools,
-        thinking_config_override=None,  # Anthropic 的 thinking 已在 build_generation_config 中处理
-        compatibility_mode=False,  # Anthropic 不使用兼容性模式
-        default_safety_settings=[
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ],
-        get_thinking_budget_func=None,  # 不使用自动 thinking 配置
-        should_include_thoughts_func=None,  # 不使用自动 thinking 配置
-        is_search_model_func=None,  # Anthropic 没有搜索模型
-    )
+    if system_instruction:
+        gemini_request["systemInstruction"] = system_instruction
 
-    return {
-        "model": model,
-        "contents": request_data["contents"],
-        "system_instruction": request_data.get("systemInstruction"),
-        "tools": request_data.get("tools"),
-        "generation_config": request_data["generationConfig"],
-    }
+    if tools:
+        gemini_request["tools"] = tools
+
+    return gemini_request
 
 
-# ============================================================================
-# 9. 响应转换（非流式）
-# ============================================================================
-
-def _pick_usage_metadata(response_data: Dict[str, Any]) -> Dict[str, Any]:
-    """兼容下游 usageMetadata 的多种落点（response_data 已 unwrap，无 'response' 包装）"""
-    response = response_data or {}
-    if not isinstance(response, dict):
-        return {}
-
-    response_usage = response.get("usageMetadata", {}) or {}
-    if not isinstance(response_usage, dict):
-        response_usage = {}
-
-    candidate = (response.get("candidates", []) or [{}])[0] or {}
-    if not isinstance(candidate, dict):
-        candidate = {}
-    candidate_usage = candidate.get("usageMetadata", {}) or {}
-    if not isinstance(candidate_usage, dict):
-        candidate_usage = {}
-
-    fields = ("promptTokenCount", "candidatesTokenCount", "totalTokenCount")
-
-    def score(d: Dict[str, Any]) -> int:
-        s = 0
-        for f in fields:
-            if f in d and d.get(f) is not None:
-                s += 1
-        return s
-
-    if score(candidate_usage) > score(response_usage):
-        return candidate_usage
-    return response_usage
-
-
-def convert_gemini_response_to_anthropic(
-    response_data: Dict[str, Any],
-    *,
+def gemini_to_anthropic_response(
+    gemini_response: Dict[str, Any],
     model: str,
-    message_id: str,
-    fallback_input_tokens: int = 0,
+    status_code: int = 200
 ) -> Dict[str, Any]:
     """
-    将 Gemini 响应转换为 Anthropic Message 格式（response_data 已 unwrap，无 'response' 包装）。
+    将 Gemini 格式非流式响应转换为 Anthropic 格式非流式响应
+
+    注意: 如果收到的不是 200 开头的响应体，不做任何处理，直接转发
+
+    Args:
+        gemini_response: Gemini 格式的响应体字典
+        model: 模型名称
+        status_code: HTTP 状态码 (默认 200)
+
+    Returns:
+        Anthropic 格式的响应体字典，或原始响应 (如果状态码不是 2xx)
     """
+    # 非 2xx 状态码直接返回原始响应
+    if not (200 <= status_code < 300):
+        return gemini_response
+
+    # 处理 GeminiCLI 的 response 包装格式
+    if "response" in gemini_response:
+        response_data = gemini_response["response"]
+    else:
+        response_data = gemini_response
+
+    # 提取候选结果
     candidate = response_data.get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
-    usage_metadata = _pick_usage_metadata(response_data)
 
+    # 获取 usage metadata
+    usage_metadata = {}
+    if "usageMetadata" in response_data:
+        usage_metadata = response_data["usageMetadata"]
+    elif "usageMetadata" in candidate:
+        usage_metadata = candidate["usageMetadata"]
+
+    # 转换内容块
     content = []
     has_tool_use = False
 
@@ -836,6 +672,7 @@ def convert_gemini_response_to_anthropic(
         if not isinstance(part, dict):
             continue
 
+        # 处理 thinking 块
         if part.get("thought") is True:
             block: Dict[str, Any] = {"type": "thinking", "thinking": part.get("text", "")}
             signature = part.get("thoughtSignature")
@@ -844,10 +681,12 @@ def convert_gemini_response_to_anthropic(
             content.append(block)
             continue
 
+        # 处理文本块
         if "text" in part:
             content.append({"type": "text", "text": part.get("text", "")})
             continue
 
+        # 处理工具调用
         if "functionCall" in part:
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
@@ -864,6 +703,7 @@ def convert_gemini_response_to_anthropic(
             )
             continue
 
+        # 处理图片
         if "inlineData" in part:
             inline = part.get("inlineData", {}) or {}
             content.append(
@@ -878,21 +718,18 @@ def convert_gemini_response_to_anthropic(
             )
             continue
 
+    # 确定停止原因
     finish_reason = candidate.get("finishReason")
     stop_reason = "tool_use" if has_tool_use else "end_turn"
     if finish_reason == "MAX_TOKENS" and not has_tool_use:
         stop_reason = "max_tokens"
 
-    input_tokens_present = isinstance(usage_metadata, dict) and "promptTokenCount" in usage_metadata
-    output_tokens_present = isinstance(usage_metadata, dict) and "candidatesTokenCount" in usage_metadata
-
+    # 提取 token 使用情况
     input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
     output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
 
-    if not input_tokens_present:
-        input_tokens = max(0, int(fallback_input_tokens or 0))
-    if not output_tokens_present:
-        output_tokens = 0
+    # 构建 Anthropic 响应
+    message_id = f"msg_{uuid.uuid4().hex}"
 
     return {
         "id": message_id,
@@ -909,344 +746,204 @@ def convert_gemini_response_to_anthropic(
     }
 
 
-# ============================================================================
-# 10. 流式转换
-# ============================================================================
+async def gemini_stream_to_anthropic_stream(
+    gemini_stream: AsyncIterator[bytes],
+    model: str,
+    status_code: int = 200
+) -> AsyncIterator[bytes]:
+    """
+    将 Gemini 格式流式响应转换为 Anthropic SSE 格式流式响应
 
-def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
-    """生成 SSE 事件"""
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
+    注意: 如果收到的不是 200 开头的响应体，不做任何处理，直接转发
 
+    Args:
+        gemini_stream: Gemini 格式的流式响应 (bytes 迭代器)
+        model: 模型名称
+        status_code: HTTP 状态码 (默认 200)
 
-class _StreamingState:
-    """流式转换状态管理"""
-    def __init__(self, message_id: str, model: str):
-        self.message_id = message_id
-        self.model = model
+    Yields:
+        Anthropic SSE 格式的响应块 (bytes)
+    """
+    # 非 2xx 状态码直接转发原始流
+    if not (200 <= status_code < 300):
+        async for chunk in gemini_stream:
+            yield chunk
+        return
 
-        self._current_block_type: Optional[str] = None
-        self._current_block_index: int = -1
-        self._current_thinking_signature: Optional[str] = None
+    # 初始化状态
+    message_id = f"msg_{uuid.uuid4().hex}"
+    message_start_sent = False
+    current_block_type: Optional[str] = None
+    current_block_index = -1
+    current_thinking_signature: Optional[str] = None
+    has_tool_use = False
+    input_tokens = 0
+    output_tokens = 0
+    finish_reason: Optional[str] = None
 
-        self.has_tool_use: bool = False
-        self.input_tokens: int = 0
-        self.output_tokens: int = 0
-        self.has_input_tokens: bool = False
-        self.has_output_tokens: bool = False
-        self.finish_reason: Optional[str] = None
+    def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
+        """生成 SSE 事件"""
+        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
 
-    def _next_index(self) -> int:
-        self._current_block_index += 1
-        return self._current_block_index
-
-    def close_block_if_open(self) -> Optional[bytes]:
-        if self._current_block_type is None:
+    def _close_block() -> Optional[bytes]:
+        """关闭当前内容块"""
+        nonlocal current_block_type
+        if current_block_type is None:
             return None
         event = _sse_event(
             "content_block_stop",
-            {"type": "content_block_stop", "index": self._current_block_index},
+            {"type": "content_block_stop", "index": current_block_index},
         )
-        self._current_block_type = None
-        self._current_thinking_signature = None
+        current_block_type = None
         return event
 
-    def open_text_block(self) -> bytes:
-        idx = self._next_index()
-        self._current_block_type = "text"
-        return _sse_event(
-            "content_block_start",
-            {
-                "type": "content_block_start",
-                "index": idx,
-                "content_block": {"type": "text", "text": ""},
-            },
-        )
-
-    def open_thinking_block(self, signature: Optional[str]) -> bytes:
-        idx = self._next_index()
-        self._current_block_type = "thinking"
-        self._current_thinking_signature = signature
-        block: Dict[str, Any] = {"type": "thinking", "thinking": ""}
-        if signature:
-            block["signature"] = signature
-        return _sse_event(
-            "content_block_start",
-            {
-                "type": "content_block_start",
-                "index": idx,
-                "content_block": block,
-            },
-        )
-
-
-async def gemini_sse_to_anthropic_sse(
-    lines: AsyncIterator[str],
-    *,
-    model: str,
-    message_id: str,
-    initial_input_tokens: int = 0,
-) -> AsyncIterator[bytes]:
-    """
-    将 Gemini SSE 转换为 Anthropic Messages Streaming SSE。
-
-    Args:
-        mode: 凭证模式，用于记录 API 调用结果（antigravity 或 geminicli）
-    """
-    state = _StreamingState(message_id=message_id, model=model)
-    message_start_sent = False
-    pending_output: list[bytes] = []
-
+    # 处理流式数据
     try:
-        initial_input_tokens_int = max(0, int(initial_input_tokens or 0))
-    except Exception:
-        initial_input_tokens_int = 0
+        async for chunk in gemini_stream:
+            # 记录接收到的原始chunk
+            log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
 
-    def pick_usage_metadata(response: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
-        response_usage = response.get("usageMetadata", {}) or {}
-        if not isinstance(response_usage, dict):
-            response_usage = {}
-
-        candidate_usage = candidate.get("usageMetadata", {}) or {}
-        if not isinstance(candidate_usage, dict):
-            candidate_usage = {}
-
-        fields = ("promptTokenCount", "candidatesTokenCount", "totalTokenCount")
-
-        def score(d: Dict[str, Any]) -> int:
-            s = 0
-            for f in fields:
-                if f in d and d.get(f) is not None:
-                    s += 1
-            return s
-
-        if score(candidate_usage) > score(response_usage):
-            return candidate_usage
-        return response_usage
-
-    def enqueue(evt: bytes) -> None:
-        pending_output.append(evt)
-
-    def flush_pending_ready(ready: list[bytes]) -> None:
-        if not pending_output:
-            return
-        ready.extend(pending_output)
-        pending_output.clear()
-
-    def send_message_start(ready: list[bytes], *, input_tokens: int) -> None:
-        nonlocal message_start_sent
-        if message_start_sent:
-            return
-        message_start_sent = True
-        ready.append(
-            _sse_event(
-                "message_start",
-                {
-                    "type": "message_start",
-                    "message": {
-                        "id": message_id,
-                        "type": "message",
-                        "role": "assistant",
-                        "model": model,
-                        "content": [],
-                        "stop_reason": None,
-                        "stop_sequence": None,
-                        "usage": {"input_tokens": int(input_tokens or 0), "output_tokens": 0},
-                    },
-                },
-            )
-        )
-        flush_pending_ready(ready)
-
-    try:
-        async for line in lines:
-            ready_output: list[bytes] = []
-            # 处理 bytes 类型的流式数据
-            if not line or not line.startswith(b"data: "):
+            # 解析 Gemini 流式块
+            if not chunk or not chunk.startswith(b"data: "):
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)")
                 continue
 
-            raw = line[6:].strip()
+            raw = chunk[6:].strip()
             if raw == b"[DONE]":
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
                 break
 
+            log.debug(f"[GEMINI_TO_ANTHROPIC] Parsing JSON: {raw[:200]}")
+
             try:
-                # 解码 bytes 后再解析 JSON
                 data = json.loads(raw.decode('utf-8', errors='ignore'))
-            except Exception:
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Parsed data: {json.dumps(data, ensure_ascii=False)[:300]}")
+            except Exception as e:
+                log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
                 continue
 
-            # geminicli 的响应已经解包，直接使用
-            response = data
+            # 处理 GeminiCLI 的 response 包装格式
+            if "response" in data:
+                response = data["response"]
+            else:
+                response = data
+
             candidate = (response.get("candidates", []) or [{}])[0] or {}
             parts = (candidate.get("content", {}) or {}).get("parts", []) or []
 
-            # 获取 usage metadata
-            if isinstance(response, dict) and isinstance(candidate, dict):
-                usage = pick_usage_metadata(response, candidate)
+            # 更新 usage metadata
+            if "usageMetadata" in response:
+                usage = response["usageMetadata"]
                 if isinstance(usage, dict):
                     if "promptTokenCount" in usage:
-                        state.input_tokens = int(usage.get("promptTokenCount", 0) or 0)
-                        state.has_input_tokens = True
+                        input_tokens = int(usage.get("promptTokenCount", 0) or 0)
                     if "candidatesTokenCount" in usage:
-                        state.output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
-                        state.has_output_tokens = True
+                        output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
 
-            # 发送 message_start
-            if state.has_input_tokens and not message_start_sent:
-                send_message_start(ready_output, input_tokens=state.input_tokens)
+            # 发送 message_start（仅一次）
+            if not message_start_sent:
+                message_start_sent = True
+                yield _sse_event(
+                    "message_start",
+                    {
+                        "type": "message_start",
+                        "message": {
+                            "id": message_id,
+                            "type": "message",
+                            "role": "assistant",
+                            "model": model,
+                            "content": [],
+                            "stop_reason": None,
+                            "stop_sequence": None,
+                            "usage": {"input_tokens": 0, "output_tokens": 0},
+                        },
+                    },
+                )
 
             # 处理各种 parts
             for part in parts:
                 if not isinstance(part, dict):
                     continue
 
-                # 处理 thoughtSignature
-                if _anthropic_debug_enabled() and "thoughtSignature" in part:
-                    try:
-                        sig_val = part.get("thoughtSignature")
-                        sig_len = len(str(sig_val)) if sig_val is not None else 0
-                    except Exception:
-                        sig_len = -1
-                    log.info(
-                        "[ANTHROPIC][thinking_signature] 收到 thoughtSignature 字段: "
-                        f"current_block_type={state._current_block_type}, "
-                        f"current_index={state._current_block_index}, len={sig_len}"
-                    )
-
-                signature = part.get("thoughtSignature")
-                if (
-                    signature
-                    and state._current_block_type == "thinking"
-                    and not state._current_thinking_signature
-                ):
-                    evt = _sse_event(
-                        "content_block_delta",
-                        {
-                            "type": "content_block_delta",
-                            "index": state._current_block_index,
-                            "delta": {"type": "signature_delta", "signature": signature},
-                        },
-                    )
-                    state._current_thinking_signature = str(signature)
-                    if message_start_sent:
-                        ready_output.append(evt)
-                    else:
-                        enqueue(evt)
-
                 # 处理 thinking 块
                 if part.get("thought") is True:
-                    if state._current_block_type != "thinking":
-                        stop_evt = state.close_block_if_open()
-                        if stop_evt:
-                            if message_start_sent:
-                                ready_output.append(stop_evt)
-                            else:
-                                enqueue(stop_evt)
+                    if current_block_type != "thinking":
+                        close_evt = _close_block()
+                        if close_evt:
+                            yield close_evt
+
+                        current_block_index += 1
+                        current_block_type = "thinking"
                         signature = part.get("thoughtSignature")
-                        evt = state.open_thinking_block(signature=signature)
-                        if message_start_sent:
-                            ready_output.append(evt)
-                        else:
-                            enqueue(evt)
+                        current_thinking_signature = signature
+
+                        block: Dict[str, Any] = {"type": "thinking", "thinking": ""}
+                        if signature:
+                            block["signature"] = signature
+
+                        yield _sse_event(
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": current_block_index,
+                                "content_block": block,
+                            },
+                        )
+
                     thinking_text = part.get("text", "")
                     if thinking_text:
-                        evt = _sse_event(
+                        yield _sse_event(
                             "content_block_delta",
                             {
                                 "type": "content_block_delta",
-                                "index": state._current_block_index,
+                                "index": current_block_index,
                                 "delta": {"type": "thinking_delta", "thinking": thinking_text},
                             },
                         )
-                        if message_start_sent:
-                            ready_output.append(evt)
-                        else:
-                            enqueue(evt)
                     continue
 
-                # 处理 text 块
+                # 处理文本块
                 if "text" in part:
                     text = part.get("text", "")
                     if isinstance(text, str) and not text.strip():
                         continue
 
-                    if state._current_block_type != "text":
-                        stop_evt = state.close_block_if_open()
-                        if stop_evt:
-                            if message_start_sent:
-                                ready_output.append(stop_evt)
-                            else:
-                                enqueue(stop_evt)
-                        evt = state.open_text_block()
-                        if message_start_sent:
-                            ready_output.append(evt)
-                        else:
-                            enqueue(evt)
+                    if current_block_type != "text":
+                        close_evt = _close_block()
+                        if close_evt:
+                            yield close_evt
+
+                        current_block_index += 1
+                        current_block_type = "text"
+
+                        yield _sse_event(
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": current_block_index,
+                                "content_block": {"type": "text", "text": ""},
+                            },
+                        )
 
                     if text:
-                        evt = _sse_event(
+                        yield _sse_event(
                             "content_block_delta",
                             {
                                 "type": "content_block_delta",
-                                "index": state._current_block_index,
+                                "index": current_block_index,
                                 "delta": {"type": "text_delta", "text": text},
                             },
                         )
-                        if message_start_sent:
-                            ready_output.append(evt)
-                        else:
-                            enqueue(evt)
                     continue
 
-                # 处理图片
-                if "inlineData" in part:
-                    stop_evt = state.close_block_if_open()
-                    if stop_evt:
-                        if message_start_sent:
-                            ready_output.append(stop_evt)
-                        else:
-                            enqueue(stop_evt)
-
-                    inline = part.get("inlineData", {}) or {}
-                    idx = state._next_index()
-                    block = {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": inline.get("mimeType", "image/png"),
-                            "data": inline.get("data", ""),
-                        },
-                    }
-                    evt1 = _sse_event(
-                        "content_block_start",
-                        {
-                            "type": "content_block_start",
-                            "index": idx,
-                            "content_block": block,
-                        },
-                    )
-                    evt2 = _sse_event(
-                        "content_block_stop",
-                        {"type": "content_block_stop", "index": idx},
-                    )
-                    if message_start_sent:
-                        ready_output.extend([evt1, evt2])
-                    else:
-                        enqueue(evt1)
-                        enqueue(evt2)
-                    continue
-
-                # 处理 function call
+                # 处理工具调用
                 if "functionCall" in part:
-                    stop_evt = state.close_block_if_open()
-                    if stop_evt:
-                        if message_start_sent:
-                            ready_output.append(stop_evt)
-                        else:
-                            enqueue(stop_evt)
+                    close_evt = _close_block()
+                    if close_evt:
+                        yield close_evt
 
-                    state.has_tool_use = True
-
+                    has_tool_use = True
                     fc = part.get("functionCall", {}) or {}
                     original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
                     signature = part.get("thoughtSignature")
@@ -1254,12 +951,13 @@ async def gemini_sse_to_anthropic_sse(
                     tool_name = fc.get("name") or ""
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
-                    idx = state._next_index()
-                    evt_start = _sse_event(
+                    current_block_index += 1
+
+                    yield _sse_event(
                         "content_block_start",
                         {
                             "type": "content_block_start",
-                            "index": idx,
+                            "index": current_block_index,
                             "content_block": {
                                 "type": "tool_use",
                                 "id": tool_id,
@@ -1270,63 +968,35 @@ async def gemini_sse_to_anthropic_sse(
                     )
 
                     input_json = json.dumps(tool_args, ensure_ascii=False, separators=(",", ":"))
-                    evt_delta = _sse_event(
+                    yield _sse_event(
                         "content_block_delta",
                         {
                             "type": "content_block_delta",
-                            "index": idx,
+                            "index": current_block_index,
                             "delta": {"type": "input_json_delta", "partial_json": input_json},
                         },
                     )
-                    evt_stop = _sse_event(
+
+                    yield _sse_event(
                         "content_block_stop",
-                        {"type": "content_block_stop", "index": idx},
+                        {"type": "content_block_stop", "index": current_block_index},
                     )
-                    if message_start_sent:
-                        ready_output.extend([evt_start, evt_delta, evt_stop])
-                    else:
-                        enqueue(evt_start)
-                        enqueue(evt_delta)
-                        enqueue(evt_stop)
                     continue
 
-            finish_reason = candidate.get("finishReason")
-
-            if ready_output:
-                for evt in ready_output:
-                    yield evt
-
-            if finish_reason:
-                state.finish_reason = str(finish_reason)
+            # 检查是否结束
+            if candidate.get("finishReason"):
+                finish_reason = candidate.get("finishReason")
                 break
 
-        # 关闭当前块
-        stop_evt = state.close_block_if_open()
-        if stop_evt:
-            if message_start_sent:
-                yield stop_evt
-            else:
-                enqueue(stop_evt)
+        # 关闭最后的内容块
+        close_evt = _close_block()
+        if close_evt:
+            yield close_evt
 
-        # 确保发送 message_start
-        if not message_start_sent:
-            ready_output = []
-            send_message_start(ready_output, input_tokens=initial_input_tokens_int)
-            for evt in ready_output:
-                yield evt
-
-        # 确定 stop_reason
-        stop_reason = "tool_use" if state.has_tool_use else "end_turn"
-        if state.finish_reason == "MAX_TOKENS" and not state.has_tool_use:
+        # 确定停止原因
+        stop_reason = "tool_use" if has_tool_use else "end_turn"
+        if finish_reason == "MAX_TOKENS" and not has_tool_use:
             stop_reason = "max_tokens"
-
-        if _anthropic_debug_enabled():
-            estimated_input = initial_input_tokens_int
-            downstream_input = state.input_tokens if state.has_input_tokens else 0
-            log.info(
-                f"[ANTHROPIC][TOKEN] 流式 token: estimated={estimated_input}, "
-                f"downstream={downstream_input}"
-            )
 
         # 发送 message_delta 和 message_stop
         yield _sse_event(
@@ -1335,15 +1005,16 @@ async def gemini_sse_to_anthropic_sse(
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
                 "usage": {
-                    "input_tokens": state.input_tokens if state.has_input_tokens else initial_input_tokens_int,
-                    "output_tokens": state.output_tokens if state.has_output_tokens else 0,
+                    "output_tokens": output_tokens,
                 },
             },
         )
+
         yield _sse_event("message_stop", {"type": "message_stop"})
 
     except Exception as e:
         log.error(f"[ANTHROPIC] 流式转换失败: {e}")
+        # 发送错误事件
         if not message_start_sent:
             yield _sse_event(
                 "message_start",
@@ -1357,7 +1028,7 @@ async def gemini_sse_to_anthropic_sse(
                         "content": [],
                         "stop_reason": None,
                         "stop_sequence": None,
-                        "usage": {"input_tokens": initial_input_tokens_int, "output_tokens": 0},
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
                     },
                 },
             )

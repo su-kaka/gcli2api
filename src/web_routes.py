@@ -47,7 +47,7 @@ from .models import (
     ConfigSaveRequest,
 )
 from src.storage_adapter import get_storage_adapter
-from src.utils import verify_panel_token, STANDARD_USER_AGENT, ANTIGRAVITY_USER_AGENT
+from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER_AGENT
 from src.api.antigravity import fetch_quota_info
 from src.google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
@@ -1733,7 +1733,7 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
         user_agent = ANTIGRAVITY_USER_AGENT
     else:
         api_base_url = await get_code_assist_endpoint()
-        user_agent = STANDARD_USER_AGENT
+        user_agent = GEMINICLI_USER_AGENT
 
     # 重新获取project id
     project_id = await fetch_project_id(
