@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import Response
 from config import get_code_assist_endpoint, get_auto_ban_error_codes
-from src.utils import get_model_group
+from src.api.utils import get_model_group
 from log import log
 
 from src.credential_manager import CredentialManager
@@ -163,7 +163,7 @@ async def stream_request(
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = get_auto_ban_error_codes()  # 禁用凭证的错误码
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
 
     for attempt in range(max_retries + 1):
@@ -333,7 +333,7 @@ async def non_stream_request(
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = get_auto_ban_error_codes()  # 禁用凭证的错误码
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
 
     for attempt in range(max_retries + 1):
@@ -352,17 +352,27 @@ async def non_stream_request(
                 await record_api_call_success(
                     credential_manager, current_file, mode="geminicli", model_key=model_group
                 )
+                # 创建响应头,移除压缩相关的header避免重复解压
+                response_headers = dict(response.headers)
+                response_headers.pop('content-encoding', None)
+                response_headers.pop('content-length', None)
+
                 return Response(
                     content=response.content,
                     status_code=200,
-                    headers=dict(response.headers)
+                    headers=response_headers
                 )
 
             # 失败 - 记录最后一次错误
+            # 创建响应头,移除压缩相关的header避免重复解压
+            error_headers = dict(response.headers)
+            error_headers.pop('content-encoding', None)
+            error_headers.pop('content-length', None)
+
             last_error_response = Response(
                 content=response.content,
                 status_code=status_code,
-                headers=dict(response.headers)
+                headers=error_headers
             )
 
             # 判断是否需要重试

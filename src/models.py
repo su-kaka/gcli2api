@@ -71,7 +71,6 @@ class OpenAIChatCompletionRequest(BaseModel):
     seed: Optional[int] = None
     response_format: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, ge=1)
-    enable_anti_truncation: Optional[bool] = False
     tools: Optional[List[OpenAITool]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
@@ -176,7 +175,6 @@ class GeminiRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     toolConfig: Optional[Dict[str, Any]] = None
     cachedContent: Optional[str] = None
-    enable_anti_truncation: Optional[bool] = False
 
     class Config:
         extra = "allow"  # 允许透传未定义的字段

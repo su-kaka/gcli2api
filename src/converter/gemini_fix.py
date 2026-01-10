@@ -315,13 +315,14 @@ def normalize_gemini_request(
         result["systemInstruction"] = result.pop("system_instructions")
 
     # 2. 参数范围限制
-    max_tokens = generation_config.get("maxOutputTokens")
-    if max_tokens is not None and max_tokens > 65535:
-        generation_config["maxOutputTokens"] = 65535
+    if generation_config:
+        max_tokens = generation_config.get("maxOutputTokens")
+        if max_tokens is not None and max_tokens > 65535:
+            generation_config["maxOutputTokens"] = 65535
 
-    top_k = generation_config.get("topK")
-    if top_k is not None and top_k > 64:
-        generation_config["topK"] = 64
+        top_k = generation_config.get("topK")
+        if top_k is not None and top_k > 64:
+            generation_config["topK"] = 64
 
     # 3. 工具清理
     if tools and mode == "antigravity":

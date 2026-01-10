@@ -152,28 +152,41 @@ def create_openai_heartbeat_chunk() -> Dict[str, Any]:
         ]
     }
 
-def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str) -> List[Dict[str, Any]]:
+def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
     """构建假流式响应的数据块
-    
+
     Args:
         content: 主要内容
         reasoning_content: 推理内容
         finish_reason: 结束原因
-    
+        chunk_size: 每个chunk的字符数（默认50）
+
     Returns:
         响应数据块列表
     """
+    chunks = []
+
     # 如果没有正常内容但有思维内容,提供默认回复
     if not content:
         default_text = "[模型正在思考中,请稍后再试或重新提问]" if reasoning_content else "[响应为空,请重新尝试]"
-        return [_build_candidate([{"text": default_text}])]
-    
-    # 构建包含分离内容的响应
-    parts = [{"text": content}]
+        return [_build_candidate([{"text": default_text}], finish_reason)]
+
+    # 分块发送主要内容
+    for i in range(0, len(content), chunk_size):
+        chunk_text = content[i:i + chunk_size]
+        is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
+        chunk_finish_reason = finish_reason if is_last_chunk else None
+        chunks.append(_build_candidate([{"text": chunk_text}], chunk_finish_reason))
+
+    # 如果有推理内容，分块发送
     if reasoning_content:
-        parts.append({"text": reasoning_content, "thought": True})
-    
-    return [_build_candidate(parts, finish_reason)]
+        for i in range(0, len(reasoning_content), chunk_size):
+            chunk_text = reasoning_content[i:i + chunk_size]
+            is_last_chunk = i + chunk_size >= len(reasoning_content)
+            chunk_finish_reason = finish_reason if is_last_chunk else None
+            chunks.append(_build_candidate([{"text": chunk_text, "thought": True}], chunk_finish_reason))
+
+    return chunks
 
 
 def create_gemini_heartbeat_chunk() -> Dict[str, Any]:

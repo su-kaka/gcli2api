@@ -159,38 +159,55 @@ def normalize_gemini_request(request_body: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def normalize_gemini_response_stream(
-    stream_chunk: str, is_last_chunk: bool = False
-) -> Tuple[str, bool]:
+def normalize_gemini_response_stream(stream_generator):
     """
-    标准化Gemini格式回复流
-    只处理流的最末端chunk，进行正则化和检查DONE_MARKER
+    标准化Gemini格式回复流（生成器版本）
+    持续yield处理后的数据，只在最后一个chunk检查和移除DONE_MARKER
 
     Args:
-        stream_chunk: Gemini格式回复流的一个chunk（str格式）
-        is_last_chunk: 是否是最后一个chunk
+        stream_generator: Gemini格式回复流的生成器（yield str格式的chunk）
+
+    Yields:
+        str: 处理后的chunk
 
     Returns:
-        Tuple[str, bool]: (处理后的chunk, 是否发现了DONE_MARKER)
+        bool: 在生成器结束后，通过 return 返回是否发现了DONE_MARKER
+
+    用法示例:
+        gen = normalize_gemini_response_stream(original_stream)
+        try:
+            for chunk in gen:
+                yield chunk  # 持续输出
+        except StopIteration as e:
+            found_done = e.value  # 获取是否找到DONE_MARKER
     """
-    # 如果不是最后一个chunk，直接返回原始内容，不检查
-    if not is_last_chunk:
-        return stream_chunk, False
+    # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
+    done_pattern = re.compile(r"\s*\[done\]\s*", re.IGNORECASE)
 
-    # 只处理最后一个chunk
+    last_chunk = None
     found_done_marker = False
-    processed_chunk = stream_chunk
 
-    # 检查是否包含DONE_MARKER
-    if DONE_MARKER in stream_chunk:
-        found_done_marker = True
-        log.info(f"Found {DONE_MARKER} marker in last chunk")
+    # 遍历所有chunk，缓存最后一个
+    for chunk in stream_generator:
+        # 如果有缓存的上一个chunk，先yield出去
+        if last_chunk is not None:
+            yield last_chunk
 
-        # 应用正则替换，移除DONE_MARKER
-        # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
-        done_pattern = re.compile(r"\s*\[done\]\s*", re.IGNORECASE)
-        processed_chunk = done_pattern.sub("", stream_chunk)
+        # 缓存当前chunk作为"可能的最后一个"
+        last_chunk = chunk
 
-        log.debug(f"Removed {DONE_MARKER} from chunk")
+    # 处理最后一个chunk
+    if last_chunk is not None:
+        # 检查是否包含DONE_MARKER
+        if DONE_MARKER in last_chunk:
+            found_done_marker = True
+            log.info(f"Found {DONE_MARKER} marker in last chunk")
 
-    return processed_chunk, found_done_marker
+            # 移除DONE_MARKER后再yield
+            last_chunk = done_pattern.sub("", last_chunk)
+            log.debug(f"Removed {DONE_MARKER} from chunk")
+
+        yield last_chunk
+
+    # 通过return返回是否找到DONE_MARKER
+    return found_done_marker
