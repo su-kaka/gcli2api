@@ -1,7 +1,19 @@
 """
-Antigravity Gemini Router - Handles Gemini format requests and converts to Antigravity API
-处理 Gemini 格式请求并转换为 Antigravity API 格式
+Gemini Router - Handles native Gemini format API requests (Antigravity backend)
+处理原生Gemini格式请求的路由模块（Antigravity后端）
 """
+
+import sys
+from pathlib import Path
+
+# 添加项目根目录到Python路径
+project_root = Path(__file__).resolve().parent.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# 标准库
+import asyncio
+import json
 
 # 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
@@ -13,372 +25,591 @@ from log import log
 
 # 本地模块 - 工具和认证
 from src.utils import (
-    is_anti_truncation_model, 
-    authenticate_gemini_flexible, 
-    get_base_model_from_feature_model
+    get_base_model_from_feature_model,
+    is_anti_truncation_model,
+    authenticate_gemini_flexible,
+    is_fake_streaming_model
 )
 
-# 本地模块 - API客户端
-from src.api.antigravity import (
-    send_antigravity_request_no_stream,
-    send_antigravity_request_stream,
-    fetch_available_models,
-)
-
-# 本地模块 - 转换器
-from src.converter.anti_truncation import apply_anti_truncation_to_stream
-from src.converter.gemini_fix import (
-    build_antigravity_generation_config,
-    build_antigravity_request_body,
-    prepare_image_generation_request,
-    gemini_contents_to_antigravity_contents,
-    convert_antigravity_response_to_gemini,
-    convert_antigravity_stream_to_gemini,
+# 本地模块 - 转换器（假流式需要）
+from src.converter.fake_stream import (
+    parse_response_for_fake_stream,
+    build_gemini_fake_stream_chunks,
+    create_gemini_heartbeat_chunk,
 )
 
 # 本地模块 - 基础路由工具
-from src.router.base_router import (
-    extract_base_model_name,
-)
 from src.router.hi_check import is_health_check_request, create_health_check_response
+
+# 本地模块 - 数据模型
+from src.models import GeminiRequest, model_to_dict
+
+# 本地模块 - 任务管理
+from src.task_manager import create_managed_task
+
 
 # ==================== 路由器初始化 ====================
 
 router = APIRouter()
 
 
-# ==================== 模型名称处理 ====================
-
-def model_mapping(model_name: str) -> str:
-    """
-    模型名映射到 Antigravity 实际模型名
-    
-    Args:
-        model_name: 原始模型名称
-        
-    Returns:
-        映射后的模型名称
-        
-    参考映射:
-        - claude-sonnet-4-5-thinking -> claude-sonnet-4-5
-        - claude-opus-4-5 -> claude-opus-4-5-thinking
-        - gemini-2.5-flash-thinking -> gemini-2.5-flash
-    """
-    mapping = {
-        "claude-sonnet-4-5-thinking": "claude-sonnet-4-5",
-        "claude-opus-4-5": "claude-opus-4-5-thinking",
-        "gemini-2.5-flash-thinking": "gemini-2.5-flash",
-    }
-    return mapping.get(model_name, model_name)
-
-
-def is_thinking_model(model_name: str) -> bool:
-    """
-    检测是否是思考模型
-    
-    Args:
-        model_name: 模型名称
-        
-    Returns:
-        是否是思考模型
-    """
-    # 检查是否包含 -thinking 后缀
-    if "-thinking" in model_name:
-        return True
-
-    # 检查是否包含 pro 关键词
-    if "pro" in model_name.lower():
-        return True
-
-    return False
-
-
 # ==================== API 路由 ====================
-
-@router.get("/antigravity/v1beta/models")
-@router.get("/antigravity/v1/models")
-async def gemini_list_models(api_key: str = Depends(authenticate_gemini_flexible)):
-    """
-    返回 Gemini 格式的模型列表
-    
-    动态从 Antigravity API 获取可用模型
-    """
-
-    try:
-        # 从 Antigravity API 获取模型列表（返回 OpenAI 格式的字典列表）
-        models = await fetch_available_models()
-
-        if not models:
-            # 如果获取失败，返回空列表
-            log.warning("[ANTIGRAVITY GEMINI] Failed to fetch models from API, returning empty list")
-            return JSONResponse(content={"models": []})
-
-        # 将 OpenAI 格式转换为 Gemini 格式，同时添加抗截断版本
-        gemini_models = []
-        for model in models:
-            model_id = model.get("id", "")
-
-            # 添加原始模型
-            gemini_models.append({
-                "name": f"models/{model_id}",
-                "version": "001",
-                "displayName": model_id,
-                "description": f"Antigravity API - {model_id}",
-                "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-            })
-
-            # 添加流式抗截断版本
-            anti_truncation_id = f"流式抗截断/{model_id}"
-            gemini_models.append({
-                "name": f"models/{anti_truncation_id}",
-                "version": "001",
-                "displayName": anti_truncation_id,
-                "description": f"Antigravity API - {anti_truncation_id} (带流式抗截断功能)",
-                "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-            })
-
-        return JSONResponse(content={"models": gemini_models})
-
-    except Exception as e:
-        log.error(f"[ANTIGRAVITY GEMINI] Error fetching models: {e}")
-        # 返回空列表
-        return JSONResponse(content={"models": []})
-
 
 @router.post("/antigravity/v1beta/models/{model:path}:generateContent")
 @router.post("/antigravity/v1/models/{model:path}:generateContent")
-async def gemini_generate_content(
+async def generate_content(
+    gemini_request: "GeminiRequest",
     model: str = Path(..., description="Model name"),
-    request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """处理 Gemini 格式的非流式内容生成请求（通过 Antigravity API）"""
-    log.debug(f"[ANTIGRAVITY GEMINI] Non-streaming request for model: {model}")
+    """
+    处理Gemini格式的内容生成请求（非流式）
 
-    # 获取原始请求数据
-    try:
-        request_data = await request.json()
-    except Exception as e:
-        log.error(f"Failed to parse JSON request: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    Args:
+        gemini_request: Gemini格式的请求体
+        model: 模型名称
+        api_key: API 密钥
+    """
+    log.debug(f"[ANTIGRAVITY] Non-streaming request for model: {model}")
 
-    # 验证必要字段
-    if "contents" not in request_data or not request_data["contents"]:
-        raise HTTPException(status_code=400, detail="Missing required field: contents")
+    # 转换为字典
+    normalized_dict = model_to_dict(gemini_request)
 
     # 健康检查
-    if is_health_check_request(request_data, format="gemini"):
+    if is_health_check_request(normalized_dict, format="gemini"):
         response = create_health_check_response(format="gemini")
-        response["candidates"][0]["content"]["parts"][0]["text"] = "antigravity API 正常工作中"
         return JSONResponse(content=response)
 
-    # 提取模型名称
-    model = extract_base_model_name(model)
-
-    # 检测并处理抗截断模式
+    # 处理模型名称和功能检测
     use_anti_truncation = is_anti_truncation_model(model)
+    real_model = get_base_model_from_feature_model(model)
+
+    # 对于抗截断模型的非流式请求，给出警告
     if use_anti_truncation:
-        # 去掉 "流式抗截断/" 前缀
-        from src.utils import get_base_model_from_feature_model
-        model = get_base_model_from_feature_model(model)
+        log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
 
-    # 模型名称映射
-    actual_model = model_mapping(model)
-    enable_thinking = is_thinking_model(model)
-    
-    # 记录请求信息
-    log.info(f"[ANTIGRAVITY GEMINI] Non-stream request: model={model} -> {actual_model}, thinking={enable_thinking}")
-    
-    # 转换 Gemini contents 为 Antigravity contents
-    try:
-        contents = gemini_contents_to_antigravity_contents(request_data["contents"])
-    except Exception as e:
-        log.error(f"Failed to convert Gemini contents: {e}")
-        raise HTTPException(status_code=500, detail=f"Message conversion failed: {str(e)}")
+    # 更新模型名为真实模型名
+    normalized_dict["model"] = real_model
 
-    # 提取 Gemini generationConfig
-    gemini_config = request_data.get("generationConfig", {})
+    # 规范化 Gemini 请求 (使用 antigravity 模式)
+    from src.converter.gemini_fix import normalize_gemini_request
+    normalized_dict = normalize_gemini_request(normalized_dict, mode="antigravity")
 
-    # 转换为 Antigravity generation_config
-    parameters = {
-        "temperature": gemini_config.get("temperature"),
-        "top_p": gemini_config.get("topP"),
-        "top_k": gemini_config.get("topK"),
-        "max_tokens": gemini_config.get("maxOutputTokens"),
-        # 图片生成相关参数
-        "response_modalities": gemini_config.get("response_modalities"),
-        "image_config": gemini_config.get("image_config"),
+    # 准备API请求格式 - 提取model并将其他字段放入request中
+    api_request = {
+        "model": normalized_dict.pop("model"),
+        "request": normalized_dict
     }
-    # 过滤 None 值
-    parameters = {k: v for k, v in parameters.items() if v is not None}
 
-    generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
+    # 调用 API 层的非流式请求
+    from src.api.antigravity import non_stream_request
+    response = await non_stream_request(body=api_request)
 
-    # 处理 systemInstruction
-    system_instruction = None
-    if "systemInstruction" in request_data:
-        system_instruction = request_data["systemInstruction"]
-
-    # 处理 tools
-    antigravity_tools = None
-    if "tools" in request_data:
-        # Gemini 和 Antigravity 的 tools 格式基本一致
-        antigravity_tools = request_data["tools"]
-
-    # 构建 Antigravity 请求体
-    request_body = build_antigravity_request_body(
-        contents=contents,
-        model=actual_model,
-        system_instruction=system_instruction,
-        tools=antigravity_tools,
-        generation_config=generation_config,
-    )
-
-    # 图像生成模型特殊处理
-    if "-image" in model:
-        request_body = prepare_image_generation_request(request_body, model)
-
-    # 发送非流式请求（API层自己管理凭证）
-    try:
-        response_data, _, _ = await send_antigravity_request_no_stream(
-            request_body
-        )
-
-        # 转换并返回 Gemini 格式响应
-        gemini_response = convert_antigravity_response_to_gemini(response_data)
-        return JSONResponse(content=gemini_response)
-
-    except Exception as e:
-        log.error(f"[ANTIGRAVITY GEMINI] Request failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Antigravity API request failed: {str(e)}")
-
+    # 直接返回响应（response已经是FastAPI Response对象）
+    return response
 
 @router.post("/antigravity/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/antigravity/v1/models/{model:path}:streamGenerateContent")
-async def gemini_stream_generate_content(
+async def stream_generate_content(
+    gemini_request: GeminiRequest,
     model: str = Path(..., description="Model name"),
+    api_key: str = Depends(authenticate_gemini_flexible),
+):
+    """
+    处理Gemini格式的流式内容生成请求
+
+    Args:
+        gemini_request: Gemini格式的请求体
+        model: 模型名称
+        api_key: API 密钥
+    """
+    log.debug(f"[ANTIGRAVITY] Streaming request for model: {model}")
+
+    # 转换为字典
+    normalized_dict = model_to_dict(gemini_request)
+
+    # 处理模型名称和功能检测
+    use_fake_streaming = is_fake_streaming_model(model)
+    use_anti_truncation = is_anti_truncation_model(model)
+    real_model = get_base_model_from_feature_model(model)
+
+    # 更新模型名为真实模型名
+    normalized_dict["model"] = real_model
+
+    # ========== 假流式生成器 ==========
+    async def fake_stream_generator():
+        from src.converter.gemini_fix import normalize_gemini_request
+        normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="antigravity")
+
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model"),
+            "request": normalized_req
+        }
+
+        # 发送心跳
+        heartbeat = create_gemini_heartbeat_chunk()
+        yield f"data: {json.dumps(heartbeat)}\n\n".encode()
+
+        # 异步发送实际请求
+        async def get_response():
+            from src.api.antigravity import non_stream_request
+            response = await non_stream_request(body=api_request)
+            return response
+
+        # 创建请求任务
+        response_task = create_managed_task(get_response(), name="gemini_fake_stream_request")
+
+        try:
+            # 每3秒发送一次心跳，直到收到响应
+            while not response_task.done():
+                await asyncio.sleep(3.0)
+                if not response_task.done():
+                    yield f"data: {json.dumps(heartbeat)}\n\n".encode()
+
+            # 获取响应结果
+            response = await response_task
+
+        except asyncio.CancelledError:
+            response_task.cancel()
+            try:
+                await response_task
+            except asyncio.CancelledError:
+                pass
+            raise
+        except Exception as e:
+            response_task.cancel()
+            try:
+                await response_task
+            except asyncio.CancelledError:
+                pass
+            log.error(f"Fake streaming request failed: {e}")
+            raise
+
+        # 检查响应状态码
+        if hasattr(response, "status_code") and response.status_code != 200:
+            # 错误响应 - 提取错误信息并以SSE格式返回
+            log.error(f"Fake streaming got error response: status={response.status_code}")
+
+            if hasattr(response, "body"):
+                error_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+            elif hasattr(response, "content"):
+                error_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+            else:
+                error_body = str(response)
+
+            try:
+                error_data = json.loads(error_body)
+                # 以SSE格式返回错误
+                yield f"data: {json.dumps(error_data)}\n\n".encode()
+            except Exception:
+                # 如果无法解析为JSON，包装成错误对象
+                yield f"data: {json.dumps({'error': error_body})}\n\n".encode()
+
+            yield "data: [DONE]\n\n".encode()
+            return
+
+        # 处理成功响应 - 提取响应内容
+        if hasattr(response, "body"):
+            response_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+        elif hasattr(response, "content"):
+            response_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+        else:
+            response_body = str(response)
+
+        try:
+            response_data = json.loads(response_body)
+            log.debug(f"Gemini fake stream response data: {response_data}")
+
+            # 检查是否是错误响应（有些错误可能status_code是200但包含error字段）
+            if "error" in response_data:
+                log.error(f"Fake streaming got error in response body: {response_data['error']}")
+                yield f"data: {json.dumps(response_data)}\n\n".encode()
+                yield "data: [DONE]\n\n".encode()
+                return
+
+            # 使用统一的解析函数
+            content, reasoning_content, finish_reason = parse_response_for_fake_stream(response_data)
+
+            log.debug(f"Gemini extracted content: {content}")
+            log.debug(f"Gemini extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
+
+            # 构建响应块
+            chunks = build_gemini_fake_stream_chunks(content, reasoning_content, finish_reason)
+            for idx, chunk in enumerate(chunks):
+                chunk_json = json.dumps(chunk)
+                log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")
+                yield f"data: {chunk_json}\n\n".encode()
+
+        except Exception as e:
+            log.error(f"Response parsing failed: {e}, directly yield original response")
+            # 直接yield原始响应,不进行包装
+            yield f"data: {response_body}\n\n".encode()
+
+        yield "data: [DONE]\n\n".encode()
+
+    # ========== 流式抗截断生成器 ==========
+    async def anti_truncation_generator():
+        from src.converter.gemini_fix import normalize_gemini_request
+        from src.converter.anti_truncation import apply_anti_truncation_to_stream
+        from src.api.antigravity import non_stream_request
+
+        # 先进行基础标准化
+        normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="antigravity")
+
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model") if "model" in normalized_req else real_model,
+            "request": normalized_req
+        }
+
+        max_attempts = await get_anti_truncation_max_attempts()
+
+        # 使用 apply_anti_truncation_to_stream 包装请求
+        # 这个函数会自动处理所有的续传逻辑
+        streaming_response = await apply_anti_truncation_to_stream(
+            non_stream_request,
+            api_request,
+            max_attempts
+        )
+
+        # yield StreamingResponse 的内容
+        async for chunk in streaming_response.body_iterator:
+            yield chunk
+
+    # ========== 普通流式生成器 ==========
+    async def normal_stream_generator():
+        from src.converter.gemini_fix import normalize_gemini_request
+        from src.api.antigravity import stream_request
+        from fastapi import Response
+
+        normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="antigravity")
+
+        # 准备API请求格式 - 提取model并将其他字段放入request中
+        api_request = {
+            "model": normalized_req.pop("model"),
+            "request": normalized_req
+        }
+
+        # 调用 API 层的流式请求（使用 native 模式）
+        stream_gen = stream_request(body=api_request, native=True)
+
+        # yield所有数据,处理可能的错误Response
+        async for chunk in stream_gen:
+            # 检查是否是Response对象（错误情况）
+            if isinstance(chunk, Response):
+                # 将Response转换为SSE格式的错误消息
+                error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
+                error_json = json.loads(error_content.decode('utf-8'))
+                # 以SSE格式返回错误
+                yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
+                return
+            else:
+                # 正常的bytes数据,直接yield
+                yield chunk
+
+    # ========== 根据模式选择生成器 ==========
+    if use_fake_streaming:
+        return StreamingResponse(fake_stream_generator(), media_type="text/event-stream")
+    elif use_anti_truncation:
+        log.info("启用流式抗截断功能")
+        return StreamingResponse(anti_truncation_generator(), media_type="text/event-stream")
+    else:
+        return StreamingResponse(normal_stream_generator(), media_type="text/event-stream")
+
+@router.post("/antigravity/v1beta/models/{model:path}:countTokens")
+@router.post("/antigravity/v1/models/{model:path}:countTokens")
+async def count_tokens(
     request: Request = None,
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
-    """处理 Gemini 格式的流式内容生成请求（通过 Antigravity API）"""
-    log.debug(f"[ANTIGRAVITY GEMINI] Streaming request for model: {model}")
+    """
+    模拟Gemini格式的token计数
 
-    # 获取原始请求数据
+    使用简单的启发式方法：大约4字符=1token
+    """
+
     try:
         request_data = await request.json()
     except Exception as e:
         log.error(f"Failed to parse JSON request: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
 
-    # 验证必要字段
-    if "contents" not in request_data or not request_data["contents"]:
-        raise HTTPException(status_code=400, detail="Missing required field: contents")
+    # 简单的token计数模拟 - 基于文本长度估算
+    total_tokens = 0
 
-    # 提取模型名称（移除 "models/" 前缀）
-    if model.startswith("models/"):
-        model = model[7:]
+    # 如果有contents字段
+    if "contents" in request_data:
+        for content in request_data["contents"]:
+            if "parts" in content:
+                for part in content["parts"]:
+                    if "text" in part:
+                        # 简单估算：大约4字符=1token
+                        text_length = len(part["text"])
+                        total_tokens += max(1, text_length // 4)
 
-    # 检测并处理抗截断模式
-    use_anti_truncation = is_anti_truncation_model(model)
-    if use_anti_truncation:
-        # 去掉 "流式抗截断/" 前缀
-        model = get_base_model_from_feature_model(model)
+    # 如果有generateContentRequest字段
+    elif "generateContentRequest" in request_data:
+        gen_request = request_data["generateContentRequest"]
+        if "contents" in gen_request:
+            for content in gen_request["contents"]:
+                if "parts" in content:
+                    for part in content["parts"]:
+                        if "text" in part:
+                            text_length = len(part["text"])
+                            total_tokens += max(1, text_length // 4)
 
-    # 模型名称映射
-    actual_model = model_mapping(model)
-    enable_thinking = is_thinking_model(model)
+    # 返回Gemini格式的响应
+    return JSONResponse(content={"totalTokens": total_tokens})
 
-    log.info(f"[ANTIGRAVITY GEMINI] Stream request: model={model} -> {actual_model}, thinking={enable_thinking}, anti_truncation={use_anti_truncation}")
+# ==================== 测试代码 ====================
 
-    # 转换 Gemini contents 为 Antigravity contents
-    try:
-        contents = gemini_contents_to_antigravity_contents(request_data["contents"])
-    except Exception as e:
-        log.error(f"Failed to convert Gemini contents: {e}")
-        raise HTTPException(status_code=500, detail=f"Message conversion failed: {str(e)}")
+if __name__ == "__main__":
+    """
+    测试代码：演示Gemini路由的流式和非流式响应
+    运行方式: python src/router/antigravity/gemini.py
+    """
 
-    # 提取 Gemini generationConfig
-    gemini_config = request_data.get("generationConfig", {})
+    from fastapi.testclient import TestClient
+    from fastapi import FastAPI
 
-    # 转换为 Antigravity generation_config
-    parameters = {
-        "temperature": gemini_config.get("temperature"),
-        "top_p": gemini_config.get("topP"),
-        "top_k": gemini_config.get("topK"),
-        "max_tokens": gemini_config.get("maxOutputTokens"),
-        # 图片生成相关参数
-        "response_modalities": gemini_config.get("response_modalities"),
-        "image_config": gemini_config.get("image_config"),
+    print("=" * 80)
+    print("Gemini Router (Antigravity Backend) 测试")
+    print("=" * 80)
+
+    # 创建测试应用
+    app = FastAPI()
+    app.include_router(router)
+
+    # 测试客户端
+    client = TestClient(app)
+
+    # 测试请求体 (Gemini格式)
+    test_request_body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": "Hello, tell me a joke in one sentence."}]
+            }
+        ]
     }
-    # 过滤 None 值
-    parameters = {k: v for k, v in parameters.items() if v is not None}
 
-    generation_config = build_antigravity_generation_config(parameters, enable_thinking, actual_model)
+    # 测试API密钥（模拟）
+    test_api_key = "pwd"
 
-    # 处理 systemInstruction
-    system_instruction = None
-    if "systemInstruction" in request_data:
-        system_instruction = request_data["systemInstruction"]
+    def test_non_stream_request():
+        """测试非流式请求"""
+        print("\n" + "=" * 80)
+        print("【测试2】非流式请求 (POST /antigravity/v1/models/gemini-2.5-flash:generateContent)")
+        print("=" * 80)
+        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
 
-    # 处理 tools
-    antigravity_tools = None
-    if "tools" in request_data:
-        # Gemini 和 Antigravity 的 tools 格式基本一致
-        antigravity_tools = request_data["tools"]
+        response = client.post(
+            "/antigravity/v1/models/gemini-2.5-flash:generateContent",
+            json=test_request_body,
+            params={"key": test_api_key}
+        )
 
-    # 构建 Antigravity 请求体
-    request_body = build_antigravity_request_body(
-        contents=contents,
-        model=actual_model,
-        system_instruction=system_instruction,
-        tools=antigravity_tools,
-        generation_config=generation_config,
-    )
+        print("非流式响应数据:")
+        print("-" * 80)
+        print(f"状态码: {response.status_code}")
+        print(f"Content-Type: {response.headers.get('content-type', 'N/A')}")
 
-    # 图像生成模型特殊处理
-    if "-image" in model:
-        request_body = prepare_image_generation_request(request_body, model)
+        try:
+            content = response.text
+            print(f"\n响应内容 (原始):\n{content}\n")
 
-    # 发送流式请求
+            # 尝试解析JSON
+            try:
+                json_data = response.json()
+                print(f"响应内容 (格式化JSON):")
+                print(json.dumps(json_data, indent=2, ensure_ascii=False))
+            except json.JSONDecodeError:
+                print("(非JSON格式)")
+        except Exception as e:
+            print(f"内容解析失败: {e}")
+
+    def test_stream_request():
+        """测试流式请求"""
+        print("\n" + "=" * 80)
+        print("【测试3】流式请求 (POST /antigravity/v1/models/gemini-2.5-flash:streamGenerateContent)")
+        print("=" * 80)
+        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
+
+        print("流式响应数据 (每个chunk):")
+        print("-" * 80)
+
+        with client.stream(
+            "POST",
+            "/antigravity/v1/models/gemini-2.5-flash:streamGenerateContent",
+            json=test_request_body,
+            params={"key": test_api_key}
+        ) as response:
+            print(f"状态码: {response.status_code}")
+            print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
+
+            chunk_count = 0
+            for chunk in response.iter_bytes():
+                if chunk:
+                    chunk_count += 1
+                    print(f"\nChunk #{chunk_count}:")
+                    print(f"  类型: {type(chunk).__name__}")
+                    print(f"  长度: {len(chunk)}")
+
+                    # 解码chunk
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        print(f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
+
+                        # 如果是SSE格式，尝试解析每一行
+                        if chunk_str.startswith("data: "):
+                            # 按行分割，处理每个SSE事件
+                            for line in chunk_str.strip().split('\n'):
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                if line == "data: [DONE]":
+                                    print(f"  => 流结束标记")
+                                elif line.startswith("data: "):
+                                    try:
+                                        json_str = line[6:]  # 去掉 "data: " 前缀
+                                        json_data = json.loads(json_str)
+                                        print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                                    except Exception as e:
+                                        print(f"  SSE解析失败: {e}")
+                    except Exception as e:
+                        print(f"  解码失败: {e}")
+
+            print(f"\n总共收到 {chunk_count} 个chunk")
+
+    def test_fake_stream_request():
+        """测试假流式请求"""
+        print("\n" + "=" * 80)
+        print("【测试4】假流式请求 (POST /antigravity/v1/models/假流式/gemini-2.5-flash:streamGenerateContent)")
+        print("=" * 80)
+        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
+
+        print("假流式响应数据 (每个chunk):")
+        print("-" * 80)
+
+        with client.stream(
+            "POST",
+            "/antigravity/v1/models/假流式/gemini-2.5-flash:streamGenerateContent",
+            json=test_request_body,
+            params={"key": test_api_key}
+        ) as response:
+            print(f"状态码: {response.status_code}")
+            print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
+
+            chunk_count = 0
+            for chunk in response.iter_bytes():
+                if chunk:
+                    chunk_count += 1
+                    chunk_str = chunk.decode('utf-8')
+
+                    print(f"\nChunk #{chunk_count}:")
+                    print(f"  长度: {len(chunk_str)} 字节")
+
+                    # 解析chunk中的所有SSE事件
+                    events = []
+                    for line in chunk_str.split('\n'):
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            events.append(line)
+
+                    print(f"  包含 {len(events)} 个SSE事件")
+
+                    # 显示每个事件
+                    for event_idx, event_line in enumerate(events, 1):
+                        if event_line == "data: [DONE]":
+                            print(f"  事件 #{event_idx}: [DONE]")
+                        else:
+                            try:
+                                json_str = event_line[6:]  # 去掉 "data: " 前缀
+                                json_data = json.loads(json_str)
+                                # 提取text内容
+                                text = json_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                                finish_reason = json_data.get("candidates", [{}])[0].get("finishReason")
+                                print(f"  事件 #{event_idx}: text={repr(text[:50])}{'...' if len(text) > 50 else ''}, finishReason={finish_reason}")
+                            except Exception as e:
+                                print(f"  事件 #{event_idx}: 解析失败 - {e}")
+
+            print(f"\n总共收到 {chunk_count} 个HTTP chunk")
+
+    def test_anti_truncation_stream_request():
+        """测试流式抗截断请求"""
+        print("\n" + "=" * 80)
+        print("【测试5】流式抗截断请求 (POST /antigravity/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent)")
+        print("=" * 80)
+        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
+
+        print("流式抗截断响应数据 (每个chunk):")
+        print("-" * 80)
+
+        with client.stream(
+            "POST",
+            "/antigravity/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent",
+            json=test_request_body,
+            params={"key": test_api_key}
+        ) as response:
+            print(f"状态码: {response.status_code}")
+            print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
+
+            chunk_count = 0
+            for chunk in response.iter_bytes():
+                if chunk:
+                    chunk_count += 1
+                    print(f"\nChunk #{chunk_count}:")
+                    print(f"  类型: {type(chunk).__name__}")
+                    print(f"  长度: {len(chunk)}")
+
+                    # 解码chunk
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        print(f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
+
+                        # 如果是SSE格式，尝试解析每一行
+                        if chunk_str.startswith("data: "):
+                            # 按行分割，处理每个SSE事件
+                            for line in chunk_str.strip().split('\n'):
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                if line == "data: [DONE]":
+                                    print(f"  => 流结束标记")
+                                elif line.startswith("data: "):
+                                    try:
+                                        json_str = line[6:]  # 去掉 "data: " 前缀
+                                        json_data = json.loads(json_str)
+                                        print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                                    except Exception as e:
+                                        print(f"  SSE解析失败: {e}")
+                    except Exception as e:
+                        print(f"  解码失败: {e}")
+
+            print(f"\n总共收到 {chunk_count} 个chunk")
+
+    # 运行测试
     try:
-        # 处理抗截断功能（仅流式传输时有效）
-        if use_anti_truncation:
-            log.info("[ANTIGRAVITY GEMINI] 启用流式抗截断功能")
-            max_attempts = await get_anti_truncation_max_attempts()
+        # 测试非流式请求
+        test_non_stream_request()
 
-            # 包装请求函数以适配抗截断处理器
-            async def antigravity_gemini_request_func(payload):
-                resources, _, _ = await send_antigravity_request_stream(
-                    payload
-                )
-                response, stream_ctx, client = resources
-                return StreamingResponse(
-                    convert_antigravity_stream_to_gemini(
-                        response, stream_ctx, client
-                    ),
-                    media_type="text/event-stream"
-                )
+        # 测试流式请求
+        test_stream_request()
 
-            return await apply_anti_truncation_to_stream(
-                antigravity_gemini_request_func, request_body, max_attempts
-            )
+        # 测试假流式请求
+        test_fake_stream_request()
 
-        # 流式请求（无抗截断）
-        resources, _, _ = await send_antigravity_request_stream(
-            request_body
-        )
-        # resources 是一个元组: (response, stream_ctx, client)
-        response, stream_ctx, client = resources
+        # 测试流式抗截断请求
+        test_anti_truncation_stream_request()
 
-        # 转换并返回流式响应
-        # response 现在是 filtered_lines 生成器
-        return StreamingResponse(
-            convert_antigravity_stream_to_gemini(
-                response, stream_ctx, client
-            ),
-            media_type="text/event-stream"
-        )
+        print("\n" + "=" * 80)
+        print("测试完成")
+        print("=" * 80)
 
     except Exception as e:
-        log.error(f"[ANTIGRAVITY GEMINI] Stream request failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Antigravity API request failed: {str(e)}")
+        print(f"\n❌ 测试过程中出现异常: {e}")
+        import traceback
+        traceback.print_exc()

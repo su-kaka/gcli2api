@@ -25,7 +25,6 @@ from log import log
 
 # 本地模块 - 工具和认证
 from src.utils import (
-    get_available_models,
     get_base_model_from_feature_model,
     is_anti_truncation_model,
     authenticate_gemini_flexible,
@@ -40,7 +39,6 @@ from src.converter.fake_stream import (
 )
 
 # 本地模块 - 基础路由工具
-from src.router.base_router import create_gemini_model_list
 from src.router.hi_check import is_health_check_request, create_health_check_response
 
 # 本地模块 - 数据模型
@@ -56,20 +54,6 @@ router = APIRouter()
 
 
 # ==================== API 路由 ====================
-
-@router.get("/v1beta/models")
-@router.get("/v1/models")
-async def list_gemini_models(token: str = Depends(authenticate_gemini_flexible)):
-    """
-    返回Gemini格式的模型列表
-    
-    使用 create_gemini_model_list 工具函数创建标准格式
-    """
-    models = get_available_models("gemini")
-    return JSONResponse(content=create_gemini_model_list(
-        models, 
-        base_name_extractor=get_base_model_from_feature_model
-    ))
 
 @router.post("/v1beta/models/{model:path}:generateContent")
 @router.post("/v1/models/{model:path}:generateContent")
@@ -267,42 +251,31 @@ async def stream_generate_content(
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
         from src.converter.gemini_fix import normalize_gemini_request
-        from src.converter.anti_truncation import anti_truncation_gemini_request, anti_truncation_gemini_response_stream
-        from src.api.geminicli import stream_request
+        from src.converter.anti_truncation import apply_anti_truncation_to_stream
+        from src.api.geminicli import non_stream_request
 
         # 先进行基础标准化
         normalized_req = normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
-        # 再应用抗截断处理
-        normalized_req = anti_truncation_gemini_request(normalized_req)
 
         # 准备API请求格式 - 提取model并将其他字段放入request中
         api_request = {
-            "model": normalized_req.pop("model"),
+            "model": normalized_req.pop("model") if "model" in normalized_req else real_model,
             "request": normalized_req
         }
 
         max_attempts = await get_anti_truncation_max_attempts()
 
-        for attempt in range(max_attempts):
-            log.info(f"抗截断尝试 {attempt + 1}/{max_attempts}")
+        # 使用 apply_anti_truncation_to_stream 包装请求
+        # 这个函数会自动处理所有的续传逻辑
+        streaming_response = await apply_anti_truncation_to_stream(
+            non_stream_request,
+            api_request,
+            max_attempts
+        )
 
-            # 获取原始流（使用 native=False 获取str流）
-            original_stream = stream_request(body=api_request, native=False)
-
-            # 包装到标准化生成器中，返回StreamWrapper对象（不需要await）
-            wrapper = anti_truncation_gemini_response_stream(original_stream)
-
-            # 持续yield数据
-            async for chunk in wrapper.generator:
-                yield chunk
-
-            # 检查是否找到DONE_MARKER
-            if wrapper.found_done_marker:
-                log.info("流式输出完成（发现DONE标记）")
-                break  # 完成，退出循环
-            else:
-                log.warning(f"流式输出未完成（未发现DONE标记），重试 {attempt + 1}/{max_attempts}")
-                # 继续下一次循环，再次请求
+        # yield StreamingResponse 的内容
+        async for chunk in streaming_response.body_iterator:
+            yield chunk
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():
