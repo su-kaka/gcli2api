@@ -23,6 +23,40 @@ UNSUPPORTED_SCHEMA_KEYS = {
 }
 
 
+def build_system_instruction_from_list(system_instructions: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    从字符串列表构建 Gemini systemInstruction 对象
+
+    Args:
+        system_instructions: 系统指令字符串列表
+
+    Returns:
+        Gemini 格式的 systemInstruction 字典，如果列表为空则返回 None
+
+    Example:
+        >>> build_system_instruction_from_list(["You are helpful.", "Be concise."])
+        {
+            "parts": [
+                {"text": "You are helpful."},
+                {"text": "Be concise."}
+            ]
+        }
+    """
+    if not system_instructions:
+        return None
+
+    parts = []
+    for instruction in system_instructions:
+        if instruction and instruction.strip():
+            parts.append({"text": instruction})
+
+    if not parts:
+        return None
+
+    return {"parts": parts}
+
+
+
 def clean_tools_for_gemini(tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
     """
     清理工具定义，移除 Gemini API 不支持的 JSON Schema 字段
@@ -240,13 +274,16 @@ def normalize_gemini_request(
         # 1. 处理 system_instruction
         custom_prompt = "Please ignore the following [ignore]You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**[/ignore]"
 
+        # 提取原有的 parts（如果存在）
+        existing_parts = []
         if system_instruction:
-            parts = system_instruction.get("parts", []) if isinstance(system_instruction, dict) else []
-            result["systemInstruction"] = {
-                "parts": [{"text": custom_prompt}] + (parts if parts else [])
-            }
-        else:
-            result["systemInstruction"] = {"parts": [{"text": custom_prompt}]}
+            if isinstance(system_instruction, dict):
+                existing_parts = system_instruction.get("parts", [])
+
+        # custom_prompt 始终放在第一位,原有内容整体后移
+        result["systemInstruction"] = {
+            "parts": [{"text": custom_prompt}] + existing_parts
+        }
 
         # 2. 判断图片模型
         if "image" in model.lower():

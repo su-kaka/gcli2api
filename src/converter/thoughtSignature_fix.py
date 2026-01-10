@@ -5,9 +5,7 @@ thoughtSignature 处理公共模块
 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段。
 """
 
-import base64
 from typing import Optional, Tuple
-
 
 # 在工具调用ID中嵌入thoughtSignature的分隔符
 # 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段
@@ -56,23 +54,3 @@ def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
         return encoded_id, None
     parts = encoded_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)
     return parts[0], parts[1] if len(parts) == 2 else None
-
-
-def generate_dummy_signature() -> str:
-    """
-    在缺失时为Gemini 3+模型生成占位签名。
-
-    这个占位签名用于跳过 thoughtSignature 验证器，
-    确保与 Gemini 3+ 模型的兼容性。
-
-    Returns:
-        Base64 编码的占位签名
-
-    Examples:
-        >>> sig = generate_dummy_signature()
-        >>> isinstance(sig, str)
-        True
-        >>> len(sig) > 0
-        True
-    """
-    return base64.b64encode(b"skip_thought_signature_validator").decode()
