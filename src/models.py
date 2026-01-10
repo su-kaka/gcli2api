@@ -203,6 +203,79 @@ class GeminiResponse(BaseModel):
     modelVersion: Optional[str] = None
 
 
+# Claude Models
+class ClaudeContentBlock(BaseModel):
+    type: str  # "text", "image", "tool_use", "tool_result"
+    text: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None  # for image type
+    id: Optional[str] = None  # for tool_use
+    name: Optional[str] = None  # for tool_use
+    input: Optional[Dict[str, Any]] = None  # for tool_use
+    tool_use_id: Optional[str] = None  # for tool_result
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None  # for tool_result
+
+
+class ClaudeMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: Union[str, List[ClaudeContentBlock]]
+
+
+class ClaudeTool(BaseModel):
+    name: str
+    description: Optional[str] = None
+    input_schema: Dict[str, Any]
+
+
+class ClaudeMetadata(BaseModel):
+    user_id: Optional[str] = None
+
+
+class ClaudeRequest(BaseModel):
+    model: str
+    messages: List[ClaudeMessage]
+    max_tokens: int = Field(..., ge=1)
+    system: Optional[Union[str, List[Dict[str, Any]]]] = None
+    temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
+    top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(None, ge=1)
+    stop_sequences: Optional[List[str]] = None
+    stream: bool = False
+    metadata: Optional[ClaudeMetadata] = None
+    tools: Optional[List[ClaudeTool]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+
+    class Config:
+        extra = "allow"
+
+
+class ClaudeUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+
+
+class ClaudeResponse(BaseModel):
+    id: str
+    type: str = "message"
+    role: str = "assistant"
+    content: List[ClaudeContentBlock]
+    model: str
+    stop_reason: Optional[str] = None
+    stop_sequence: Optional[str] = None
+    usage: ClaudeUsage
+
+
+class ClaudeStreamEvent(BaseModel):
+    type: str  # "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
+    message: Optional[ClaudeResponse] = None
+    index: Optional[int] = None
+    content_block: Optional[ClaudeContentBlock] = None
+    delta: Optional[Dict[str, Any]] = None
+    usage: Optional[ClaudeUsage] = None
+
+    class Config:
+        extra = "allow"
+
+
 # Error Models
 class APIError(BaseModel):
     message: str

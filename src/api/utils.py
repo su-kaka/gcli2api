@@ -6,7 +6,7 @@ Base API Client - 共用的 API 客户端基础功能
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional
 
 from fastapi import Response
 
@@ -19,7 +19,6 @@ from config import (
 )
 from log import log
 from src.credential_manager import CredentialManager
-from src.utils import parse_quota_reset_timestamp
 
 
 # ==================== 错误检查与处理 ====================
@@ -274,3 +273,77 @@ async def collect_streaming_response(stream) -> Response:
             status_code=500,
             media_type="application/json"
         )
+
+
+def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
+    """
+    从Google API错误响应中提取quota重置时间戳
+
+    Args:
+        error_response: Google API返回的错误响应字典
+
+    Returns:
+        Unix时间戳（秒），如果无法解析则返回None
+
+    示例错误响应:
+    {
+      "error": {
+        "code": 429,
+        "message": "You have exhausted your capacity...",
+        "status": "RESOURCE_EXHAUSTED",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "QUOTA_EXHAUSTED",
+            "metadata": {
+              "quotaResetTimeStamp": "2025-11-30T14:57:24Z",
+              "quotaResetDelay": "13h19m1.20964964s"
+            }
+          }
+        ]
+      }
+    }
+    """
+    try:
+        details = error_response.get("error", {}).get("details", [])
+
+        for detail in details:
+            if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
+
+                if reset_timestamp_str:
+                    if reset_timestamp_str.endswith("Z"):
+                        reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
+
+                    reset_dt = datetime.fromisoformat(reset_timestamp_str)
+                    if reset_dt.tzinfo is None:
+                        reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+
+                    return reset_dt.astimezone(timezone.utc).timestamp()
+
+        return None
+
+    except Exception:
+        return None
+
+def get_model_group(model_name: str) -> str:
+    """
+    获取模型组，用于 GCLI CD 机制。
+
+    Args:
+        model_name: 模型名称
+
+    Returns:
+        "pro" 或 "flash"
+
+    说明:
+        - pro 组: gemini-2.5-pro, gemini-3-pro-preview 共享额度
+        - flash 组: gemini-2.5-flash 单独额度
+    """
+
+    # 判断模型组
+    if "flash" in model_name.lower():
+        return "flash"
+    else:
+        # pro 模型（包括 gemini-2.5-pro 和 gemini-3-pro-preview）
+        return "pro"

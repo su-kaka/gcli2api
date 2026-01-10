@@ -5,6 +5,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 
 import asyncio
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -67,7 +68,8 @@ def build_antigravity_headers(access_token: str) -> Dict[str, str]:
         'User-Agent': ANTIGRAVITY_USER_AGENT,
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
-        'Accept-Encoding': 'gzip'
+        'Accept-Encoding': 'gzip',
+        'requestId': f"req-{uuid.uuid4()}"
     }
 
 

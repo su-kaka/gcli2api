@@ -35,7 +35,7 @@ from .utils import (
     CLIENT_ID,
     CLIENT_SECRET,
     SCOPES,
-    STANDARD_USER_AGENT,
+    GEMINICLI_USER_AGENT,
     TOKEN_URL,
 )
 
@@ -714,7 +714,7 @@ async def asyncio_complete_auth_flow(
                     code_assist_url = await get_code_assist_endpoint()
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        STANDARD_USER_AGENT,
+                        GEMINICLI_USER_AGENT,
                         code_assist_url
                     )
                     if project_id:
@@ -896,7 +896,7 @@ async def complete_auth_flow_from_callback_url(
                     code_assist_url = await get_code_assist_endpoint()
                     detected_project_id = await fetch_project_id(
                         credentials.access_token,
-                        STANDARD_USER_AGENT,
+                        GEMINICLI_USER_AGENT,
                         code_assist_url
                     )
                     if detected_project_id:

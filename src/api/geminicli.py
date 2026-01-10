@@ -24,7 +24,6 @@ from log import log
 
 from src.credential_manager import CredentialManager
 from src.httpx_client import stream_post_async, post_async
-from src.utils import get_user_agent
 
 # 导入共同的基础功能
 from src.api.utils import (
@@ -34,7 +33,7 @@ from src.api.utils import (
     record_api_call_error,
     parse_and_log_cooldown,
 )
-
+from src.utils import GEMINICLI_USER_AGENT
 
 # ==================== 全局凭证管理器 ====================
 
@@ -85,7 +84,7 @@ async def prepare_request_headers_and_payload(
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "User-Agent": get_user_agent(),
+        "User-Agent": GEMINICLI_USER_AGENT,
     }
     project_id = credential_data.get("project_id", "")
     if not project_id:
