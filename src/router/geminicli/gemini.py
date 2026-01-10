@@ -252,8 +252,9 @@ async def stream_generate_content(
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
         from src.converter.gemini_fix import normalize_gemini_request
-        from src.converter.anti_truncation import apply_anti_truncation_to_stream
-        from src.api.geminicli import non_stream_request
+        from src.converter.anti_truncation import AntiTruncationStreamProcessor
+        from src.converter.anti_truncation import apply_anti_truncation
+        from src.api.geminicli import stream_request
 
         # 先进行基础标准化
         normalized_req = await normalize_gemini_request(normalized_dict.copy(), mode="geminicli")
@@ -266,16 +267,24 @@ async def stream_generate_content(
 
         max_attempts = await get_anti_truncation_max_attempts()
 
-        # 使用 apply_anti_truncation_to_stream 包装请求
-        # 这个函数会自动处理所有的续传逻辑
-        streaming_response = await apply_anti_truncation_to_stream(
-            non_stream_request,
-            api_request,
+        # 首先对payload应用反截断指令
+        anti_truncation_payload = apply_anti_truncation(api_request)
+
+        # 定义流式请求函数（返回 StreamingResponse）
+        async def stream_request_wrapper(payload):
+            # stream_request 返回异步生成器，需要包装成 StreamingResponse
+            stream_gen = stream_request(body=payload, native=False)
+            return StreamingResponse(stream_gen, media_type="text/event-stream")
+
+        # 创建反截断处理器
+        processor = AntiTruncationStreamProcessor(
+            stream_request_wrapper,
+            anti_truncation_payload,
             max_attempts
         )
 
-        # yield StreamingResponse 的内容
-        async for chunk in streaming_response.body_iterator:
+        # 直接迭代 process_stream() 生成器
+        async for chunk in processor.process_stream():
             yield chunk
 
     # ========== 普通流式生成器 ==========

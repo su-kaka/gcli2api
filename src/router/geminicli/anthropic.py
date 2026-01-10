@@ -270,23 +270,32 @@ async def messages(
 
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
-        from src.converter.anti_truncation import apply_anti_truncation_to_stream
-        from src.api.geminicli import non_stream_request
+        from src.converter.anti_truncation import AntiTruncationStreamProcessor
+        from src.api.geminicli import stream_request
+        from src.converter.anti_truncation import apply_anti_truncation
         from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
 
         max_attempts = await get_anti_truncation_max_attempts()
 
-        # 使用 apply_anti_truncation_to_stream 包装请求
-        # 这个函数会自动处理所有的续传逻辑
-        streaming_response = await apply_anti_truncation_to_stream(
-            non_stream_request,
-            api_request,
+        # 首先对payload应用反截断指令
+        anti_truncation_payload = apply_anti_truncation(api_request)
+
+        # 定义流式请求函数（返回 StreamingResponse）
+        async def stream_request_wrapper(payload):
+            # stream_request 返回异步生成器，需要包装成 StreamingResponse
+            stream_gen = stream_request(body=payload, native=False)
+            return StreamingResponse(stream_gen, media_type="text/event-stream")
+
+        # 创建反截断处理器
+        processor = AntiTruncationStreamProcessor(
+            stream_request_wrapper,
+            anti_truncation_payload,
             max_attempts
         )
 
         # 包装以确保是bytes流
         async def bytes_wrapper():
-            async for chunk in streaming_response.body_iterator:
+            async for chunk in processor.process_stream():
                 if isinstance(chunk, str):
                     yield chunk.encode('utf-8')
                 else:
