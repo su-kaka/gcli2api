@@ -143,16 +143,18 @@ def prepare_image_generation_request(
 
 def get_base_model_name(model_name: str) -> str:
     """移除模型名称中的后缀,返回基础模型名"""
-    suffixes = ["-maxthinking", "-nothinking", "-think", "-search"]
+    # 按照从长到短的顺序排列，避免 -think 先于 -maxthinking 被匹配
+    suffixes = ["-maxthinking", "-nothinking", "-search", "-think"]
     result = model_name
     changed = True
+    # 持续循环直到没有任何后缀可以移除
     while changed:
         changed = False
         for suffix in suffixes:
             if result.endswith(suffix):
                 result = result[:-len(suffix)]
                 changed = True
-                break
+                # 不使用 break，继续检查是否还有其他后缀
     return result
 
 
