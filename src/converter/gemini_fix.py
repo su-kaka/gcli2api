@@ -279,29 +279,20 @@ async def normalize_gemini_request(
                 # 移除 -thinking 后缀
                 model = model.replace("-thinking", "")
 
-            import re
-            # 处理两种日期格式：
-            # 1. claude-{type}-{version}-{date} 格式，如 claude-sonnet-4-20250514
-            m = re.match(r"^(claude-(?:opus|sonnet|haiku)-(?:4|4-5|3-5))-\d{8}$", model)
-            if m:
-                model = m.group(1)
-            # 2. claude-{version}-{type}-{date} 格式，如 claude-3-5-haiku-20241022
-            m = re.match(r"^(claude-(?:3-5|3|4)-(?:opus|sonnet|haiku))-\d{8}$", model)
-            if m:
-                model = m.group(1)
+            # 4. Claude 模型关键词映射
+            # 使用关键词匹配而不是精确匹配，更灵活地处理各种变体
+            original_model = model
+            if "opus" in model.lower():
+                model = "claude-opus-4-5-thinking"
+            elif "sonnet" in model.lower() or "haiku" in model.lower():
+                model = "claude-sonnet-4-5-thinking"
+            elif "claude" in model.lower():
+                # Claude 模型兜底：如果包含 claude 但不是 opus/sonnet/haiku
+                model = "claude-sonnet-4-5-thinking"
             
-            # 4. 特殊模型映射
-            model_mapping = {
-                "claude-opus-4-5": "claude-opus-4-5-thinking",
-                "claude-haiku-4": "claude-sonnet-4-5-thinking",
-                "claude-haiku-3-5": "claude-sonnet-4-5-thinking",
-                "claude-3-5-haiku": "claude-sonnet-4-5-thinking",
-                "claude-opus-4": "claude-opus-4-5-thinking",
-                "claude-sonnet-4": "claude-sonnet-4-5-thinking",
-                
-            }
-            result["model"] = model_mapping.get(model, model)
-            log.debug(f"[ANTIGRAVITY] 映射模型: {model} -> {result['model']}")
+            result["model"] = model
+            if original_model != model:
+                log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
     # ========== 公共处理 ==========
     # 1. 字段名转换
