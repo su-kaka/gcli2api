@@ -262,7 +262,7 @@ def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
 
         # 如果名称被修改了，记录日志
         if normalized_name != original_name:
-            log.info(f"Function name normalized: '{original_name}' -> '{normalized_name}'")
+            log.debug(f"Function name normalized: '{original_name}' -> '{normalized_name}'")
 
         # 构建 Gemini function declaration
         declaration = {
