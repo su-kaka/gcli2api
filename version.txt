@@ -1,4 +1,4 @@
-full_hash=0e8e1830b424572d19dfd6079bfd1380569d1baf
-short_hash=0e8e183
-message=Update gemini_fix.py
-date=2026-01-10 23:43:59 +0800
+full_hash=7532201e5d29b8643639397c38db72615752da3c
+short_hash=7532201
+message=限制范围和模型名字处理
+date=2026-01-11 00:28:14 +0800
