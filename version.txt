@@ -1,4 +1,4 @@
-full_hash=71b786c260a6324a02170705c18245037e25849e
-short_hash=71b786c
-message=Merge pull request #263 from su-kaka/dev
-date=2026-01-10 20:36:42 +0800
+full_hash=ad072f46f6a084849054b25894d23ab7809278d1
+short_hash=ad072f4
+message=修复模型列表
+date=2026-01-10 20:56:31 +0800
