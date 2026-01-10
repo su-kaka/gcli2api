@@ -1,4 +1,4 @@
-full_hash=ad072f46f6a084849054b25894d23ab7809278d1
-short_hash=ad072f4
-message=修复模型列表
-date=2026-01-10 20:56:31 +0800
+full_hash=75b84589ad4f33ced012ab4f9b5f6e899298f13d
+short_hash=75b8458
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-10 21:32:49 +0800
