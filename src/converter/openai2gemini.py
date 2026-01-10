@@ -622,7 +622,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         generation_config["candidateCount"] = openai_request["n"]
     if "seed" in openai_request:
         generation_config["seed"] = openai_request["seed"]
-    if "response_format" in openai_request:
+    if "response_format" in openai_request and openai_request["response_format"]:
         if openai_request["response_format"].get("type") == "json_object":
             generation_config["responseMimeType"] = "application/json"
 

@@ -201,10 +201,256 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
 
 def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
     """创建 Gemini 格式的心跳数据块
-    
+
     Returns:
         心跳数据块
     """
     chunk = _build_candidate([{"text": ""}])
     chunk["candidates"][0]["finishReason"] = None
     return chunk
+
+
+def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
+    """构建 OpenAI 格式的假流式响应数据块
+
+    Args:
+        content: 主要内容
+        reasoning_content: 推理内容
+        finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
+        model: 模型名称
+        chunk_size: 每个chunk的字符数（默认50）
+
+    Returns:
+        OpenAI 格式的响应数据块列表
+    """
+    import time
+    import uuid
+
+    log.debug(f"[build_openai_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
+    chunks = []
+    response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+
+    # 映射 Gemini finish_reason 到 OpenAI 格式
+    openai_finish_reason = None
+    if finish_reason == "STOP":
+        openai_finish_reason = "stop"
+    elif finish_reason == "MAX_TOKENS":
+        openai_finish_reason = "length"
+    elif finish_reason in ["SAFETY", "RECITATION"]:
+        openai_finish_reason = "content_filter"
+
+    # 如果没有正常内容但有思维内容，提供默认回复
+    if not content:
+        default_text = "[模型正在思考中，请稍后再试或重新提问]" if reasoning_content else "[响应为空，请重新尝试]"
+        return [{
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": default_text},
+                "finish_reason": openai_finish_reason,
+            }]
+        }]
+
+    # 分块发送主要内容
+    for i in range(0, len(content), chunk_size):
+        chunk_text = content[i:i + chunk_size]
+        is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
+        chunk_finish = openai_finish_reason if is_last_chunk else None
+
+        chunk_data = {
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": chunk_text},
+                "finish_reason": chunk_finish,
+            }]
+        }
+        log.debug(f"[build_openai_fake_stream_chunks] Generated chunk: {chunk_data}")
+        chunks.append(chunk_data)
+
+    # 如果有推理内容，分块发送（使用 reasoning_content 字段）
+    if reasoning_content:
+        for i in range(0, len(reasoning_content), chunk_size):
+            chunk_text = reasoning_content[i:i + chunk_size]
+            is_last_chunk = i + chunk_size >= len(reasoning_content)
+            chunk_finish = openai_finish_reason if is_last_chunk else None
+
+            chunks.append({
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"reasoning_content": chunk_text},
+                    "finish_reason": chunk_finish,
+                }]
+            })
+
+    log.debug(f"[build_openai_fake_stream_chunks] Total chunks generated: {len(chunks)}")
+    return chunks
+
+
+def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
+    """
+    创建 Anthropic 格式的心跳块（用于假流式）
+
+    Returns:
+        心跳响应块字典
+    """
+    return {
+        "type": "ping"
+    }
+
+
+def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, chunk_size: int = 50) -> List[Dict[str, Any]]:
+    """构建 Anthropic 格式的假流式响应数据块
+
+    Args:
+        content: 主要内容
+        reasoning_content: 推理内容（thinking content）
+        finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
+        model: 模型名称
+        chunk_size: 每个chunk的字符数（默认50）
+
+    Returns:
+        Anthropic SSE 格式的响应数据块列表
+    """
+    import uuid
+
+    log.debug(f"[build_anthropic_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}")
+    chunks = []
+    message_id = f"msg_{uuid.uuid4().hex}"
+
+    # 映射 Gemini finish_reason 到 Anthropic 格式
+    anthropic_stop_reason = "end_turn"
+    if finish_reason == "MAX_TOKENS":
+        anthropic_stop_reason = "max_tokens"
+    elif finish_reason in ["SAFETY", "RECITATION"]:
+        anthropic_stop_reason = "end_turn"
+
+    # 1. 发送 message_start 事件
+    chunks.append({
+        "type": "message_start",
+        "message": {
+            "id": message_id,
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": [],
+            "stop_reason": None,
+            "stop_sequence": None,
+            "usage": {"input_tokens": 0, "output_tokens": 0}
+        }
+    })
+
+    # 如果没有正常内容但有思维内容，提供默认回复
+    if not content:
+        default_text = "[模型正在思考中，请稍后再试或重新提问]" if reasoning_content else "[响应为空，请重新尝试]"
+
+        # content_block_start
+        chunks.append({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        })
+
+        # content_block_delta
+        chunks.append({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": default_text}
+        })
+
+        # content_block_stop
+        chunks.append({
+            "type": "content_block_stop",
+            "index": 0
+        })
+
+        # message_delta
+        chunks.append({
+            "type": "message_delta",
+            "delta": {"stop_reason": anthropic_stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": 0}
+        })
+
+        # message_stop
+        chunks.append({
+            "type": "message_stop"
+        })
+
+        return chunks
+
+    block_index = 0
+
+    # 2. 如果有推理内容，先发送 thinking 块
+    if reasoning_content:
+        # thinking content_block_start
+        chunks.append({
+            "type": "content_block_start",
+            "index": block_index,
+            "content_block": {"type": "thinking", "thinking": ""}
+        })
+
+        # 分块发送推理内容
+        for i in range(0, len(reasoning_content), chunk_size):
+            chunk_text = reasoning_content[i:i + chunk_size]
+            chunks.append({
+                "type": "content_block_delta",
+                "index": block_index,
+                "delta": {"type": "thinking_delta", "thinking": chunk_text}
+            })
+
+        # thinking content_block_stop
+        chunks.append({
+            "type": "content_block_stop",
+            "index": block_index
+        })
+
+        block_index += 1
+
+    # 3. 发送主要内容（text 块）
+    # text content_block_start
+    chunks.append({
+        "type": "content_block_start",
+        "index": block_index,
+        "content_block": {"type": "text", "text": ""}
+    })
+
+    # 分块发送主要内容
+    for i in range(0, len(content), chunk_size):
+        chunk_text = content[i:i + chunk_size]
+        chunks.append({
+            "type": "content_block_delta",
+            "index": block_index,
+            "delta": {"type": "text_delta", "text": chunk_text}
+        })
+
+    # text content_block_stop
+    chunks.append({
+        "type": "content_block_stop",
+        "index": block_index
+    })
+
+    # 4. 发送 message_delta
+    chunks.append({
+        "type": "message_delta",
+        "delta": {"stop_reason": anthropic_stop_reason, "stop_sequence": None},
+        "usage": {"output_tokens": len(content) + len(reasoning_content)}
+    })
+
+    # 5. 发送 message_stop
+    chunks.append({
+        "type": "message_stop"
+    })
+
+    log.debug(f"[build_anthropic_fake_stream_chunks] Total chunks generated: {len(chunks)}")
+    return chunks

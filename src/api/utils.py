@@ -259,12 +259,83 @@ async def collect_streaming_response(stream) -> Response:
 
         log.debug(f"[STREAM COLLECT] 成功收集流式响应，总大小: {len(full_content)} bytes")
 
-        return Response(
-            content=full_content,
-            status_code=status_code,
-            headers=headers,
-            media_type="application/json"
-        )
+        # 解析SSE格式，提取JSON内容
+        content_str = full_content.decode('utf-8')
+
+        # 如果是SSE格式（以 "data: " 开头），提取JSON
+        if content_str.strip().startswith("data: "):
+            log.debug(f"[STREAM COLLECT] 检测到SSE格式，提取JSON内容")
+
+            # 解析SSE格式的每一行，合并所有chunk
+            merged_response = None
+            collected_text = []
+
+            for line in content_str.split('\n'):
+                line = line.strip()
+                if line.startswith("data: "):
+                    json_str = line[6:]  # 去掉 "data: " 前缀
+
+                    # 跳过 [DONE] 标记
+                    if json_str == "[DONE]":
+                        continue
+
+                    # 尝试解析JSON
+                    try:
+                        json_data = json.loads(json_str)
+
+                        # 提取文本内容并累积
+                        if "response" in json_data:
+                            # 如果是第一个chunk，保存完整结构
+                            if merged_response is None:
+                                merged_response = json_data
+
+                            # 提取并累积text
+                            candidates = json_data.get("response", {}).get("candidates", [])
+                            if candidates:
+                                parts = candidates[0].get("content", {}).get("parts", [])
+                                for part in parts:
+                                    if "text" in part:
+                                        collected_text.append(part["text"])
+
+                        log.debug(f"[STREAM COLLECT] 处理chunk: {json.dumps(json_data, ensure_ascii=False)[:100]}")
+                    except json.JSONDecodeError:
+                        log.debug(f"[STREAM COLLECT] 跳过非JSON行: {json_str[:100]}")
+                        continue
+
+            if merged_response:
+                # 将合并后的文本放回第一个chunk的结构中
+                if collected_text:
+                    merged_response["response"]["candidates"][0]["content"]["parts"] = [
+                        {"text": "".join(collected_text)}
+                    ]
+
+                log.debug(f"[STREAM COLLECT] 合并了 {len(collected_text)} 个text片段")
+
+                # 返回纯JSON格式
+                return Response(
+                    content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
+                    status_code=status_code,
+                    headers=headers,
+                    media_type="application/json"
+                )
+            else:
+                log.warning(f"[STREAM COLLECT] 未能从SSE格式中提取有效JSON")
+                # 如果提取失败，返回原始内容
+                return Response(
+                    content=full_content,
+                    status_code=status_code,
+                    headers=headers,
+                    media_type="application/json"
+                )
+        else:
+            # 不是SSE格式，直接返回原始内容
+            log.debug(f"[STREAM COLLECT] 非SSE格式，直接返回")
+            return Response(
+                content=full_content,
+                status_code=status_code,
+                headers=headers,
+                media_type="application/json"
+            )
 
     except Exception as e:
         log.error(f"[STREAM COLLECT] 收集流式响应时出错: {e}")
