@@ -224,123 +224,203 @@ async def parse_and_log_cooldown(
 
 # ==================== 流式响应收集 ====================
 
-async def collect_streaming_response(stream) -> Response:
+async def collect_streaming_response(stream_generator) -> Response:
     """
-    收集流式响应并拼接成完整的Response
+    将Gemini流式响应收集为一条完整的非流式响应
 
     Args:
-        stream: 异步流式生成器（str流或bytes流的Gemini API回复）
+        stream_generator: 流式响应生成器，产生 "data: {json}" 格式的行或Response对象
 
     Returns:
-        Response: 完整的拼接后的响应对象
+        Response: 合并后的完整响应对象
+
+    Example:
+        >>> async for line in stream_generator:
+        ...     # line format: "data: {...}" or Response object
+        >>> response = await collect_streaming_response(stream_generator)
     """
-    collected_chunks = []
-    status_code = 200
-    headers = {}
+    # 初始化响应结构
+    merged_response = {
+        "response": {
+            "candidates": [{
+                "content": {
+                    "parts": [],
+                    "role": "model"
+                },
+                "finishReason": None,
+                "safetyRatings": [],
+                "citationMetadata": None
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 0,
+                "candidatesTokenCount": 0,
+                "totalTokenCount": 0
+            }
+        }
+    }
+
+    collected_text = []  # 用于收集文本内容
+    collected_thought_text = []  # 用于收集思维链内容
+    collected_other_parts = []  # 用于收集其他类型的parts（图片、文件等）
+    has_data = False
+    line_count = 0
+
+    log.debug("[STREAM COLLECTOR] Starting to collect streaming response")
 
     try:
-        async for chunk in stream:
+        async for line in stream_generator:
+            line_count += 1
+
             # 如果收到的是Response对象（错误），直接返回
-            if isinstance(chunk, Response):
-                log.debug(f"[STREAM COLLECT] 收到错误Response，状态码: {chunk.status_code}")
-                return chunk
+            if isinstance(line, Response):
+                log.debug(f"[STREAM COLLECTOR] 收到错误Response，状态码: {line.status_code}")
+                return line
 
-            # 收集chunk
-            if isinstance(chunk, bytes):
-                collected_chunks.append(chunk)
-            elif isinstance(chunk, str):
-                collected_chunks.append(chunk.encode('utf-8'))
+            # 处理 bytes 类型
+            if isinstance(line, bytes):
+                line_str = line.decode('utf-8', errors='ignore')
+                log.debug(f"[STREAM COLLECTOR] Processing bytes line {line_count}: {line_str[:200] if line_str else 'empty'}")
+            elif isinstance(line, str):
+                line_str = line
+                log.debug(f"[STREAM COLLECTOR] Processing line {line_count}: {line_str[:200] if line_str else 'empty'}")
             else:
-                # 其他类型，尝试转换为字符串
-                collected_chunks.append(str(chunk).encode('utf-8'))
+                log.debug(f"[STREAM COLLECTOR] Skipping non-string/bytes line: {type(line)}")
+                continue
 
-        # 拼接所有chunks
-        full_content = b''.join(collected_chunks)
+            # 解析流式数据行
+            if not line_str.startswith("data: "):
+                log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line_str[:100]}")
+                continue
 
-        log.debug(f"[STREAM COLLECT] 成功收集流式响应，总大小: {len(full_content)} bytes")
+            raw = line_str[6:].strip()
+            if raw == "[DONE]":
+                log.debug("[STREAM COLLECTOR] Received [DONE] marker")
+                break
 
-        # 解析SSE格式，提取JSON内容
-        content_str = full_content.decode('utf-8')
+            try:
+                log.debug(f"[STREAM COLLECTOR] Parsing JSON: {raw[:200]}")
+                chunk = json.loads(raw)
+                has_data = True
+                log.debug(f"[STREAM COLLECTOR] Chunk keys: {chunk.keys() if isinstance(chunk, dict) else type(chunk)}")
 
-        # 如果是SSE格式（以 "data: " 开头），提取JSON
-        if content_str.strip().startswith("data: "):
-            log.debug(f"[STREAM COLLECT] 检测到SSE格式，提取JSON内容")
+                # 提取响应对象
+                response_obj = chunk.get("response", {})
+                if not response_obj:
+                    log.debug("[STREAM COLLECTOR] No 'response' key in chunk, trying direct access")
+                    response_obj = chunk  # 尝试直接使用chunk
 
-            # 解析SSE格式的每一行，合并所有chunk
-            merged_response = None
-            all_parts = []
+                candidates = response_obj.get("candidates", [])
+                log.debug(f"[STREAM COLLECTOR] Found {len(candidates)} candidates")
+                if not candidates:
+                    log.debug(f"[STREAM COLLECTOR] No candidates in chunk, chunk structure: {list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}")
+                    continue
 
-            for line in content_str.split('\n'):
-                line = line.strip()
-                if line.startswith("data: "):
-                    json_str = line[6:]  # 去掉 "data: " 前缀
+                candidate = candidates[0]
 
-                    # 跳过 [DONE] 标记
-                    if json_str == "[DONE]":
+                # 收集文本内容
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                log.debug(f"[STREAM COLLECTOR] Processing {len(parts)} parts from candidate")
+
+                for part in parts:
+                    if not isinstance(part, dict):
                         continue
 
-                    # 尝试解析JSON
-                    try:
-                        json_data = json.loads(json_str)
+                    # 处理文本内容
+                    text = part.get("text", "")
+                    if text:
+                        # 区分普通文本和思维链
+                        if part.get("thought", False):
+                            collected_thought_text.append(text)
+                            log.debug(f"[STREAM COLLECTOR] Collected thought text: {text[:100]}")
+                        else:
+                            collected_text.append(text)
+                            log.debug(f"[STREAM COLLECTOR] Collected regular text: {text[:100]}")
+                    # 处理非文本内容（图片、文件等）
+                    elif "inlineData" in part or "fileData" in part or "executableCode" in part or "codeExecutionResult" in part:
+                        collected_other_parts.append(part)
+                        log.debug(f"[STREAM COLLECTOR] Collected non-text part: {list(part.keys())}")
 
-                        # 提取内容并累积
-                        if "response" in json_data:
-                            # 如果是第一个chunk，保存完整结构
-                            if merged_response is None:
-                                merged_response = json_data
+                # 收集其他信息（使用最后一个块的值）
+                if candidate.get("finishReason"):
+                    merged_response["response"]["candidates"][0]["finishReason"] = candidate["finishReason"]
 
-                            # 提取并累积所有parts（包括text、inlineData、fileData等）
-                            candidates = json_data.get("response", {}).get("candidates", [])
-                            if candidates:
-                                parts = candidates[0].get("content", {}).get("parts", [])
-                                # 保留所有类型的parts
-                                all_parts.extend(parts)
+                if candidate.get("safetyRatings"):
+                    merged_response["response"]["candidates"][0]["safetyRatings"] = candidate["safetyRatings"]
 
-                        log.debug(f"[STREAM COLLECT] 处理chunk: {json.dumps(json_data, ensure_ascii=False)[:100]}")
-                    except json.JSONDecodeError:
-                        log.debug(f"[STREAM COLLECT] 跳过非JSON行: {json_str[:100]}")
-                        continue
+                if candidate.get("citationMetadata"):
+                    merged_response["response"]["candidates"][0]["citationMetadata"] = candidate["citationMetadata"]
 
-            if merged_response:
-                # 将所有parts放回响应结构中
-                if all_parts:
-                    merged_response["response"]["candidates"][0]["content"]["parts"] = all_parts
+                # 更新使用元数据
+                usage = response_obj.get("usageMetadata", {})
+                if usage:
+                    merged_response["response"]["usageMetadata"].update(usage)
 
-                log.debug(f"[STREAM COLLECT] 合并了 {len(all_parts)} 个parts（包括文本、图片等）")
-
-                # 返回纯JSON格式
-                return Response(
-                    content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
-                    status_code=status_code,
-                    headers=headers,
-                    media_type="application/json"
-                )
-            else:
-                log.warning(f"[STREAM COLLECT] 未能从SSE格式中提取有效JSON")
-                # 如果提取失败，返回原始内容
-                return Response(
-                    content=full_content,
-                    status_code=status_code,
-                    headers=headers,
-                    media_type="application/json"
-                )
-        else:
-            # 不是SSE格式，直接返回原始内容
-            log.debug(f"[STREAM COLLECT] 非SSE格式，直接返回")
-            return Response(
-                content=full_content,
-                status_code=status_code,
-                headers=headers,
-                media_type="application/json"
-            )
+            except json.JSONDecodeError as e:
+                log.debug(f"[STREAM COLLECTOR] Failed to parse JSON chunk: {e}")
+                continue
+            except Exception as e:
+                log.debug(f"[STREAM COLLECTOR] Error processing chunk: {e}")
+                continue
 
     except Exception as e:
-        log.error(f"[STREAM COLLECT] 收集流式响应时出错: {e}")
+        log.error(f"[STREAM COLLECTOR] Error collecting stream after {line_count} lines: {e}")
         return Response(
             content=json.dumps({"error": f"收集流式响应失败: {str(e)}"}),
             status_code=500,
             media_type="application/json"
         )
+
+    log.debug(f"[STREAM COLLECTOR] Finished iteration, has_data={has_data}, line_count={line_count}")
+
+    # 如果没有收集到任何数据，返回错误
+    if not has_data:
+        log.error(f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines")
+        return Response(
+            content=json.dumps({"error": "No data collected from stream"}),
+            status_code=500,
+            media_type="application/json"
+        )
+
+    # 组装最终的parts
+    final_parts = []
+
+    # 先添加思维链内容（如果有）
+    if collected_thought_text:
+        final_parts.append({
+            "text": "".join(collected_thought_text),
+            "thought": True
+        })
+
+    # 再添加普通文本内容
+    if collected_text:
+        final_parts.append({
+            "text": "".join(collected_text)
+        })
+
+    # 添加其他类型的parts（图片、文件等）
+    final_parts.extend(collected_other_parts)
+
+    # 如果没有任何内容，添加空文本
+    if not final_parts:
+        final_parts.append({"text": ""})
+
+    merged_response["response"]["candidates"][0]["content"]["parts"] = final_parts
+
+    log.info(f"[STREAM COLLECTOR] Collected {len(collected_text)} text chunks, {len(collected_thought_text)} thought chunks, and {len(collected_other_parts)} other parts")
+
+    # 去掉嵌套的 "response" 包装（Antigravity格式 -> 标准Gemini格式）
+    if "response" in merged_response and "candidates" not in merged_response:
+        log.debug(f"[STREAM COLLECTOR] 展开response包装")
+        merged_response = merged_response["response"]
+
+    # 返回纯JSON格式
+    return Response(
+        content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
+        status_code=200,
+        headers={},
+        media_type="application/json"
+    )
 
 
 def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:

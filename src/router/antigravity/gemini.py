@@ -105,16 +105,8 @@ async def generate_content(
     from src.api.antigravity import non_stream_request
     response = await non_stream_request(body=api_request)
 
-    # 对于图片模型，处理响应以确保前端可读
-    if "image" in real_model.lower():
-        from src.converter.gemini_fix import process_image_response
-        # 提取响应体并处理
-        if hasattr(response, "body"):
-            processed_body = process_image_response(response.body, is_streaming=False)
-            # 更新响应体
-            response.body = processed_body if isinstance(processed_body, bytes) else processed_body.encode('utf-8')
-
     # 直接返回响应（response已经是FastAPI Response对象）
+    # 保持 Gemini 原生的 inlineData 格式,不进行 Markdown 转换
     return response
 
 @router.post("/antigravity/v1beta/models/{model:path}:streamGenerateContent")
@@ -289,7 +281,7 @@ async def stream_generate_content(
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():
-        from src.converter.gemini_fix import normalize_gemini_request, process_image_response
+        from src.converter.gemini_fix import normalize_gemini_request
         from src.api.antigravity import stream_request
         from fastapi import Response
 
@@ -301,14 +293,11 @@ async def stream_generate_content(
             "request": normalized_req
         }
 
-        # 对于图片模型请求，不使用 native 模式（需要后处理）
-        use_native = "image" not in real_model.lower()
-        is_image_model = "image" in real_model.lower()
+        # 所有流式请求都使用非 native 模式（SSE格式）并展开 response 包装
+        log.debug(f"[ANTIGRAVITY] 使用非native模式，将展开response包装")
+        stream_gen = stream_request(body=api_request, native=False)
 
-        # 调用 API 层的流式请求
-        stream_gen = stream_request(body=api_request, native=use_native)
-
-        # yield所有数据,处理可能的错误Response
+        # 展开 response 包装
         async for chunk in stream_gen:
             # 检查是否是Response对象（错误情况）
             if isinstance(chunk, Response):
@@ -318,13 +307,38 @@ async def stream_generate_content(
                 # 以SSE格式返回错误
                 yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
                 return
-            else:
-                # 对于图片模型，处理chunk以确保前端可读
-                if is_image_model:
-                    processed_chunk = process_image_response(chunk, is_streaming=True)
-                    yield processed_chunk if isinstance(processed_chunk, bytes) else processed_chunk.encode('utf-8')
+
+            # 处理SSE格式的chunk
+            if isinstance(chunk, (str, bytes)):
+                chunk_str = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
+
+                # 解析并展开 response 包装
+                if chunk_str.startswith("data: "):
+                    json_str = chunk_str[6:].strip()
+
+                    # 跳过 [DONE] 标记
+                    if json_str == "[DONE]":
+                        yield chunk
+                        continue
+
+                    try:
+                        # 解析JSON
+                        data = json.loads(json_str)
+
+                        # 展开 response 包装
+                        if "response" in data and "candidates" not in data:
+                            log.debug(f"[ANTIGRAVITY] 展开response包装")
+                            unwrapped_data = data["response"]
+                            # 重新构建SSE格式
+                            yield f"data: {json.dumps(unwrapped_data, ensure_ascii=False)}\n\n".encode('utf-8')
+                        else:
+                            # 已经是展开的格式，直接返回
+                            yield chunk
+                    except json.JSONDecodeError:
+                        # JSON解析失败，直接返回原始chunk
+                        yield chunk
                 else:
-                    # 正常的bytes数据,直接yield
+                    # 不是SSE格式，直接返回
                     yield chunk
 
     # ========== 根据模式选择生成器 ==========
