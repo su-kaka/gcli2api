@@ -23,7 +23,7 @@ from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
 
 # 导入共同的基础功能
-from api.utils import (
+from src.api.utils import (
     handle_error_with_retry,
     get_retry_config,
     record_api_call_success,
@@ -54,23 +54,31 @@ async def _get_credential_manager() -> CredentialManager:
 
 # ==================== 辅助函数 ====================
 
-def build_antigravity_headers(access_token: str) -> Dict[str, str]:
+def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[str, str]:
     """
     构建 Antigravity API 请求头
 
     Args:
         access_token: 访问令牌
+        model_name: 模型名称，用于判断 request_type
 
     Returns:
         请求头字典
     """
-    return {
+    headers = {
         'User-Agent': ANTIGRAVITY_USER_AGENT,
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'application/json',
         'Accept-Encoding': 'gzip',
         'requestId': f"req-{uuid.uuid4()}"
     }
+
+    # 根据模型名称判断 request_type
+    if model_name:
+        request_type = "image_gen" if "image" in model_name.lower() else "agent"
+        headers['requestType'] = request_type
+
+    return headers
 
 
 # ==================== 新的流式和非流式请求函数 ====================
@@ -127,7 +135,7 @@ async def stream_request(
     antigravity_url = await get_antigravity_api_url()
     target_url = f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse"
 
-    auth_headers = build_antigravity_headers(access_token)
+    auth_headers = build_antigravity_headers(access_token, model_name)
 
     # 合并自定义headers
     if headers:
@@ -138,7 +146,7 @@ async def stream_request(
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = get_auto_ban_error_codes()  # 禁用凭证的错误码
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
 
     for attempt in range(max_retries + 1):
@@ -212,7 +220,7 @@ async def stream_request(
                                 )
                                 return
 
-                            auth_headers = build_antigravity_headers(access_token)
+                            auth_headers = build_antigravity_headers(access_token, model_name)
                             if headers:
                                 auth_headers.update(headers)
                             break  # 跳出内层循环，重新请求
@@ -319,7 +327,7 @@ async def non_stream_request(
     antigravity_url = await get_antigravity_api_url()
     target_url = f"{antigravity_url}/v1internal:generateContent"
 
-    auth_headers = build_antigravity_headers(access_token)
+    auth_headers = build_antigravity_headers(access_token, model_name)
 
     # 合并自定义headers
     if headers:
@@ -330,7 +338,7 @@ async def non_stream_request(
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = get_auto_ban_error_codes()  # 禁用凭证的错误码
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
 
     for attempt in range(max_retries + 1):
@@ -416,7 +424,7 @@ async def non_stream_request(
                             media_type="application/json"
                         )
 
-                    auth_headers = build_antigravity_headers(access_token)
+                    auth_headers = build_antigravity_headers(access_token, model_name)
                     if headers:
                         auth_headers.update(headers)
                     continue  # 重试

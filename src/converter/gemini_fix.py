@@ -156,8 +156,7 @@ def prepare_image_generation_request(
         image_config["aspectRatio"] = aspect_ratio
     if image_size:
         image_config["imageSize"] = image_size
-    
-    request_body["requestType"] = "image_gen"
+
     request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
     request_body["request"]["generationConfig"] = {
         "candidateCount": 1,
@@ -290,8 +289,6 @@ def normalize_gemini_request(
             # 调用图片生成专用处理函数
             return prepare_image_generation_request(result, model)
         else:
-            result["request_type"] = "agent"
-
             # 3. 思考模型处理
             if is_thinking_model(model):
                 if "thinkingConfig" not in generation_config:
