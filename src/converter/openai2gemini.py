@@ -546,13 +546,24 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                         else tool_call["function"]["arguments"]
                     )
 
-                    parts.append({
+                    # 解码工具ID和thoughtSignature
+                    encoded_id = tool_call.get("id", "")
+                    original_id, signature = decode_tool_id_and_signature(encoded_id)
+
+                    # 构建functionCall part
+                    function_call_part = {
                         "functionCall": {
-                            "id": tool_call.get("id", ""),
+                            "id": original_id,
                             "name": tool_call["function"]["name"],
                             "args": args
                         }
-                    })
+                    }
+                    
+                    # 如果有thoughtSignature，添加到part中
+                    if signature:
+                        function_call_part["thoughtSignature"] = signature
+
+                    parts.append(function_call_part)
                 except (json.JSONDecodeError, KeyError) as e:
                     log.error(f"Failed to parse tool call: {e}")
                     continue
