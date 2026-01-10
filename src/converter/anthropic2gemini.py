@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from log import log
 from src.converter.utils import merge_system_messages
@@ -18,7 +18,6 @@ from src.converter.thoughtSignature_fix import (
     decode_tool_id_and_signature
 )
 
-DEFAULT_THINKING_BUDGET = 1024
 DEFAULT_TEMPERATURE = 0.4
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
@@ -75,35 +74,7 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
     return value
 
 # ============================================================================
-# 2. Thinking 配置
-# ============================================================================
-
-def get_thinking_config(thinking: Optional[Union[bool, Dict[str, Any]]]) -> Dict[str, Any]:
-    """
-    根据 Anthropic/Claude 请求的 thinking 参数生成下游 thinkingConfig。
-    """
-    if thinking is None:
-        return {"includeThoughts": True, "thinkingBudget": DEFAULT_THINKING_BUDGET}
-
-    if isinstance(thinking, bool):
-        if thinking:
-            return {"includeThoughts": True, "thinkingBudget": DEFAULT_THINKING_BUDGET}
-        return {"includeThoughts": False}
-
-    if isinstance(thinking, dict):
-        thinking_type = thinking.get("type", "enabled")
-        is_enabled = thinking_type == "enabled"
-        if not is_enabled:
-            return {"includeThoughts": False}
-
-        budget = thinking.get("budget_tokens", DEFAULT_THINKING_BUDGET)
-        return {"includeThoughts": True, "thinkingBudget": budget}
-
-    return {"includeThoughts": True, "thinkingBudget": DEFAULT_THINKING_BUDGET}
-
-
-# ============================================================================
-# 3. JSON Schema 清理
+# 2. JSON Schema 清理
 # ============================================================================
 
 def clean_json_schema(schema: Any) -> Any:
@@ -429,12 +400,12 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 # 7. Generation Config 构建
 # ============================================================================
 
-def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     根据 Anthropic Messages 请求构造下游 generationConfig。
 
     Returns:
-        (generation_config, should_include_thinking): 元组
+        generation_config: 生成配置字典
     """
     config: Dict[str, Any] = {
         "topP": 1,
@@ -467,73 +438,7 @@ def build_generation_config(payload: Dict[str, Any]) -> tuple[Dict[str, Any], bo
     if isinstance(stop_sequences, list) and stop_sequences:
         config["stopSequences"] = config["stopSequences"] + [str(s) for s in stop_sequences]
 
-    # Thinking 配置处理
-    should_include_thinking = False
-    if "thinking" in payload:
-        thinking_value = payload.get("thinking")
-        if thinking_value is not None:
-            thinking_config = get_thinking_config(thinking_value)
-            include_thoughts = bool(thinking_config.get("includeThoughts", False))
-
-            # 检查最后一条 assistant 消息的首个块类型
-            last_assistant_first_block_type = None
-            for msg in reversed(payload.get("messages") or []):
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("role") != "assistant":
-                    continue
-                content = msg.get("content")
-                if not isinstance(content, list) or not content:
-                    continue
-                first_block = content[0]
-                if isinstance(first_block, dict):
-                    last_assistant_first_block_type = first_block.get("type")
-                else:
-                    last_assistant_first_block_type = None
-                break
-
-            if include_thoughts and last_assistant_first_block_type not in {
-                None, "thinking", "redacted_thinking",
-            }:
-                if _anthropic_debug_enabled():
-                    log.info(
-                        "[ANTHROPIC][thinking] 请求显式启用 thinking，但历史 messages 未回放 "
-                        "满足约束的 assistant thinking/redacted_thinking 起始块，已跳过下发 thinkingConfig"
-                    )
-                return config, False
-
-            # 处理 thinkingBudget 与 max_tokens 的关系
-            if include_thoughts and isinstance(max_tokens, int):
-                budget = thinking_config.get("thinkingBudget")
-                if isinstance(budget, int) and budget >= max_tokens:
-                    adjusted_budget = max(0, max_tokens - 1)
-                    if adjusted_budget <= 0:
-                        if _anthropic_debug_enabled():
-                            log.info(
-                                "[ANTHROPIC][thinking] thinkingBudget>=max_tokens 且无法下调到正数，"
-                                "已跳过下发 thinkingConfig"
-                            )
-                        return config, False
-                    if _anthropic_debug_enabled():
-                        log.info(
-                            f"[ANTHROPIC][thinking] thinkingBudget>=max_tokens，自动下调 budget: "
-                            f"{budget} -> {adjusted_budget}（max_tokens={max_tokens}）"
-                        )
-                    thinking_config["thinkingBudget"] = adjusted_budget
-
-            config["thinkingConfig"] = thinking_config
-            should_include_thinking = include_thoughts
-            if _anthropic_debug_enabled():
-                log.info(
-                    f"[ANTHROPIC][thinking] 已下发 thinkingConfig: includeThoughts="
-                    f"{thinking_config.get('includeThoughts')}, thinkingBudget="
-                    f"{thinking_config.get('thinkingBudget')}"
-                )
-        else:
-            if _anthropic_debug_enabled():
-                log.info("[ANTHROPIC][thinking] thinking=null，视为未启用 thinking")
-
-    return config, should_include_thinking
+    return config
 
 
 # ============================================================================
@@ -565,11 +470,11 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     if not isinstance(messages, list):
         messages = []
 
-    # 构建生成配置（包含thinking配置）
-    generation_config, should_include_thinking = build_generation_config(payload)
+    # 构建生成配置
+    generation_config = build_generation_config(payload)
 
-    # 转换消息内容
-    contents = convert_messages_to_contents(messages, include_thinking=should_include_thinking)
+    # 转换消息内容（始终包含thinking块，由响应端处理）
+    contents = convert_messages_to_contents(messages, include_thinking=True)
     contents = reorganize_tool_messages(contents)
 
     # 转换工具

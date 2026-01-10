@@ -268,7 +268,7 @@ async def normalize_gemini_request(
             if is_thinking_model(model):
                 if "thinkingConfig" not in generation_config:
                     generation_config["thinkingConfig"] = {
-                        "thinkingBudget": 32768,
+                        "thinkingBudget": 1024,
                         "includeThoughts": return_thoughts
                     }
                 # 移除 -thinking 后缀
@@ -289,15 +289,15 @@ async def normalize_gemini_request(
     # 2. 参数范围限制
     if generation_config:
         max_tokens = generation_config.get("maxOutputTokens")
-        if max_tokens is not None and max_tokens > 65535:
+        if max_tokens is not None:
             generation_config["maxOutputTokens"] = 65535
 
         top_k = generation_config.get("topK")
-        if top_k is not None and top_k > 64:
+        if top_k is not None:
             generation_config["topK"] = 64
 
     # 3. 工具清理
-    if tools and mode == "antigravity":
+    if tools:
         result["tools"] = clean_tools_for_gemini(tools)
 
     if generation_config:
