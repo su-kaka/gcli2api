@@ -315,6 +315,38 @@ async def normalize_gemini_request(
     if tools:
         result["tools"] = clean_tools_for_gemini(tools)
 
+    # 4. 清理空的 parts（修复 400 错误：required oneof field 'data' must have one initialized field）
+    if "contents" in result:
+        cleaned_contents = []
+        for content in result["contents"]:
+            if isinstance(content, dict) and "parts" in content:
+                # 过滤掉空的或无效的 parts
+                valid_parts = []
+                for part in content["parts"]:
+                    if not isinstance(part, dict):
+                        continue
+                    # 检查 part 是否有有效的数据字段
+                    has_valid_data = any(
+                        key in part and part[key] 
+                        for key in ["text", "inlineData", "fileData", "functionCall", "functionResponse"]
+                    )
+                    if has_valid_data:
+                        valid_parts.append(part)
+                    else:
+                        log.warning(f"[GEMINI_FIX] 移除空的 part: {part}")
+                
+                # 只添加有有效 parts 的 content
+                if valid_parts:
+                    cleaned_content = content.copy()
+                    cleaned_content["parts"] = valid_parts
+                    cleaned_contents.append(cleaned_content)
+                else:
+                    log.warning(f"[GEMINI_FIX] 跳过没有有效 parts 的 content: {content.get('role')}")
+            else:
+                cleaned_contents.append(content)
+        
+        result["contents"] = cleaned_contents
+
     if generation_config:
         result["generationConfig"] = generation_config
 
