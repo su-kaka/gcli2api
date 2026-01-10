@@ -1,4 +1,4 @@
-full_hash=7532201e5d29b8643639397c38db72615752da3c
-short_hash=7532201
-message=限制范围和模型名字处理
-date=2026-01-11 00:28:14 +0800
+full_hash=cce5c2a0899099f617fc20b1147e6c17fa96c5c6
+short_hash=cce5c2a
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-11 00:49:30 +0800
