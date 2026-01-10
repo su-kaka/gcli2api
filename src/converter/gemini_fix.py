@@ -23,39 +23,6 @@ UNSUPPORTED_SCHEMA_KEYS = {
 }
 
 
-def build_system_instruction_from_list(system_instructions: List[str]) -> Optional[Dict[str, Any]]:
-    """
-    从字符串列表构建 Gemini systemInstruction 对象
-
-    Args:
-        system_instructions: 系统指令字符串列表
-
-    Returns:
-        Gemini 格式的 systemInstruction 字典，如果列表为空则返回 None
-
-    Example:
-        >>> build_system_instruction_from_list(["You are helpful.", "Be concise."])
-        {
-            "parts": [
-                {"text": "You are helpful."},
-                {"text": "Be concise."}
-            ]
-        }
-    """
-    if not system_instructions:
-        return None
-
-    parts = []
-    for instruction in system_instructions:
-        if instruction and instruction.strip():
-            parts.append({"text": instruction})
-
-    if not parts:
-        return None
-
-    return {"parts": parts}
-
-
 
 def clean_tools_for_gemini(tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
     """

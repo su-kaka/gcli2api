@@ -475,13 +475,9 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     openai_request = await merge_system_messages(openai_request)
 
     contents = []
-    system_instructions = []
 
     # 提取消息列表
     messages = openai_request.get("messages", [])
-
-    # 第一阶段：收集连续的system消息
-    collecting_system = True
 
     for message in messages:
         role = message.get("role", "user")
@@ -524,21 +520,9 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
             })
             continue
 
-        # 处理系统消息
+        # system 消息已经由 merge_system_messages 处理，这里跳过
         if role == "system":
-            if collecting_system:
-                if isinstance(content, str):
-                    system_instructions.append(content)
-                elif isinstance(content, list):
-                    for part in content:
-                        if part.get("type") == "text" and part.get("text"):
-                            system_instructions.append(part["text"])
-                continue
-            else:
-                # 后续的system消息转换为user消息
-                role = "user"
-        else:
-            collecting_system = False
+            continue
 
         # 将OpenAI角色映射到Gemini角色
         if role == "assistant":
@@ -636,11 +620,9 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         "generationConfig": generation_config
     }
 
-    # 添加系统指令
-    if system_instructions:
-        gemini_request["systemInstruction"] = {
-            "parts": [{"text": "\n\n".join(system_instructions)}]
-        }
+    # 如果 merge_system_messages 已经添加了 systemInstruction，使用它
+    if "systemInstruction" in openai_request:
+        gemini_request["systemInstruction"] = openai_request["systemInstruction"]
 
     # 处理工具
     if "tools" in openai_request and openai_request["tools"]:

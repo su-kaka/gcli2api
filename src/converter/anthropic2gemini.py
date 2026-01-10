@@ -11,7 +11,6 @@ import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from log import log
-from src.converter.gemini_fix import build_system_instruction_from_list
 from src.converter.utils import merge_system_messages
 
 from src.converter.thoughtSignature_fix import (
@@ -422,38 +421,6 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 # ============================================================================
-# 6. System Instruction 构建
-# ============================================================================
-
-def build_system_instruction(system: Any) -> Optional[Dict[str, Any]]:
-    """
-    将 Anthropic system 字段转换为下游 systemInstruction
-
-    统一使用 gemini_fix.build_system_instruction_from_list 来处理
-    """
-    if not system:
-        return None
-
-    system_instructions: List[str] = []
-
-    if isinstance(system, str):
-        if _is_non_whitespace_text(system):
-            system_instructions.append(str(system))
-    elif isinstance(system, list):
-        for item in system:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text = item.get("text", "")
-                if _is_non_whitespace_text(text):
-                    system_instructions.append(str(text))
-    else:
-        if _is_non_whitespace_text(system):
-            system_instructions.append(str(system))
-
-    # 使用统一的函数构建 systemInstruction
-    return build_system_instruction_from_list(system_instructions)
-
-
-# ============================================================================
 # 7. Generation Config 构建
 # ============================================================================
 
@@ -600,13 +567,6 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     contents = convert_messages_to_contents(messages, include_thinking=should_include_thinking)
     contents = reorganize_tool_messages(contents)
 
-    # 转换系统指令
-    system_instruction = build_system_instruction(payload.get("system"))
-
-    # 如果merge_system_messages已经添加了systemInstruction，优先使用它
-    if "systemInstruction" in payload and not system_instruction:
-        system_instruction = payload["systemInstruction"]
-
     # 转换工具
     tools = convert_tools(payload.get("tools"))
 
@@ -615,10 +575,7 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
         "contents": contents,
         "generationConfig": generation_config,
     }
-
-    if system_instruction:
-        gemini_request["systemInstruction"] = system_instruction
-
+    
     if tools:
         gemini_request["tools"] = tools
 
