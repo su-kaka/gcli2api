@@ -123,12 +123,13 @@ class OpenAIChatCompletionStreamResponse(BaseModel):
 
 # Gemini Models
 class GeminiPart(BaseModel):
-    model_config = {"extra": "allow"}  # 允许额外字段（如 functionCall, functionResponse）
-    
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
     thought: Optional[bool] = None  # 改为 None，避免序列化时包含 False
+    
+    class Config:
+        extra = "allow"  # 允许额外字段（如 functionCall, functionResponse）
 
 
 class GeminiContent(BaseModel):
