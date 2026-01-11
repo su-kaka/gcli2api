@@ -275,10 +275,15 @@ async def normalize_gemini_request(
             # 3. 思考模型处理
             if is_thinking_model(model):
                 if "thinkingConfig" not in generation_config:
-                    generation_config["thinkingConfig"] = {
-                        "thinkingBudget": 1024,
-                        "includeThoughts": return_thoughts
-                    }
+                    generation_config["thinkingConfig"] = {}
+                
+                thinking_config = generation_config["thinkingConfig"]
+                # 优先使用传入的思考预算，否则使用默认值
+                if "thinkingBudget" not in thinking_config:
+                    thinking_config["thinkingBudget"] = 1024
+                if "includeThoughts" not in thinking_config:
+                    thinking_config["includeThoughts"] = return_thoughts
+                
                 # 移除 -thinking 后缀
                 model = model.replace("-thinking", "")
 
