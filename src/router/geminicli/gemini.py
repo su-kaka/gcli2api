@@ -105,8 +105,20 @@ async def generate_content(
     from src.api.geminicli import non_stream_request
     response = await non_stream_request(body=api_request)
 
-    # 直接返回响应（response已经是FastAPI Response对象）
-    return response
+    # 解包装响应：GeminiCli API 返回的格式有额外的 response 包装层
+    # 需要提取 response.response 并返回标准 Gemini 格式
+    try:
+        if response.status_code == 200:
+            response_data = json.loads(response.body if hasattr(response, 'body') else response.content)
+            # 如果有 response 包装，解包装它
+            if "response" in response_data:
+                unwrapped_data = response_data["response"]
+                return JSONResponse(content=unwrapped_data)
+        # 错误响应或没有 response 字段，直接返回
+        return response
+    except Exception as e:
+        log.warning(f"Failed to unwrap response: {e}, returning original response")
+        return response
 
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/v1/models/{model:path}:streamGenerateContent")
