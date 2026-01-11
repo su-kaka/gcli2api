@@ -1,4 +1,4 @@
-full_hash=490947e984c2bf5689ff94118324d08615f13e93
-short_hash=490947e
-message=修复gemini的流式抗截断
-date=2026-01-11 02:07:00 +0800
+full_hash=a9ffe3a43245ee490d1b9e377e573fe80b14a653
+short_hash=a9ffe3a
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-11 09:45:22 +0800
