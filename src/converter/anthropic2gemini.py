@@ -647,9 +647,48 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if max_tokens is not None:
         config["maxOutputTokens"] = max_tokens
 
+    # 处理 extended thinking 参数 (plan mode)
+    thinking = payload.get("thinking")
+    is_plan_mode = False
+    if thinking and isinstance(thinking, dict):
+        thinking_type = thinking.get("type")
+        budget_tokens = thinking.get("budget_tokens")
+        
+        # 如果启用了 extended thinking，设置 thinkingConfig
+        if thinking_type == "enabled":
+            is_plan_mode = True
+            thinking_config: Dict[str, Any] = {}
+            
+            # 设置思考预算，默认使用较大的值以支持计划模式
+            if budget_tokens is not None:
+                thinking_config["thinkingBudget"] = budget_tokens
+            else:
+                # 默认给一个较大的思考预算以支持完整的计划生成
+                thinking_config["thinkingBudget"] = 10240
+            
+            # 始终包含思考内容，这样才能看到计划
+            thinking_config["includeThoughts"] = True
+            
+            config["thinkingConfig"] = thinking_config
+            log.info(f"[ANTHROPIC2GEMINI] Extended thinking enabled with budget: {thinking_config['thinkingBudget']}")
+        elif thinking_type == "disabled":
+            # 明确禁用思考模式
+            config["thinkingConfig"] = {
+                "includeThoughts": False
+            }
+            log.info("[ANTHROPIC2GEMINI] Extended thinking explicitly disabled")
+
     stop_sequences = payload.get("stop_sequences")
     if isinstance(stop_sequences, list) and stop_sequences:
         config["stopSequences"] = config["stopSequences"] + [str(s) for s in stop_sequences]
+    elif is_plan_mode:
+        # Plan mode 时清空默认 stop sequences，避免过早停止
+        # 默认的 stop sequences 可能会导致模型在生成计划时过早停止
+        config["stopSequences"] = []
+        log.info("[ANTHROPIC2GEMINI] Plan mode: cleared default stop sequences to prevent premature stopping")
+    
+    # 如果不是 plan mode 且没有自定义 stop_sequences，保持默认值
+    # (默认值已经在 config 初始化时设置)
 
     return config
 
