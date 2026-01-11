@@ -159,72 +159,237 @@ def _normalize_function_name(name: str) -> str:
     return normalized
 
 
-def _clean_schema_for_gemini(schema: Any) -> Any:
+def _resolve_ref(ref: str, root_schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    清理 JSON Schema，移除 Gemini 不支持的字段
-
-    Gemini API 只支持有限的 OpenAPI 3.0 Schema 属性：
-    - 支持: type, description, enum, items, properties, required, nullable, format
-    - 不支持: $schema, $id, $ref, $defs, title, examples, default, readOnly,
-              exclusiveMaximum, exclusiveMinimum, oneOf, anyOf, allOf, const 等
-
+    解析 $ref 引用
+    
     Args:
-        schema: JSON Schema 对象（字典、列表或其他值）
+        ref: 引用路径，如 "#/definitions/MyType"
+        root_schema: 根 schema 对象
+        
+    Returns:
+        解析后的 schema，如果失败返回 None
+    """
+    if not ref.startswith('#/'):
+        return None
+    
+    path = ref[2:].split('/')
+    current = root_schema
+    
+    for segment in path:
+        if isinstance(current, dict) and segment in current:
+            current = current[segment]
+        else:
+            return None
+    
+    return current if isinstance(current, dict) else None
 
+
+def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] = None, visited: Optional[set] = None) -> Any:
+    """
+    清理 JSON Schema，转换为 Gemini 支持的格式
+    
+    参考 worker.mjs 的 transformOpenApiSchemaToGemini 实现
+    
+    处理逻辑：
+    1. 解析 $ref 引用
+    2. 合并 allOf 中的 schema
+    3. 转换 anyOf 为 enum（如果可能）
+    4. 类型映射（string -> STRING）
+    5. 处理 ARRAY 的 items（包括 Tuple）
+    6. 将 default 值移到 description
+    7. 清理不支持的字段
+    
+    Args:
+        schema: JSON Schema 对象
+        root_schema: 根 schema（用于解析 $ref）
+        visited: 已访问的对象集合（防止循环引用）
+        
     Returns:
         清理后的 schema
     """
+    # 非字典类型直接返回
     if not isinstance(schema, dict):
         return schema
-
-    # Gemini 不支持的字段
-    unsupported_keys = {
-        "$schema",
-        "$id",
-        "$ref",
-        "$defs",
-        "definitions",
-        "example",
-        "examples",
-        "readOnly",
-        "writeOnly",
-        "default",
-        "exclusiveMaximum",
-        "exclusiveMinimum",
-        "oneOf",
-        "anyOf",
-        "allOf",
-        "const",
-        "additionalItems",
-        "contains",
-        "patternProperties",
-        "dependencies",
-        "propertyNames",
-        "if",
-        "then",
-        "else",
-        "contentEncoding",
-        "contentMediaType",
-    }
-
-    cleaned = {}
-    for key, value in schema.items():
-        if key in unsupported_keys:
-            continue
-        if isinstance(value, dict):
-            cleaned[key] = _clean_schema_for_gemini(value)
-        elif isinstance(value, list):
-            cleaned[key] = [
-                _clean_schema_for_gemini(item) if isinstance(item, dict) else item for item in value
-            ]
+    
+    # 初始化
+    if root_schema is None:
+        root_schema = schema
+    if visited is None:
+        visited = set()
+    
+    # 防止循环引用
+    schema_id = id(schema)
+    if schema_id in visited:
+        return schema
+    visited.add(schema_id)
+    
+    # 创建副本避免修改原对象
+    result = {}
+    
+    # 1. 处理 $ref
+    if "$ref" in schema:
+        resolved = _resolve_ref(schema["$ref"], root_schema)
+        if resolved:
+            # 合并解析后的 schema 和当前 schema
+            import copy
+            result = copy.deepcopy(resolved)
+            # 当前 schema 的其他字段会覆盖解析后的字段
+            for key, value in schema.items():
+                if key != "$ref":
+                    result[key] = value
+            schema = result
+            result = {}
+    
+    # 2. 处理 allOf（合并所有 schema）
+    if "allOf" in schema:
+        all_of_schemas = schema["allOf"]
+        for item in all_of_schemas:
+            cleaned_item = _clean_schema_for_gemini(item, root_schema, visited)
+            
+            # 合并 properties
+            if "properties" in cleaned_item:
+                if "properties" not in result:
+                    result["properties"] = {}
+                result["properties"].update(cleaned_item["properties"])
+            
+            # 合并 required
+            if "required" in cleaned_item:
+                if "required" not in result:
+                    result["required"] = []
+                result["required"].extend(cleaned_item["required"])
+            
+            # 合并其他字段（简单覆盖）
+            for key, value in cleaned_item.items():
+                if key not in ["properties", "required"]:
+                    result[key] = value
+        
+        # 复制其他字段
+        for key, value in schema.items():
+            if key not in ["allOf", "properties", "required"]:
+                result[key] = value
+            elif key in ["properties", "required"] and key not in result:
+                result[key] = value
+    else:
+        # 复制所有字段
+        result = dict(schema)
+    
+    # 3. 类型映射（转换为大写）
+    if "type" in result:
+        type_value = result["type"]
+        
+        # 处理 type: ["string", "null"] 的情况
+        if isinstance(type_value, list):
+            primary_type = next((t for t in type_value if t != "null"), None)
+            if primary_type:
+                type_value = primary_type
+        
+        # 类型映射
+        type_map = {
+            "string": "STRING",
+            "number": "NUMBER",
+            "integer": "INTEGER",
+            "boolean": "BOOLEAN",
+            "array": "ARRAY",
+            "object": "OBJECT",
+        }
+        
+        if isinstance(type_value, str) and type_value.lower() in type_map:
+            result["type"] = type_map[type_value.lower()]
+    
+    # 4. 处理 ARRAY 的 items
+    if result.get("type") == "ARRAY":
+        if "items" not in result:
+            # 没有 items，默认允许任意类型
+            result["items"] = {}
+        elif isinstance(result["items"], list):
+            # Tuple 定义（items 是数组）
+            tuple_items = result["items"]
+            
+            # 提取类型信息用于 description
+            tuple_types = [item.get("type", "any") for item in tuple_items]
+            tuple_desc = f"(Tuple: [{', '.join(tuple_types)}])"
+            
+            original_desc = result.get("description", "")
+            result["description"] = f"{original_desc} {tuple_desc}".strip()
+            
+            # 检查是否所有元素类型相同
+            first_type = tuple_items[0].get("type") if tuple_items else None
+            is_homogeneous = all(item.get("type") == first_type for item in tuple_items)
+            
+            if is_homogeneous and first_type:
+                # 同质元组，转换为 List<Type>
+                result["items"] = _clean_schema_for_gemini(tuple_items[0], root_schema, visited)
+            else:
+                # 异质元组，Gemini 不支持，设为 {}
+                result["items"] = {}
         else:
-            cleaned[key] = value
-
-    # 确保有 type 字段（如果有 properties 但没有 type）
-    if "properties" in cleaned and "type" not in cleaned:
-        cleaned["type"] = "object"
-
-    return cleaned
+            # 递归处理 items
+            result["items"] = _clean_schema_for_gemini(result["items"], root_schema, visited)
+    
+    # 5. 处理 anyOf（尝试转换为 enum）
+    if "anyOf" in result:
+        any_of_schemas = result["anyOf"]
+        
+        # 递归处理每个 schema
+        cleaned_any_of = [_clean_schema_for_gemini(item, root_schema, visited) for item in any_of_schemas]
+        
+        # 尝试提取 enum
+        if all("const" in item for item in cleaned_any_of):
+            enum_values = [
+                str(item["const"]) 
+                for item in cleaned_any_of 
+                if item.get("const") not in ["", None]
+            ]
+            if enum_values:
+                result["type"] = "STRING"
+                result["enum"] = enum_values
+        elif "type" not in result:
+            # 如果不是 enum，尝试取第一个有效的类型定义
+            first_valid = next((item for item in cleaned_any_of if item.get("type") or item.get("enum")), None)
+            if first_valid:
+                result.update(first_valid)
+        
+        # 删除 anyOf
+        del result["anyOf"]
+    
+    # 6. 将 default 值移到 description
+    if "default" in result:
+        default_value = result["default"]
+        original_desc = result.get("description", "")
+        result["description"] = f"{original_desc} (Default: {json.dumps(default_value)})".strip()
+        del result["default"]
+    
+    # 7. 清理不支持的字段
+    unsupported_keys = {
+        "title", "$schema", "$ref", "strict", "exclusiveMaximum",
+        "exclusiveMinimum", "additionalProperties", "oneOf", "allOf",
+        "$defs", "definitions", "example", "examples", "readOnly",
+        "writeOnly", "const", "additionalItems", "contains",
+        "patternProperties", "dependencies", "propertyNames",
+        "if", "then", "else", "contentEncoding", "contentMediaType"
+    }
+    
+    for key in list(result.keys()):
+        if key in unsupported_keys:
+            del result[key]
+    
+    # 8. 递归处理 properties
+    if "properties" in result:
+        cleaned_props = {}
+        for prop_name, prop_schema in result["properties"].items():
+            cleaned_props[prop_name] = _clean_schema_for_gemini(prop_schema, root_schema, visited)
+        result["properties"] = cleaned_props
+    
+    # 9. 确保有 type 字段（如果有 properties 但没有 type）
+    if "properties" in result and "type" not in result:
+        result["type"] = "OBJECT"
+    
+    # 10. 去重 required 数组
+    if "required" in result and isinstance(result["required"], list):
+        result["required"] = list(dict.fromkeys(result["required"]))  # 保持顺序去重
+    
+    return result
 
 
 def fix_tool_call_args_types(
@@ -445,6 +610,76 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
     return {"functionResponse": {"id": original_tool_call_id, "name": name, "response": response_data}}
 
 
+def _reverse_transform_value(value: Any) -> Any:
+    """
+    将值转换回原始类型（Gemini 可能将所有值转为字符串）
+    
+    参考 worker.mjs 的 reverseTransformValue
+    
+    Args:
+        value: 要转换的值
+        
+    Returns:
+        转换后的值
+    """
+    if not isinstance(value, str):
+        return value
+    
+    # 布尔值
+    if value == 'true':
+        return True
+    if value == 'false':
+        return False
+    
+    # null
+    if value == 'null':
+        return None
+    
+    # 数字（确保字符串确实是纯数字）
+    if value.strip() and not value.startswith('0') and value.replace('.', '', 1).replace('-', '', 1).replace('+', '', 1).isdigit():
+        try:
+            # 尝试转换为数字
+            num_value = float(value)
+            # 如果是整数，返回 int
+            if num_value == int(num_value):
+                return int(num_value)
+            return num_value
+        except ValueError:
+            pass
+    
+    # 其他情况保持字符串
+    return value
+
+
+def _reverse_transform_args(args: Any) -> Any:
+    """
+    递归转换函数参数，将字符串转回原始类型
+    
+    参考 worker.mjs 的 reverseTransformArgs
+    
+    Args:
+        args: 函数参数（可能是字典、列表或其他类型）
+        
+    Returns:
+        转换后的参数
+    """
+    if not isinstance(args, (dict, list)):
+        return args
+    
+    if isinstance(args, list):
+        return [_reverse_transform_args(item) for item in args]
+    
+    # 处理字典
+    result = {}
+    for key, value in args.items():
+        if isinstance(value, (dict, list)):
+            result[key] = _reverse_transform_args(value)
+        else:
+            result[key] = _reverse_transform_value(value)
+    
+    return result
+
+
 def extract_tool_calls_from_parts(
     parts: List[Dict[str, Any]], is_streaming: bool = False
 ) -> Tuple[List[Dict[str, Any]], str]:
@@ -471,12 +706,17 @@ def extract_tool_calls_from_parts(
             signature = part.get("thoughtSignature")
             encoded_id = encode_tool_id_with_signature(original_id, signature)
 
+            # 获取参数并转换类型
+            args = function_call.get("args", {})
+            # 将字符串类型的值转回原始类型
+            args = _reverse_transform_args(args)
+
             tool_call = {
                 "id": encoded_id,
                 "type": "function",
                 "function": {
                     "name": function_call.get("name", "nameless_function"),
-                    "arguments": json.dumps(function_call.get("args", {})),
+                    "arguments": json.dumps(args),
                 },
             }
             # 流式响应需要 index 字段
@@ -693,12 +933,19 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
 
     # 构建生成配置
     generation_config = {}
+    model = openai_request.get("model", "")
+    
+    # 基础参数映射
     if "temperature" in openai_request:
         generation_config["temperature"] = openai_request["temperature"]
     if "top_p" in openai_request:
         generation_config["topP"] = openai_request["top_p"]
-    if "max_tokens" in openai_request:
-        generation_config["maxOutputTokens"] = openai_request["max_tokens"]
+    if "top_k" in openai_request:
+        generation_config["topK"] = openai_request["top_k"]
+    if "max_tokens" in openai_request or "max_completion_tokens" in openai_request:
+        # max_completion_tokens 优先于 max_tokens
+        max_tokens = openai_request.get("max_completion_tokens") or openai_request.get("max_tokens")
+        generation_config["maxOutputTokens"] = max_tokens
     if "stop" in openai_request:
         stop = openai_request["stop"]
         generation_config["stopSequences"] = [stop] if isinstance(stop, str) else stop
@@ -710,10 +957,26 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         generation_config["candidateCount"] = openai_request["n"]
     if "seed" in openai_request:
         generation_config["seed"] = openai_request["seed"]
+    
+    # 处理 response_format
     if "response_format" in openai_request and openai_request["response_format"]:
-        if openai_request["response_format"].get("type") == "json_object":
+        response_format = openai_request["response_format"]
+        format_type = response_format.get("type")
+        
+        if format_type == "json_schema":
+            # JSON Schema 模式
+            if "json_schema" in response_format and "schema" in response_format["json_schema"]:
+                schema = response_format["json_schema"]["schema"]
+                # 清理 schema
+                generation_config["responseSchema"] = _clean_schema_for_gemini(schema)
+                generation_config["responseMimeType"] = "application/json"
+        elif format_type == "json_object":
+            # JSON Object 模式
             generation_config["responseMimeType"] = "application/json"
-
+        elif format_type == "text":
+            # Text 模式
+            generation_config["responseMimeType"] = "text/plain"
+            
     # 如果contents为空,添加默认用户消息
     if not contents:
         contents.append({"role": "user", "parts": [{"text": "请根据系统指令回答。"}]})
@@ -812,25 +1075,57 @@ def convert_gemini_to_openai_response(
         # 提取工具调用和文本内容
         tool_calls, text_content = extract_tool_calls_from_parts(parts)
 
-        # 提取图片数据
-        images = []
+        # 提取多种类型的内容
+        content_parts = []
+        reasoning_parts = []
+        
         for part in parts:
-            if "inlineData" in part:
+            # 处理 executableCode（代码生成）
+            if "executableCode" in part:
+                exec_code = part["executableCode"]
+                lang = exec_code.get("language", "python").lower()
+                code = exec_code.get("code", "")
+                # 添加代码块（前后加换行符确保 Markdown 渲染正确）
+                content_parts.append(f"\n```{lang}\n{code}\n```\n")
+            
+            # 处理 codeExecutionResult（代码执行结果）
+            elif "codeExecutionResult" in part:
+                result = part["codeExecutionResult"]
+                outcome = result.get("outcome")
+                output = result.get("output", "")
+                
+                if output:
+                    label = "output" if outcome == "OUTCOME_OK" else "error"
+                    content_parts.append(f"\n```{label}\n{output}\n```\n")
+            
+            # 处理 thought（思考内容）
+            elif part.get("thought", False) and "text" in part:
+                reasoning_parts.append(part["text"])
+            
+            # 处理普通文本（非思考内容）
+            elif "text" in part and not part.get("thought", False):
+                # 这部分已经在 extract_tool_calls_from_parts 中处理
+                pass
+            
+            # 处理 inlineData（图片）
+            elif "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "image/png")
                 base64_data = inline_data.get("data", "")
-                images.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{mime_type};base64,{base64_data}"
-                    }
-                })
-
-        # 提取 reasoning content
-        reasoning_content = ""
-        for part in parts:
-            if part.get("thought", False) and "text" in part:
-                reasoning_content += part["text"]
+                # 使用 Markdown 格式
+                content_parts.append(f"![gemini-generated-content](data:{mime_type};base64,{base64_data})")
+        
+        # 合并所有内容部分
+        if content_parts:
+            # 使用双换行符连接各部分，确保块之间有间距
+            additional_content = "\n\n".join(content_parts)
+            if text_content:
+                text_content = text_content + "\n\n" + additional_content
+            else:
+                text_content = additional_content
+        
+        # 合并 reasoning content
+        reasoning_content = "\n\n".join(reasoning_parts) if reasoning_parts else ""
 
         # 构建消息对象
         message = {"role": role}
@@ -840,14 +1135,6 @@ def convert_gemini_to_openai_response(
             message["tool_calls"] = tool_calls
             message["content"] = text_content if text_content else None
             finish_reason = "tool_calls"
-        # 如果有图片
-        elif images:
-            content_list = []
-            if text_content:
-                content_list.append({"type": "text", "text": text_content})
-            content_list.extend(images)
-            message["content"] = content_list
-            finish_reason = _map_finish_reason(candidate.get("finishReason"))
         else:
             message["content"] = text_content
             finish_reason = _map_finish_reason(candidate.get("finishReason"))
@@ -951,25 +1238,54 @@ def convert_gemini_to_openai_stream(
         # 提取工具调用和文本内容 (流式需要 index)
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
 
-        # 提取图片数据
-        images = []
+        # 提取多种类型的内容
+        content_parts = []
+        reasoning_parts = []
+        
         for part in parts:
-            if "inlineData" in part:
+            # 处理 executableCode（代码生成）
+            if "executableCode" in part:
+                exec_code = part["executableCode"]
+                lang = exec_code.get("language", "python").lower()
+                code = exec_code.get("code", "")
+                content_parts.append(f"\n```{lang}\n{code}\n```\n")
+            
+            # 处理 codeExecutionResult（代码执行结果）
+            elif "codeExecutionResult" in part:
+                result = part["codeExecutionResult"]
+                outcome = result.get("outcome")
+                output = result.get("output", "")
+                
+                if output:
+                    label = "output" if outcome == "OUTCOME_OK" else "error"
+                    content_parts.append(f"\n```{label}\n{output}\n```\n")
+            
+            # 处理 thought（思考内容）
+            elif part.get("thought", False) and "text" in part:
+                reasoning_parts.append(part["text"])
+            
+            # 处理普通文本（非思考内容）
+            elif "text" in part and not part.get("thought", False):
+                # 这部分已经在 extract_tool_calls_from_parts 中处理
+                pass
+            
+            # 处理 inlineData（图片）
+            elif "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "image/png")
                 base64_data = inline_data.get("data", "")
-                images.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{mime_type};base64,{base64_data}"
-                    }
-                })
-
-        # 提取 reasoning content
-        reasoning_content = ""
-        for part in parts:
-            if part.get("thought", False) and "text" in part:
-                reasoning_content += part["text"]
+                content_parts.append(f"![gemini-generated-content](data:{mime_type};base64,{base64_data})")
+        
+        # 合并所有内容部分
+        if content_parts:
+            additional_content = "\n\n".join(content_parts)
+            if text_content:
+                text_content = text_content + "\n\n" + additional_content
+            else:
+                text_content = additional_content
+        
+        # 合并 reasoning content
+        reasoning_content = "\n\n".join(reasoning_parts) if reasoning_parts else ""
 
         # 构建 delta 对象
         delta = {}
@@ -978,13 +1294,6 @@ def convert_gemini_to_openai_stream(
             delta["tool_calls"] = tool_calls
             if text_content:
                 delta["content"] = text_content
-        elif images:
-            # 流式响应中的图片: 以 markdown 格式返回
-            markdown_images = [f"![Generated Image]({img['image_url']['url']})" for img in images]
-            if text_content:
-                delta["content"] = text_content + "\n\n" + "\n\n".join(markdown_images)
-            else:
-                delta["content"] = "\n\n".join(markdown_images)
         elif text_content:
             delta["content"] = text_content
 

@@ -369,34 +369,23 @@ async def normalize_gemini_request(
     if tools:
         result["tools"] = clean_tools_for_gemini(tools)
 
-    # 4. 清理空的 parts 和未知字段（修复 400 错误：required oneof field 'data' must have one initialized field）
-    # 同时移除不支持的字段如 cache_control
     if "contents" in result:
-        # 定义 part 中允许的字段集合
-        ALLOWED_PART_KEYS = {
-            "text", "inlineData", "fileData", "functionCall", "functionResponse",
-            "thought", "thoughtSignature"  # thinking 相关字段
-        }
-        
         cleaned_contents = []
         for content in result["contents"]:
             if isinstance(content, dict) and "parts" in content:
-                # 过滤掉空的或无效的 parts，并移除未知字段
+                # 过滤掉空的或无效的 parts
                 valid_parts = []
                 for part in content["parts"]:
                     if not isinstance(part, dict):
                         continue
                     
-                    # 移除不支持的字段（如 cache_control）
-                    cleaned_part = {k: v for k, v in part.items() if k in ALLOWED_PART_KEYS}
-                    
                     # 检查 part 是否有有效的数据字段
                     has_valid_data = any(
-                        key in cleaned_part and cleaned_part[key] 
+                        key in part and part[key] 
                         for key in ["text", "inlineData", "fileData", "functionCall", "functionResponse"]
                     )
                     if has_valid_data:
-                        valid_parts.append(cleaned_part)
+                        valid_parts.append(part)
                     else:
                         log.warning(f"[GEMINI_FIX] 移除空的或无效的 part: {part}")
                 
