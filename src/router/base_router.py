@@ -3,41 +3,9 @@ Base Router - 共用的路由基础功能
 提供模型列表处理、通用响应等共同功能
 """
 
-from typing import List, Optional
+from typing import List
 
 from src.models import Model, ModelList
-
-
-# ==================== 模型列表处理 ====================
-
-def expand_models_with_features(
-    base_models: List[str],
-    features: Optional[List[str]] = None
-) -> List[str]:
-    """
-    使用特性前缀扩展模型列表
-    
-    Args:
-        base_models: 基础模型列表
-        features: 特性前缀列表，如 ["流式抗截断", "假流式"]
-        
-    Returns:
-        扩展后的模型列表（包含原始模型和特性变体）
-    """
-    if not features:
-        return base_models.copy()
-    
-    expanded = []
-    for model in base_models:
-        # 添加原始模型
-        expanded.append(model)
-        
-        # 添加特性变体
-        for feature in features:
-            expanded.append(f"{feature}/{model}")
-    
-    return expanded
-
 
 def create_openai_model_list(
     model_ids: List[str],

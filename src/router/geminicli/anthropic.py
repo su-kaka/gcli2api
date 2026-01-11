@@ -16,11 +16,11 @@ import asyncio
 import json
 
 # 第三方库
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 # 本地模块 - 配置和日志
-from config import get_anti_truncation_max_attempts
+from config import get_anti_truncation_max_attempts, get_api_password
 from log import log
 
 # 本地模块 - 工具和认证
@@ -46,6 +46,9 @@ from src.models import ClaudeRequest, model_to_dict
 
 # 本地模块 - 任务管理
 from src.task_manager import create_managed_task
+
+# 本地模块 - Token估算
+from src.token_estimator import estimate_input_tokens
 
 
 # ==================== 路由器初始化 ====================
@@ -362,6 +365,77 @@ async def messages(
         return StreamingResponse(anti_truncation_generator(), media_type="text/event-stream")
     else:
         return StreamingResponse(normal_stream_generator(), media_type="text/event-stream")
+
+
+@router.post("/v1/messages/count_tokens")
+async def count_tokens(
+    request: Request,
+    _token: str = Depends(authenticate_bearer)
+):
+    """
+    处理Anthropic格式的token计数请求
+    
+    Args:
+        request: FastAPI请求对象
+        _token: Bearer认证令牌（由Depends验证）
+    
+    Returns:
+        JSONResponse: 包含input_tokens的响应
+    """
+    try:
+        payload = await request.json()
+    except Exception as e:
+        return JSONResponse(
+            status_code=400,
+            content={"type": "error", "error": {"type": "invalid_request_error", "message": f"JSON 解析失败: {str(e)}"}}
+        )
+
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"type": "error", "error": {"type": "invalid_request_error", "message": "请求体必须为 JSON object"}}
+        )
+
+    if not payload.get("model") or not isinstance(payload.get("messages"), list):
+        return JSONResponse(
+            status_code=400,
+            content={"type": "error", "error": {"type": "invalid_request_error", "message": "缺少必填字段：model / messages"}}
+        )
+
+    try:
+        client_host = request.client.host if request.client else "unknown"
+        client_port = request.client.port if request.client else "unknown"
+    except Exception:
+        client_host = "unknown"
+        client_port = "unknown"
+
+    thinking_present = "thinking" in payload
+    thinking_value = payload.get("thinking")
+    thinking_summary = None
+    if thinking_present:
+        if isinstance(thinking_value, dict):
+            thinking_summary = {
+                "type": thinking_value.get("type"),
+                "budget_tokens": thinking_value.get("budget_tokens"),
+            }
+        else:
+            thinking_summary = thinking_value
+
+    user_agent = request.headers.get("user-agent", "")
+    log.info(
+        f"[GEMINICLI-ANTHROPIC] /messages/count_tokens 收到请求: client={client_host}:{client_port}, "
+        f"model={payload.get('model')}, messages={len(payload.get('messages') or [])}, "
+        f"thinking_present={thinking_present}, thinking={thinking_summary}, ua={user_agent}"
+    )
+
+    # 简单估算
+    input_tokens = 0
+    try:
+        input_tokens = estimate_input_tokens(payload)
+    except Exception as e:
+        log.error(f"[GEMINICLI-ANTHROPIC] token 估算失败: {e}")
+
+    return JSONResponse(content={"input_tokens": input_tokens})
 
 
 # ==================== 测试代码 ====================
