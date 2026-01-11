@@ -244,8 +244,9 @@ async def normalize_gemini_request(
 
         # 3. 搜索模型添加 Google Search
         if is_search_model(model):
-            result_tools = result.setdefault("tools", [])
-            if not any(tool.get("googleSearch") for tool in result_tools):
+            result_tools = result.get("tools") or []
+            result["tools"] = result_tools
+            if not any(tool.get("googleSearch") for tool in result_tools if isinstance(tool, dict)):
                 result_tools.append({"googleSearch": {}})
 
         # 4. 模型名称处理
