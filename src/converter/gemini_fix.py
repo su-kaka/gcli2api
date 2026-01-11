@@ -260,7 +260,7 @@ async def normalize_gemini_request(
                             # 如果第一个 part 不是 thinking，则插入
                             if not parts or not (isinstance(parts[0], dict) and "thoughtSignature" in parts[0]):
                                 content["parts"] = [thinking_part] + parts
-                                log.info(f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
+                                log.debug(f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
                             break
                 
             # 移除 -thinking 后缀
