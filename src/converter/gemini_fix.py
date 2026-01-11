@@ -146,8 +146,8 @@ def check_last_assistant_has_thinking(contents: List[Dict[str, Any]]) -> bool:
     if not isinstance(first_part, dict):
         return False
     
-    # 检查是否是 thinking 块（有 thought 字段且为 True）
-    return first_part.get("thought") is True
+    # 检查是否是 thinking 块（有 thought_signature 字段）
+    return "thought_signature" in first_part
 
 
 async def normalize_gemini_request(
@@ -229,28 +229,42 @@ async def normalize_gemini_request(
         else:
             # 3. 思考模型处理
             if is_thinking_model(model):
+                # 直接设置 thinkingConfig
+                if "thinkingConfig" not in generation_config:
+                    generation_config["thinkingConfig"] = {}
+                
+                thinking_config = generation_config["thinkingConfig"]
+                # 优先使用传入的思考预算，否则使用默认值
+                if "thinkingBudget" not in thinking_config:
+                    thinking_config["thinkingBudget"] = 1024
+                if "includeThoughts" not in thinking_config:
+                    thinking_config["includeThoughts"] = return_thoughts
+                
                 # 检查最后一个 assistant 消息是否以 thinking 块开始
                 contents = result.get("contents", [])
-                can_enable_thinking = check_last_assistant_has_thinking(contents)
-                
-                if can_enable_thinking:
-                    if "thinkingConfig" not in generation_config:
-                        generation_config["thinkingConfig"] = {}
+
+                if not check_last_assistant_has_thinking(contents):
+                    # 最后一个 assistant 消息不是以 thinking 块开始，填充思考块避免失效
+                    log.warning(f"[ANTIGRAVITY] 最后一个 assistant 消息不以 thinking 块开始，自动填充思考块")
                     
-                    thinking_config = generation_config["thinkingConfig"]
-                    # 优先使用传入的思考预算，否则使用默认值
-                    if "thinkingBudget" not in thinking_config:
-                        thinking_config["thinkingBudget"] = 1024
-                    if "includeThoughts" not in thinking_config:
-                        thinking_config["includeThoughts"] = return_thoughts
-                else:
-                    # 最后一个 assistant 消息不是以 thinking 块开始，禁用 thinking
-                    log.warning(f"[ANTIGRAVITY] 最后一个 assistant 消息不以 thinking 块开始，禁用 thinkingConfig")
-                    # 移除可能存在的 thinkingConfig
-                    generation_config.pop("thinkingConfig", None)
+                    # 找到最后一个 model 角色的 content
+                    for i in range(len(contents) - 1, -1, -1):
+                        content = contents[i]
+                        if isinstance(content, dict) and content.get("role") == "model":
+                            # 在 parts 开头插入思考块（使用官方跳过验证的虚拟签名）
+                            parts = content.get("parts", [])
+                            thinking_part = {
+                                "text": "Continuing from previous context...",
+                                "thoughtSignature": "skip_thought_signature_validator"  # 官方文档推荐的虚拟签名
+                            }
+                            # 如果第一个 part 不是 thinking，则插入
+                            if not parts or not (isinstance(parts[0], dict) and "thoughtSignature" in parts[0]):
+                                content["parts"] = [thinking_part] + parts
+                                log.info(f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
+                            break
                 
-                # 移除 -thinking 后缀
-                model = model.replace("-thinking", "")
+            # 移除 -thinking 后缀
+            model = model.replace("-thinking", "")
 
             # 4. Claude 模型关键词映射
             # 使用关键词匹配而不是精确匹配，更灵活地处理各种变体
