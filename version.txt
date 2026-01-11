@@ -1,4 +1,4 @@
-full_hash=a1388e17bb9c1b4c6eaf831b1f704a2ec5a1045d
-short_hash=a1388e1
-message=修复流式抗截断模型
-date=2026-01-11 01:50:45 +0800
+full_hash=490947e984c2bf5689ff94118324d08615f13e93
+short_hash=490947e
+message=修复gemini的流式抗截断
+date=2026-01-11 02:07:00 +0800
