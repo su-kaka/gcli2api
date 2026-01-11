@@ -191,6 +191,44 @@ def is_thinking_model(model_name: str) -> bool:
     return "-thinking" in model_name or "pro" in model_name.lower()
 
 
+def check_last_assistant_has_thinking(contents: List[Dict[str, Any]]) -> bool:
+    """
+    检查最后一个 assistant 消息是否以 thinking 块开始
+    
+    根据 Claude API 要求：当启用 thinking 时，最后一个 assistant 消息必须以 thinking 块开始
+    
+    Args:
+        contents: Gemini 格式的 contents 数组
+        
+    Returns:
+        如果最后一个 assistant 消息以 thinking 块开始则返回 True，否则返回 False
+    """
+    if not contents:
+        return True  # 没有 contents，允许启用 thinking
+    
+    # 从后往前找最后一个 assistant (model) 消息
+    last_assistant_content = None
+    for content in reversed(contents):
+        if isinstance(content, dict) and content.get("role") == "model":
+            last_assistant_content = content
+            break
+    
+    if not last_assistant_content:
+        return True  # 没有 assistant 消息，允许启用 thinking
+    
+    # 检查第一个 part 是否是 thinking 块
+    parts = last_assistant_content.get("parts", [])
+    if not parts:
+        return False  # 有 assistant 消息但没有 parts，不允许 thinking
+    
+    first_part = parts[0]
+    if not isinstance(first_part, dict):
+        return False
+    
+    # 检查是否是 thinking 块（有 thought 字段且为 True）
+    return first_part.get("thought") is True
+
+
 async def normalize_gemini_request(
     request: Dict[str, Any],
     mode: str = "geminicli"
@@ -274,15 +312,25 @@ async def normalize_gemini_request(
         else:
             # 3. 思考模型处理
             if is_thinking_model(model):
-                if "thinkingConfig" not in generation_config:
-                    generation_config["thinkingConfig"] = {}
+                # 检查最后一个 assistant 消息是否以 thinking 块开始
+                contents = result.get("contents", [])
+                can_enable_thinking = check_last_assistant_has_thinking(contents)
                 
-                thinking_config = generation_config["thinkingConfig"]
-                # 优先使用传入的思考预算，否则使用默认值
-                if "thinkingBudget" not in thinking_config:
-                    thinking_config["thinkingBudget"] = 1024
-                if "includeThoughts" not in thinking_config:
-                    thinking_config["includeThoughts"] = return_thoughts
+                if can_enable_thinking:
+                    if "thinkingConfig" not in generation_config:
+                        generation_config["thinkingConfig"] = {}
+                    
+                    thinking_config = generation_config["thinkingConfig"]
+                    # 优先使用传入的思考预算，否则使用默认值
+                    if "thinkingBudget" not in thinking_config:
+                        thinking_config["thinkingBudget"] = 1024
+                    if "includeThoughts" not in thinking_config:
+                        thinking_config["includeThoughts"] = return_thoughts
+                else:
+                    # 最后一个 assistant 消息不是以 thinking 块开始，禁用 thinking
+                    log.warning(f"[ANTIGRAVITY] 最后一个 assistant 消息不以 thinking 块开始，禁用 thinkingConfig")
+                    # 移除可能存在的 thinkingConfig
+                    generation_config.pop("thinkingConfig", None)
                 
                 # 移除 -thinking 后缀
                 model = model.replace("-thinking", "")

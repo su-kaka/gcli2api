@@ -252,37 +252,40 @@ def convert_messages_to_contents(
                     if not include_thinking:
                         continue
 
-                    signature = item.get("signature")
-                    if not signature:
-                        continue
-
                     thinking_text = item.get("thinking", "")
                     if thinking_text is None:
                         thinking_text = ""
+                    
                     part: Dict[str, Any] = {
                         "text": str(thinking_text),
                         "thought": True,
-                        "thoughtSignature": signature,
                     }
+                    
+                    # 如果有 signature 则添加
+                    signature = item.get("signature")
+                    if signature:
+                        part["thoughtSignature"] = signature
+                    
                     parts.append(part)
                 elif item_type == "redacted_thinking":
                     if not include_thinking:
                         continue
 
-                    signature = item.get("signature")
-                    if not signature:
-                        continue
-
                     thinking_text = item.get("thinking")
                     if thinking_text is None:
                         thinking_text = item.get("data", "")
-                    parts.append(
-                        {
-                            "text": str(thinking_text or ""),
-                            "thought": True,
-                            "thoughtSignature": signature,
-                        }
-                    )
+                    
+                    part_dict: Dict[str, Any] = {
+                        "text": str(thinking_text or ""),
+                        "thought": True,
+                    }
+                    
+                    # 如果有 signature 则添加
+                    signature = item.get("signature")
+                    if signature:
+                        part_dict["thoughtSignature"] = signature
+                    
+                    parts.append(part_dict)
                 elif item_type == "text":
                     text = item.get("text", "")
                     if _is_non_whitespace_text(text):
