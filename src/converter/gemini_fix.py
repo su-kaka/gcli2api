@@ -315,6 +315,10 @@ async def normalize_gemini_request(
                     )
                     
                     if has_valid_value:
+                        # 清理 text 字段的尾随空格
+                        if "text" in part and isinstance(part["text"], str):
+                            part = part.copy()
+                            part["text"] = part["text"].rstrip()
                         valid_parts.append(part)
                     else:
                         log.warning(f"[GEMINI_FIX] 移除空的或无效的 part: {part}")
