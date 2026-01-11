@@ -159,7 +159,6 @@ async def normalize_gemini_request(
 
     处理逻辑:
     1. 模型特性处理 (thinking config, search tools)
-    2. 字段名转换 (system_instructions -> systemInstruction)
     3. 参数范围限制 (maxOutputTokens, topK)
     4. 工具清理
 
@@ -284,9 +283,6 @@ async def normalize_gemini_request(
                 log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
     # ========== 公共处理 ==========
-    # 1. 字段名转换
-    if "system_instructions" in result:
-        result["systemInstruction"] = result.pop("system_instructions")
 
     # 2. 参数范围限制
     if generation_config:
