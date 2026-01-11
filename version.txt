@@ -1,4 +1,4 @@
-full_hash=d0ba30f327f4a2a473b6dc765e75211c35a8d25a
-short_hash=d0ba30f
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-01-11 17:27:07 +0800
+full_hash=51041fdd96814cd448f8856569c2f50806733d52
+short_hash=51041fd
+message=claude路由增加token计数
+date=2026-01-11 18:06:39 +0800
