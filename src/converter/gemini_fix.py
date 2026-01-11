@@ -216,7 +216,7 @@ async def normalize_gemini_request(
 
     result = request.copy()
     model = result.get("model", "")
-    generation_config = result.get("generationConfig", {}).copy()  # 创建副本避免修改原对象
+    generation_config = (result.get("generationConfig") or {}).copy()  # 创建副本避免修改原对象
     tools = result.get("tools")
     system_instruction = result.get("systemInstruction") or result.get("system_instructions")
     
