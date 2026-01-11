@@ -75,7 +75,10 @@ def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[s
 
     # 根据模型名称判断 request_type
     if model_name:
-        request_type = "image_gen" if "image" in model_name.lower() else "agent"
+        if "image" in model_name.lower():
+            request_type = "image_gen"  
+        else:
+            request_type = "agent"
         headers['requestType'] = request_type
 
     return headers
@@ -121,6 +124,7 @@ async def stream_request(
 
     current_file, credential_data = cred_result
     access_token = credential_data.get("access_token") or credential_data.get("token")
+    project_id = credential_data.get("project_id", "")
 
     if not access_token:
         log.error(f"[ANTIGRAVITY STREAM] No access token in credential: {current_file}")
@@ -141,6 +145,13 @@ async def stream_request(
     if headers:
         auth_headers.update(headers)
 
+    # 构建包含project的payload
+    final_payload = {
+        "model": body.get("model"),
+        "project": project_id,
+        "request": body.get("request", {}),
+    }
+
     # 3. 调用stream_post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -151,7 +162,7 @@ async def stream_request(
     
     # 内部函数：获取新凭证并更新headers
     async def refresh_credential():
-        nonlocal current_file, access_token, auth_headers
+        nonlocal current_file, access_token, auth_headers, project_id, final_payload
         cred_result = await credential_manager.get_valid_credential(
             mode="antigravity", model_key=model_name
         )
@@ -159,11 +170,13 @@ async def stream_request(
             return None
         current_file, credential_data = cred_result
         access_token = credential_data.get("access_token") or credential_data.get("token")
+        project_id = credential_data.get("project_id", "")
         if not access_token:
             return None
         auth_headers = build_antigravity_headers(access_token, model_name)
         if headers:
             auth_headers.update(headers)
+        final_payload = {"model": body.get("model"), "project": project_id, "request": body.get("request", {})}
         return True
 
     for attempt in range(max_retries + 1):
@@ -173,7 +186,7 @@ async def stream_request(
         try:
             async for chunk in stream_post_async(
                 url=target_url,
-                body=body,
+                body=final_payload,
                 native=native,
                 headers=auth_headers
             ):
@@ -352,6 +365,7 @@ async def non_stream_request(
 
     current_file, credential_data = cred_result
     access_token = credential_data.get("access_token") or credential_data.get("token")
+    project_id = credential_data.get("project_id", "")
 
     if not access_token:
         log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
@@ -371,6 +385,13 @@ async def non_stream_request(
     if headers:
         auth_headers.update(headers)
 
+    # 构建包含project的payload
+    final_payload = {
+        "model": body.get("model"),
+        "project": project_id,
+        "request": body.get("request", {}),
+    }
+
     # 3. 调用post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -381,7 +402,7 @@ async def non_stream_request(
     
     # 内部函数：获取新凭证并更新headers
     async def refresh_credential():
-        nonlocal current_file, access_token, auth_headers
+        nonlocal current_file, access_token, auth_headers, project_id, final_payload
         cred_result = await credential_manager.get_valid_credential(
             mode="antigravity", model_key=model_name
         )
@@ -389,11 +410,13 @@ async def non_stream_request(
             return None
         current_file, credential_data = cred_result
         access_token = credential_data.get("access_token") or credential_data.get("token")
+        project_id = credential_data.get("project_id", "")
         if not access_token:
             return None
         auth_headers = build_antigravity_headers(access_token, model_name)
         if headers:
             auth_headers.update(headers)
+        final_payload = {"model": body.get("model"), "project": project_id, "request": body.get("request", {})}
         return True
 
     for attempt in range(max_retries + 1):
@@ -402,7 +425,7 @@ async def non_stream_request(
         try:
             response = await post_async(
                 url=target_url,
-                json=body,
+                json=final_payload,
                 headers=auth_headers,
                 timeout=300.0
             )
