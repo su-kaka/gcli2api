@@ -1,4 +1,4 @@
-full_hash=cfb439ea239d0a9eb37f2d6c02da8c5546a884d8
-short_hash=cfb439e
-message=非流式解包
-date=2026-01-11 18:42:24 +0800
+full_hash=26b050662577200323abcf2b961de9673b1d8fe6
+short_hash=26b0506
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-11 19:10:04 +0800
