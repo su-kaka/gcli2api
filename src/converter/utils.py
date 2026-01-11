@@ -128,7 +128,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
     # 处理 Anthropic 格式的顶层 system 参数
     # Anthropic API 规范: system 是顶层参数，不在 messages 中
     system_content = request_body.get("system")
-    if system_content and "systemInstruction" not in request_body:
+    if system_content:
         system_parts = []
         
         if isinstance(system_content, str):
@@ -213,7 +213,13 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 # 遇到非system消息，停止收集
                 collecting_system = False
-                remaining_messages.append(message)
+                if role == "system":
+                    # 将后续的system消息转换为user消息
+                    converted_message = message.copy()
+                    converted_message["role"] = "user"
+                    remaining_messages.append(converted_message)
+                else:
+                    remaining_messages.append(message)
 
         # 如果没有找到任何system消息（包括顶层参数和messages中的），返回原始请求体
         if not system_parts:
