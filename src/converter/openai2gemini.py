@@ -227,6 +227,84 @@ def _clean_schema_for_gemini(schema: Any) -> Any:
     return cleaned
 
 
+def fix_tool_call_args_types(
+    args: Dict[str, Any],
+    parameters_schema: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    根据工具的参数 schema 修正函数调用参数的类型
+    
+    例如：将字符串 "5" 转换为数字 5，根据 schema 中的 type 定义
+    
+    Args:
+        args: 函数调用的参数字典
+        parameters_schema: 工具定义中的 parameters schema
+        
+    Returns:
+        类型修正后的参数字典
+    """
+    if not args or not parameters_schema:
+        return args
+    
+    properties = parameters_schema.get("properties", {})
+    if not properties:
+        return args
+    
+    fixed_args = {}
+    for key, value in args.items():
+        if key not in properties:
+            # 参数不在 schema 中，保持原样
+            fixed_args[key] = value
+            continue
+        
+        param_schema = properties[key]
+        param_type = param_schema.get("type")
+        
+        # 根据 schema 中的类型修正参数值
+        if param_type == "number" or param_type == "integer":
+            # 如果值是字符串，尝试转换为数字
+            if isinstance(value, str):
+                try:
+                    if param_type == "integer":
+                        fixed_args[key] = int(value)
+                    else:
+                        # 尝试转换为 float，如果是整数则保持为 int
+                        num_value = float(value)
+                        fixed_args[key] = int(num_value) if num_value.is_integer() else num_value
+                    log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} '{value}' -> {fixed_args[key]} ({param_type})")
+                except (ValueError, AttributeError):
+                    # 转换失败，保持原样
+                    fixed_args[key] = value
+                    log.warning(f"[OPENAI2GEMINI] 无法将参数 {key} 的值 '{value}' 转换为 {param_type}")
+            else:
+                fixed_args[key] = value
+        elif param_type == "boolean":
+            # 如果值是字符串，转换为布尔值
+            if isinstance(value, str):
+                if value.lower() in ("true", "1", "yes"):
+                    fixed_args[key] = True
+                elif value.lower() in ("false", "0", "no"):
+                    fixed_args[key] = False
+                else:
+                    fixed_args[key] = value
+                if fixed_args[key] != value:
+                    log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} '{value}' -> {fixed_args[key]} (boolean)")
+            else:
+                fixed_args[key] = value
+        elif param_type == "string":
+            # 如果值不是字符串，转换为字符串
+            if not isinstance(value, str):
+                fixed_args[key] = str(value)
+                log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} {value} -> '{fixed_args[key]}' (string)")
+            else:
+                fixed_args[key] = value
+        else:
+            # 其他类型（array, object 等）保持原样
+            fixed_args[key] = value
+    
+    return fixed_args
+
+
 def convert_openai_tools_to_gemini(openai_tools: List) -> List[Dict[str, Any]]:
     """
     将 OpenAI tools 格式转换为 Gemini functionDeclarations 格式
@@ -478,6 +556,16 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
 
     # 提取消息列表
     messages = openai_request.get("messages", [])
+    
+    # 构建工具名称到参数 schema 的映射（用于类型修正）
+    tool_schemas = {}
+    if "tools" in openai_request and openai_request["tools"]:
+        for tool in openai_request["tools"]:
+            if tool.get("type") == "function":
+                function = tool.get("function", {})
+                func_name = function.get("name")
+                if func_name:
+                    tool_schemas[func_name] = function.get("parameters", {})
 
     for message in messages:
         role = message.get("role", "user")
@@ -545,6 +633,11 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                         if isinstance(tool_call["function"]["arguments"], str)
                         else tool_call["function"]["arguments"]
                     )
+                    
+                    # 根据工具的 schema 修正参数类型
+                    func_name = tool_call["function"]["name"]
+                    if func_name in tool_schemas:
+                        args = fix_tool_call_args_types(args, tool_schemas[func_name])
 
                     # 解码工具ID和thoughtSignature
                     encoded_id = tool_call.get("id", "")
@@ -554,7 +647,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                     function_call_part = {
                         "functionCall": {
                             "id": original_id,
-                            "name": tool_call["function"]["name"],
+                            "name": func_name,
                             "args": args
                         }
                     }
