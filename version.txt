@@ -1,4 +1,4 @@
-full_hash=51041fdd96814cd448f8856569c2f50806733d52
-short_hash=51041fd
-message=claude路由增加token计数
-date=2026-01-11 18:06:39 +0800
+full_hash=cfb439ea239d0a9eb37f2d6c02da8c5546a884d8
+short_hash=cfb439e
+message=非流式解包
+date=2026-01-11 18:42:24 +0800
