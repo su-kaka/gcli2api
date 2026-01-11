@@ -243,7 +243,7 @@ async def normalize_gemini_request(
                 # 检查最后一个 assistant 消息是否以 thinking 块开始
                 contents = result.get("contents", [])
 
-                if not check_last_assistant_has_thinking(contents):
+                if not check_last_assistant_has_thinking(contents) and "claude" in model.lower():
                     # 最后一个 assistant 消息不是以 thinking 块开始，填充思考块避免失效
                     log.warning(f"[ANTIGRAVITY] 最后一个 assistant 消息不以 thinking 块开始，自动填充思考块")
                     
