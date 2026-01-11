@@ -222,7 +222,7 @@ async def authenticate_flexible(
     
     # 验证 token
     if token != password:
-        log.error(f"Authentication failed using {auth_method}")
+        log.debug(f"Authentication failed using {auth_method}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="密码错误"
