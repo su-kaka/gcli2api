@@ -10,85 +10,6 @@ from log import log
 
 # ==================== Gemini API 配置 ====================
 
-# Gemini API 不支持的 JSON Schema 字段集合
-# 参考: github.com/googleapis/python-genai/issues/699, #388, #460, #1122, #264, #4551
-UNSUPPORTED_SCHEMA_KEYS = {
-    '$schema', '$id', '$ref', '$defs', 'definitions',
-    'example', 'examples', 'readOnly', 'writeOnly', 'default',
-    'exclusiveMaximum', 'exclusiveMinimum',
-    'oneOf', 'anyOf', 'allOf', 'const',
-    'additionalItems', 'contains', 'patternProperties', 'dependencies',
-    'propertyNames', 'if', 'then', 'else',
-    'contentEncoding', 'contentMediaType',
-    'additionalProperties', 'minLength', 'maxLength',
-    'minItems', 'maxItems', 'uniqueItems'
-}
-
-
-
-def clean_tools_for_gemini(tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
-    """
-    清理工具定义，移除 Gemini API 不支持的 JSON Schema 字段
-    
-    Gemini API 只支持有限的 OpenAPI 3.0 Schema 属性：
-    - 支持: type, description, enum, items, properties, required, nullable, format
-    - 不支持: $schema, $id, $ref, $defs, title, examples, default, readOnly,
-              exclusiveMaximum, exclusiveMinimum, oneOf, anyOf, allOf, const 等
-    
-    Args:
-        tools: 工具定义列表
-    
-    Returns:
-        清理后的工具定义列表
-    """
-    if not tools:
-        return tools
-    
-    def clean_schema(obj: Any) -> Any:
-        """递归清理 schema 对象"""
-        if isinstance(obj, dict):
-            cleaned = {}
-            for key, value in obj.items():
-                if key in UNSUPPORTED_SCHEMA_KEYS:
-                    continue
-                cleaned[key] = clean_schema(value)
-            # 确保有 type 字段（如果有 properties 但没有 type）
-            if "properties" in cleaned and "type" not in cleaned:
-                cleaned["type"] = "object"
-            return cleaned
-        elif isinstance(obj, list):
-            return [clean_schema(item) for item in obj]
-        else:
-            return obj
-    
-    # 清理每个工具的参数
-    cleaned_tools = []
-    for tool in tools:
-        if not isinstance(tool, dict):
-            cleaned_tools.append(tool)
-            continue
-            
-        cleaned_tool = tool.copy()
-        
-        # 清理 functionDeclarations
-        if "functionDeclarations" in cleaned_tool:
-            cleaned_declarations = []
-            for func_decl in cleaned_tool["functionDeclarations"]:
-                if not isinstance(func_decl, dict):
-                    cleaned_declarations.append(func_decl)
-                    continue
-                    
-                cleaned_decl = func_decl.copy()
-                if "parameters" in cleaned_decl:
-                    cleaned_decl["parameters"] = clean_schema(cleaned_decl["parameters"])
-                cleaned_declarations.append(cleaned_decl)
-            
-            cleaned_tool["functionDeclarations"] = cleaned_declarations
-        
-        cleaned_tools.append(cleaned_tool)
-    
-    return cleaned_tools
-
 def prepare_image_generation_request(
     request_body: Dict[str, Any],
     model: str
@@ -276,18 +197,14 @@ async def normalize_gemini_request(
                 "includeThoughts": final_include_thoughts
             }
 
-        # 2. 工具清理和处理
-        if tools:
-            result["tools"] = clean_tools_for_gemini(tools)
-
-        # 3. 搜索模型添加 Google Search
+        # 2. 搜索模型添加 Google Search
         if is_search_model(model):
             result_tools = result.get("tools") or []
             result["tools"] = result_tools
             if not any(tool.get("googleSearch") for tool in result_tools if isinstance(tool, dict)):
                 result_tools.append({"googleSearch": {}})
 
-        # 4. 模型名称处理
+        # 3. 模型名称处理
         result["model"] = get_base_model_name(model)
 
     elif mode == "antigravity":
@@ -365,10 +282,6 @@ async def normalize_gemini_request(
         if top_k is not None:
             generation_config["topK"] = 64
 
-    # 3. 工具清理
-    if tools:
-        result["tools"] = clean_tools_for_gemini(tools)
-
     if "contents" in result:
         cleaned_contents = []
         for content in result["contents"]:
@@ -379,12 +292,15 @@ async def normalize_gemini_request(
                     if not isinstance(part, dict):
                         continue
                     
-                    # 检查 part 是否有有效的数据字段
-                    has_valid_data = any(
-                        key in part and part[key] 
-                        for key in ["text", "inlineData", "fileData", "functionCall", "functionResponse"]
+                    # 检查 part 是否有有效的非空值
+                    # 过滤掉空字典或所有值都为空的 part
+                    has_valid_value = any(
+                        value not in (None, "", {}, [])
+                        for key, value in part.items()
+                        if key != "thought"  # thought 字段可以为空
                     )
-                    if has_valid_data:
+                    
+                    if has_valid_value:
                         valid_parts.append(part)
                     else:
                         log.warning(f"[GEMINI_FIX] 移除空的或无效的 part: {part}")
