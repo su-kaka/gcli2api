@@ -569,7 +569,48 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 # ============================================================================
-# 7. Generation Config 构建
+# 7. Tool Choice 转换
+# ============================================================================
+
+def convert_tool_choice_to_tool_config(tool_choice: Any) -> Optional[Dict[str, Any]]:
+    """
+    将 Anthropic tool_choice 转换为 Gemini toolConfig
+
+    Args:
+        tool_choice: Anthropic 格式的 tool_choice
+            - {"type": "auto"}: 模型自动决定是否使用工具
+            - {"type": "any"}: 模型必须使用工具
+            - {"type": "tool", "name": "tool_name"}: 模型必须使用指定工具
+
+    Returns:
+        Gemini 格式的 toolConfig，如果无效则返回 None
+    """
+    if not tool_choice:
+        return None
+    
+    if isinstance(tool_choice, dict):
+        choice_type = tool_choice.get("type")
+        
+        if choice_type == "auto":
+            return {"functionCallingConfig": {"mode": "AUTO"}}
+        elif choice_type == "any":
+            return {"functionCallingConfig": {"mode": "ANY"}}
+        elif choice_type == "tool":
+            tool_name = tool_choice.get("name")
+            if tool_name:
+                return {
+                    "functionCallingConfig": {
+                        "mode": "ANY",
+                        "allowedFunctionNames": [tool_name],
+                    }
+                }
+    
+    # 无效或不支持的 tool_choice，返回 None
+    return None
+
+
+# ============================================================================
+# 8. Generation Config 构建
 # ============================================================================
 
 def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -633,6 +674,7 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
         - generationConfig: 生成配置
         - systemInstruction: 系统指令 (如果有)
         - tools: 工具定义 (如果有)
+        - toolConfig: 工具调用配置 (如果有 tool_choice)
     """
     # 处理连续的system消息（兼容性模式）
     payload = await merge_system_messages(payload)
@@ -665,6 +707,9 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
 
     # 转换工具
     tools = convert_tools(payload.get("tools"))
+    
+    # 转换 tool_choice
+    tool_config = convert_tool_choice_to_tool_config(payload.get("tool_choice"))
 
     # 构建基础请求数据
     gemini_request = {
@@ -678,6 +723,10 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     
     if tools:
         gemini_request["tools"] = tools
+    
+    # 添加 toolConfig（如果有 tool_choice）
+    if tool_config:
+        gemini_request["toolConfig"] = tool_config
 
     return gemini_request
 
