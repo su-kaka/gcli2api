@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from log import log
 
-from .google_oauth_api import Credentials
-from .storage_adapter import get_storage_adapter
+from src.google_oauth_api import Credentials
+from src.storage_adapter import get_storage_adapter
 
 class CredentialManager:
     """
