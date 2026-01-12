@@ -7,6 +7,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 from typing import Any, Dict, List, Optional
 
 from log import log
+from src.utils import DEFAULT_SAFETY_SETTINGS
 
 # ==================== Gemini API 配置 ====================
 
@@ -308,6 +309,9 @@ async def normalize_gemini_request(
                 log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
     # ========== 公共处理 ==========
+
+    # 1. 安全设置覆盖
+    result["safetySettings"] = DEFAULT_SAFETY_SETTINGS
 
     # 2. 参数范围限制
     if generation_config:
