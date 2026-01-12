@@ -109,7 +109,7 @@ def is_search_model(model_name: str) -> bool:
 
 def is_thinking_model(model_name: str) -> bool:
     """检查是否为思考模型 (包含 -thinking 或 pro)"""
-    return "-thinking" in model_name or "pro" in model_name.lower()
+    return "think" in model_name or "pro" in model_name.lower()
 
 
 def check_last_assistant_has_thinking(contents: List[Dict[str, Any]]) -> bool:
@@ -187,14 +187,17 @@ async def normalize_gemini_request(
     # ========== 模式特定处理 ==========
     if mode == "geminicli":
         # 1. 思考设置
-        thinking_budget, include_thoughts = get_thinking_settings(model)
-        if thinking_budget is not None and "thinkingConfig" not in generation_config:
-            # 如果配置为不返回thoughts，则强制设置为False；否则使用模型默认设置
-            final_include_thoughts = include_thoughts if return_thoughts else False
-            generation_config["thinkingConfig"] = {
-                "thinkingBudget": thinking_budget,
-                "includeThoughts": final_include_thoughts
-            }
+        # 优先使用 get_thinking_settings 获取的思考预算
+        thinking_budget = get_thinking_settings(model)
+        
+        # 其次使用传入的思考预算
+        if thinking_budget is None:
+            thinking_budget = generation_config.get("thinkingConfig", {}).get("thinkingBudget")
+        
+        # 假如 is_thinking_model 为真或者思考预算不为0，设置 thinkingConfig
+        if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):            
+            # includeThoughts 使用配置值
+            generation_config["thinkingConfig"]["includeThoughts"] = return_thoughts
 
         # 2. 搜索模型添加 Google Search
         if is_search_model(model):
