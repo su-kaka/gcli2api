@@ -1,4 +1,4 @@
-full_hash=e4cc801950ef1b2c6a60310a3d8fe5520f658327
-short_hash=e4cc801
-message=Update anthropic.py
-date=2026-01-12 20:32:02 +0800
+full_hash=b01e36dabd0348bcbf3df383f34d52b0fbfeafc6
+short_hash=b01e36d
+message=添加issue模板
+date=2026-01-12 21:47:17 +0800
