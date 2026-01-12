@@ -2,7 +2,6 @@
 凭证管理器
 """
 
-import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,7 +23,7 @@ class CredentialManager:
         self._storage_adapter = None
 
         # 并发控制（简化）
-        self._operation_lock = asyncio.Lock()
+        # 后端数据库自行处理并发，credential_manager 不再使用本地锁
 
     async def _ensure_initialized(self):
         """确保管理器已初始化（内部使用）"""
@@ -33,13 +32,12 @@ class CredentialManager:
 
     async def initialize(self):
         """初始化凭证管理器"""
-        async with self._operation_lock:
-            if self._initialized and self._storage_adapter is not None:
-                return
+        if self._initialized and self._storage_adapter is not None:
+            return
 
-            # 初始化统一存储适配器
-            self._storage_adapter = await get_storage_adapter()
-            self._initialized = True
+        # 初始化统一存储适配器
+        self._storage_adapter = await get_storage_adapter()
+        self._initialized = True
 
     async def close(self):
         """清理资源"""
@@ -106,9 +104,8 @@ class CredentialManager:
         存储层会自动处理轮换顺序
         """
         await self._ensure_initialized()
-        async with self._operation_lock:
-            await self._storage_adapter.store_credential(credential_name, credential_data)
-            log.info(f"Credential added/updated: {credential_name}")
+        await self._storage_adapter.store_credential(credential_name, credential_data)
+        log.info(f"Credential added/updated: {credential_name}")
 
     async def add_antigravity_credential(self, credential_name: str, credential_data: Dict[str, Any]):
         """
@@ -116,21 +113,19 @@ class CredentialManager:
         存储层会自动处理轮换顺序
         """
         await self._ensure_initialized()
-        async with self._operation_lock:
-            await self._storage_adapter.store_credential(credential_name, credential_data, mode="antigravity")
-            log.info(f"Antigravity credential added/updated: {credential_name}")
+        await self._storage_adapter.store_credential(credential_name, credential_data, mode="antigravity")
+        log.info(f"Antigravity credential added/updated: {credential_name}")
 
     async def remove_credential(self, credential_name: str, mode: str = "geminicli") -> bool:
         """删除一个凭证"""
         await self._ensure_initialized()
-        async with self._operation_lock:
-            try:
-                await self._storage_adapter.delete_credential(credential_name, mode=mode)
-                log.info(f"Credential removed: {credential_name} (mode={mode})")
-                return True
-            except Exception as e:
-                log.error(f"Error removing credential {credential_name}: {e}")
-                return False
+        try:
+            await self._storage_adapter.delete_credential(credential_name, mode=mode)
+            log.info(f"Credential removed: {credential_name} (mode={mode})")
+            return True
+        except Exception as e:
+            log.error(f"Error removing credential {credential_name}: {e}")
+            return False
 
     async def update_credential_state(self, credential_name: str, state_updates: Dict[str, Any], mode: str = "geminicli"):
         """更新凭证状态"""
