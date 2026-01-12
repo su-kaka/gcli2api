@@ -664,7 +664,7 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
                 thinking_config["thinkingBudget"] = budget_tokens
             else:
                 # 默认给一个较大的思考预算以支持完整的计划生成
-                thinking_config["thinkingBudget"] = 10240
+                thinking_config["thinkingBudget"] = 48000
             
             # 始终包含思考内容，这样才能看到计划
             thinking_config["includeThoughts"] = True
