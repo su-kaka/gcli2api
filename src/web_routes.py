@@ -920,13 +920,13 @@ async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JS
 # =============================================================================
 
 
-@router.post("/auth/upload")
+@router.post("/creds/upload")
 async def upload_credentials(
     files: List[UploadFile] = File(...),
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    """批量上传认证文件"""
+    """批量上传凭证文件"""
     try:
         mode = validate_mode(mode)
         return await upload_credentials_common(files, mode=mode)
@@ -1497,7 +1497,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
 # =============================================================================
 
 
-@router.post("/auth/logs/clear")
+@router.post("/logs/clear")
 async def clear_logs(token: str = Depends(verify_panel_token)):
     """清空日志文件"""
     try:
@@ -1530,7 +1530,7 @@ async def clear_logs(token: str = Depends(verify_panel_token)):
         raise HTTPException(status_code=500, detail=f"清空日志文件失败: {str(e)}")
 
 
-@router.get("/auth/logs/download")
+@router.get("/logs/download")
 async def download_logs(token: str = Depends(verify_panel_token)):
     """下载日志文件"""
     try:
@@ -1566,7 +1566,7 @@ async def download_logs(token: str = Depends(verify_panel_token)):
         raise HTTPException(status_code=500, detail=f"下载日志文件失败: {str(e)}")
 
 
-@router.websocket("/auth/logs/stream")
+@router.websocket("/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     """WebSocket端点，用于实时日志流"""
     # 检查连接数限制

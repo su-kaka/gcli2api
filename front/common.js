@@ -341,7 +341,7 @@ function createCredsManager(type) {
 // =====================================================================
 function createUploadManager(type) {
     const modeParam = type === 'antigravity' ? 'mode=antigravity' : 'mode=geminicli';
-    const endpoint = `./auth/upload?${modeParam}`;
+    const endpoint = `./creds/upload?${modeParam}`;
 
     return {
         type: type,
@@ -1920,7 +1920,7 @@ function connectWebSocket() {
     }
 
     try {
-        const wsPath = new URL('./auth/logs/stream', window.location.href).href;
+        const wsPath = new URL('./logs/stream', window.location.href).href;
         const wsUrl = wsPath.replace(/^http/, 'ws');
 
         document.getElementById('connectionStatusText').textContent = '连接中...';
@@ -1986,7 +1986,7 @@ function clearLogsDisplay() {
 
 async function downloadLogs() {
     try {
-        const response = await fetch('./auth/logs/download', { headers: getAuthHeaders() });
+        const response = await fetch('./logs/download', { headers: getAuthHeaders() });
 
         if (response.ok) {
             const contentDisposition = response.headers.get('Content-Disposition');
@@ -2016,7 +2016,7 @@ async function downloadLogs() {
 
 async function clearLogs() {
     try {
-        const response = await fetch('./auth/logs/clear', {
+        const response = await fetch('./logs/clear', {
             method: 'POST',
             headers: getAuthHeaders()
         });
