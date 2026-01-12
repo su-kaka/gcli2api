@@ -874,9 +874,16 @@ def gemini_to_anthropic_response(
 
     # 确定停止原因
     finish_reason = candidate.get("finishReason")
-    stop_reason = "tool_use" if has_tool_use else "end_turn"
-    if finish_reason == "MAX_TOKENS" and not has_tool_use:
+    
+    # 只有在正常停止（STOP）且有工具调用时才设为 tool_use
+    # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_use 导致循环
+    if has_tool_use and finish_reason == "STOP":
+        stop_reason = "tool_use"
+    elif finish_reason == "MAX_TOKENS":
         stop_reason = "max_tokens"
+    else:
+        # 其他情况（SAFETY、RECITATION 等）默认为 end_turn
+        stop_reason = "end_turn"
 
     # 提取 token 使用情况
     input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
@@ -1185,9 +1192,15 @@ async def gemini_stream_to_anthropic_stream(
             yield close_evt
 
         # 确定停止原因
-        stop_reason = "tool_use" if has_tool_use else "end_turn"
-        if finish_reason == "MAX_TOKENS" and not has_tool_use:
+        # 只有在正常停止（STOP）且有工具调用时才设为 tool_use
+        # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_use 导致循环
+        if has_tool_use and finish_reason == "STOP":
+            stop_reason = "tool_use"
+        elif finish_reason == "MAX_TOKENS":
             stop_reason = "max_tokens"
+        else:
+            # 其他情况（SAFETY、RECITATION 等）默认为 end_turn
+            stop_reason = "end_turn"
 
         if _anthropic_debug_enabled():
             log.info(
