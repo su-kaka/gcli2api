@@ -1,4 +1,4 @@
-full_hash=6bd843709ff907aa892e43333481d6c7ec0ea78e
-short_hash=6bd8437
-message=Update anthropic2gemini.py
-date=2026-01-12 16:23:18 +0800
+full_hash=8101d14e1b1851b80a79b3a900332bdf01a7d5ae
+short_hash=8101d14
+message=路径
+date=2026-01-12 19:37:52 +0800
