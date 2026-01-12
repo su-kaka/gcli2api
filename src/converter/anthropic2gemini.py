@@ -122,38 +122,53 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
         log.debug(f"Removed {removed} trailing unsigned thinking block(s)")
 
 
-def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
+def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]], thinking_enabled: bool = False) -> bool:
     """
     过滤消息中的无效 thinking 块
-    
+
     Args:
         messages: Anthropic messages 列表 (会被修改)
+        thinking_enabled: 是否启用了 thinking 模式
+
+    Returns:
+        bool: 如果需要禁用 thinking 模式返回 True，否则返回 False
     """
     total_filtered = 0
-    
+    should_disable_thinking = False
+
     for msg in messages:
         # 只处理 assistant 和 model 消息
         role = msg.get("role", "")
         if role not in ("assistant", "model"):
             continue
-        
+
         content = msg.get("content")
         if not isinstance(content, list):
             continue
-        
+
         original_len = len(content)
         new_blocks: List[Dict[str, Any]] = []
-        
+        has_tool_use = False
+        has_valid_thinking = False
+
+        # 第一遍：检查是否有 tool_use 和有效 thinking
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "tool_use":
+                    has_tool_use = True
+                if block.get("type") in ("thinking", "redacted_thinking") and has_valid_signature(block):
+                    has_valid_thinking = True
+
         for block in content:
             if not isinstance(block, dict):
                 new_blocks.append(block)
                 continue
-            
+
             block_type = block.get("type")
             if block_type not in ("thinking", "redacted_thinking"):
                 new_blocks.append(block)
                 continue
-            
+
             # 检查 thinking 块的有效性
             if has_valid_signature(block):
                 # 有效签名，清理后保留
@@ -169,17 +184,31 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
                     new_blocks.append({"type": "text", "text": thinking_text})
                 else:
                     log.debug("[Claude-Handler] Dropping empty thinking block with invalid signature")
-        
+
         msg["content"] = new_blocks
         filtered_count = original_len - len(new_blocks)
         total_filtered += filtered_count
-        
+
         # 如果过滤后为空,添加一个空文本块以保持消息有效
         if not new_blocks:
             msg["content"] = [{"type": "text", "text": ""}]
-    
+
+        # 检查是否需要禁用 thinking 模式
+        # 当启用 thinking 且有 tool_use 但没有有效 thinking 块时，需要禁用 thinking
+        # 因为无法手动构造有效的 thinking 块（signature 会被上游验证）
+        if thinking_enabled and has_tool_use and not has_valid_thinking:
+            first_block = msg["content"][0] if msg["content"] else None
+            if not first_block or first_block.get("type") not in ("thinking", "redacted_thinking"):
+                log.warning(
+                    "[Claude-Handler] Tool use message without valid thinking block detected. "
+                    "Will disable thinking mode to avoid API error."
+                )
+                should_disable_thinking = True
+
     if total_filtered > 0:
         log.debug(f"Filtered {total_filtered} invalid thinking block(s) from history")
+
+    return should_disable_thinking
 
 
 # ============================================================================
@@ -722,13 +751,26 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     messages = payload.get("messages") or []
     if not isinstance(messages, list):
         messages = []
-    
-    # [CRITICAL FIX] 过滤并修复 Thinking 块签名
+
+    # 检测 thinking 模式是否启用
+    thinking_config = payload.get("thinking")
+    thinking_enabled = (
+        isinstance(thinking_config, dict) and
+        thinking_config.get("type") == "enabled"
+    )
+
+    # [CRITICAL FIX] 过滤无效的 thinking 块
     # 在转换前先过滤无效的 thinking 块
-    filter_invalid_thinking_blocks(messages)
+    # 如果检测到 tool_use 但没有有效 thinking 块，需要禁用 thinking 模式
+    should_disable_thinking = filter_invalid_thinking_blocks(messages, thinking_enabled=thinking_enabled)
 
     # 构建生成配置
     generation_config = build_generation_config(payload)
+
+    # 如果需要禁用 thinking 模式（有 tool_use 但没有有效 thinking 块）
+    if should_disable_thinking and "thinkingConfig" in generation_config:
+        log.debug("[ANTHROPIC2GEMINI] Disabling thinking mode due to tool_use without valid thinking block")
+        del generation_config["thinkingConfig"]
 
     # 转换消息内容（始终包含thinking块，由响应端处理）
     contents = convert_messages_to_contents(messages, include_thinking=True)
@@ -773,7 +815,8 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
 def gemini_to_anthropic_response(
     gemini_response: Dict[str, Any],
     model: str,
-    status_code: int = 200
+    status_code: int = 200,
+    thinking_enabled: bool = False
 ) -> Dict[str, Any]:
     """
     将 Gemini 格式非流式响应转换为 Anthropic 格式非流式响应
@@ -784,6 +827,7 @@ def gemini_to_anthropic_response(
         gemini_response: Gemini 格式的响应体字典
         model: 模型名称
         status_code: HTTP 状态码 (默认 200)
+        thinking_enabled: 是否启用了 thinking 模式 (默认 False)
 
     Returns:
         Anthropic 格式的响应体字典，或原始响应 (如果状态码不是 2xx)
@@ -812,6 +856,7 @@ def gemini_to_anthropic_response(
     # 转换内容块
     content = []
     has_tool_use = False
+    has_thinking = False
 
     for part in parts:
         if not isinstance(part, dict):
@@ -819,17 +864,18 @@ def gemini_to_anthropic_response(
 
         # 处理 thinking 块
         if part.get("thought") is True:
+            has_thinking = True
             thinking_text = part.get("text", "")
             if thinking_text is None:
                 thinking_text = ""
-            
+
             block: Dict[str, Any] = {"type": "thinking", "thinking": str(thinking_text)}
-            
+
             # 如果有 signature 则添加
             signature = part.get("thoughtSignature")
             if signature:
                 block["signature"] = signature
-            
+
             content.append(block)
             continue
 
@@ -844,7 +890,7 @@ def gemini_to_anthropic_response(
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
             signature = part.get("thoughtSignature")
-            
+
             # 对工具调用ID进行签名编码
             encoded_id = encode_tool_id_with_signature(original_id, signature)
             content.append(
@@ -903,7 +949,8 @@ def gemini_to_anthropic_response(
 async def gemini_stream_to_anthropic_stream(
     gemini_stream: AsyncIterator[bytes],
     model: str,
-    status_code: int = 200
+    status_code: int = 200,
+    thinking_enabled: bool = False
 ) -> AsyncIterator[bytes]:
     """
     将 Gemini 格式流式响应转换为 Anthropic SSE 格式流式响应
@@ -914,6 +961,7 @@ async def gemini_stream_to_anthropic_stream(
         gemini_stream: Gemini 格式的流式响应 (bytes 迭代器)
         model: 模型名称
         status_code: HTTP 状态码 (默认 200)
+        thinking_enabled: 是否启用了 thinking 模式 (默认 False)
 
     Yields:
         Anthropic SSE 格式的响应块 (bytes)
@@ -931,6 +979,7 @@ async def gemini_stream_to_anthropic_stream(
     current_block_index = -1
     current_thinking_signature: Optional[str] = None
     has_tool_use = False
+    has_thinking_block = False  # 跟踪是否已发送 thinking 块
     input_tokens = 0
     output_tokens = 0
     finish_reason: Optional[str] = None
@@ -1022,9 +1071,10 @@ async def gemini_stream_to_anthropic_stream(
 
                 # 处理 thinking 块
                 if part.get("thought") is True:
+                    has_thinking_block = True  # 标记已有 thinking 块
                     thinking_text = part.get("text", "")
                     signature = part.get("thoughtSignature")
-                    
+
                     # 检查是否需要关闭上一个块并开启新的 thinking 块
                     if current_block_type != "thinking":
                         close_evt = _close_block()

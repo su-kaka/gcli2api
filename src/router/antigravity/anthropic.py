@@ -88,6 +88,13 @@ async def messages(
     # 获取流式标志
     is_streaming = claude_request.stream
 
+    # 检测是否启用 thinking 模式
+    thinking_config = normalized_dict.get("thinking")
+    thinking_enabled = (
+        isinstance(thinking_config, dict) and
+        thinking_config.get("type") == "enabled"
+    )
+
     # 对于抗截断模型的非流式请求，给出警告
     if use_anti_truncation and not is_streaming:
         log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
@@ -140,7 +147,8 @@ async def messages(
         anthropic_response = gemini_to_anthropic_response(
             gemini_response,
             real_model,
-            status_code
+            status_code,
+            thinking_enabled=thinking_enabled
         )
 
         return JSONResponse(content=anthropic_response, status_code=status_code)
@@ -308,7 +316,8 @@ async def messages(
         async for anthropic_chunk in gemini_stream_to_anthropic_stream(
             bytes_wrapper(),
             real_model,
-            200
+            200,
+            thinking_enabled=thinking_enabled
         ):
             if anthropic_chunk:
                 yield anthropic_chunk
@@ -352,7 +361,8 @@ async def messages(
         async for anthropic_chunk in gemini_stream_to_anthropic_stream(
             gemini_chunk_wrapper(),
             real_model,
-            200
+            200,
+            thinking_enabled=thinking_enabled
         ):
             if anthropic_chunk:
                 yield anthropic_chunk

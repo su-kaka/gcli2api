@@ -146,8 +146,57 @@ def check_last_assistant_has_thinking(contents: List[Dict[str, Any]]) -> bool:
     if not isinstance(first_part, dict):
         return False
     
-    # 检查是否是 thinking 块（有 thought_signature 字段）
-    return "thought_signature" in first_part
+    # Claude / Antigravity thinking part 常见结构：
+    # { "text": "...", "thought": true, "thoughtSignature": "..." }
+    # 这里用更稳的判定：thought==True 且存在 thoughtSignature
+    return (first_part.get("thought") is True) and bool(first_part.get("thoughtSignature"))
+
+
+def check_tool_use_without_valid_thinking(contents: List[Dict[str, Any]]) -> bool:
+    """
+    检查是否存在 tool_use 但没有有效 thinking 块的情况
+
+    当启用 thinking 时，任何包含 functionCall 的 model 消息，必须以 thinking part 开头。
+    但我们无法手动构造有效的 thinking 块（signature 会被上游验证），
+    所以如果检测到这种情况，需要禁用 thinking 模式。
+
+    Args:
+        contents: Gemini contents
+
+    Returns:
+        bool: 如果需要禁用 thinking 模式返回 True，否则返回 False
+    """
+    if not isinstance(contents, list) or not contents:
+        return False
+
+    for content in contents:
+        if not isinstance(content, dict):
+            continue
+        if content.get("role") != "model":
+            continue
+
+        parts = content.get("parts")
+        if not isinstance(parts, list) or not parts:
+            continue
+
+        # 检查是否有 functionCall
+        has_function_call = any(isinstance(p, dict) and "functionCall" in p for p in parts)
+        if not has_function_call:
+            continue
+
+        # 检查第一个 part 是否是有效的 thinking
+        first = parts[0]
+        first_is_valid_thinking = (
+            isinstance(first, dict)
+            and first.get("thought") is True
+            and bool(first.get("thoughtSignature"))
+        )
+
+        # 如果有 functionCall 但没有有效的 thinking，需要禁用 thinking 模式
+        if not first_is_valid_thinking:
+            return True
+
+    return False
 
 
 async def normalize_gemini_request(
@@ -242,25 +291,19 @@ async def normalize_gemini_request(
                 # 检查最后一个 assistant 消息是否以 thinking 块开始
                 contents = result.get("contents", [])
 
-                if not check_last_assistant_has_thinking(contents) and "claude" in model.lower():
-                    # 最后一个 assistant 消息不是以 thinking 块开始，填充思考块避免失效
-                    log.warning(f"[ANTIGRAVITY] 最后一个 assistant 消息不以 thinking 块开始，自动填充思考块")
-                    
-                    # 找到最后一个 model 角色的 content
-                    for i in range(len(contents) - 1, -1, -1):
-                        content = contents[i]
-                        if isinstance(content, dict) and content.get("role") == "model":
-                            # 在 parts 开头插入思考块（使用官方跳过验证的虚拟签名）
-                            parts = content.get("parts", [])
-                            thinking_part = {
-                                "text": "Continuing from previous context...",
-                                "thoughtSignature": "skip_thought_signature_validator"  # 官方文档推荐的虚拟签名
-                            }
-                            # 如果第一个 part 不是 thinking，则插入
-                            if not parts or not (isinstance(parts[0], dict) and "thoughtSignature" in parts[0]):
-                                content["parts"] = [thinking_part] + parts
-                                log.debug(f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
-                            break
+                if "claude" in model.lower():
+                    # 检查是否有 tool_use 但没有有效的 thinking 块
+                    # 如果是，则需要禁用 thinking 模式（无法手动构造有效的 thinking 块）
+                    should_disable_thinking = check_tool_use_without_valid_thinking(contents)
+
+                    if should_disable_thinking:
+                        log.warning(
+                            "[ANTIGRAVITY] Tool use detected without valid thinking block. "
+                            "Disabling thinking mode to avoid API error."
+                        )
+                        # 禁用 thinking 模式
+                        if "thinkingConfig" in generation_config:
+                            del generation_config["thinkingConfig"]
                 
             # 移除 -thinking 后缀
             model = model.replace("-thinking", "")
@@ -303,23 +346,32 @@ async def normalize_gemini_request(
                 for part in content["parts"]:
                     if not isinstance(part, dict):
                         continue
-                    
-                    # 检查 part 是否有有效的非空值
-                    # 过滤掉空字典或所有值都为空的 part
-                    has_valid_value = any(
-                        value not in (None, "", {}, [])
-                        for key, value in part.items()
-                        if key != "thought"  # thought 字段可以为空
-                    )
-                    
-                    if has_valid_value:
-                        # 清理 text 字段的尾随空格
+
+                    # 特殊处理：thinking part 始终有效（即使 text 为空）
+                    # 这是为了支持占位 thinking 块，满足 Anthropic API 要求：
+                    # 当启用 thinking 时，assistant 消息必须以 thinking 块开头
+                    is_thinking_part = part.get("thought") is True
+
+                    if is_thinking_part:
+                        # thinking part 始终保留，但清理尾随空格
                         if "text" in part and isinstance(part["text"], str):
                             part = part.copy()
                             part["text"] = part["text"].rstrip()
                         valid_parts.append(part)
                     else:
-                        log.warning(f"[GEMINI_FIX] 移除空的或无效的 part: {part}")
+                        # 非 thinking part 使用原有验证逻辑
+                        has_valid_value = any(
+                            value not in (None, "", {}, [])
+                            for key, value in part.items()
+                        )
+
+                        if has_valid_value:
+                            if "text" in part and isinstance(part["text"], str):
+                                part = part.copy()
+                                part["text"] = part["text"].rstrip()
+                            valid_parts.append(part)
+                        else:
+                            log.warning(f"[GEMINI_FIX] 移除空的或无效的 part: {part}")
                 
                 # 只添加有有效 parts 的 content
                 if valid_parts:
