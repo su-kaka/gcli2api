@@ -227,7 +227,7 @@ async def normalize_gemini_request(
             return prepare_image_generation_request(result, model)
         else:
             # 3. 思考模型处理
-            if is_thinking_model(model):
+            if is_thinking_model(model) or ("thinkingBudget" in generation_config.get("thinkingConfig", {}) and generation_config["thinkingConfig"]["thinkingBudget"] != 0):
                 # 直接设置 thinkingConfig
                 if "thinkingConfig" not in generation_config:
                     generation_config["thinkingConfig"] = {}
@@ -236,8 +236,7 @@ async def normalize_gemini_request(
                 # 优先使用传入的思考预算，否则使用默认值
                 if "thinkingBudget" not in thinking_config:
                     thinking_config["thinkingBudget"] = 1024
-                if "includeThoughts" not in thinking_config:
-                    thinking_config["includeThoughts"] = return_thoughts
+                thinking_config["includeThoughts"] = return_thoughts
                 
                 # 检查最后一个 assistant 消息是否以 thinking 块开始
                 contents = result.get("contents", [])
