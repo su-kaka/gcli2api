@@ -1569,6 +1569,26 @@ async def download_logs(token: str = Depends(verify_panel_token)):
 @router.websocket("/logs/stream")
 async def websocket_logs(websocket: WebSocket):
     """WebSocket端点，用于实时日志流"""
+    # WebSocket 认证: 从查询参数获取 token
+    token = websocket.query_params.get("token")
+
+    if not token:
+        await websocket.close(code=403, reason="Missing authentication token")
+        log.warning("WebSocket连接被拒绝: 缺少认证token")
+        return
+
+    # 验证 token
+    try:
+        panel_password = await config.get_panel_password()
+        if token != panel_password:
+            await websocket.close(code=403, reason="Invalid authentication token")
+            log.warning("WebSocket连接被拒绝: token验证失败")
+            return
+    except Exception as e:
+        await websocket.close(code=1011, reason="Authentication error")
+        log.error(f"WebSocket认证过程出错: {e}")
+        return
+
     # 检查连接数限制
     if not await manager.connect(websocket):
         return

@@ -1923,10 +1923,13 @@ function connectWebSocket() {
         const wsPath = new URL('./logs/stream', window.location.href).href;
         const wsUrl = wsPath.replace(/^http/, 'ws');
 
+        // 添加 token 认证参数
+        const wsUrlWithAuth = `${wsUrl}?token=${encodeURIComponent(AppState.authToken)}`;
+
         document.getElementById('connectionStatusText').textContent = '连接中...';
         document.getElementById('logConnectionStatus').className = 'status info';
 
-        AppState.logWebSocket = new WebSocket(wsUrl);
+        AppState.logWebSocket = new WebSocket(wsUrlWithAuth);
 
         AppState.logWebSocket.onopen = () => {
             document.getElementById('connectionStatusText').textContent = '已连接';
