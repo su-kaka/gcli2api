@@ -833,51 +833,36 @@ for part in response.candidates[0].content.parts:
 
 **认证端点**
 - `POST /auth/login` - 用户登录
-- `POST /auth/start` - 开始 GCLI OAuth 认证
-- `POST /auth/antigravity/start` - 开始 Antigravity OAuth 认证
+- `POST /auth/start` - 开始 OAuth 认证（支持 GCLI 和 Antigravity 模式）
 - `POST /auth/callback` - 处理 OAuth 回调
+- `POST /auth/callback-url` - 从回调 URL 直接完成认证
 - `GET /auth/status/{project_id}` - 检查认证状态
-- `GET /auth/antigravity/credentials` - 获取 Antigravity 凭证
 
-**GCLI 凭证管理端点**
-- `GET /creds/status` - 获取所有 GCLI 凭证状态
-- `POST /creds/action` - 单个 GCLI 凭证操作（启用/禁用/删除）
-- `POST /creds/batch-action` - 批量 GCLI 凭证操作
-- `POST /auth/upload` - 批量上传 GCLI 凭证文件（支持 ZIP）
-- `GET /creds/download/{filename}` - 下载 GCLI 凭证文件
-- `GET /creds/download-all` - 打包下载所有 GCLI 凭证
-- `POST /creds/fetch-email/{filename}` - 获取 GCLI 用户邮箱
-- `POST /creds/refresh-all-emails` - 批量刷新 GCLI 用户邮箱
-
-**Antigravity 凭证管理端点**
-- `GET /antigravity/creds/status` - 获取所有 Antigravity 凭证状态
-- `POST /antigravity/creds/action` - 单个 Antigravity 凭证操作（启用/禁用/删除）
-- `POST /antigravity/creds/batch-action` - 批量 Antigravity 凭证操作
-- `POST /antigravity/auth/upload` - 批量上传 Antigravity 凭证文件（支持 ZIP）
-- `GET /antigravity/creds/download/{filename}` - 下载 Antigravity 凭证文件
-- `GET /antigravity/creds/download-all` - 打包下载所有 Antigravity 凭证
-- `POST /antigravity/creds/fetch-email/{filename}` - 获取 Antigravity 用户邮箱
-- `POST /antigravity/creds/refresh-all-emails` - 批量刷新 Antigravity 用户邮箱
+**凭证管理端点**（支持 `mode=geminicli` 或 `mode=antigravity` 参数）
+- `POST /creds/upload` - 批量上传凭证文件（支持 JSON 和 ZIP）
+- `GET /creds/status` - 获取凭证状态列表（支持分页和筛选）
+- `GET /creds/detail/{filename}` - 获取单个凭证详情
+- `POST /creds/action` - 单个凭证操作（启用/禁用/删除）
+- `POST /creds/batch-action` - 批量凭证操作
+- `GET /creds/download/{filename}` - 下载单个凭证文件
+- `GET /creds/download-all` - 打包下载所有凭证
+- `POST /creds/fetch-email/{filename}` - 获取用户邮箱
+- `POST /creds/refresh-all-emails` - 批量刷新用户邮箱
+- `POST /creds/deduplicate-by-email` - 按邮箱去重凭证
+- `POST /creds/verify-project/{filename}` - 检验凭证 Project ID
+- `GET /creds/quota/{filename}` - 获取凭证额度信息（仅 Antigravity）
 
 **配置管理端点**
 - `GET /config/get` - 获取当前配置
 - `POST /config/save` - 保存配置
 
-**环境变量凭证端点**
-- `POST /auth/load-env-creds` - 加载环境变量凭证
-- `DELETE /auth/env-creds` - 清除环境变量凭证
-- `GET /auth/env-creds-status` - 获取环境变量凭证状态
-
 **日志管理端点**
-- `POST /auth/logs/clear` - 清空日志
-- `GET /auth/logs/download` - 下载日志文件
-- `WebSocket /auth/logs/stream` - 实时日志流
+- `POST /logs/clear` - 清空日志
+- `GET /logs/download` - 下载日志文件
+- `WebSocket /logs/stream` - 实时日志流
 
-**使用统计端点**
-- `GET /usage/stats` - 获取使用统计
-- `GET /usage/aggregated` - 获取聚合统计
-- `POST /usage/update-limits` - 更新使用限制
-- `POST /usage/reset` - 重置使用统计
+**版本信息端点**
+- `GET /version/info` - 获取版本信息（可选 `check_update=true` 参数检查更新）
 
 ### 聊天 API 功能特性
 
