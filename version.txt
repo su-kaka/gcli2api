@@ -1,4 +1,4 @@
-full_hash=01587d9908111c72e7d46e2aa16303a2239ffcd1
-short_hash=01587d9
-message=Update anthropic2gemini.py
-date=2026-01-12 00:40:11 +0800
+full_hash=c991b85a8603e457af727d05ddb846d912ff26e5
+short_hash=c991b85
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-12 01:21:01 +0800
