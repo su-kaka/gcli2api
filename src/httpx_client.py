@@ -74,7 +74,7 @@ async def post_async(
     data: Any = None,
     json: Any = None,
     headers: Optional[Dict[str, str]] = None,
-    timeout: float = 30.0,
+    timeout: float = 600.0,
     **kwargs,
 ) -> httpx.Response:
     """通用异步POST请求"""
