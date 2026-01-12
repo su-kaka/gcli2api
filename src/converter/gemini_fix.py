@@ -188,14 +188,21 @@ async def normalize_gemini_request(
     if mode == "geminicli":
         # 1. 思考设置
         # 优先使用 get_thinking_settings 获取的思考预算
-        thinking_budget = get_thinking_settings(model)
+        thinking_budget, _ = get_thinking_settings(model)
         
         # 其次使用传入的思考预算
         if thinking_budget is None:
             thinking_budget = generation_config.get("thinkingConfig", {}).get("thinkingBudget")
         
         # 假如 is_thinking_model 为真或者思考预算不为0，设置 thinkingConfig
-        if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):            
+        if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):
+            if "thinkingConfig" not in generation_config:
+                generation_config["thinkingConfig"] = {}
+            
+            # 设置思考预算
+            if thinking_budget:
+                generation_config["thinkingConfig"]["thinkingBudget"] = thinking_budget
+            
             # includeThoughts 使用配置值
             generation_config["thinkingConfig"]["includeThoughts"] = return_thoughts
 
