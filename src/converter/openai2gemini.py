@@ -782,8 +782,8 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             for tc in msg["tool_calls"]:
                 encoded_id = tc.get("id", "")
-                func_name = tc.get("function", {}).get("name")
-                if encoded_id and func_name:
+                func_name = tc.get("function", {}).get("name") or ""
+                if encoded_id:
                     # 解码获取原始ID和签名
                     original_id, signature = decode_tool_id_and_signature(encoded_id)
                     tool_call_mapping[encoded_id] = (func_name, original_id, signature)
@@ -822,11 +822,13 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                             if func_name:
                                 break
 
-                if not func_name:
-                    func_name = "unknown_function"
-                
                 # 解码 tool_call_id 获取原始 ID
                 original_id, _ = decode_tool_id_and_signature(tool_call_id)
+
+            # 最终兜底：确保 func_name 不为空
+            if not func_name:
+                func_name = "unknown_function"
+                log.warning(f"Tool message missing function name for tool_call_id={tool_call_id}, using default: {func_name}")
 
             # 解析响应数据
             try:
