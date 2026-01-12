@@ -1,4 +1,4 @@
-full_hash=342abaa7217e5ab094028c99f0340b2d5ee2fd0a
-short_hash=342abaa
-message=Update gemini_fix.py
-date=2026-01-12 14:04:50 +0800
+full_hash=6bd843709ff907aa892e43333481d6c7ec0ea78e
+short_hash=6bd8437
+message=Update anthropic2gemini.py
+date=2026-01-12 16:23:18 +0800
