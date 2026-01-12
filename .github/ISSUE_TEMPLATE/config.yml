@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题讨论
+    url: https://github.com/su-kaka/gcli2api/issues
+    about: 如果是使用方面的问题,请在 issues 中提问
+  - name: 项目文档
+    url: https://github.com/su-kaka/gcli2api
+    about: 查看完整文档和使用指南
