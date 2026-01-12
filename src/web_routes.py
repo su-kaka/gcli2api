@@ -36,7 +36,7 @@ from src.auth import (
     get_auth_status,
     verify_password,
 )
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 from .models import (
     LoginRequest,
     AuthStartRequest,
@@ -55,8 +55,8 @@ from config import get_code_assist_endpoint, get_antigravity_api_url
 # 创建路由器
 router = APIRouter()
 
-# 创建credential manager实例（延迟初始化，在首次使用时自动初始化）
-credential_manager = CredentialManager()
+# 不在模块级创建实例，使用单例工厂按需获取
+# 直接按需从模块工厂获取凭证管理器，避免与 web.py 产生循环导入
 
 # WebSocket连接管理
 
@@ -138,20 +138,6 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
-
-
-async def ensure_credential_manager_initialized():
-    """确保credential manager已初始化"""
-    if not credential_manager._initialized:
-        await credential_manager.initialize()
-
-
-async def get_credential_manager():
-    """获取全局凭证管理器实例（已废弃，直接使用模块级的 credential_manager）"""
-    global credential_manager
-    # 确保已初始化（在首次使用时自动初始化）
-    await credential_manager._ensure_initialized()
-    return credential_manager
 
 
 def is_mobile_user_agent(user_agent: str) -> bool:

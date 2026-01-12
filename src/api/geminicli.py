@@ -22,7 +22,7 @@ from config import get_code_assist_endpoint, get_auto_ban_error_codes
 from src.api.utils import get_model_group
 from log import log
 
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 
 # 导入共同的基础功能
@@ -37,22 +37,7 @@ from src.utils import GEMINICLI_USER_AGENT
 
 # ==================== 全局凭证管理器 ====================
 
-# 全局凭证管理器实例（单例模式）
-_credential_manager: Optional[CredentialManager] = None
-
-
-async def _get_credential_manager() -> CredentialManager:
-    """
-    获取全局凭证管理器实例
-    
-    Returns:
-        CredentialManager实例
-    """
-    global _credential_manager
-    if not _credential_manager:
-        _credential_manager = CredentialManager()
-        await _credential_manager.initialize()
-    return _credential_manager
+# 使用全局单例 credential_manager，自动初始化
 
 
 # ==================== 请求准备 ====================
@@ -116,9 +101,7 @@ async def stream_request(
     Yields:
         Response对象（错误时）或 bytes流/str流（成功时）
     """
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
-
+    # 获取有效凭证
     model_name = body.get("model", "")
     model_group = get_model_group(model_name)
 
@@ -331,9 +314,7 @@ async def non_stream_request(
     Returns:
         Response对象
     """
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
-
+    # 获取有效凭证
     model_name = body.get("model", "")
     model_group = get_model_group(model_name)
 

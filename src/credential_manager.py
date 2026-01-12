@@ -501,16 +501,35 @@ class CredentialManager:
         log.debug("未匹配到明确的永久失效模式，判定为临时错误")
         return False
 
-# 全局实例管理（保持兼容性）
-_credential_manager: Optional[CredentialManager] = None
+class _CredentialManagerSingleton:
+    """单例包装器，支持懒加载和自动初始化"""
+
+    _instance: Optional[CredentialManager] = None
+    _lock = None
+
+    def __init__(self):
+        self._manager = None
+
+    async def _get_or_create(self) -> CredentialManager:
+        """获取或创建单例实例（线程安全）"""
+        if self._instance is None:
+            # 简单的实例创建（异步环境下一般不需要复杂的锁）
+            if self._instance is None:
+                self._instance = CredentialManager()
+                await self._instance.initialize()
+                log.debug("CredentialManager singleton initialized")
+
+        return self._instance
+
+    def __getattr__(self, name):
+        """代理所有方法调用到真实的 CredentialManager 实例"""
+        async def _async_wrapper(*args, **kwargs):
+            manager = await self._get_or_create()
+            method = getattr(manager, name)
+            return await method(*args, **kwargs)
+
+        return _async_wrapper
 
 
-async def get_credential_manager() -> CredentialManager:
-    """获取全局凭证管理器实例"""
-    global _credential_manager
-
-    if _credential_manager is None:
-        _credential_manager = CredentialManager()
-        await _credential_manager.initialize()
-
-    return _credential_manager
+# 全局单例实例 - 直接导入即可使用
+credential_manager = _CredentialManagerSingleton()

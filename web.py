@@ -14,7 +14,7 @@ from config import get_server_host, get_server_port
 from log import log
 
 # Import managers and utilities
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 
 # Import all routers
 from src.router.antigravity.openai import router as antigravity_openai_router
@@ -47,10 +47,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"配置缓存初始化失败: {e}")
 
-    # 初始化全局凭证管理器
+    # 初始化全局凭证管理器（通过单例工厂）
     try:
-        global_credential_manager = CredentialManager()
-        await global_credential_manager.initialize()
+        # credential_manager 会在第一次调用时自动初始化
+        # 这里预先触发初始化以便在启动时检测错误
+        await credential_manager._get_or_create()
         log.info("凭证管理器初始化成功")
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
@@ -137,16 +138,6 @@ app.mount("/front", StaticFiles(directory="front"), name="front")
 @app.head("/keepalive")
 async def keepalive() -> Response:
     return Response(status_code=200)
-
-
-def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    return global_credential_manager
-
-
-# 导出给其他模块使用
-__all__ = ["app", "get_credential_manager"]
-
 
 async def main():
     """异步主启动函数"""

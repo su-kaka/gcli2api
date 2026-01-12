@@ -17,7 +17,7 @@ from config import (
 )
 from log import log
 
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
@@ -34,22 +34,7 @@ from src.api.utils import (
 
 # ==================== 全局凭证管理器 ====================
 
-# 全局凭证管理器实例（单例模式）
-_credential_manager: Optional[CredentialManager] = None
-
-
-async def _get_credential_manager() -> CredentialManager:
-    """
-    获取全局凭证管理器实例
-    
-    Returns:
-        CredentialManager实例
-    """
-    global _credential_manager
-    if not _credential_manager:
-        _credential_manager = CredentialManager()
-        await _credential_manager.initialize()
-    return _credential_manager
+# 使用全局单例 credential_manager，自动初始化
 
 
 # ==================== 辅助函数 ====================
@@ -102,9 +87,6 @@ async def stream_request(
     Yields:
         Response对象（错误时）或 bytes流/str流（成功时）
     """
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
-
     model_name = body.get("model", "")
 
     # 1. 获取有效凭证
@@ -344,9 +326,6 @@ async def non_stream_request(
     # 否则使用传统非流式模式
     log.info("[ANTIGRAVITY] 使用传统非流式模式")
 
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
-
     model_name = body.get("model", "")
 
     # 1. 获取有效凭证
@@ -564,7 +543,6 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
         返回空列表如果获取失败
     """
     # 获取凭证管理器和可用凭证
-    credential_manager = await _get_credential_manager()
     cred_result = await credential_manager.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("[ANTIGRAVITY] No valid credentials available for fetching models")
