@@ -245,13 +245,13 @@ async def stream_request(
                             credential_manager, current_file, mode="geminicli", model_key=model_group
                         )
                         success_recorded = True
-                        log.info(f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}")
+                        log.debug(f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}")
 
                     yield chunk
 
             # 流式请求完成，检查结果
             if success_recorded:
-                log.info(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
+                log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
                 return
             elif not need_retry:
                 # 没有收到任何数据（空回复），需要重试

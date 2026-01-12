@@ -237,7 +237,7 @@ async def stream_request(
                             credential_manager, current_file, mode="antigravity", model_key=model_name
                         )
                         success_recorded = True
-                        log.info(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
+                        log.debug(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
 
                     # 记录原始chunk内容（用于调试）
                     if isinstance(chunk, bytes):
@@ -249,7 +249,7 @@ async def stream_request(
 
             # 流式请求完成，检查结果
             if success_recorded:
-                log.info(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
+                log.debug(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
                 return
             elif not need_retry:
                 # 没有收到任何数据（空回复），需要重试
@@ -313,7 +313,7 @@ async def non_stream_request(
     """
     # 检查是否启用流式收集模式
     if await get_antigravity_stream2nostream():
-        log.info("[ANTIGRAVITY] 使用流式收集模式实现非流式请求")
+        log.debug("[ANTIGRAVITY] 使用流式收集模式实现非流式请求")
 
         # 调用stream_request获取流
         stream = stream_request(body=body, native=False, headers=headers)
@@ -324,7 +324,7 @@ async def non_stream_request(
         return await collect_streaming_response(stream)
 
     # 否则使用传统非流式模式
-    log.info("[ANTIGRAVITY] 使用传统非流式模式")
+    log.debug("[ANTIGRAVITY] 使用传统非流式模式")
 
     model_name = body.get("model", "")
 
