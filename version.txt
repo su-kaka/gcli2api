@@ -1,4 +1,4 @@
-full_hash=494f2af665fc14ccf4f0902ed63e452ca6f0094d
-short_hash=494f2af
-message=Update termux-install.sh
-date=2026-01-14 01:19:50 +0800
+full_hash=963aa6ce94e86069468f0aea8e16b238fdb38d33
+short_hash=963aa6c
+message=解决termux安装问题
+date=2026-01-14 01:24:07 +0800
