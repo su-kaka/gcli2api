@@ -64,8 +64,7 @@ def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[s
         if "image" in model_name.lower():
             request_type = "image_gen"
             headers['requestType'] = request_type
-        # 再判断是否不是claude模型
-        if "claude" not in model_name.lower():
+        else:
             request_type = "agent"
             headers['requestType'] = request_type
 
