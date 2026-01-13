@@ -1,4 +1,4 @@
-full_hash=e541f8434f388b6e54468bdcde25fda0eb092c8f
-short_hash=e541f84
-message=Merge pull request #276 from sycghj/fix/message-start-usage-hardcoded
-date=2026-01-14 00:17:30 +0800
+full_hash=494f2af665fc14ccf4f0902ed63e452ca6f0094d
+short_hash=494f2af
+message=Update termux-install.sh
+date=2026-01-14 01:19:50 +0800
