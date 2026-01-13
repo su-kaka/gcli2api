@@ -155,6 +155,7 @@ else
 fi
 
 echo "初始化 uv 环境..."
+rm pyproject.toml
 uv init
 
 echo "创建虚拟环境..."

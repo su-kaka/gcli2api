@@ -14,6 +14,7 @@ GEMINI.md
 
 # Python
 uv.lock
+.python-version
 __pycache__/
 *.py[cod]
 *$py.class
