@@ -586,6 +586,10 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
         # 如果不是有效的 JSON，包装为对象
         response_data = {"result": str(message.content)}
 
+    # 确保 response_data 是字典类型（Gemini API 要求 response 必须是对象）
+    if not isinstance(response_data, dict):
+        response_data = {"result": response_data}
+
     return {"functionResponse": {"id": original_tool_call_id, "name": name, "response": response_data}}
 
 
@@ -835,6 +839,10 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                 response_data = json.loads(content) if isinstance(content, str) else content
             except (json.JSONDecodeError, TypeError):
                 response_data = {"result": str(content)}
+
+            # 确保 response_data 是字典类型（Gemini API 要求 response 必须是对象）
+            if not isinstance(response_data, dict):
+                response_data = {"result": response_data}
 
             # 使用原始 ID（不带签名）
             contents.append({
