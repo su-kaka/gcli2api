@@ -197,15 +197,18 @@ async def normalize_gemini_request(
         
         # 假如 is_thinking_model 为真或者思考预算不为0，设置 thinkingConfig
         if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):
+            # 确保 thinkingConfig 存在
             if "thinkingConfig" not in generation_config:
                 generation_config["thinkingConfig"] = {}
-            
+
+            thinking_config = generation_config["thinkingConfig"]
+
             # 设置思考预算
             if thinking_budget:
-                generation_config["thinkingConfig"]["thinkingBudget"] = thinking_budget
-            
+                thinking_config["thinkingBudget"] = thinking_budget
+
             # includeThoughts 使用配置值
-            generation_config["thinkingConfig"]["includeThoughts"] = return_thoughts
+            thinking_config["includeThoughts"] = return_thoughts
 
         # 2. 搜索模型添加 Google Search
         if is_search_model(model):
