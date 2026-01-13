@@ -60,11 +60,14 @@ def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[s
 
     # 根据模型名称判断 request_type
     if model_name:
+        # 先判断是否是图片模型
         if "image" in model_name.lower():
-            request_type = "image_gen"  
-        else:
+            request_type = "image_gen"
+            headers['requestType'] = request_type
+        # 再判断是否不是claude模型
+        if "claude" not in model_name.lower():
             request_type = "agent"
-        headers['requestType'] = request_type
+            headers['requestType'] = request_type
 
     return headers
 

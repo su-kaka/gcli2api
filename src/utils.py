@@ -143,34 +143,40 @@ async def authenticate_flexible(
     x_api_key: Optional[str] = Header(None, alias="x-api-key"),
     access_token: Optional[str] = Header(None, alias="access_token"),
     x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
+    x_anthropic_auth_token: Optional[str] = Header(None, alias="x-anthropic-auth-token"),
+    anthropic_auth_token: Optional[str] = Header(None, alias="anthropic-auth-token"),
     key: Optional[str] = Query(None)
 ) -> str:
     """
     统一的灵活认证函数，支持多种认证方式
-    
+
     此函数可以直接用作 FastAPI 的 Depends 依赖
-    
+
     支持的认证方式:
         - URL 参数: key
         - HTTP 头部: Authorization (Bearer token)
         - HTTP 头部: x-api-key
         - HTTP 头部: access_token
         - HTTP 头部: x-goog-api-key
-    
+        - HTTP 头部: x-anthropic-auth-token
+        - HTTP 头部: anthropic-auth-token
+
     Args:
         request: FastAPI Request 对象
         authorization: Authorization 头部值（自动注入）
         x_api_key: x-api-key 头部值（自动注入）
         access_token: access_token 头部值（自动注入）
         x_goog_api_key: x-goog-api-key 头部值（自动注入）
+        x_anthropic_auth_token: x-anthropic-auth-token 头部值（自动注入）
+        anthropic_auth_token: anthropic-auth-token 头部值（自动注入）
         key: URL 参数 key（自动注入）
-    
+
     Returns:
         验证通过的token
-    
+
     Raises:
         HTTPException: 认证失败时抛出异常
-    
+
     使用示例:
         @router.post("/endpoint")
         async def endpoint(token: str = Depends(authenticate_flexible)):
@@ -180,28 +186,38 @@ async def authenticate_flexible(
     password = await get_api_password()
     token = None
     auth_method = None
-    
+
     # 1. 尝试从 URL 参数 key 获取（Google 官方标准方式）
     if key:
         token = key
         auth_method = "URL parameter 'key'"
-    
+
     # 2. 尝试从 x-goog-api-key 头部获取（Google API 标准方式）
     elif x_goog_api_key:
         token = x_goog_api_key
         auth_method = "x-goog-api-key header"
-    
-    # 3. 尝试从 x-api-key 头部获取
+
+    # 3. 尝试从 x-anthropic-auth-token 头部获取（Anthropic 标准方式）
+    elif x_anthropic_auth_token:
+        token = x_anthropic_auth_token
+        auth_method = "x-anthropic-auth-token header"
+
+    # 4. 尝试从 anthropic-auth-token 头部获取（Anthropic 替代方式）
+    elif anthropic_auth_token:
+        token = anthropic_auth_token
+        auth_method = "anthropic-auth-token header"
+
+    # 5. 尝试从 x-api-key 头部获取
     elif x_api_key:
         token = x_api_key
         auth_method = "x-api-key header"
-    
-    # 4. 尝试从 access_token 头部获取
+
+    # 6. 尝试从 access_token 头部获取
     elif access_token:
         token = access_token
         auth_method = "access_token header"
-    
-    # 5. 尝试从 Authorization 头部获取
+
+    # 7. 尝试从 Authorization 头部获取
     elif authorization:
         if not authorization.startswith("Bearer "):
             raise HTTPException(
@@ -211,12 +227,12 @@ async def authenticate_flexible(
             )
         token = authorization[7:]  # 移除 "Bearer " 前缀
         auth_method = "Authorization Bearer header"
-    
+
     # 检查是否提供了任何认证凭据
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication credentials. Use 'key' URL parameter, 'x-goog-api-key', 'x-api-key', 'access_token' header, or 'Authorization: Bearer <token>'",
+            detail="Missing authentication credentials. Use 'key' URL parameter, 'x-goog-api-key', 'x-anthropic-auth-token', 'anthropic-auth-token', 'x-api-key', 'access_token' header, or 'Authorization: Bearer <token>'",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
