@@ -1,4 +1,4 @@
-full_hash=8870324296b0985325f08a8b28325beda1903dcc
-short_hash=8870324
-message=Update gemini_fix.py
-date=2026-01-13 18:05:43 +0800
+full_hash=c25a637f19801264e2e6d2e7bc994b729b11931e
+short_hash=c25a637
+message=认证支持更多字段
+date=2026-01-13 18:29:36 +0800
