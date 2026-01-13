@@ -3,7 +3,7 @@ name = "gcli2api"
 version = "0.1.0"
 description = "Convert GeminiCLI to OpenAI and Gemini API interfaces"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = {text = "CNC-1.0"}
 authors = [
     {name = "su-kaka"}
@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
@@ -57,7 +56,7 @@ addopts = [
 
 [tool.black]
 line-length = 100
-target-version = ["py312"]
+target-version = ["py313"]
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -74,7 +73,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
