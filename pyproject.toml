@@ -3,7 +3,7 @@ name = "gcli2api"
 version = "0.1.0"
 description = "Convert GeminiCLI to OpenAI and Gemini API interfaces"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 license = {text = "CNC-1.0"}
 authors = [
     {name = "su-kaka"}
