@@ -1,4 +1,4 @@
-full_hash=8d9bd1247f763af81215acf9dddd721bc6c514f0
-short_hash=8d9bd12
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-01-14 01:36:23 +0800
+full_hash=81ece786898f3fa9c603b00626c29e9d6a2fb4cf
+short_hash=81ece78
+message=Update pyproject.toml
+date=2026-01-14 01:38:41 +0800
