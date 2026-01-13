@@ -147,13 +147,6 @@ git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
 uv python pin 3.12
 
-# 验证 .python-version 文件
-if [ -f ".python-version" ]; then
-    echo "✅ Python 版本已固定到: $(cat .python-version)"
-else
-    echo "⚠️ 警告: .python-version 文件未创建"
-fi
-
 echo "初始化 uv 环境..."
 rm pyproject.toml
 uv init
@@ -168,7 +161,3 @@ echo "激活虚拟环境并启动服务..."
 source .venv/bin/activate
 pm2 start .venv/bin/python --name web -- web.py
 cd ..
-
-echo "✅ 安装完成！服务已启动。"
-echo "📌 Python 版本已固定为: $PYTHON_VERSION"
-echo "📄 查看固定版本: cat gcli2api/.python-version"
