@@ -1,4 +1,4 @@
-full_hash=36d7ceef61a311837bb57fa66254abfca0bd1742
-short_hash=36d7cee
-message=Update gemini_fix.py
-date=2026-01-14 21:55:29 +0800
+full_hash=160294d9afdd47f12bc469b7dd8ab9feb92db866
+short_hash=160294d
+message=优化重试速度
+date=2026-01-14 23:08:17 +0800
