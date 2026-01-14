@@ -1,4 +1,4 @@
-full_hash=f85b19e4ba1dc664cdc6b442d6e4a319225d1c90
-short_hash=f85b19e
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-01-14 20:24:26 +0800
+full_hash=553a5252ae03e08448fbf6c4363686f47c4faa4e
+short_hash=553a525
+message=Update gemini_fix.py
+date=2026-01-14 21:47:02 +0800
