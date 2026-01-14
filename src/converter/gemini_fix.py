@@ -311,6 +311,10 @@ async def normalize_gemini_request(
             if original_model != model:
                 log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
+        # 5. 移除 antigravity 模式不支持的字段
+        generation_config.pop("presencePenalty", None)
+        generation_config.pop("frequencyPenalty", None)
+
     # ========== 公共处理 ==========
 
     # 1. 安全设置覆盖
