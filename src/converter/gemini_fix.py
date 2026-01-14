@@ -228,18 +228,7 @@ async def normalize_gemini_request(
         existing_parts = []
         if system_instruction:
             if isinstance(system_instruction, dict):
-                raw_parts = system_instruction.get("parts", [])
-                # 规范化 existing_parts: 确保每个 part 的 text 字段是字符串而不是数组
-                for part in raw_parts:
-                    if isinstance(part, dict):
-                        text_value = part.get("text")
-                        if isinstance(text_value, list):
-                            # 如果 text 是数组, 将其展平为字符串
-                            part = part.copy()
-                            part["text"] = " ".join(str(t) for t in text_value if t)
-                        existing_parts.append(part)
-                    else:
-                        existing_parts.append(part)
+                existing_parts = system_instruction.get("parts", [])
 
         # custom_prompt 始终放在第一位,原有内容整体后移
         result["systemInstruction"] = {
