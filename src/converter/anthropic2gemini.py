@@ -29,7 +29,7 @@ _DEBUG_TRUE = {"1", "true", "yes", "on"}
 MIN_SIGNATURE_LENGTH = 10
 
 
-def has_valid_signature(block: Dict[str, Any]) -> bool:
+def has_valid_thoughtsignature(block: Dict[str, Any]) -> bool:
     """
     检查 thinking 块是否有有效签名
     
@@ -47,14 +47,14 @@ def has_valid_signature(block: Dict[str, Any]) -> bool:
         return True  # 非 thinking 块默认有效
     
     thinking = block.get("thinking", "")
-    signature = block.get("signature")
+    thoughtsignature = block.get("thoughtSignature")
     
-    # 空 thinking + 任意 signature = 有效 (trailing signature case)
-    if not thinking and signature is not None:
+    # 空 thinking + 任意 thoughtsignature = 有效 (trailing signature case)
+    if not thinking and thoughtsignature is not None:
         return True
     
-    # 有内容 + 足够长度的 signature = 有效
-    if signature and isinstance(signature, str) and len(signature) >= MIN_SIGNATURE_LENGTH:
+    # 有内容 + 足够长度的 thoughtsignature = 有效
+    if thoughtsignature and isinstance(thoughtsignature, str) and len(thoughtsignature) >= MIN_SIGNATURE_LENGTH:
         return True
     
     return False
@@ -83,9 +83,9 @@ def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
         "thinking": block.get("thinking", "")
     }
     
-    signature = block.get("signature")
-    if signature:
-        sanitized["signature"] = signature
+    thoughtsignature = block.get("thoughtSignature")
+    if thoughtsignature:
+        sanitized["thoughtSignature"] = thoughtsignature
     
     return sanitized
 
@@ -109,7 +109,7 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
         
         block_type = block.get("type")
         if block_type in ("thinking", "redacted_thinking"):
-            if not has_valid_signature(block):
+            if not has_valid_thoughtsignature(block):
                 end_index = i
             else:
                 break  # 遇到有效签名的 thinking 块,停止
@@ -124,38 +124,39 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
 
 def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
     """
-    过滤消息中的无效 thinking 块
-    
+    过滤消息中的无效 thinking 块，并清理所有 thinking 块的额外字段（如 cache_control）
+
     Args:
         messages: Anthropic messages 列表 (会被修改)
     """
     total_filtered = 0
-    
+
     for msg in messages:
         # 只处理 assistant 和 model 消息
         role = msg.get("role", "")
         if role not in ("assistant", "model"):
             continue
-        
+
         content = msg.get("content")
         if not isinstance(content, list):
             continue
-        
+
         original_len = len(content)
         new_blocks: List[Dict[str, Any]] = []
-        
+
         for block in content:
             if not isinstance(block, dict):
                 new_blocks.append(block)
                 continue
-            
+
             block_type = block.get("type")
             if block_type not in ("thinking", "redacted_thinking"):
                 new_blocks.append(block)
                 continue
-            
+
+            # 所有 thinking 块都需要清理（移除 cache_control 等额外字段）
             # 检查 thinking 块的有效性
-            if has_valid_signature(block):
+            if has_valid_thoughtsignature(block):
                 # 有效签名，清理后保留
                 new_blocks.append(sanitize_thinking_block(block))
             else:
@@ -163,21 +164,21 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
                 thinking_text = block.get("thinking", "")
                 if thinking_text and str(thinking_text).strip():
                     log.info(
-                        f"[Claude-Handler] Converting thinking block with invalid signature to text. "
+                        f"[Claude-Handler] Converting thinking block with invalid thoughtSignature to text. "
                         f"Content length: {len(thinking_text)} chars"
                     )
                     new_blocks.append({"type": "text", "text": thinking_text})
                 else:
-                    log.debug("[Claude-Handler] Dropping empty thinking block with invalid signature")
-        
+                    log.debug("[Claude-Handler] Dropping empty thinking block with invalid thoughtSignature")
+
         msg["content"] = new_blocks
         filtered_count = original_len - len(new_blocks)
         total_filtered += filtered_count
-        
+
         # 如果过滤后为空,添加一个空文本块以保持消息有效
         if not new_blocks:
             msg["content"] = [{"type": "text", "text": ""}]
-    
+
     if total_filtered > 0:
         log.debug(f"Filtered {total_filtered} invalid thinking block(s) from history")
 
@@ -374,7 +375,7 @@ def convert_messages_to_contents(
     """
     contents: List[Dict[str, Any]] = []
 
-    # 第一遍：构建 tool_use_id -> (name, signature) 的映射
+    # 第一遍：构建 tool_use_id -> (name, thoughtsignature) 的映射
     # 注意：存储的是编码后的 ID（可能包含签名）
     tool_use_info: Dict[str, tuple[str, Optional[str]]] = {}
     for msg in messages:
@@ -386,9 +387,9 @@ def convert_messages_to_contents(
                     tool_name = item.get("name")
                     if encoded_tool_id and tool_name:
                         # 解码获取原始ID和签名
-                        original_id, signature = decode_tool_id_and_signature(encoded_tool_id)
-                        # 存储映射：编码ID -> (name, signature)
-                        tool_use_info[str(encoded_tool_id)] = (tool_name, signature)
+                        original_id, thoughtsignature = decode_tool_id_and_signature(encoded_tool_id)
+                        # 存储映射：编码ID -> (name, thoughtsignature)
+                        tool_use_info[str(encoded_tool_id)] = (tool_name, thoughtsignature)
 
     for msg in messages:
         role = msg.get("role", "user")
@@ -426,10 +427,10 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # 如果有 signature 则添加
-                    signature = item.get("signature")
-                    if signature:
-                        part["thoughtSignature"] = signature
+                    # 如果有 thoughtsignature 则添加
+                    thoughtsignature = item.get("thoughtSignature")
+                    if thoughtsignature:
+                        part["thoughtSignature"] = thoughtsignature
                     
                     parts.append(part)
                 elif item_type == "redacted_thinking":
@@ -445,10 +446,10 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # 如果有 signature 则添加
-                    signature = item.get("signature")
-                    if signature:
-                        part_dict["thoughtSignature"] = signature
+                    # 如果有 thoughtsignature 则添加
+                    thoughtsignature = item.get("thoughtSignature")
+                    if thoughtsignature:
+                        part_dict["thoughtSignature"] = thoughtsignature
                     
                     parts.append(part_dict)
                 elif item_type == "text":
@@ -468,7 +469,7 @@ def convert_messages_to_contents(
                         )
                 elif item_type == "tool_use":
                     encoded_id = item.get("id") or ""
-                    original_id, signature = decode_tool_id_and_signature(encoded_id)
+                    original_id, thoughtsignature = decode_tool_id_and_signature(encoded_id)
 
                     fc_part: Dict[str, Any] = {
                         "functionCall": {
@@ -479,8 +480,8 @@ def convert_messages_to_contents(
                     }
 
                     # 如果提取到签名则添加，否则使用占位符以满足 Gemini API 要求
-                    if signature:
-                        fc_part["thoughtSignature"] = signature
+                    if thoughtsignature:
+                        fc_part["thoughtSignature"] = thoughtsignature
                     else:
                         fc_part["thoughtSignature"] = "skip_thought_signature_validator"
 
@@ -827,10 +828,10 @@ def gemini_to_anthropic_response(
             
             block: Dict[str, Any] = {"type": "thinking", "thinking": str(thinking_text)}
             
-            # 如果有 signature 则添加
-            signature = part.get("thoughtSignature")
-            if signature:
-                block["signature"] = signature
+            # 如果有 thoughtsignature 则添加
+            thoughtsignature = part.get("thoughtSignature")
+            if thoughtsignature:
+                block["thoughtSignature"] = thoughtsignature
             
             content.append(block)
             continue
@@ -845,10 +846,10 @@ def gemini_to_anthropic_response(
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
-            signature = part.get("thoughtSignature")
+            thoughtsignature = part.get("thoughtSignature")
             
             # 对工具调用ID进行签名编码
-            encoded_id = encode_tool_id_with_signature(original_id, signature)
+            encoded_id = encode_tool_id_with_signature(original_id, thoughtsignature)
             content.append(
                 {
                     "type": "tool_use",
@@ -1032,7 +1033,7 @@ async def gemini_stream_to_anthropic_stream(
                 # 处理 thinking 块
                 if part.get("thought") is True:
                     thinking_text = part.get("text", "")
-                    signature = part.get("thoughtSignature")
+                    thoughtsignature = part.get("thoughtSignature")
                     
                     # 检查是否需要关闭上一个块并开启新的 thinking 块
                     if current_block_type != "thinking":
@@ -1042,12 +1043,11 @@ async def gemini_stream_to_anthropic_stream(
 
                         current_block_index += 1
                         current_block_type = "thinking"
-                        current_thinking_signature = signature
+                        current_thinking_signature = thoughtsignature
 
                         block: Dict[str, Any] = {"type": "thinking", "thinking": ""}
-                        if signature:
-                            block["signature"] = signature
-
+                        if thoughtsignature:
+                            block["thoughtSignature"] = thoughtsignature
                         yield _sse_event(
                             "content_block_start",
                             {
@@ -1056,7 +1056,7 @@ async def gemini_stream_to_anthropic_stream(
                                 "content_block": block,
                             },
                         )
-                    elif signature and signature != current_thinking_signature:
+                    elif thoughtsignature and thoughtsignature != current_thinking_signature:
                         # 签名变化，需要开启新的 thinking 块
                         close_evt = _close_block()
                         if close_evt:
@@ -1064,11 +1064,11 @@ async def gemini_stream_to_anthropic_stream(
                         
                         current_block_index += 1
                         current_block_type = "thinking"
-                        current_thinking_signature = signature
+                        current_thinking_signature = thoughtsignature
                         
                         block_new: Dict[str, Any] = {"type": "thinking", "thinking": ""}
-                        if signature:
-                            block_new["signature"] = signature
+                        if thoughtsignature:
+                            block_new["thoughtSignature"] = thoughtsignature
                         
                         yield _sse_event(
                             "content_block_start",
@@ -1134,15 +1134,15 @@ async def gemini_stream_to_anthropic_stream(
                     has_tool_use = True
                     fc = part.get("functionCall", {}) or {}
                     original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
-                    signature = part.get("thoughtSignature")
-                    tool_id = encode_tool_id_with_signature(original_id, signature)
+                    thoughtsignature = part.get("thoughtSignature")
+                    tool_id = encode_tool_id_with_signature(original_id, thoughtsignature)
                     tool_name = fc.get("name") or ""
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
                     if _anthropic_debug_enabled():
                         log.info(
                             f"[ANTHROPIC][tool_use] 处理工具调用: name={tool_name}, "
-                            f"id={tool_id}, has_signature={signature is not None}"
+                            f"id={tool_id}, has_signature={thoughtsignature is not None}"
                         )
 
                     current_block_index += 1
