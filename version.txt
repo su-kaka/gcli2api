@@ -1,4 +1,4 @@
-full_hash=b687998ef3f070a1e1fc0ed60ef1a2d7b4d44c88
-short_hash=b687998
-message=Merge pull request #284 from MIKUSCAT/fix/stream-collector-tool-calls
-date=2026-01-15 14:24:08 +0800
+full_hash=0c0f7e24470cbdd1b88e1fa05a36919aa0439331
+short_hash=0c0f7e2
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-01-15 18:00:22 +0800
