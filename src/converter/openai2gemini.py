@@ -1058,10 +1058,12 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                             "args": args
                         }
                     }
-                    
-                    # 如果有thoughtSignature，添加到part中
+
+                    # 如果有thoughtSignature则添加，否则使用占位符以满足 Gemini API 要求
                     if signature:
                         function_call_part["thoughtSignature"] = signature
+                    else:
+                        function_call_part["thoughtSignature"] = "skip_thought_signature_validator"
 
                     parts.append(function_call_part)
                 except (json.JSONDecodeError, KeyError) as e:

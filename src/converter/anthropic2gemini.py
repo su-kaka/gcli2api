@@ -478,9 +478,11 @@ def convert_messages_to_contents(
                         }
                     }
 
-                    # 如果提取到签名则添加
+                    # 如果提取到签名则添加，否则使用占位符以满足 Gemini API 要求
                     if signature:
                         fc_part["thoughtSignature"] = signature
+                    else:
+                        fc_part["thoughtSignature"] = "skip_thought_signature_validator"
 
                     parts.append(fc_part)
                 elif item_type == "tool_result":
