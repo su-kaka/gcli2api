@@ -1,4 +1,4 @@
-full_hash=160294d9afdd47f12bc469b7dd8ab9feb92db866
-short_hash=160294d
-message=优化重试速度
-date=2026-01-14 23:08:17 +0800
+full_hash=b687998ef3f070a1e1fc0ed60ef1a2d7b4d44c88
+short_hash=b687998
+message=Merge pull request #284 from MIKUSCAT/fix/stream-collector-tool-calls
+date=2026-01-15 14:24:08 +0800
