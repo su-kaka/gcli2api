@@ -261,6 +261,8 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     collected_text = []  # 用于收集文本内容
     collected_thought_text = []  # 用于收集思维链内容
+    collected_tool_parts = []  # 用于收集 functionCall/functionResponse 等工具相关结构化内容
+    function_call_index_by_id = {}  # functionCall 按 id 去重/更新（流式可能分块更新 args）
     collected_other_parts = []  # 用于收集其他类型的parts（图片、文件等）
     has_data = False
     line_count = 0
@@ -324,6 +326,24 @@ async def collect_streaming_response(stream_generator) -> Response:
 
                 for part in parts:
                     if not isinstance(part, dict):
+                        continue
+
+                    # 处理工具调用/响应（非文本结构化 part）
+                    if "functionCall" in part or "functionResponse" in part:
+                        # functionCall 可能会在流里重复出现：按 id 去重，但保留“最后一次”的内容（防止分块更新 args）
+                        if "functionCall" in part:
+                            function_call = part.get("functionCall")
+                            if isinstance(function_call, dict):
+                                call_id = function_call.get("id")
+                                if call_id:
+                                    if call_id in function_call_index_by_id:
+                                        collected_tool_parts[function_call_index_by_id[call_id]] = part
+                                        log.debug(f"[STREAM COLLECTOR] Updated functionCall part by id: {call_id}")
+                                        continue
+                                    function_call_index_by_id[call_id] = len(collected_tool_parts)
+
+                        collected_tool_parts.append(part)
+                        log.debug(f"[STREAM COLLECTOR] Collected tool part: {list(part.keys())}")
                         continue
 
                     # 处理文本内容
@@ -399,6 +419,8 @@ async def collect_streaming_response(stream_generator) -> Response:
         })
 
     # 添加其他类型的parts（图片、文件等）
+    # 先追加工具相关结构化 parts（functionCall/functionResponse），否则工具调用会丢失
+    final_parts.extend(collected_tool_parts)
     final_parts.extend(collected_other_parts)
 
     # 如果没有任何内容，添加空文本
@@ -407,7 +429,10 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     merged_response["response"]["candidates"][0]["content"]["parts"] = final_parts
 
-    log.info(f"[STREAM COLLECTOR] Collected {len(collected_text)} text chunks, {len(collected_thought_text)} thought chunks, and {len(collected_other_parts)} other parts")
+    log.info(
+        f"[STREAM COLLECTOR] Collected {len(collected_text)} text chunks, {len(collected_thought_text)} thought chunks, "
+        f"{len(collected_tool_parts)} tool parts, and {len(collected_other_parts)} other parts"
+    )
 
     # 去掉嵌套的 "response" 包装（Antigravity格式 -> 标准Gemini格式）
     if "response" in merged_response and "candidates" not in merged_response:
