@@ -4,7 +4,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 ────────────────────────────────────────────────────────────────
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from log import log
 from src.utils import DEFAULT_SAFETY_SETTINGS
