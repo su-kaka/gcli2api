@@ -1,4 +1,4 @@
-full_hash=0c0f7e24470cbdd1b88e1fa05a36919aa0439331
-short_hash=0c0f7e2
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-01-15 18:00:22 +0800
+full_hash=5210dfee8301b0f9996ff059f0f76fff4aded8d2
+short_hash=5210dfe
+message=Revert "fix: stream collector 保留 functionCall/functionResponse"
+date=2026-01-15 22:51:32 +0800
