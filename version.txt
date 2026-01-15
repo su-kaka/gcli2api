@@ -1,4 +1,4 @@
-full_hash=5210dfee8301b0f9996ff059f0f76fff4aded8d2
-short_hash=5210dfe
-message=Revert "fix: stream collector 保留 functionCall/functionResponse"
-date=2026-01-15 22:51:32 +0800
+full_hash=a73f272fd3768a051026611b64cd6015fef11c0e
+short_hash=a73f272
+message=让claude格式工具调用更好
+date=2026-01-15 23:52:43 +0800
