@@ -1,4 +1,4 @@
-full_hash=a73f272fd3768a051026611b64cd6015fef11c0e
-short_hash=a73f272
-message=让claude格式工具调用更好
-date=2026-01-15 23:52:43 +0800
+full_hash=abcd1afb74ad6ec5702fa46547faabf50a63e366
+short_hash=abcd1af
+message=Merge pull request #291 from Dongmayyys/fix/thinking-budget-level-conflict
+date=2026-01-17 16:00:44 +0800
