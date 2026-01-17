@@ -29,6 +29,30 @@ def _get_log_file_path():
     return os.getenv("LOG_FILE", "log.txt")
 
 
+def _clear_log_file():
+    """清空日志文件（在启动时调用）"""
+    global _file_writing_disabled, _disable_reason
+
+    try:
+        log_file = _get_log_file_path()
+        with _file_lock:
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write("")  # 清空文件
+    except (PermissionError, OSError, IOError) as e:
+        # 检测只读文件系统或权限问题，禁用文件写入
+        _file_writing_disabled = True
+        _disable_reason = str(e)
+        print(
+            f"Warning: File system appears to be read-only or permission denied. "
+            f"Disabling log file writing: {e}",
+            file=sys.stderr,
+        )
+        print("Log messages will continue to display in console only.", file=sys.stderr)
+    except Exception as e:
+        # 其他异常仍然输出警告但不禁用写入（可能是临时问题）
+        print(f"Warning: Failed to clear log file: {e}", file=sys.stderr)
+
+
 def _write_to_file(message: str):
     """线程安全地写入日志文件"""
     global _file_writing_disabled, _disable_reason
@@ -71,6 +95,10 @@ def _log(level: str, message: str):
     current_level = _get_current_log_level()
     if LOG_LEVELS[level] < current_level:
         return
+
+    # 截断日志消息到最多500个字符
+    #if len(message) > 500:
+        #message = message[:500] + "..."
 
     # 格式化日志消息
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -142,6 +170,9 @@ log = Logger()
 
 # 导出的公共接口
 __all__ = ["log", "set_log_level", "LOG_LEVELS"]
+
+# 在模块加载时清空日志文件
+_clear_log_file()
 
 # 使用说明:
 # 1. 设置日志级别: export LOG_LEVEL=debug (或在.env文件中设置)

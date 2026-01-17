@@ -1,5 +1,3 @@
-import base64
-import platform
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -11,9 +9,11 @@ from log import log
 # HTTP Bearer security scheme
 security = HTTPBearer()
 
-CLI_VERSION = "0.1.5"  # Match current gemini-cli version
-
 # ====================== OAuth Configuration ======================
+
+GEMINICLI_USER_AGENT = "GeminiCLI/0.1.5 (Windows; AMD64)"
+
+ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
 # OAuth Configuration - 标准模式
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -41,12 +41,6 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 # 回调服务器配置
 CALLBACK_HOST = "localhost"
 
-# ====================== API Configuration ======================
-
-STANDARD_USER_AGENT = "GeminiCLI/0.1.5 (Windows; AMD64)"
-
-ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
-
 # ====================== Model Configuration ======================
 
 # Default Safety Settings for Google API
@@ -73,63 +67,6 @@ BASE_MODELS = [
 
 
 # ====================== Model Helper Functions ======================
-
-def get_base_model_name(model_name: str) -> str:
-    """Convert variant model name to base model name."""
-    # Remove all possible suffixes (supports multiple suffixes in any order)
-    suffixes = ["-maxthinking", "-nothinking", "-search"]
-    result = model_name
-    # Keep removing suffixes until no more matches
-    changed = True
-    while changed:
-        changed = False
-        for suffix in suffixes:
-            if result.endswith(suffix):
-                result = result[: -len(suffix)]
-                changed = True
-                break
-    return result
-
-
-def is_search_model(model_name: str) -> bool:
-    """Check if model name indicates search grounding should be enabled."""
-    return "-search" in model_name
-
-
-def is_nothinking_model(model_name: str) -> bool:
-    """Check if model name indicates thinking should be disabled."""
-    return "-nothinking" in model_name
-
-
-def is_maxthinking_model(model_name: str) -> bool:
-    """Check if model name indicates maximum thinking budget should be used."""
-    return "-maxthinking" in model_name
-
-
-def get_thinking_budget(model_name: str) -> Optional[int]:
-    """Get the appropriate thinking budget for a model based on its name and variant."""
-    if is_nothinking_model(model_name):
-        return 128  # Limited thinking for pro
-    elif is_maxthinking_model(model_name):
-        base_model = get_base_model_name(get_base_model_from_feature_model(model_name))
-        if "flash" in base_model:
-            return 24576
-        return 32768
-    else:
-        # Default thinking budget for regular models
-        return None  # Default for all models
-
-
-def should_include_thoughts(model_name: str) -> bool:
-    """Check if thoughts should be included in the response."""
-    if is_nothinking_model(model_name):
-        # For nothinking mode, still include thoughts if it's a pro model
-        base_model = get_base_model_name(model_name)
-        return "pro" in base_model
-    else:
-        # For all other modes, include thoughts
-        return True
-
 
 def is_fake_streaming_model(model_name: str) -> bool:
     """Check if model name indicates fake streaming should be used."""
@@ -198,278 +135,122 @@ def get_available_models(router_type: str = "openai") -> List[str]:
     return models
 
 
-def get_model_group(model_name: str) -> str:
-    """
-    获取模型组，用于 GCLI CD 机制。
-
-    Args:
-        model_name: 模型名称
-
-    Returns:
-        "pro" 或 "flash"
-
-    说明:
-        - pro 组: gemini-2.5-pro, gemini-3-pro-preview 共享额度
-        - flash 组: gemini-2.5-flash 单独额度
-    """
-    # 去除功能前缀和后缀，获取基础模型名
-    base_model = get_base_model_from_feature_model(model_name)
-    base_model = get_base_model_name(base_model)
-
-    # 判断模型组
-    if "flash" in base_model.lower():
-        return "flash"
-    else:
-        # pro 模型（包括 gemini-2.5-pro 和 gemini-3-pro-preview）
-        return "pro"
-
-
-# ====================== User Agent ======================
-
-
-def get_user_agent():
-    """Generate User-Agent string matching gemini-cli format."""
-    version = CLI_VERSION
-    system = platform.system()
-    arch = platform.machine()
-    return f"GeminiCLI/{version} ({system}; {arch})"
-
-
-def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
-    """
-    从Google API错误响应中提取quota重置时间戳
-
-    Args:
-        error_response: Google API返回的错误响应字典
-
-    Returns:
-        Unix时间戳（秒），如果无法解析则返回None
-
-    示例错误响应:
-    {
-      "error": {
-        "code": 429,
-        "message": "You have exhausted your capacity...",
-        "status": "RESOURCE_EXHAUSTED",
-        "details": [
-          {
-            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
-            "reason": "QUOTA_EXHAUSTED",
-            "metadata": {
-              "quotaResetTimeStamp": "2025-11-30T14:57:24Z",
-              "quotaResetDelay": "13h19m1.20964964s"
-            }
-          }
-        ]
-      }
-    }
-    """
-    try:
-        details = error_response.get("error", {}).get("details", [])
-
-        for detail in details:
-            if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
-
-                if reset_timestamp_str:
-                    if reset_timestamp_str.endswith("Z"):
-                        reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
-
-                    reset_dt = datetime.fromisoformat(reset_timestamp_str)
-                    if reset_dt.tzinfo is None:
-                        reset_dt = reset_dt.replace(tzinfo=timezone.utc)
-
-                    return reset_dt.astimezone(timezone.utc).timestamp()
-
-        return None
-
-    except Exception:
-        return None
-
-
 # ====================== Authentication Functions ======================
 
-async def authenticate_bearer(
-    authorization: Optional[str] = Header(None)
+async def authenticate_flexible(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None, alias="x-api-key"),
+    access_token: Optional[str] = Header(None, alias="access_token"),
+    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
+    x_anthropic_auth_token: Optional[str] = Header(None, alias="x-anthropic-auth-token"),
+    anthropic_auth_token: Optional[str] = Header(None, alias="anthropic-auth-token"),
+    key: Optional[str] = Query(None)
 ) -> str:
     """
-    Bearer Token 认证
+    统一的灵活认证函数，支持多种认证方式
 
     此函数可以直接用作 FastAPI 的 Depends 依赖
 
+    支持的认证方式:
+        - URL 参数: key
+        - HTTP 头部: Authorization (Bearer token)
+        - HTTP 头部: x-api-key
+        - HTTP 头部: access_token
+        - HTTP 头部: x-goog-api-key
+        - HTTP 头部: x-anthropic-auth-token
+        - HTTP 头部: anthropic-auth-token
+
     Args:
+        request: FastAPI Request 对象
         authorization: Authorization 头部值（自动注入）
+        x_api_key: x-api-key 头部值（自动注入）
+        access_token: access_token 头部值（自动注入）
+        x_goog_api_key: x-goog-api-key 头部值（自动注入）
+        x_anthropic_auth_token: x-anthropic-auth-token 头部值（自动注入）
+        anthropic_auth_token: anthropic-auth-token 头部值（自动注入）
+        key: URL 参数 key（自动注入）
 
     Returns:
         验证通过的token
 
     Raises:
-        HTTPException: 认证失败时抛出401或403异常
+        HTTPException: 认证失败时抛出异常
 
     使用示例:
         @router.post("/endpoint")
-        async def endpoint(token: str = Depends(authenticate_bearer)):
+        async def endpoint(token: str = Depends(authenticate_flexible)):
             # token 已验证通过
             pass
     """
-
     password = await get_api_password()
+    token = None
+    auth_method = None
 
-    # 检查是否提供了 Authorization 头
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # 1. 尝试从 URL 参数 key 获取（Google 官方标准方式）
+    if key:
+        token = key
+        auth_method = "URL parameter 'key'"
 
-    # 检查是否是 Bearer token
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication scheme. Use 'Bearer <token>'",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # 2. 尝试从 x-goog-api-key 头部获取（Google API 标准方式）
+    elif x_goog_api_key:
+        token = x_goog_api_key
+        auth_method = "x-goog-api-key header"
 
-    # 提取 token
-    token = authorization[7:]  # 移除 "Bearer " 前缀
+    # 3. 尝试从 x-anthropic-auth-token 头部获取（Anthropic 标准方式）
+    elif x_anthropic_auth_token:
+        token = x_anthropic_auth_token
+        auth_method = "x-anthropic-auth-token header"
 
+    # 4. 尝试从 anthropic-auth-token 头部获取（Anthropic 替代方式）
+    elif anthropic_auth_token:
+        token = anthropic_auth_token
+        auth_method = "anthropic-auth-token header"
+
+    # 5. 尝试从 x-api-key 头部获取
+    elif x_api_key:
+        token = x_api_key
+        auth_method = "x-api-key header"
+
+    # 6. 尝试从 access_token 头部获取
+    elif access_token:
+        token = access_token
+        auth_method = "access_token header"
+
+    # 7. 尝试从 Authorization 头部获取
+    elif authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication scheme. Use 'Bearer <token>'",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        token = authorization[7:]  # 移除 "Bearer " 前缀
+        auth_method = "Authorization Bearer header"
+
+    # 检查是否提供了任何认证凭据
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Missing authentication credentials. Use 'key' URL parameter, 'x-goog-api-key', 'x-anthropic-auth-token', 'anthropic-auth-token', 'x-api-key', 'access_token' header, or 'Authorization: Bearer <token>'",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     # 验证 token
     if token != password:
+        log.debug(f"Authentication failed using {auth_method}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="密码错误"
         )
-
+    
+    log.debug(f"Authentication successful using {auth_method}")
     return token
 
 
-async def authenticate_gemini_flexible(
-    request: Request,
-    x_goog_api_key: Optional[str] = Header(None, alias="x-goog-api-key"),
-    key: Optional[str] = Query(None)
-) -> str:
-    """
-    Gemini 灵活认证：支持 x-goog-api-key 头部、URL 参数 key 或 Authorization Bearer
-
-    此函数可以直接用作 FastAPI 的 Depends 依赖
-
-    Args:
-        request: FastAPI Request 对象
-        x_goog_api_key: x-goog-api-key 头部值（自动注入）
-        key: URL 参数 key（自动注入）
-
-    Returns:
-        验证通过的API密钥
-
-    Raises:
-        HTTPException: 认证失败时抛出400异常
-
-    使用示例:
-        @router.post("/endpoint")
-        async def endpoint(api_key: str = Depends(authenticate_gemini_flexible)):
-            # api_key 已验证通过
-            pass
-    """
-
-    password = await get_api_password()
-
-    # 尝试从URL参数key获取（Google官方标准方式）
-    if key:
-        log.debug("Using URL parameter key authentication")
-        if key == password:
-            return key
-
-    # 尝试从Authorization头获取（兼容旧方式）
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]  # 移除 "Bearer " 前缀
-        log.debug("Using Bearer token authentication")
-        if token == password:
-            return token
-
-    # 尝试从x-goog-api-key头获取（新标准方式）
-    if x_goog_api_key:
-        log.debug("Using x-goog-api-key authentication")
-        if x_goog_api_key == password:
-            return x_goog_api_key
-
-    log.error(f"Authentication failed. Headers: {dict(request.headers)}, Query params: key={key}")
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Missing or invalid authentication. Use 'key' URL parameter, 'x-goog-api-key' header, or 'Authorization: Bearer <token>'",
-    )
-
-
-async def authenticate_sdwebui_flexible(request: Request) -> str:
-    """
-    SD-WebUI 灵活认证：支持 Authorization Basic/Bearer
-
-    此函数可以直接用作 FastAPI 的 Depends 依赖
-
-    Args:
-        request: FastAPI Request 对象
-
-    Returns:
-        验证通过的密码
-
-    Raises:
-        HTTPException: 认证失败时抛出403异常
-
-    使用示例:
-        @router.post("/endpoint")
-        async def endpoint(pwd: str = Depends(authenticate_sdwebui_flexible)):
-            # pwd 已验证通过
-            pass
-    """
-
-
-    password = await get_api_password()
-
-    # 尝试从 Authorization 头获取
-    auth_header = request.headers.get("authorization")
-
-    if auth_header:
-        # 支持 Bearer token 认证
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]  # 移除 "Bearer " 前缀
-            log.debug("Using Bearer token authentication")
-            if token == password:
-                return token
-
-        # 支持 Basic 认证
-        elif auth_header.startswith("Basic "):
-            try:
-                # 解码 Base64
-                encoded_credentials = auth_header[6:]  # 移除 "Basic " 前缀
-                decoded_bytes = base64.b64decode(encoded_credentials)
-                decoded_str = decoded_bytes.decode('utf-8')
-
-                # Basic 认证格式: username:password 或者只有 password
-                # SD-WebUI 可能只发送密码
-                if ':' in decoded_str:
-                    _, pwd = decoded_str.split(':', 1)
-                else:
-                    pwd = decoded_str
-
-                log.debug(f"Using Basic authentication, decoded: {decoded_str}")
-                if pwd == password:
-                    return pwd
-            except Exception as e:
-                log.error(f"Failed to decode Basic auth: {e}")
-
-    log.error(f"SD-WebUI authentication failed. Headers: {dict(request.headers)}")
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Missing or invalid authentication. Use 'Authorization: Basic <base64>' or 'Bearer <token>'",
-    )
+# 为了保持向后兼容，保留旧函数名作为别名
+authenticate_bearer = authenticate_flexible
+authenticate_gemini_flexible = authenticate_flexible
 
 
 # ====================== Panel Authentication Functions ======================

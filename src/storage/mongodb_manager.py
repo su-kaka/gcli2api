@@ -2,7 +2,9 @@
 MongoDB 存储管理器
 """
 
+import os
 import time
+import re
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -37,8 +39,6 @@ class MongoDBManager:
             return
 
         try:
-            import os
-
             mongodb_uri = os.getenv("MONGODB_URI")
             if not mongodb_uri:
                 raise ValueError("MONGODB_URI environment variable not set")
@@ -74,10 +74,22 @@ class MongoDBManager:
         await credentials_collection.create_index("disabled")
         await credentials_collection.create_index("rotation_order")
 
+        # 复合索引
+        await credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
+
+        # 如果经常按错误码筛选，可以添加此索引
+        await credentials_collection.create_index("error_codes")
+
         # 创建 Antigravity 凭证索引
         await antigravity_credentials_collection.create_index("filename", unique=True)
         await antigravity_credentials_collection.create_index("disabled")
         await antigravity_credentials_collection.create_index("rotation_order")
+
+        # 复合索引
+        await antigravity_credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
+
+        # 如果经常按错误码筛选，可以添加此索引
+        await antigravity_credentials_collection.create_index("error_codes")
 
         log.debug("MongoDB indexes created")
 
@@ -114,18 +126,19 @@ class MongoDBManager:
         if not self._initialized:
             raise RuntimeError("MongoDB manager not initialized")
 
-    def _is_antigravity(self, filename: str) -> bool:
-        """判断是否为 antigravity 凭证"""
-        return filename.startswith("ag_")
-
-    def _get_collection_name(self, is_antigravity: bool) -> str:
-        """根据 is_antigravity 标志获取对应的集合名"""
-        return "antigravity_credentials" if is_antigravity else "credentials"
+    def _get_collection_name(self, mode: str) -> str:
+        """根据 mode 获取对应的集合名"""
+        if mode == "antigravity":
+            return "antigravity_credentials"
+        elif mode == "geminicli":
+            return "credentials"
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Must be 'geminicli' or 'antigravity'")
 
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, is_antigravity: bool = False, model_key: Optional[str] = None
+        self, mode: str = "geminicli", model_key: Optional[str] = None
     ) -> Optional[tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
@@ -134,55 +147,73 @@ class MongoDBManager:
         - 随机选择
 
         Args:
-            is_antigravity: 是否获取 antigravity 凭证（默认 False）
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
             model_key: 模型键（用于模型级冷却检查，antigravity 用模型名，gcli 用 pro/flash）
 
         Note:
             - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
             - 对于 gcli: model_key 是 "pro" 或 "flash"
+            - 使用聚合管道在数据库层面过滤冷却状态，性能更优
         """
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # 获取所有候选凭证（未禁用）
-            query = {"disabled": False}
-
-            # 使用 $sample 随机抽取
+            # 构建聚合管道
             pipeline = [
-                {"$match": query},
-                {"$sample": {"size": 100}}  # 随机抽取最多100个
+                # 第一步: 筛选未禁用的凭证
+                {"$match": {"disabled": False}},
             ]
 
-            docs = await collection.aggregate(pipeline).to_list(length=100)
+            # 如果提供了 model_key，添加冷却检查
+            if model_key:
+                pipeline.extend([
+                    # 第二步: 添加冷却状态字段
+                    {
+                        "$addFields": {
+                            "is_available": {
+                                "$or": [
+                                    # model_cooldowns 中没有该 model_key
+                                    {"$not": {"$ifNull": [f"$model_cooldowns.{model_key}", False]}},
+                                    # 或者冷却时间已过期
+                                    {"$lte": [f"$model_cooldowns.{model_key}", current_time]}
+                                ]
+                            }
+                        }
+                    },
+                    # 第三步: 只保留可用的凭证
+                    {"$match": {"is_available": True}},
+                ])
 
-            # 如果没有提供 model_key，使用第一个可用凭证
-            if not model_key:
-                if docs:
-                    doc = docs[0]
-                    return doc["filename"], doc.get("credential_data")
-                return None
+            # 第四步: 随机抽取一个
+            pipeline.append({"$sample": {"size": 1}})
 
-            # 如果提供了 model_key，检查模型级冷却
-            for doc in docs:
-                model_cooldowns = doc.get("model_cooldowns", {})
+            # 第五步: 只投影需要的字段
+            pipeline.append({
+                "$project": {
+                    "filename": 1,
+                    "credential_data": 1,
+                    "_id": 0
+                }
+            })
 
-                # 检查该模型是否在冷却中
-                model_cooldown = model_cooldowns.get(model_key)
-                if model_cooldown is None or current_time >= model_cooldown:
-                    # 该模型未冷却或冷却已过期
-                    return doc["filename"], doc.get("credential_data")
+            # 执行聚合
+            docs = await collection.aggregate(pipeline).to_list(length=1)
+
+            if docs:
+                doc = docs[0]
+                return doc["filename"], doc.get("credential_data")
 
             return None
 
         except Exception as e:
-            log.error(f"Error getting next available credential (antigravity={is_antigravity}, model_key={model_key}): {e}")
+            log.error(f"Error getting next available credential (mode={mode}, model_key={model_key}): {e}")
             return None
 
-    async def get_available_credentials_list(self, is_antigravity: bool = False) -> List[str]:
+    async def get_available_credentials_list(self, mode: str = "geminicli") -> List[str]:
         """
         获取所有可用凭证列表
         - 未禁用
@@ -191,159 +222,270 @@ class MongoDBManager:
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            cursor = collection.find(
-                {"disabled": False},
-                {"filename": 1}
-            ).sort("rotation_order", 1)
+            pipeline = [
+                {"$match": {"disabled": False}},
+                {"$sort": {"rotation_order": 1}},
+                {"$project": {"filename": 1, "_id": 0}}
+            ]
 
-            filenames = []
-            async for doc in cursor:
-                filenames.append(doc["filename"])
-
-            return filenames
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+            return [doc["filename"] for doc in docs]
 
         except Exception as e:
-            log.error(f"Error getting available credentials list: {e}")
+            log.error(f"Error getting available credentials list (mode={mode}): {e}")
             return []
-
-    async def check_and_clear_cooldowns(self) -> int:
-        """
-        批量清除已过期的模型级冷却
-        返回清除的数量
-        """
-        self._ensure_initialized()
-
-        try:
-            # 直接调用模型级冷却清理方法
-            cleared = 0
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=False)
-            cleared += await self.clear_expired_model_cooldowns(is_antigravity=True)
-            return cleared
-
-        except Exception as e:
-            log.error(f"Error clearing cooldowns: {e}")
-            return 0
 
     # ============ StorageBackend 协议方法 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any], is_antigravity: bool = False) -> bool:
+    async def store_credential(self, filename: str, credential_data: Dict[str, Any], mode: str = "geminicli") -> bool:
         """存储或更新凭证"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
+            current_ts = time.time()
 
-            # 检查是否存在
-            existing = await collection.find_one({"filename": filename})
+            # 使用 upsert + $setOnInsert
+            # 如果文档存在，只更新 credential_data 和 updated_at
+            # 如果文档不存在，设置所有默认字段
 
-            if existing:
-                # 更新凭证数据，保留状态
-                await collection.update_one(
-                    {"filename": filename},
-                    {
-                        "$set": {
-                            "credential_data": credential_data,
-                            "updated_at": time.time(),
-                        }
-                    },
-                )
-            else:
+            # 先尝试更新现有文档
+            result = await collection.update_one(
+                {"filename": filename},
+                {
+                    "$set": {
+                        "credential_data": credential_data,
+                        "updated_at": current_ts,
+                    }
+                }
+            )
+
+            # 如果没有匹配到（新凭证），需要插入
+            if result.matched_count == 0:
                 # 获取下一个 rotation_order
-                max_doc = await collection.find_one(
-                    {}, sort=[("rotation_order", -1)]
-                )
-                next_order = (max_doc["rotation_order"] + 1) if max_doc else 0
+                pipeline = [
+                    {"$group": {"_id": None, "max_order": {"$max": "$rotation_order"}}},
+                    {"$project": {"_id": 0, "next_order": {"$add": ["$max_order", 1]}}}
+                ]
 
-                # 插入新凭证
-                await collection.insert_one(
-                    {
+                result_list = await collection.aggregate(pipeline).to_list(length=1)
+                next_order = result_list[0]["next_order"] if result_list else 0
+
+                # 插入新凭证（使用 insert_one，因为我们已经确认不存在）
+                try:
+                    await collection.insert_one({
                         "filename": filename,
                         "credential_data": credential_data,
                         "disabled": False,
                         "error_codes": [],
-                        "last_success": time.time(),
+                        "last_success": current_ts,
                         "user_email": None,
                         "model_cooldowns": {},
                         "rotation_order": next_order,
                         "call_count": 0,
-                        "created_at": time.time(),
-                        "updated_at": time.time(),
-                    }
-                )
+                        "created_at": current_ts,
+                        "updated_at": current_ts,
+                    })
+                except Exception as insert_error:
+                    # 处理并发插入导致的重复键错误
+                    if "duplicate key" in str(insert_error).lower():
+                        # 重试更新
+                        await collection.update_one(
+                            {"filename": filename},
+                            {"$set": {"credential_data": credential_data, "updated_at": current_ts}}
+                        )
+                    else:
+                        raise
 
-            log.debug(f"Stored credential: {filename} (antigravity={is_antigravity})")
+            log.debug(f"Stored credential: {filename} (mode={mode})")
             return True
 
         except Exception as e:
             log.error(f"Error storing credential {filename}: {e}")
             return False
 
-    async def get_credential(self, filename: str, is_antigravity: bool = False) -> Optional[Dict[str, Any]]:
-        """获取凭证数据"""
+    async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
+        """获取凭证数据，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
-            doc = await collection.find_one({"filename": filename})
+
+            # 首先尝试精确匹配，只投影需要的字段
+            doc = await collection.find_one(
+                {"filename": filename},
+                {"credential_data": 1, "_id": 0}
+            )
+            if doc:
+                return doc.get("credential_data")
+
+            # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
+            # 直接使用 $regex 结尾匹配，移除重复的 $or 条件
+            regex_pattern = re.escape(filename)
+            doc = await collection.find_one(
+                {"filename": {"$regex": f".*{regex_pattern}$"}},
+                {"credential_data": 1, "_id": 0}
+            )
 
             if doc:
                 return doc.get("credential_data")
+
             return None
 
         except Exception as e:
             log.error(f"Error getting credential {filename}: {e}")
             return None
 
-    async def list_credentials(self, is_antigravity: bool = False) -> List[str]:
+    async def list_credentials(self, mode: str = "geminicli") -> List[str]:
         """列出所有凭证文件名"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
-            cursor = collection.find({}, {"filename": 1}).sort(
-                "rotation_order", 1
-            )
 
-            filenames = []
-            async for doc in cursor:
-                filenames.append(doc["filename"])
+            # 使用聚合管道
+            pipeline = [
+                {"$sort": {"rotation_order": 1}},
+                {"$project": {"filename": 1, "_id": 0}}
+            ]
 
-            return filenames
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+            return [doc["filename"] for doc in docs]
 
         except Exception as e:
             log.error(f"Error listing credentials: {e}")
             return []
 
-    async def delete_credential(self, filename: str, is_antigravity: bool = False) -> bool:
-        """删除凭证"""
+    async def delete_credential(self, filename: str, mode: str = "geminicli") -> bool:
+        """删除凭证，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
-            result = await collection.delete_one({"filename": filename})
 
-            log.debug(f"Deleted credential: {filename} (antigravity={is_antigravity})")
-            return result.deleted_count > 0
+            # 首先尝试精确匹配删除
+            result = await collection.delete_one({"filename": filename})
+            deleted_count = result.deleted_count
+
+            # 如果精确匹配没有删除任何记录，尝试basename匹配
+            if deleted_count == 0:
+                regex_pattern = re.escape(filename)
+                result = await collection.delete_one({
+                    "filename": {"$regex": f".*{regex_pattern}$"}
+                })
+                deleted_count = result.deleted_count
+
+            if deleted_count > 0:
+                log.debug(f"Deleted {deleted_count} credential(s): {filename} (mode={mode})")
+                return True
+            else:
+                log.warning(f"No credential found to delete: {filename} (mode={mode})")
+                return False
 
         except Exception as e:
             log.error(f"Error deleting credential {filename}: {e}")
             return False
 
-    async def update_credential_state(
-        self, filename: str, state_updates: Dict[str, Any], is_antigravity: bool = False
-    ) -> bool:
-        """更新凭证状态"""
+    async def get_duplicate_credentials_by_email(self, mode: str = "geminicli") -> Dict[str, Any]:
+        """
+        获取按邮箱分组的重复凭证信息（只查询邮箱和文件名，不加载完整凭证数据）
+        用于去重操作
+
+        Args:
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
+
+        Returns:
+            包含 email_groups（邮箱分组）、duplicate_count（重复数量）、no_email_count（无邮箱数量）的字典
+        """
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
+            collection = self._db[collection_name]
+
+            # 使用聚合管道，只查询 filename 和 user_email 字段
+            pipeline = [
+                {
+                    "$project": {
+                        "filename": 1,
+                        "user_email": 1,
+                        "_id": 0
+                    }
+                },
+                {
+                    "$sort": {"filename": 1}
+                }
+            ]
+
+            docs = await collection.aggregate(pipeline).to_list(length=None)
+
+            # 按邮箱分组
+            email_to_files = {}
+            no_email_files = []
+
+            for doc in docs:
+                filename = doc.get("filename")
+                user_email = doc.get("user_email")
+
+                if user_email:
+                    if user_email not in email_to_files:
+                        email_to_files[user_email] = []
+                    email_to_files[user_email].append(filename)
+                else:
+                    no_email_files.append(filename)
+
+            # 找出重复的邮箱组
+            duplicate_groups = []
+            total_duplicate_count = 0
+
+            for email, files in email_to_files.items():
+                if len(files) > 1:
+                    # 保留第一个文件，其他为重复
+                    duplicate_groups.append({
+                        "email": email,
+                        "kept_file": files[0],
+                        "duplicate_files": files[1:],
+                        "duplicate_count": len(files) - 1,
+                    })
+                    total_duplicate_count += len(files) - 1
+
+            return {
+                "email_groups": email_to_files,
+                "duplicate_groups": duplicate_groups,
+                "duplicate_count": total_duplicate_count,
+                "no_email_files": no_email_files,
+                "no_email_count": len(no_email_files),
+                "unique_email_count": len(email_to_files),
+                "total_count": len(docs),
+            }
+
+        except Exception as e:
+            log.error(f"Error getting duplicate credentials by email: {e}")
+            return {
+                "email_groups": {},
+                "duplicate_groups": [],
+                "duplicate_count": 0,
+                "no_email_files": [],
+                "no_email_count": 0,
+                "unique_email_count": 0,
+                "total_count": 0,
+            }
+
+    async def update_credential_state(
+        self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli"
+    ) -> bool:
+        """更新凭证状态，支持basename匹配以兼容旧数据"""
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
             # 过滤只更新状态字段
@@ -356,24 +498,52 @@ class MongoDBManager:
 
             valid_updates["updated_at"] = time.time()
 
+            # 首先尝试精确匹配更新
             result = await collection.update_one(
                 {"filename": filename}, {"$set": valid_updates}
             )
+            updated_count = result.modified_count + result.matched_count
 
-            return result.modified_count > 0 or result.matched_count > 0
+            # 如果精确匹配没有更新任何记录，尝试basename匹配
+            if updated_count == 0:
+                regex_pattern = re.escape(filename)
+                result = await collection.update_one(
+                    {"filename": {"$regex": f".*{regex_pattern}$"}},
+                    {"$set": valid_updates}
+                )
+                updated_count = result.modified_count + result.matched_count
+
+            return updated_count > 0
 
         except Exception as e:
             log.error(f"Error updating credential state {filename}: {e}")
             return False
 
-    async def get_credential_state(self, filename: str, is_antigravity: bool = False) -> Dict[str, Any]:
-        """获取凭证状态"""
+    async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
+        """获取凭证状态，支持basename匹配以兼容旧数据"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
+
+            # 首先尝试精确匹配
             doc = await collection.find_one({"filename": filename})
+
+            if doc:
+                return {
+                    "disabled": doc.get("disabled", False),
+                    "error_codes": doc.get("error_codes", []),
+                    "last_success": doc.get("last_success", time.time()),
+                    "user_email": doc.get("user_email"),
+                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                }
+
+            # 如果精确匹配失败，尝试basename匹配
+            regex_pattern = re.escape(filename)
+            doc = await collection.find_one({
+                "filename": {"$regex": f".*{regex_pattern}$"}
+            })
 
             if doc:
                 return {
@@ -397,14 +567,27 @@ class MongoDBManager:
             log.error(f"Error getting credential state {filename}: {e}")
             return {}
 
-    async def get_all_credential_states(self, is_antigravity: bool = False) -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态"""
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
-            cursor = collection.find({})
+
+            # 使用投影只获取需要的字段
+            cursor = collection.find(
+                {},
+                projection={
+                    "filename": 1,
+                    "disabled": 1,
+                    "error_codes": 1,
+                    "last_success": 1,
+                    "user_email": 1,
+                    "model_cooldowns": 1,
+                    "_id": 0
+                }
+            )
 
             states = {}
             current_time = time.time()
@@ -439,7 +622,7 @@ class MongoDBManager:
         offset: int = 0,
         limit: Optional[int] = None,
         status_filter: str = "all",
-        is_antigravity: bool = False,
+        mode: str = "geminicli",
         error_code_filter: Optional[str] = None,
         cooldown_filter: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -450,7 +633,7 @@ class MongoDBManager:
             offset: 跳过的记录数（默认0）
             limit: 返回的最大记录数（None表示返回所有）
             status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
-            is_antigravity: 是否查询antigravity凭证集合（默认False）
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
             error_code_filter: 错误码筛选（格式如"400"或"403"，筛选包含该错误码的凭证）
             cooldown_filter: 冷却状态筛选（"in_cooldown"=冷却中, "no_cooldown"=未冷却）
 
@@ -460,8 +643,8 @@ class MongoDBManager:
         self._ensure_initialized()
 
         try:
-            # 根据 is_antigravity 选择集合名
-            collection_name = self._get_collection_name(is_antigravity)
+            # 根据 mode 选择集合名
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
             # 构建查询条件
@@ -483,16 +666,38 @@ class MongoDBManager:
 
             # 计算全局统计数据（不受筛选条件影响）
             global_stats = {"total": 0, "normal": 0, "disabled": 0}
-            stats_cursor = collection.find({})
-            async for doc in stats_cursor:
-                global_stats["total"] += 1
-                if doc.get("disabled", False):
-                    global_stats["disabled"] += 1
+            stats_pipeline = [
+                {
+                    "$group": {
+                        "_id": "$disabled",
+                        "count": {"$sum": 1}
+                    }
+                }
+            ]
+
+            stats_result = await collection.aggregate(stats_pipeline).to_list(length=10)
+            for item in stats_result:
+                count = item["count"]
+                global_stats["total"] += count
+                if item["_id"]:
+                    global_stats["disabled"] = count
                 else:
-                    global_stats["normal"] += 1
+                    global_stats["normal"] = count
 
             # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
-            cursor = collection.find(query).sort("rotation_order", 1)
+            cursor = collection.find(
+                query,
+                projection={
+                    "filename": 1,
+                    "disabled": 1,
+                    "error_codes": 1,
+                    "last_success": 1,
+                    "user_email": 1,
+                    "rotation_order": 1,
+                    "model_cooldowns": 1,
+                    "_id": 0
+                }
+            ).sort("rotation_order", 1)
 
             all_summaries = []
             current_time = time.time()
@@ -618,7 +823,7 @@ class MongoDBManager:
         filename: str,
         model_key: str,
         cooldown_until: Optional[float],
-        is_antigravity: bool = False
+        mode: str = "geminicli"
     ) -> bool:
         """
         设置特定模型的冷却时间
@@ -627,7 +832,7 @@ class MongoDBManager:
             filename: 凭证文件名
             model_key: 模型键（antigravity 用模型名，gcli 用 pro/flash）
             cooldown_until: 冷却截止时间戳（None 表示清除冷却）
-            is_antigravity: 是否为 antigravity 凭证
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
 
         Returns:
             是否成功
@@ -635,34 +840,34 @@ class MongoDBManager:
         self._ensure_initialized()
 
         try:
-            collection_name = self._get_collection_name(is_antigravity)
+            collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 获取当前的 model_cooldowns
-            doc = await collection.find_one({"filename": filename})
+            # 使用原子操作直接更新，避免竞态条件
+            if cooldown_until is None:
+                # 删除指定模型的冷却
+                result = await collection.update_one(
+                    {"filename": filename},
+                    {
+                        "$unset": {f"model_cooldowns.{model_key}": ""},
+                        "$set": {"updated_at": time.time()}
+                    }
+                )
+            else:
+                # 设置冷却时间
+                result = await collection.update_one(
+                    {"filename": filename},
+                    {
+                        "$set": {
+                            f"model_cooldowns.{model_key}": cooldown_until,
+                            "updated_at": time.time()
+                        }
+                    }
+                )
 
-            if not doc:
+            if result.matched_count == 0:
                 log.warning(f"Credential {filename} not found")
                 return False
-
-            model_cooldowns = doc.get("model_cooldowns", {})
-
-            # 更新或删除指定模型的冷却时间
-            if cooldown_until is None:
-                model_cooldowns.pop(model_key, None)
-            else:
-                model_cooldowns[model_key] = cooldown_until
-
-            # 写回数据库
-            await collection.update_one(
-                {"filename": filename},
-                {
-                    "$set": {
-                        "model_cooldowns": model_cooldowns,
-                        "updated_at": time.time()
-                    }
-                }
-            )
 
             log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
             return True
@@ -670,57 +875,3 @@ class MongoDBManager:
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
-
-    async def clear_expired_model_cooldowns(self, is_antigravity: bool = False) -> int:
-        """
-        清除已过期的模型级冷却
-
-        Args:
-            is_antigravity: 是否为 antigravity 凭证集合
-
-        Returns:
-            清除的冷却项数量
-        """
-        self._ensure_initialized()
-
-        try:
-            collection_name = self._get_collection_name(is_antigravity)
-            collection = self._db[collection_name]
-            current_time = time.time()
-            cleared_count = 0
-
-            # 获取所有有 model_cooldowns 的凭证
-            cursor = collection.find({"model_cooldowns": {"$ne": {}}})
-
-            async for doc in cursor:
-                filename = doc["filename"]
-                model_cooldowns = doc.get("model_cooldowns", {})
-                original_len = len(model_cooldowns)
-
-                # 过滤掉已过期的冷却
-                model_cooldowns = {
-                    k: v for k, v in model_cooldowns.items()
-                    if v > current_time
-                }
-
-                # 如果有变化，更新数据库
-                if len(model_cooldowns) < original_len:
-                    await collection.update_one(
-                        {"filename": filename},
-                        {
-                            "$set": {
-                                "model_cooldowns": model_cooldowns,
-                                "updated_at": time.time()
-                            }
-                        }
-                    )
-                    cleared_count += (original_len - len(model_cooldowns))
-
-            if cleared_count > 0:
-                log.debug(f"Cleared {cleared_count} expired model cooldowns")
-
-            return cleared_count
-
-        except Exception as e:
-            log.error(f"Error clearing expired model cooldowns: {e}")
-            return 0

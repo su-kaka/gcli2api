@@ -6,16 +6,16 @@ from pydantic import BaseModel, Field
 # Pydantic v1/v2 兼容性辅助函数
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     """
-    兼容 Pydantic v1 和 v2 的模型转字典方法
-    - v1: model.dict()
-    - v2: model.model_dump()
+    兼容 Pydantic v1 和 v2 的模型转字典方法，排除 None 值
+    - v1: model.dict(exclude_none=True)
+    - v2: model.model_dump(exclude_none=True)
     """
     if hasattr(model, 'model_dump'):
         # Pydantic v2
-        return model.model_dump()
+        return model.model_dump(exclude_none=True)
     else:
         # Pydantic v1
-        return model.dict()
+        return model.dict(exclude_none=True)
 
 
 # Common Models
@@ -71,7 +71,6 @@ class OpenAIChatCompletionRequest(BaseModel):
     seed: Optional[int] = None
     response_format: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, ge=1)
-    enable_anti_truncation: Optional[bool] = False
     tools: Optional[List[OpenAITool]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
@@ -127,7 +126,10 @@ class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
-    thought: Optional[bool] = False
+    thought: Optional[bool] = None  # 改为 None，避免序列化时包含 False
+    
+    class Config:
+        extra = "allow"  # 允许额外字段（如 functionCall, functionResponse）
 
 
 class GeminiContent(BaseModel):
@@ -176,7 +178,6 @@ class GeminiRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     toolConfig: Optional[Dict[str, Any]] = None
     cachedContent: Optional[str] = None
-    enable_anti_truncation: Optional[bool] = False
 
     class Config:
         extra = "allow"  # 允许透传未定义的字段
@@ -201,6 +202,79 @@ class GeminiResponse(BaseModel):
     candidates: List[GeminiCandidate]
     usageMetadata: Optional[GeminiUsageMetadata] = None
     modelVersion: Optional[str] = None
+
+
+# Claude Models
+class ClaudeContentBlock(BaseModel):
+    type: str  # "text", "image", "tool_use", "tool_result"
+    text: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None  # for image type
+    id: Optional[str] = None  # for tool_use
+    name: Optional[str] = None  # for tool_use
+    input: Optional[Dict[str, Any]] = None  # for tool_use
+    tool_use_id: Optional[str] = None  # for tool_result
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None  # for tool_result
+
+
+class ClaudeMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: Union[str, List[ClaudeContentBlock]]
+
+
+class ClaudeTool(BaseModel):
+    name: str
+    description: Optional[str] = None
+    input_schema: Dict[str, Any]
+
+
+class ClaudeMetadata(BaseModel):
+    user_id: Optional[str] = None
+
+
+class ClaudeRequest(BaseModel):
+    model: str
+    messages: List[ClaudeMessage]
+    max_tokens: int = Field(..., ge=1)
+    system: Optional[Union[str, List[Dict[str, Any]]]] = None
+    temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
+    top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
+    top_k: Optional[int] = Field(None, ge=1)
+    stop_sequences: Optional[List[str]] = None
+    stream: bool = False
+    metadata: Optional[ClaudeMetadata] = None
+    tools: Optional[List[ClaudeTool]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+
+    class Config:
+        extra = "allow"
+
+
+class ClaudeUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+
+
+class ClaudeResponse(BaseModel):
+    id: str
+    type: str = "message"
+    role: str = "assistant"
+    content: List[ClaudeContentBlock]
+    model: str
+    stop_reason: Optional[str] = None
+    stop_sequence: Optional[str] = None
+    usage: ClaudeUsage
+
+
+class ClaudeStreamEvent(BaseModel):
+    type: str  # "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
+    message: Optional[ClaudeResponse] = None
+    index: Optional[int] = None
+    content_block: Optional[ClaudeContentBlock] = None
+    delta: Optional[Dict[str, Any]] = None
+    usage: Optional[ClaudeUsage] = None
+
+    class Config:
+        extra = "allow"
 
 
 # Error Models
@@ -277,18 +351,18 @@ class LoginRequest(BaseModel):
 
 class AuthStartRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
 
 
 class AuthCallbackRequest(BaseModel):
     project_id: Optional[str] = None  # 现在是可选的
-    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
 
 
 class AuthCallbackUrlRequest(BaseModel):
     callback_url: str  # OAuth回调完整URL
     project_id: Optional[str] = None  # 可选的项目ID
-    use_antigravity: Optional[bool] = False  # 是否使用antigravity模式
+    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
 
 
 class CredFileActionRequest(BaseModel):

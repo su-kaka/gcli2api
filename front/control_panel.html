@@ -613,6 +613,7 @@
                 opacity: 0;
                 transform: translateY(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -1156,8 +1157,17 @@
 
         <!-- 主界面 -->
         <div id="mainSection" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h1 style="margin: 0;">GCLI2API 管理面板</h1>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                    <h1 style="margin: 0;">GCLI2API 管理面板</h1>
+                    <span id="versionInfo" style="font-size: 12px; color: #666;">
+                        <span id="versionText">加载中...</span>
+                    </span>
+                    <button onclick="checkForUpdates()" id="checkUpdateBtn"
+                        style="padding: 4px 12px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
+                        检查更新
+                    </button>
+                </div>
                 <button onclick="logout()"
                     style="padding: 8px 20px; background-color: #dc3545; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
                     退出登录
@@ -1517,6 +1527,8 @@
                         <button class="batch-btn" style="background-color: #ff9800;" id="batchVerifyBtn"
                             onclick="batchVerifyProjectIds()" disabled>批量检验</button>
                         <button class="batch-btn batch-email" onclick="refreshAllEmails()">刷新所有邮箱</button>
+                        <button class="batch-btn" style="background-color: #e91e63;"
+                            onclick="deduplicateByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1624,6 +1636,8 @@
                         <button class="batch-btn" style="background-color: #ff9800;" id="antigravityBatchVerifyBtn"
                             onclick="batchVerifyAntigravityProjectIds()" disabled>批量检验</button>
                         <button class="batch-btn batch-email" onclick="refreshAllAntigravityEmails()">刷新所有邮箱</button>
+                        <button class="batch-btn" style="background-color: #e91e63;"
+                            onclick="deduplicateAntigravityByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1878,6 +1892,21 @@
                                     Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
                                 </div>
                             </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="antigravityStream2nostream" class="config-checkbox" />
+                                    Antigravity流式转非流式
+                                </label>
+                                <small class="config-note">启用后，非流式请求将使用流式API并收集为完整响应 <span
+                                        style="color: #28a745;">✓ 支持热更新</span></small>
+                                <div class="config-info"
+                                    style="background-color: #f3e5f5; border: 1px solid #9c27b0; color: #4a148c;">
+                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
+                                    <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
+                                    <br><strong>默认：</strong>已启用
+                                </div>
+                            </div>
                         </div>
 
                         <div class="config-group">
@@ -2007,23 +2036,6 @@
                             <p><strong>🎛️ 配置灵活：</strong> 支持热更新配置、代理设置</p>
                             <p><strong>📱 界面友好：</strong> 响应式设计、移动端适配</p>
                         </div>
-                    </div>
-                </div>
-
-                <!-- 支持项目 -->
-                <div
-                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 15px; margin: 30px 0; text-align: center; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);">
-                    <h4 style="margin: 0 0 15px 0; font-size: 24px; font-weight: 600;">💝 支持项目发展</h4>
-                    <p style="margin: 0 0 25px 0; font-size: 16px; opacity: 0.9; line-height: 1.6;">
-                        如果这个项目对您有帮助，欢迎通过币安扫码捐赠支持项目的持续发展！<br>
-                        您的每一份支持都是我们前进的动力 ❤️
-                    </p>
-
-                    <div
-                        style="display: inline-block; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 25px rgba(0,0,0,0.1);">
-                        <img src="docs/币安.jpg" alt="币安捐赠二维码"
-                            style="width: 200px; height: 200px; border-radius: 10px; display: block;">
-                        <p style="color: #666; margin: 12px 0 0 0; font-size: 14px; font-weight: 600;">扫码币安捐赠</p>
                     </div>
                 </div>
 

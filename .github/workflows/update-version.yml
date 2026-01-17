@@ -1,0 +1,51 @@
+name: Update Version File
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version.txt
+        run: |
+          # 获取最新commit信息
+          FULL_HASH=$(git log -1 --format=%H)
+          SHORT_HASH=$(git log -1 --format=%h)
+          MESSAGE=$(git log -1 --format=%s)
+          DATE=$(git log -1 --format=%ci)
+
+          # 写入version.txt
+          echo "full_hash=$FULL_HASH" > version.txt
+          echo "short_hash=$SHORT_HASH" >> version.txt
+          echo "message=$MESSAGE" >> version.txt
+          echo "date=$DATE" >> version.txt
+
+          echo "Version file updated:"
+          cat version.txt
+
+      - name: Commit version.txt if changed
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # 检查是否有变化
+          if git diff --quiet version.txt; then
+            echo "No changes to version.txt"
+          else
+            git add version.txt
+            git commit -m "chore: update version.txt [skip ci]"
+            git push
+          fi

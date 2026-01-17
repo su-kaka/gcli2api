@@ -14,13 +14,17 @@ from config import get_server_host, get_server_port
 from log import log
 
 # Import managers and utilities
-from src.credential_manager import CredentialManager
-from src.gemini_router import router as gemini_router
+from src.credential_manager import credential_manager
 
 # Import all routers
-from src.antigravity_router import router as antigravity_router
-from src.antigravity_anthropic_router import router as antigravity_anthropic_router
-from src.openai_router import router as openai_router
+from src.router.antigravity.openai import router as antigravity_openai_router
+from src.router.antigravity.gemini import router as antigravity_gemini_router
+from src.router.antigravity.anthropic import router as antigravity_anthropic_router
+from src.router.antigravity.model_list import router as antigravity_model_list_router
+from src.router.geminicli.openai import router as openai_router
+from src.router.geminicli.gemini import router as gemini_router
+from src.router.geminicli.anthropic import router as geminicli_anthropic_router
+from src.router.geminicli.model_list import router as geminicli_model_list_router
 from src.task_manager import shutdown_all_tasks
 from src.web_routes import router as web_router
 
@@ -43,10 +47,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"配置缓存初始化失败: {e}")
 
-    # 初始化全局凭证管理器
+    # 初始化全局凭证管理器（通过单例工厂）
     try:
-        global_credential_manager = CredentialManager()
-        await global_credential_manager.initialize()
+        # credential_manager 会在第一次调用时自动初始化
+        # 这里预先触发初始化以便在启动时检测错误
+        await credential_manager._get_or_create()
         log.info("凭证管理器初始化成功")
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
@@ -101,11 +106,23 @@ app.include_router(openai_router, prefix="", tags=["OpenAI Compatible API"])
 # Gemini原生路由 - 处理Gemini格式请求
 app.include_router(gemini_router, prefix="", tags=["Gemini Native API"])
 
+# Geminicli模型列表路由 - 处理Gemini格式的模型列表请求
+app.include_router(geminicli_model_list_router, prefix="", tags=["Geminicli Model List"])
+
 # Antigravity路由 - 处理OpenAI格式请求并转换为Antigravity API
-app.include_router(antigravity_router, prefix="", tags=["Antigravity API"])
+app.include_router(antigravity_openai_router, prefix="", tags=["Antigravity OpenAI API"])
+
+# Antigravity路由 - 处理Gemini格式请求并转换为Antigravity API
+app.include_router(antigravity_gemini_router, prefix="", tags=["Antigravity Gemini API"])
+
+# Antigravity模型列表路由 - 处理Gemini格式的模型列表请求
+app.include_router(antigravity_model_list_router, prefix="", tags=["Antigravity Model List"])
 
 # Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
+
+# Geminicli Anthropic Messages 路由 - Anthropic Messages 格式兼容 (Geminicli)
+app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthropic Messages"])
 
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
@@ -121,16 +138,6 @@ app.mount("/front", StaticFiles(directory="front"), name="front")
 @app.head("/keepalive")
 async def keepalive() -> Response:
     return Response(status_code=200)
-
-
-def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    return global_credential_manager
-
-
-# 导出给其他模块使用
-__all__ = ["app", "get_credential_manager"]
-
 
 async def main():
     """异步主启动函数"""
@@ -148,12 +155,13 @@ async def main():
     log.info(f"控制面板: http://127.0.0.1:{port}")
     log.info("=" * 60)
     log.info("API端点:")
-    log.info(f"   OpenAI兼容: http://127.0.0.1:{port}/v1")
-    log.info(f"   Gemini原生: http://127.0.0.1:{port}")
+    log.info(f"   Geminicli (OpenAI格式): http://127.0.0.1:{port}/v1")
+    log.info(f"   Geminicli (Claude格式): http://127.0.0.1:{port}/v1")
+    log.info(f"   Geminicli (Gemini格式): http://127.0.0.1:{port}")
+    
     log.info(f"   Antigravity (OpenAI格式): http://127.0.0.1:{port}/antigravity/v1")
-    log.info(f"   Antigravity (claude格式): http://127.0.0.1:{port}/antigravity/v1")
+    log.info(f"   Antigravity (Claude格式): http://127.0.0.1:{port}/antigravity/v1")
     log.info(f"   Antigravity (Gemini格式): http://127.0.0.1:{port}/antigravity")
-    log.info(f"   Antigravity (SD-WebUI格式): http://127.0.0.1:{port}/antigravity")
 
     # 配置hypercorn
     config = Config()
@@ -161,18 +169,10 @@ async def main():
     config.accesslog = "-"
     config.errorlog = "-"
     config.loglevel = "INFO"
-    config.use_colors = True
-
-    # 设置请求体大小限制为100MB
-    config.max_request_body_size = 100 * 1024 * 1024
 
     # 设置连接超时
-    config.keep_alive_timeout = 300  # 5分钟
-    config.read_timeout = 300  # 5分钟读取超时
-    config.write_timeout = 300  # 5分钟写入超时
-
-    # 增加启动超时时间以支持大量凭证的场景
-    config.startup_timeout = 120  # 2分钟启动超时
+    config.keep_alive_timeout = 600  # 10分钟
+    config.read_timeout = 600  # 10分钟读取超时
 
     await serve(app, config)
 

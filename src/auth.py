@@ -1,5 +1,5 @@
 """
-认证API模块 - 使用统一存储中间层，完全摆脱文件操作
+认证API模块
 """
 
 import asyncio
@@ -35,7 +35,7 @@ from .utils import (
     CLIENT_ID,
     CLIENT_SECRET,
     SCOPES,
-    STANDARD_USER_AGENT,
+    GEMINICLI_USER_AGENT,
     TOKEN_URL,
 )
 
@@ -45,9 +45,9 @@ async def get_callback_port():
     return int(await get_config_value("oauth_callback_port", "11451", "OAUTH_CALLBACK_PORT"))
 
 
-def _prepare_credentials_data(credentials: Credentials, project_id: str, is_antigravity: bool = False) -> Dict[str, Any]:
+def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: str = "geminicli") -> Dict[str, Any]:
     """准备凭证数据字典（统一函数）"""
-    if is_antigravity:
+    if mode == "antigravity":
         creds_data = {
             "client_id": ANTIGRAVITY_CLIENT_ID,
             "client_secret": ANTIGRAVITY_CLIENT_SECRET,
@@ -239,7 +239,7 @@ class AuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 async def create_auth_url(
-    project_id: Optional[str] = None, user_session: str = None, use_antigravity: bool = False
+    project_id: Optional[str] = None, user_session: str = None, mode: str = "geminicli"
 ) -> Dict[str, Any]:
     """创建认证URL，支持动态端口分配"""
     try:
@@ -267,7 +267,7 @@ async def create_auth_url(
 
         # 创建OAuth流程
         # 根据模式选择配置
-        if use_antigravity:
+        if mode == "antigravity":
             client_id = ANTIGRAVITY_CLIENT_ID
             client_secret = ANTIGRAVITY_CLIENT_SECRET
             scopes = ANTIGRAVITY_SCOPES
@@ -322,7 +322,7 @@ async def create_auth_url(
             "completed": False,
             "created_at": time.time(),
             "auto_project_detection": project_id is None,  # 标记是否需要自动检测项目ID
-            "use_antigravity": use_antigravity,  # 是否使用antigravity模式
+            "mode": mode,  # 凭证模式
         }
 
         # 清理过期的流程（30分钟）
@@ -505,7 +505,7 @@ async def complete_auth_flow(
                 saved_filename = await save_credentials(credentials, project_id)
 
                 # 准备返回的凭证数据
-                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=False)
+                creds_data = _prepare_credentials_data(credentials, project_id, mode="geminicli")
 
                 # 清理使用过的流程
                 _cleanup_auth_flow_server(state)
@@ -528,7 +528,7 @@ async def complete_auth_flow(
 
 
 async def asyncio_complete_auth_flow(
-    project_id: Optional[str] = None, user_session: str = None, use_antigravity: bool = False
+    project_id: Optional[str] = None, user_session: str = None, mode: str = "geminicli"
 ) -> Dict[str, Any]:
     """异步完成认证流程，支持自动检测项目ID"""
     try:
@@ -671,9 +671,9 @@ async def asyncio_complete_auth_flow(
                     f"检查是否需要项目检测: auto_project_detection={flow_data.get('auto_project_detection')}, project_id={project_id}"
                 )
 
-                # 检查是否为antigravity模式
-                is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
-                if is_antigravity:
+                # 检查凭证模式
+                cred_mode = flow_data.get("mode", "geminicli") if flow_data.get("mode") else mode
+                if cred_mode == "antigravity":
                     log.info("Antigravity模式：从API获取project_id...")
                     # 使用API获取project_id
                     antigravity_url = await get_antigravity_api_url()
@@ -690,10 +690,10 @@ async def asyncio_complete_auth_flow(
                         log.info(f"生成的随机project_id: {project_id}")
 
                     # 保存antigravity凭证
-                    saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
+                    saved_filename = await save_credentials(credentials, project_id, mode="antigravity")
 
                     # 准备返回的凭证数据
-                    creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=True)
+                    creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity")
 
                     # 清理使用过的流程
                     _cleanup_auth_flow_server(state)
@@ -704,7 +704,7 @@ async def asyncio_complete_auth_flow(
                         "credentials": creds_data,
                         "file_path": saved_filename,
                         "auto_detected_project": False,
-                        "is_antigravity": True,
+                        "mode": "antigravity",
                     }
 
                 # 如果需要自动检测项目ID且没有提供项目ID（标准模式）
@@ -714,7 +714,7 @@ async def asyncio_complete_auth_flow(
                     code_assist_url = await get_code_assist_endpoint()
                     project_id = await fetch_project_id(
                         credentials.access_token,
-                        STANDARD_USER_AGENT,
+                        GEMINICLI_USER_AGENT,
                         code_assist_url
                     )
                     if project_id:
@@ -788,7 +788,7 @@ async def asyncio_complete_auth_flow(
                 saved_filename = await save_credentials(credentials, project_id)
 
                 # 准备返回的凭证数据
-                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=False)
+                creds_data = _prepare_credentials_data(credentials, project_id, mode="geminicli")
 
                 # 清理使用过的流程
                 _cleanup_auth_flow_server(state)
@@ -811,7 +811,7 @@ async def asyncio_complete_auth_flow(
 
 
 async def complete_auth_flow_from_callback_url(
-    callback_url: str, project_id: Optional[str] = None, use_antigravity: bool = False
+    callback_url: str, project_id: Optional[str] = None, mode: str = "geminicli"
 ) -> Dict[str, Any]:
     """从回调URL直接完成认证流程，无需启动本地服务器"""
     try:
@@ -849,9 +849,9 @@ async def complete_auth_flow_from_callback_url(
             credentials = await flow.exchange_code(code)
             log.info("成功获取访问令牌")
 
-            # 检查是否为antigravity模式
-            is_antigravity = flow_data.get("use_antigravity", False) or use_antigravity
-            if is_antigravity:
+            # 检查凭证模式
+            cred_mode = flow_data.get("mode", "geminicli") if flow_data.get("mode") else mode
+            if cred_mode == "antigravity":
                 log.info("Antigravity模式（从回调URL）：从API获取project_id...")
                 # 使用API获取project_id
                 antigravity_url = await get_antigravity_api_url()
@@ -868,10 +868,10 @@ async def complete_auth_flow_from_callback_url(
                     log.info(f"生成的随机project_id: {project_id}")
 
                 # 保存antigravity凭证
-                saved_filename = await save_credentials(credentials, project_id, is_antigravity=True)
+                saved_filename = await save_credentials(credentials, project_id, mode="antigravity")
 
                 # 准备返回的凭证数据
-                creds_data = _prepare_credentials_data(credentials, project_id, is_antigravity=True)
+                creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity")
 
                 # 清理使用过的流程
                 _cleanup_auth_flow_server(state)
@@ -882,7 +882,7 @@ async def complete_auth_flow_from_callback_url(
                     "credentials": creds_data,
                     "file_path": saved_filename,
                     "auto_detected_project": False,
-                    "is_antigravity": True,
+                    "mode": "antigravity",
                 }
 
             # 标准模式的项目ID处理逻辑
@@ -896,7 +896,7 @@ async def complete_auth_flow_from_callback_url(
                     code_assist_url = await get_code_assist_endpoint()
                     detected_project_id = await fetch_project_id(
                         credentials.access_token,
-                        STANDARD_USER_AGENT,
+                        GEMINICLI_USER_AGENT,
                         code_assist_url
                     )
                     if detected_project_id:
@@ -951,7 +951,7 @@ async def complete_auth_flow_from_callback_url(
             saved_filename = await save_credentials(credentials, detected_project_id)
 
             # 准备返回的凭证数据
-            creds_data = _prepare_credentials_data(credentials, detected_project_id, is_antigravity=False)
+            creds_data = _prepare_credentials_data(credentials, detected_project_id, mode="geminicli")
 
             # 清理使用过的流程
             _cleanup_auth_flow_server(state)
@@ -973,23 +973,23 @@ async def complete_auth_flow_from_callback_url(
         return {"success": False, "error": str(e)}
 
 
-async def save_credentials(creds: Credentials, project_id: str, is_antigravity: bool = False) -> str:
+async def save_credentials(creds: Credentials, project_id: str, mode: str = "geminicli") -> str:
     """通过统一存储系统保存凭证"""
     # 生成文件名（使用project_id和时间戳）
     timestamp = int(time.time())
 
     # antigravity模式使用特殊前缀
-    if is_antigravity:
+    if mode == "antigravity":
         filename = f"ag_{project_id}-{timestamp}.json"
     else:
         filename = f"{project_id}-{timestamp}.json"
 
     # 准备凭证数据
-    creds_data = _prepare_credentials_data(creds, project_id, is_antigravity)
+    creds_data = _prepare_credentials_data(creds, project_id, mode)
 
     # 通过存储适配器保存
     storage_adapter = await get_storage_adapter()
-    success = await storage_adapter.store_credential(filename, creds_data, is_antigravity=is_antigravity)
+    success = await storage_adapter.store_credential(filename, creds_data, mode=mode)
 
     if success:
         # 创建默认状态记录
@@ -1000,8 +1000,8 @@ async def save_credentials(creds: Credentials, project_id: str, is_antigravity: 
                 "last_success": time.time(),
                 "user_email": None,
             }
-            await storage_adapter.update_credential_state(filename, default_state, is_antigravity=is_antigravity)
-            log.info(f"凭证和状态已保存到: {filename} (antigravity={is_antigravity})")
+            await storage_adapter.update_credential_state(filename, default_state, mode=mode)
+            log.info(f"凭证和状态已保存到: {filename} (mode={mode})")
         except Exception as e:
             log.warning(f"创建默认状态记录失败 {filename}: {e}")
 
