@@ -4,6 +4,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 ────────────────────────────────────────────────────────────────
 """
 
+from tkinter import N
 from typing import Any, Dict, Optional
 
 from log import log
@@ -237,7 +238,11 @@ async def normalize_gemini_request(
                 include_thoughts = True
             else:
                 # 非 pro 模型: 有思考预算或等级才包含思考
-                include_thoughts = thinking_budget is not None or thinking_level is not None
+                # 注意: 思考预算为 0 时不包含思考
+                if (thinking_budget is not None and thinking_budget > 0) or thinking_level is not None:
+                    include_thoughts = True
+                else:
+                    include_thoughts = None
 
             # 最终使用配置值覆盖（如果配置明确指定）
             if return_thoughts is not None:
