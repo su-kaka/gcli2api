@@ -3,8 +3,6 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 提供对 Gemini API 请求体和响应的标准化处理
 ────────────────────────────────────────────────────────────────
 """
-
-from tkinter import N
 from typing import Any, Dict, Optional
 
 from log import log
