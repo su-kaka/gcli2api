@@ -403,15 +403,15 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
         result = dict(schema)
     
     # 3. 类型映射（转换为大写）
+    # 注意：Gemini API 的 type 字段必须是字符串，不能是数组
     if "type" in result:
         type_value = result["type"]
-        
-        # 处理 type: ["string", "null"] 的情况
+
+        # 如果 type 是列表，提取主要类型（非 null）
         if isinstance(type_value, list):
             primary_type = next((t for t in type_value if t != "null"), None)
-            if primary_type:
-                type_value = primary_type
-        
+            type_value = primary_type if primary_type else "STRING"  # 默认为 STRING
+
         # 类型映射
         type_map = {
             "string": "STRING",
@@ -421,9 +421,13 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
             "array": "ARRAY",
             "object": "OBJECT",
         }
-        
+
         if isinstance(type_value, str) and type_value.lower() in type_map:
+            # 确保 result["type"] 是字符串而不是列表
             result["type"] = type_map[type_value.lower()]
+        else:
+            # 未知类型，删除该字段
+            del result["type"]
     
     # 4. 处理 ARRAY 的 items
     if result.get("type") == "ARRAY":
