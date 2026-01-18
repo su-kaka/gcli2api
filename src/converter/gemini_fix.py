@@ -101,6 +101,8 @@ def get_thinking_settings(model_name: str) -> tuple[Optional[int], Optional[str]
     # ========== 兼容旧模式 (不返回给用户) ==========
     if "-nothinking" in model_name:
         # nothinking 模式: 限制思考
+        if "flash" in base_model:
+            return 0, None
         return 128, None
     elif "-maxthinking" in model_name:
         # maxthinking 模式: 最大思考预算
@@ -122,10 +124,6 @@ def get_thinking_settings(model_name: str) -> tuple[Optional[int], Optional[str]
         elif "-low" in model_name:
             return None, "low"
         elif "-minimal" in model_name:
-            # 仅 3-flash-preview 支持 minimal，pro 不支持
-            if "flash" in base_model:
-                return None, "minimal"
-            # pro 系列不支持 minimal，返回 Default
             return None, None
         else:
             # Default: 不设置 thinking 配置
