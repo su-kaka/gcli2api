@@ -109,9 +109,21 @@ def get_available_models(router_type: str = "openai") -> List[str]:
         # 流式抗截断模型 (仅在流式传输时有效，前缀格式)
         models.append(f"流式抗截断/{base_model}")
 
-        # 支持thinking模式后缀与功能前缀组合
-        # 新增: 支持多后缀组合 (thinking + search)
-        thinking_suffixes = ["-maxthinking", "-nothinking"]
+        # 定义思考后缀（根据模型系列不同）
+        thinking_suffixes = []
+
+        # Gemini 2.5 系列: 使用思考预算后缀
+        if "gemini-2.5" in base_model:
+            thinking_suffixes = ["-max", "-high", "-medium", "-low", "-minimal"]
+        # Gemini 3 系列: 使用思考等级后缀
+        elif "gemini-3" in base_model:
+            if "flash" in base_model:
+                # 3-flash-preview: 支持 high/medium/low/minimal
+                thinking_suffixes = ["-high", "-medium", "-low", "-minimal"]
+            elif "pro" in base_model:
+                # 3-pro-preview: 支持 high/low
+                thinking_suffixes = ["-high", "-low"]
+
         search_suffix = "-search"
 
         # 1. 单独的 thinking 后缀

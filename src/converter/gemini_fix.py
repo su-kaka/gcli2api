@@ -65,8 +65,12 @@ def prepare_image_generation_request(
 
 def get_base_model_name(model_name: str) -> str:
     """移除模型名称中的后缀,返回基础模型名"""
-    # 按照从长到短的顺序排列，避免 -think 先于 -maxthinking 被匹配
-    suffixes = ["-maxthinking", "-nothinking", "-search", "-think"]
+    # 按照从长到短的顺序排列，避免短后缀先于长后缀被匹配
+    suffixes = [
+        "-maxthinking", "-nothinking",  # 兼容旧模式
+        "-minimal", "-medium", "-search", "-think",  # 中等长度后缀
+        "-high", "-max", "-low"  # 短后缀
+    ]
     result = model_name
     changed = True
     # 持续循环直到没有任何后缀可以移除
@@ -80,25 +84,78 @@ def get_base_model_name(model_name: str) -> str:
     return result
 
 
-def get_thinking_settings(model_name: str) -> tuple[Optional[int], bool]:
+def get_thinking_settings(model_name: str) -> tuple[Optional[int], Optional[str]]:
     """
     根据模型名称获取思考配置
 
+    支持两种模式:
+    1. CLI 模式思考预算 (Gemini 2.5 系列): -max, -high, -medium, -low, -minimal
+    2. CLI 模式思考等级 (Gemini 3 Preview 系列): -high, -medium, -low, -minimal (仅 3-flash)
+    3. 兼容旧模式: -maxthinking, -nothinking (不返回给用户)
+
     Returns:
-        (thinking_budget, include_thoughts): 思考预算和是否包含思考内容
+        (thinking_budget, thinking_level): 思考预算和思考等级
     """
     base_model = get_base_model_name(model_name)
 
+    # ========== 兼容旧模式 (不返回给用户) ==========
     if "-nothinking" in model_name:
-        # nothinking 模式: 限制思考,pro模型仍包含thoughts
-        return 128, "pro" in base_model
+        # nothinking 模式: 限制思考
+        return 128, None
     elif "-maxthinking" in model_name:
         # maxthinking 模式: 最大思考预算
         budget = 24576 if "flash" in base_model else 32768
-        return budget, True
-    else:
-        # 默认模式: 不设置thinking budget
-        return None, True
+        return budget, None
+
+    # ========== 新 CLI 模式: 基于思考预算/等级 ==========
+
+    # Gemini 3 Preview 系列: 使用 thinkingLevel
+    if "gemini-3" in base_model:
+        if "-high" in model_name:
+            return None, "high"
+        elif "-medium" in model_name:
+            # 仅 3-flash-preview 支持 medium
+            if "flash" in base_model:
+                return None, "medium"
+            # pro 系列不支持 medium，返回 Default
+            return None, None
+        elif "-low" in model_name:
+            return None, "low"
+        elif "-minimal" in model_name:
+            # 仅 3-flash-preview 支持 minimal，pro 不支持
+            if "flash" in base_model:
+                return None, "minimal"
+            # pro 系列不支持 minimal，返回 Default
+            return None, None
+        else:
+            # Default: 不设置 thinking 配置
+            return None, None
+
+    # Gemini 2.5 系列: 使用 thinkingBudget
+    elif "gemini-2.5" in base_model:
+        if "-max" in model_name:
+            # 2.5-flash-max: 24576, 2.5-pro-max: 32768
+            budget = 24576 if "flash" in base_model else 32768
+            return budget, None
+        elif "-high" in model_name:
+            # 2.5-flash-high: 16000, 2.5-pro-high: 16000
+            return 16000, None
+        elif "-medium" in model_name:
+            # 2.5-flash-medium: 8192, 2.5-pro-medium: 8192
+            return 8192, None
+        elif "-low" in model_name:
+            # 2.5-flash-low: 1024, 2.5-pro-low: 1024
+            return 1024, None
+        elif "-minimal" in model_name:
+            # 2.5-flash-minimal: 0, 2.5-pro-minimal: 128
+            budget = 0 if "flash" in base_model else 128
+            return budget, None
+        else:
+            # Default: 不设置 thinking budget
+            return None, None
+
+    # 其他模型: 不设置 thinking 配置
+    return None, None
 
 
 def is_search_model(model_name: str) -> bool:
@@ -150,28 +207,45 @@ async def normalize_gemini_request(
     # ========== 模式特定处理 ==========
     if mode == "geminicli":
         # 1. 思考设置
-        # 优先使用 get_thinking_settings 获取的思考预算
-        thinking_budget, _ = get_thinking_settings(model)
-        
-        # 其次使用传入的思考预算
-        if thinking_budget is None:
+        # 优先使用 get_thinking_settings 获取的思考预算和等级
+        thinking_budget, thinking_level = get_thinking_settings(model)
+
+        # 其次使用传入的思考预算（如果未从模型名称获取）
+        if thinking_budget is None and thinking_level is None:
             thinking_budget = generation_config.get("thinkingConfig", {}).get("thinkingBudget")
-        
-        # 假如 is_thinking_model 为真或者思考预算不为0，设置 thinkingConfig
-        if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):
+            thinking_level = generation_config.get("thinkingConfig", {}).get("thinkingLevel")
+
+        # 假如 is_thinking_model 为真或者思考预算/等级不为空，设置 thinkingConfig
+        if is_thinking_model(model) or thinking_budget is not None or thinking_level is not None:
             # 确保 thinkingConfig 存在
             if "thinkingConfig" not in generation_config:
                 generation_config["thinkingConfig"] = {}
 
             thinking_config = generation_config["thinkingConfig"]
 
-            # 设置思考预算
-            if thinking_budget:
+            # 设置思考预算或等级（互斥）
+            if thinking_budget is not None:
                 thinking_config["thinkingBudget"] = thinking_budget
                 thinking_config.pop("thinkingLevel", None)  # 避免与 thinkingBudget 冲突
+            elif thinking_level is not None:
+                thinking_config["thinkingLevel"] = thinking_level
+                thinking_config.pop("thinkingBudget", None)  # 避免与 thinkingLevel 冲突
 
-            # includeThoughts 使用配置值
-            thinking_config["includeThoughts"] = return_thoughts
+            # includeThoughts 逻辑:
+            # 1. 如果是 pro 模型，始终为 True
+            # 2. 如果不是 pro 模型，检查是否有思考预算或思考等级
+            base_model = get_base_model_name(model)
+            if "pro" in base_model:
+                include_thoughts = True
+            else:
+                # 非 pro 模型: 有思考预算或等级才包含思考
+                include_thoughts = thinking_budget is not None or thinking_level is not None
+
+            # 最终使用配置值覆盖（如果配置明确指定）
+            if return_thoughts is not None:
+                include_thoughts = return_thoughts
+
+            thinking_config["includeThoughts"] = include_thoughts
 
         # 2. 搜索模型添加 Google Search
         if is_search_model(model):
