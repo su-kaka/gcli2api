@@ -319,7 +319,7 @@ ghcr.io/su-kaka/gcli2api:latest
 
 ## ⚠️ 注意事项
 
-- 当前 OAuth 验证流程**仅支持本地主机（localhost）访问**，即须通过 `http://127.0.0.1:7861/auth` 完成认证（默认端口 7861，可通过 PORT 环境变量修改）。
+- 当前 OAuth 验证流程**仅支持本地主机（localhost）访问**，即须通过 `http://127.0.0.1:7861` 完成认证（默认端口 7861，可通过 PORT 环境变量修改）。
 - **如需在云服务器或其他远程环境部署，请先在本地运行服务并完成 OAuth 验证，获得生成的 json 凭证文件（位于 `./geminicli/creds` 目录）后，再在auth面板将该文件上传即可。**
 - **请严格遵守使用限制，仅用于个人学习和非商业用途**
 
@@ -327,7 +327,7 @@ ghcr.io/su-kaka/gcli2api:latest
 
 ## 配置说明
 
-1. 访问 `http://127.0.0.1:7861/auth` （默认端口，可通过 PORT 环境变量修改）
+1. 访问 `http://127.0.0.1:7861` （默认端口，可通过 PORT 环境变量修改）
 2. 完成 OAuth 认证流程（默认密码：`pwd`，可通过环境变量修改）
    - **GCLI 模式**：用于获取 Google Cloud Gemini API 凭证
    - **Antigravity 模式**：用于获取 Google Antigravity API 凭证
