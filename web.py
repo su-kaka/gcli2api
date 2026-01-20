@@ -127,7 +127,7 @@ app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthr
 # Web路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(web_router, prefix="", tags=["Web Interface"])
 
-# 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
+# 静态文件路由 - 服务docs目录下的文件
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 
 # 静态文件路由 - 服务front目录下的文件（HTML、JS、CSS等）
