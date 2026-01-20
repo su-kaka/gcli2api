@@ -1,4 +1,4 @@
-full_hash=f008b374bacc1e6c9a4fd7446b22f1a5ca394e21
-short_hash=f008b37
-message=Update openai2gemini.py
-date=2026-01-18 13:15:24 +0800
+full_hash=85457f40a1343217f80534aa8eac7ee2cc27bc3b
+short_hash=85457f4
+message=更新 gemini_fix.py
+date=2026-01-18 15:31:30 +0800
