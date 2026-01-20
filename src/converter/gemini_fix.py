@@ -345,6 +345,10 @@ async def normalize_gemini_request(
             elif "claude" in model.lower():
                 # Claude 模型兜底：如果包含 claude 但不是 opus/sonnet/haiku
                 model = "claude-sonnet-4-5-thinking"
+            elif "gemini-3-flash-preview" == model:
+                model = "gemini-3-flash"
+            elif "gemini-3-pro-preview" == model:
+                model = "gemini-3-pro-high"
             
             result["model"] = model
             if original_model != model:
