@@ -262,25 +262,7 @@ async def stream_request(
             if success_recorded:
                 log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
                 return
-            elif not need_retry:
-                # 没有收到任何数据（空回复），需要重试
-                log.warning(f"[GEMINICLI STREAM] 收到空回复，无任何内容，凭证: {current_file}")
-                await record_api_call_error(
-                    credential_manager, current_file, 200,
-                    None, mode="geminicli", model_key=model_group
-                )
-                
-                if attempt < max_retries:
-                    need_retry = True
-                else:
-                    log.error(f"[GEMINICLI STREAM] 空回复达到最大重试次数")
-                    yield Response(
-                        content=json.dumps({"error": "服务返回空回复"}),
-                        status_code=500,
-                        media_type="application/json"
-                    )
-                    return
-            
+
             # 统一处理重试
             if need_retry:
                 log.info(f"[GEMINICLI STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
