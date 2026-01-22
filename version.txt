@@ -1,4 +1,4 @@
-full_hash=cfebe20eb4c8055d14a1093afdbb64f9eca2d622
-short_hash=cfebe20
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-01-20 22:39:27 +0800
+full_hash=1b36300cc304c6a3c3378ec7f79add563efe9f17
+short_hash=1b36300
+message=Update geminicli.py
+date=2026-01-22 22:02:53 +0800
