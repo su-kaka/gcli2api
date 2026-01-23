@@ -1,4 +1,4 @@
-full_hash=1b36300cc304c6a3c3378ec7f79add563efe9f17
-short_hash=1b36300
-message=Update geminicli.py
-date=2026-01-22 22:02:53 +0800
+full_hash=9e471ee3c448f1c7562a0dc0e339d0ad6e8dfdce
+short_hash=9e471ee
+message=Update gemini_fix.py
+date=2026-01-23 14:02:28 +0800
