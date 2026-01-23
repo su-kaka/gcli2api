@@ -229,22 +229,18 @@ async def normalize_gemini_request(
                 thinking_config.pop("thinkingBudget", None)  # 避免与 thinkingLevel 冲突
 
             # includeThoughts 逻辑:
-            # 1. 如果是 pro 模型，始终为 True
+            # 1. 如果是 pro 模型，为 return_thoughts
             # 2. 如果不是 pro 模型，检查是否有思考预算或思考等级
             base_model = get_base_model_name(model)
             if "pro" in base_model:
-                include_thoughts = True
+                include_thoughts = return_thoughts
             else:
                 # 非 pro 模型: 有思考预算或等级才包含思考
                 # 注意: 思考预算为 0 时不包含思考
-                if (thinking_budget is not None and thinking_budget > 0) or thinking_level is not None:
-                    include_thoughts = True
+                if thinking_budget is None or thinking_budget == 0:
+                    include_thoughts = False
                 else:
-                    include_thoughts = None
-
-            # 最终使用配置值覆盖（如果配置明确指定）
-            if return_thoughts is not None:
-                include_thoughts = return_thoughts
+                    include_thoughts = return_thoughts
 
             thinking_config["includeThoughts"] = include_thoughts
 
