@@ -234,6 +234,11 @@ async def normalize_gemini_request(
             base_model = get_base_model_name(model)
             if "pro" in base_model:
                 include_thoughts = return_thoughts
+            elif "3-flash" in base_model:
+                if thinking_level is None:
+                    include_thoughts = False
+                else:
+                    include_thoughts = return_thoughts
             else:
                 # 非 pro 模型: 有思考预算或等级才包含思考
                 # 注意: 思考预算为 0 时不包含思考
