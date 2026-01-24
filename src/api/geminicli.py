@@ -196,8 +196,8 @@ async def stream_request(
                     except Exception:
                         error_body = ""
 
-                    # 如果错误码是429或者在禁用码当中，做好记录后进行重试
-                    if status_code == 429 or status_code in DISABLE_ERROR_CODES:
+                    # 如果错误码是429、503或者在禁用码当中，做好记录后进行重试
+                    if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
                         log.warning(f"[GEMINICLI STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
 
                         # 并行预热下一个凭证,不阻塞当前处理
@@ -210,7 +210,7 @@ async def stream_request(
 
                         # 记录错误
                         cooldown_until = None
-                        if status_code == 429 and error_body:
+                        if status_code == 429 or status_code == 503 and error_body:
                             # 使用已缓存的error_body解析冷却时间
                             try:
                                 cooldown_until = await parse_and_log_cooldown(error_body, mode="geminicli")
@@ -514,7 +514,7 @@ async def non_stream_request(
 
                 # 记录错误
                 cooldown_until = None
-                if status_code == 429 and error_text:
+                if status_code == 429 or status_code == 503 and error_text:
                     # 使用已缓存的error_text解析冷却时间
                     try:
                         cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
