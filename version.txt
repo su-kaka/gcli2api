@@ -1,4 +1,4 @@
-full_hash=9e471ee3c448f1c7562a0dc0e339d0ad6e8dfdce
-short_hash=9e471ee
-message=Update gemini_fix.py
-date=2026-01-23 14:02:28 +0800
+full_hash=71a0457b7b4236f232f34a0956d87cdd435d6303
+short_hash=71a0457
+message=503重试
+date=2026-01-24 14:29:19 +0800
