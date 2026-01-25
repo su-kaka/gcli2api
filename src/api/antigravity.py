@@ -200,7 +200,7 @@ async def stream_request(
 
                         # 记录错误
                         cooldown_until = None
-                        if status_code == 429 or status_code == 503 and error_body:
+                        if (status_code == 429 or status_code == 503) and error_body:
                             # 使用已缓存的error_body解析冷却时间
                             try:
                                 cooldown_until = await parse_and_log_cooldown(error_body, mode="antigravity")

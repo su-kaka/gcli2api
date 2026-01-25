@@ -75,11 +75,12 @@ async def handle_error_with_retry(
 ) -> bool:
     """
     统一处理错误和重试逻辑
-    
+
     仅在以下情况下进行自动重试:
     1. 429错误(速率限制)
-    2. 导致凭证封禁的错误(AUTO_BAN_ERROR_CODES配置)
-    
+    2. 503错误(服务不可用)
+    3. 导致凭证封禁的错误(AUTO_BAN_ERROR_CODES配置)
+
     Args:
         credential_manager: 凭证管理器实例
         status_code: HTTP状态码
@@ -110,10 +111,10 @@ async def handle_error_with_retry(
             return True
         return False
 
-    # 如果不触发自动封禁，仅对429错误进行重试
-    if status_code == 429 and retry_enabled and attempt < max_retries:
+    # 如果不触发自动封禁，仅对429和503错误进行重试
+    if (status_code == 429 or status_code == 503) and retry_enabled and attempt < max_retries:
         log.info(
-            f"[{mode.upper()} RETRY] 429 rate limit encountered, retrying "
+            f"[{mode.upper()} RETRY] {status_code} error encountered, retrying "
             f"(attempt {attempt + 1}/{max_retries})"
         )
         await asyncio.sleep(retry_interval)
