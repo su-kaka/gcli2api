@@ -24,6 +24,19 @@ class MongoDBManager:
         "model_cooldowns",
     }
 
+    @staticmethod
+    def _escape_model_key(model_key: str) -> str:
+        """
+        转义模型键中的点号,避免 MongoDB 将其解释为嵌套结构
+
+        Args:
+            model_key: 原始模型键 (如 "gemini-2.5-flash")
+
+        Returns:
+            转义后的模型键 (如 "gemini-2-5-flash")
+        """
+        return model_key.replace(".", "-")
+
     def __init__(self):
         self._client: Optional[AsyncIOMotorClient] = None
         self._db: Optional[AsyncIOMotorDatabase] = None
@@ -170,6 +183,8 @@ class MongoDBManager:
 
             # 如果提供了 model_key，添加冷却检查
             if model_key:
+                # 转义模型键中的点号
+                escaped_model_key = self._escape_model_key(model_key)
                 pipeline.extend([
                     # 第二步: 添加冷却状态字段
                     {
@@ -177,9 +192,9 @@ class MongoDBManager:
                             "is_available": {
                                 "$or": [
                                     # model_cooldowns 中没有该 model_key
-                                    {"$not": {"$ifNull": [f"$model_cooldowns.{model_key}", False]}},
+                                    {"$not": {"$ifNull": [f"$model_cooldowns.{escaped_model_key}", False]}},
                                     # 或者冷却时间已过期
-                                    {"$lte": [f"$model_cooldowns.{model_key}", current_time]}
+                                    {"$lte": [f"$model_cooldowns.{escaped_model_key}", current_time]}
                                 ]
                             }
                         }
@@ -526,17 +541,26 @@ class MongoDBManager:
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
+            current_time = time.time()
 
             # 首先尝试精确匹配
             doc = await collection.find_one({"filename": filename})
 
             if doc:
+                model_cooldowns = doc.get("model_cooldowns", {})
+                # 过滤掉损坏的数据(dict类型)和过期的冷却
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if isinstance(v, (int, float)) and v > current_time
+                    }
+
                 return {
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
-                    "last_success": doc.get("last_success", time.time()),
+                    "last_success": doc.get("last_success", current_time),
                     "user_email": doc.get("user_email"),
-                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                    "model_cooldowns": model_cooldowns,
                 }
 
             # 如果精确匹配失败，尝试basename匹配
@@ -546,19 +570,27 @@ class MongoDBManager:
             })
 
             if doc:
+                model_cooldowns = doc.get("model_cooldowns", {})
+                # 过滤掉损坏的数据(dict类型)和过期的冷却
+                if model_cooldowns:
+                    model_cooldowns = {
+                        k: v for k, v in model_cooldowns.items()
+                        if isinstance(v, (int, float)) and v > current_time
+                    }
+
                 return {
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
-                    "last_success": doc.get("last_success", time.time()),
+                    "last_success": doc.get("last_success", current_time),
                     "user_email": doc.get("user_email"),
-                    "model_cooldowns": doc.get("model_cooldowns", {}),
+                    "model_cooldowns": model_cooldowns,
                 }
 
             # 返回默认状态
             return {
                 "disabled": False,
                 "error_codes": [],
-                "last_success": time.time(),
+                "last_success": current_time,
                 "user_email": None,
                 "model_cooldowns": {},
             }
@@ -600,7 +632,7 @@ class MongoDBManager:
                 if model_cooldowns:
                     model_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
-                        if v > current_time
+                        if isinstance(v, (int, float)) and v > current_time
                     }
 
                 states[filename] = {
@@ -710,7 +742,7 @@ class MongoDBManager:
                 if model_cooldowns:
                     active_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
-                        if v > current_time
+                        if isinstance(v, (int, float)) and v > current_time
                     }
 
                 summary = {
@@ -843,13 +875,16 @@ class MongoDBManager:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
+            # 转义模型键中的点号
+            escaped_model_key = self._escape_model_key(model_key)
+
             # 使用原子操作直接更新，避免竞态条件
             if cooldown_until is None:
                 # 删除指定模型的冷却
                 result = await collection.update_one(
                     {"filename": filename},
                     {
-                        "$unset": {f"model_cooldowns.{model_key}": ""},
+                        "$unset": {f"model_cooldowns.{escaped_model_key}": ""},
                         "$set": {"updated_at": time.time()}
                     }
                 )
@@ -859,7 +894,7 @@ class MongoDBManager:
                     {"filename": filename},
                     {
                         "$set": {
-                            f"model_cooldowns.{model_key}": cooldown_until,
+                            f"model_cooldowns.{escaped_model_key}": cooldown_until,
                             "updated_at": time.time()
                         }
                     }
