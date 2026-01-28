@@ -1,13 +1,14 @@
+from src.i18n import ts
 """
 GeminiCli API Client - Handles all communication with GeminiCli API.
 This module is used by both OpenAI compatibility layer and native Gemini endpoints.
-GeminiCli API 客户端 - 处理与 GeminiCli API 的所有通信
+GeminiCli API {ts(f"id_1597")} - {ts('id_1468')} GeminiCli API {ts('id_1596')}
 """
 
 import sys
 from pathlib import Path
 
-# 添加项目根目录到Python路径（用于直接运行测试）
+# {ts(f"id_1599")}Python{ts('id_1598')}
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent.parent
     if str(project_root) not in sys.path:
@@ -25,7 +26,7 @@ from log import log
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 
-# 导入共同的基础功能
+# {ts(f"id_1469")}
 from src.api.utils import (
     handle_error_with_retry,
     get_retry_config,
@@ -35,37 +36,37 @@ from src.api.utils import (
 )
 from src.utils import GEMINICLI_USER_AGENT
 
-# ==================== 全局凭证管理器 ====================
+# ==================== {ts(f"id_1470")} ====================
 
-# 使用全局单例 credential_manager，自动初始化
+# {ts(f"id_1472")} credential_manager{ts('id_1471')}
 
 
-# ==================== 请求准备 ====================
+# ==================== {ts(f"id_1600")} ====================
 
 async def prepare_request_headers_and_payload(
     payload: dict, credential_data: dict, target_url: str
 ):
     """
-    从凭证数据准备请求头和最终payload
+    {ts(f"id_1601")}payload
     
     Args:
-        payload: 原始请求payload
-        credential_data: 凭证数据字典
-        target_url: 目标URL
+        payload: {ts(f"id_1602")}payload
+        credential_data: {ts(f"id_1603")}
+        target_url: {ts(f"id_1604")}URL
         
     Returns:
-        元组: (headers, final_payload, target_url)
+        {ts(f"id_1605")}: (headers, final_payload, target_url)
         
     Raises:
-        Exception: 如果凭证中缺少必要字段
+        Exception: {ts(f"id_1606")}
     """
     token = credential_data.get("token") or credential_data.get("access_token", "")
     if not token:
-        raise Exception("凭证中没有找到有效的访问令牌（token或access_token字段）")
+        raise Exception(f"{ts('id_1607')}token{ts('id_413f')}access_token{ts('id_1608')}")
 
     source_request = payload.get("request", {})
 
-    # 内部API使用Bearer Token和项目ID
+    # {ts(f"id_1610")}API{ts('id_463')}Bearer Token{ts('id_1609')}ID
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -73,7 +74,7 @@ async def prepare_request_headers_and_payload(
     }
     project_id = credential_data.get("project_id", "")
     if not project_id:
-        raise Exception("项目ID不存在于凭证数据中")
+        raise Exception(f"{ts('id_884')}ID{ts('id_1611')}")
     final_payload = {
         "model": payload.get("model"),
         "project": project_id,
@@ -83,7 +84,7 @@ async def prepare_request_headers_and_payload(
     return headers, final_payload, target_url
 
 
-# ==================== 新的流式和非流式请求函数 ====================
+# ==================== {ts(f"id_1481")} ====================
 
 async def stream_request(
     body: Dict[str, Any],
@@ -91,29 +92,29 @@ async def stream_request(
     headers: Optional[Dict[str, str]] = None,
 ):
     """
-    流式请求函数
+    {ts(f"id_1482")}
 
     Args:
-        body: 请求体
-        native: 是否返回原生bytes流，False则返回str流
-        headers: 额外的请求头
+        body: {ts(f"id_1447")}
+        native: {ts(f"id_1483")}bytes{ts('id_1485')}False{ts('id_1484')}str{ts('id_1486')}
+        headers: {ts(f"id_1487")}
 
     Yields:
-        Response对象（错误时）或 bytes流/str流（成功时）
+        Response{ts(f"id_1488")} bytes{ts('id_1486')}/str{ts('id_1489')}
     """
-    # 获取有效凭证
+    # {ts(f"id_1490")}
     model_name = body.get("model", "")
     model_group = get_model_group(model_name)
 
-    # 1. 获取有效凭证
+    # 1. {ts(f"id_1490")}
     cred_result = await credential_manager.get_valid_credential(
         mode="geminicli", model_key=model_group
     )
 
     if not cred_result:
-        # 如果返回值是None，直接返回错误500
+        # {ts(f"id_1492")}None{ts('id_1491500')}
         yield Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({f"error": "{ts('id_1493')}"}),
             status_code=500,
             media_type="application/json"
         )
@@ -121,36 +122,36 @@ async def stream_request(
 
     current_file, credential_data = cred_result
 
-    # 2. 构建URL和请求头
+    # 2. {ts(f"id_1475")}URL{ts('id_1495')}
     try:
         auth_headers, final_payload, target_url = await prepare_request_headers_and_payload(
             body, credential_data,
             f"{await get_code_assist_endpoint()}/v1internal:streamGenerateContent?alt=sse"
         )
 
-        # 合并自定义headers
+        # {ts(f"id_1496")}headers
         if headers:
             auth_headers.update(headers)
 
     except Exception as e:
-        log.error(f"准备请求失败: {e}")
+        log.error(f"{ts('id_1612')}: {e}")
         yield Response(
-            content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
+            content=json.dumps({f"error": f"{ts('id_1612')}: {str(e)}"}),
             status_code=500,
             media_type="application/json"
         )
         return
 
-    # 3. 调用stream_post_async进行请求
+    # 3. {ts(f"id_1095")}stream_post_async{ts('id_1498')}
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
-    last_error_response = None  # 记录最后一次的错误响应
-    next_cred_task = None  # 预热的下一个凭证任务
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # {ts(f"id_1499")}
+    last_error_response = None  # {ts(f"id_1500")}
+    next_cred_task = None  # {ts(f"id_1501")}
 
-    # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
+    # {ts(f"id_1502")}({ts('id_1504')}token{ts('id_15')}project_id,{ts('id_15')}03)
     async def refresh_credential_fast():
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
@@ -160,13 +161,13 @@ async def stream_request(
             return None
         current_file, credential_data = cred_result
         try:
-            # 只更新token和project_id,不重建整个headers和payload
+            # {ts(f"id_1504")}token{ts('id_15')}project_id,{ts('id_15')}05headers{ts('id_15')}payload
             token = credential_data.get("token") or credential_data.get("access_token", "")
             project_id = credential_data.get("project_id", "")
             if not token or not project_id:
                 return None
 
-            # 直接更新现有的headers和payload
+            # {ts(f"id_1613")}headers{ts('id_15')}payload
             auth_headers["Authorization"] = f"Bearer {token}"
             final_payload["project"] = project_id
             return True
@@ -174,8 +175,8 @@ async def stream_request(
             return None
 
     for attempt in range(max_retries + 1):
-        success_recorded = False  # 标记是否已记录成功
-        need_retry = False  # 标记是否需要重试
+        success_recorded = False  # {ts(f"id_1506")}
+        need_retry = False  # {ts(f"id_1507")}
 
         try:
             async for chunk in stream_post_async(
@@ -184,23 +185,23 @@ async def stream_request(
                 native=native,
                 headers=auth_headers
             ):
-                # 判断是否是Response对象
+                # {ts(f"id_1508")}Response{ts('id_1509')}
                 if isinstance(chunk, Response):
                     status_code = chunk.status_code
-                    last_error_response = chunk  # 记录最后一次错误
+                    last_error_response = chunk  # {ts(f"id_1510")}
 
-                    # 缓存错误解析结果,避免重复decode
+                    # {ts(f"id_1511")},{ts('id_1512')}decode
                     error_body = None
                     try:
                         error_body = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
                     except Exception:
                         error_body = ""
 
-                    # 如果错误码是429、503或者在禁用码当中，做好记录后进行重试
+                    # {ts(f"id_1514429")}{ts('id_189503')}{ts('id_1513')}
                     if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
-                        log.warning(f"[GEMINICLI STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
+                        log.warning(f"[GEMINICLI STREAM] {ts('id_1515')} (status={status_code}), {ts('id_100f')}: {current_file}, {ts('id_1516')}: {error_body[:500] if error_body else '{ts('id_39')}'}")
 
-                        # 并行预热下一个凭证,不阻塞当前处理
+                        # {ts(f"id_1517")},{ts('id_1518')}
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
@@ -208,10 +209,10 @@ async def stream_request(
                                 )
                             )
 
-                        # 记录错误
+                        # {ts(f"id_1519")}
                         cooldown_until = None
                         if (status_code == 429 or status_code == 503) and error_body:
-                            # 使用已缓存的error_body解析冷却时间
+                            # {ts(f"id_1520")}error_body{ts('id_1521')}
                             try:
                                 cooldown_until = await parse_and_log_cooldown(error_body, mode="geminicli")
                             except Exception:
@@ -222,7 +223,7 @@ async def stream_request(
                             cooldown_until, mode="geminicli", model_key=model_group
                         )
 
-                        # 检查是否应该重试
+                        # {ts(f"id_1522")}
                         should_retry = await handle_error_with_retry(
                             credential_manager, status_code, current_file,
                             retry_config["retry_enabled"], attempt, max_retries, retry_interval,
@@ -231,15 +232,15 @@ async def stream_request(
 
                         if should_retry and attempt < max_retries:
                             need_retry = True
-                            break  # 跳出内层循环，准备重试
+                            break  # {ts(f"id_1523")}
                         else:
-                            # 不重试，直接返回原始错误
-                            log.error(f"[GEMINICLI STREAM] 达到最大重试次数或不应重试，返回原始错误")
+                            # {ts(f"id_1524")}
+                            log.error(f"[GEMINICLI STREAM] {ts('id_1525')}")
                             yield chunk
                             return
                     else:
-                        # 错误码不在禁用码当中，直接返回，无需重试
-                        log.error(f"[GEMINICLI STREAM] 流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
+                        # {ts(f"id_1526")}
+                        log.error(f"[GEMINICLI STREAM] {ts('id_1527')} (status={status_code}), {ts('id_100f')}: {current_file}, {ts('id_1516')}: {error_body[:500] if error_body else '{ts('id_39')}'}")
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
                             None, mode="geminicli", model_key=model_group
@@ -247,68 +248,68 @@ async def stream_request(
                         yield chunk
                         return
                 else:
-                    # 不是Response，说明是真流，直接yield返回
-                    # 只在第一个chunk时记录成功
+                    # {ts(f"id_1529")}Response{ts('id_1528')}yield{ts('id_1530')}
+                    # {ts(f"id_1531")}chunk{ts('id_1532')}
                     if not success_recorded:
                         await record_api_call_success(
                             credential_manager, current_file, mode="geminicli", model_key=model_group
                         )
                         success_recorded = True
-                        log.debug(f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}")
+                        log.debug(f"[GEMINICLI STREAM] {ts('id_1533')}: {model_name}")
 
                     yield chunk
 
-            # 流式请求完成，检查结果
+            # {ts(f"id_1536")}
             if success_recorded:
-                log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
+                log.debug(f"[GEMINICLI STREAM] {ts('id_1537')}: {model_name}")
                 return
 
-            # 统一处理重试
+            # {ts(f"id_1542")}
             if need_retry:
-                log.info(f"[GEMINICLI STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[GEMINICLI STREAM] {ts('id_1543')} (attempt {attempt + 2}/{max_retries + 1})...")
 
-                # 使用预热的凭证任务,避免等待
+                # {ts(f"id_1544")},{ts('id_1545')}
                 if next_cred_task is not None:
                     try:
                         cred_result = await next_cred_task
-                        next_cred_task = None  # 重置任务
+                        next_cred_task = None  # {ts(f"id_1546")}
 
                         if cred_result:
                             current_file, credential_data = cred_result
-                            # 使用快速更新方式
+                            # {ts(f"id_1614")}
                             token = credential_data.get("token") or credential_data.get("access_token", "")
                             project_id = credential_data.get("project_id", "")
                             if token and project_id:
                                 auth_headers["Authorization"] = f"Bearer {token}"
                                 final_payload["project"] = project_id
                                 await asyncio.sleep(retry_interval)
-                                continue  # 重试
+                                continue  # {ts(f"id_1279")}
                     except Exception as e:
-                        log.warning(f"[GEMINICLI STREAM] 预热凭证任务失败: {e}")
+                        log.warning(f"[GEMINICLI STREAM] {ts('id_1547')}: {e}")
                         next_cred_task = None
 
-                # 如果预热的凭证不可用,则同步获取
+                # {ts(f"id_1548")},{ts('id_1549')}
                 await asyncio.sleep(retry_interval)
 
                 if not await refresh_credential_fast():
-                    log.error("[GEMINICLI STREAM] 重试时无可用凭证或刷新失败")
+                    log.error(f"[GEMINICLI STREAM] {ts('id_1615')}")
                     yield Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
+                        content=json.dumps({f"error": "{ts('id_1493')}"}),
                         status_code=500,
                         media_type="application/json"
                     )
                     return
-                continue  # 重试
+                continue  # {ts(f"id_1279")}
 
         except Exception as e:
-            log.error(f"[GEMINICLI STREAM] 流式请求异常: {e}, 凭证: {current_file}")
+            log.error(f"[GEMINICLI STREAM] {ts('id_1551')}: {e}, {ts('id_100')}: {current_file}")
             if attempt < max_retries:
-                log.info(f"[GEMINICLI STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[GEMINICLI STREAM] {ts('id_1552')} (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             else:
-                # 所有重试都失败，返回最后一次的错误（如果有）
-                log.error(f"[GEMINICLI STREAM] 所有重试均失败，最后异常: {e}")
+                # {ts(f"id_1553")}
+                log.error(f"[GEMINICLI STREAM] {ts('id_1554')}: {e}")
                 yield last_error_response
 
 
@@ -317,64 +318,64 @@ async def non_stream_request(
     headers: Optional[Dict[str, str]] = None,
 ) -> Response:
     """
-    非流式请求函数
+    {ts(f"id_1555")}
 
     Args:
-        body: 请求体
-        native: 保留参数以保持接口一致性（实际未使用）
-        headers: 额外的请求头
+        body: {ts(f"id_1447")}
+        native: {ts(f"id_1616")}
+        headers: {ts(f"id_1487")}
 
     Returns:
-        Response对象
+        Response{ts(f"id_1509")}
     """
-    # 获取有效凭证
+    # {ts(f"id_1490")}
     model_name = body.get("model", "")
     model_group = get_model_group(model_name)
 
-    # 1. 获取有效凭证
+    # 1. {ts(f"id_1490")}
     cred_result = await credential_manager.get_valid_credential(
         mode="geminicli", model_key=model_group
     )
 
     if not cred_result:
-        # 如果返回值是None，直接返回错误500
+        # {ts(f"id_1492")}None{ts('id_1491500')}
         return Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({f"error": "{ts('id_1493')}"}),
             status_code=500,
             media_type="application/json"
         )
 
     current_file, credential_data = cred_result
 
-    # 2. 构建URL和请求头
+    # 2. {ts(f"id_1475")}URL{ts('id_1495')}
     try:
         auth_headers, final_payload, target_url = await prepare_request_headers_and_payload(
             body, credential_data,
             f"{await get_code_assist_endpoint()}/v1internal:generateContent"
         )
 
-        # 合并自定义headers
+        # {ts(f"id_1496")}headers
         if headers:
             auth_headers.update(headers)
 
     except Exception as e:
-        log.error(f"准备请求失败: {e}")
+        log.error(f"{ts('id_1612')}: {e}")
         return Response(
-            content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
+            content=json.dumps({f"error": f"{ts('id_1612')}: {str(e)}"}),
             status_code=500,
             media_type="application/json"
         )
 
-    # 3. 调用post_async进行请求
+    # 3. {ts(f"id_1095")}post_async{ts('id_1498')}
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
 
-    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
-    last_error_response = None  # 记录最后一次的错误响应
-    next_cred_task = None  # 预热的下一个凭证任务
+    DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # {ts(f"id_1499")}
+    last_error_response = None  # {ts(f"id_1500")}
+    next_cred_task = None  # {ts(f"id_1501")}
 
-    # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
+    # {ts(f"id_1502")}({ts('id_1504')}token{ts('id_15')}project_id,{ts('id_15')}03)
     async def refresh_credential_fast():
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
@@ -384,13 +385,13 @@ async def non_stream_request(
             return None
         current_file, credential_data = cred_result
         try:
-            # 只更新token和project_id,不重建整个headers和payload
+            # {ts(f"id_1504")}token{ts('id_15')}project_id,{ts('id_15')}05headers{ts('id_15')}payload
             token = credential_data.get("token") or credential_data.get("access_token", "")
             project_id = credential_data.get("project_id", "")
             if not token or not project_id:
                 return None
 
-            # 直接更新现有的headers和payload
+            # {ts(f"id_1613")}headers{ts('id_15')}payload
             auth_headers["Authorization"] = f"Bearer {token}"
             final_payload["project"] = project_id
             return True
@@ -408,12 +409,12 @@ async def non_stream_request(
 
             status_code = response.status_code
 
-            # 成功
+            # {ts(f"id_984")}
             if status_code == 200:
                 await record_api_call_success(
                     credential_manager, current_file, mode="geminicli", model_key=model_group
                 )
-                # 创建响应头,移除压缩相关的header避免重复解压
+                # {ts(f"id_1619")},{ts('id_1617')}header{ts('id_1618')}
                 response_headers = dict(response.headers)
                 response_headers.pop('content-encoding', None)
                 response_headers.pop('content-length', None)
@@ -424,8 +425,8 @@ async def non_stream_request(
                     headers=response_headers
                 )
 
-            # 失败 - 记录最后一次错误
-            # 创建响应头,移除压缩相关的header避免重复解压
+            # {ts(f"id_979")} - {ts('id_1510')}
+            # {ts(f"id_1619")},{ts('id_1617')}header{ts('id_1618')}
             error_headers = dict(response.headers)
             error_headers.pop('content-encoding', None)
             error_headers.pop('content-length', None)
@@ -436,19 +437,19 @@ async def non_stream_request(
                 headers=error_headers
             )
 
-            # 判断是否需要重试
-            # 缓存错误文本,避免重复解析
+            # {ts(f"id_1569")}
+            # {ts(f"id_1570")},{ts('id_1571')}
             error_text = ""
             try:
                 error_text = response.text
             except Exception:
                 pass
 
-            # 如果错误码在禁用码当中，禁用该凭证
+            # {ts(f"id_1620")}
             if status_code in DISABLE_ERROR_CODES:
-                log.error(f"非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
+                log.error(f"{ts('id_1621')} (status={status_code}), {ts('id_100f')}: {current_file}, {ts('id_1516')}: {error_text[:500] if error_text else '{ts('id_39')}'}")
 
-                # 并行预热下一个凭证,不阻塞当前处理
+                # {ts(f"id_1517")},{ts('id_1518')}
                 if next_cred_task is None and attempt < max_retries:
                     next_cred_task = asyncio.create_task(
                         credential_manager.get_valid_credential(
@@ -456,55 +457,55 @@ async def non_stream_request(
                         )
                     )
 
-                # 记录错误并禁用凭证
+                # {ts(f"id_1622")}
                 await record_api_call_error(
                     credential_manager, current_file, status_code,
                     None, mode="geminicli", model_key=model_group
                 )
-                # 尝试切换到新凭证并重试
+                # {ts(f"id_1623")}
                 if attempt < max_retries:
-                    log.info(f"[NON-STREAM] 切换凭证并重试 (attempt {attempt + 2}/{max_retries + 1})...")
+                    log.info(f"[NON-STREAM] {ts('id_1624')} (attempt {attempt + 2}/{max_retries + 1})...")
 
-                    # 使用预热的凭证任务,避免等待
+                    # {ts(f"id_1544")},{ts('id_1545')}
                     if next_cred_task is not None:
                         try:
                             cred_result = await next_cred_task
-                            next_cred_task = None  # 重置任务
+                            next_cred_task = None  # {ts(f"id_1546")}
 
                             if cred_result:
                                 current_file, credential_data = cred_result
-                                # 使用快速更新方式
+                                # {ts(f"id_1614")}
                                 token = credential_data.get("token") or credential_data.get("access_token", "")
                                 project_id = credential_data.get("project_id", "")
                                 if token and project_id:
                                     auth_headers["Authorization"] = f"Bearer {token}"
                                     final_payload["project"] = project_id
                                     await asyncio.sleep(retry_interval)
-                                    continue  # 重试
+                                    continue  # {ts(f"id_1279")}
                         except Exception as e:
-                            log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
+                            log.warning(f"[NON-STREAM] {ts('id_1547')}: {e}")
                             next_cred_task = None
 
-                    # 如果预热的凭证不可用,则同步获取
+                    # {ts(f"id_1548")},{ts('id_1549')}
                     await asyncio.sleep(retry_interval)
 
                     if not await refresh_credential_fast():
-                        log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
+                        log.error(f"[NON-STREAM] {ts('id_1615')}")
                         return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
+                            content=json.dumps({f"error": "{ts('id_1493')}"}),
                             status_code=500,
                             media_type="application/json"
                         )
-                    continue  # 重试
+                    continue  # {ts(f"id_1279")}
                 else:
-                    # 达到最大重试次数
-                    log.error(f"[NON-STREAM] 达到最大重试次数，返回原始错误")
+                    # {ts(f"id_1625")}
+                    log.error(f"[NON-STREAM] {ts('id_1626')}")
                     return last_error_response
             else:
-                # 错误码不在禁用码当中（如429等），做好记录后进行重试
-                log.warning(f"非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
+                # {ts(f"id_1628429")}{ts('id_1627')}
+                log.warning(f"{ts('id_1572')} (status={status_code}), {ts('id_100f')}: {current_file}, {ts('id_1516')}: {error_text[:500] if error_text else '{ts('id_39')}'}")
 
-                # 并行预热下一个凭证,不阻塞当前处理
+                # {ts(f"id_1517")},{ts('id_1518')}
                 if next_cred_task is None and attempt < max_retries:
                     next_cred_task = asyncio.create_task(
                         credential_manager.get_valid_credential(
@@ -512,10 +513,10 @@ async def non_stream_request(
                         )
                     )
 
-                # 记录错误
+                # {ts(f"id_1519")}
                 cooldown_until = None
                 if status_code == 429 or status_code == 503 and error_text:
-                    # 使用已缓存的error_text解析冷却时间
+                    # {ts(f"id_1520")}error_text{ts('id_1521')}
                     try:
                         cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
                     except Exception:
@@ -526,7 +527,7 @@ async def non_stream_request(
                     cooldown_until, mode="geminicli", model_key=model_group
                 )
 
-                # 检查是否应该重试
+                # {ts(f"id_1522")}
                 should_retry = await handle_error_with_retry(
                     credential_manager, status_code, current_file,
                     retry_config["retry_enabled"], attempt, max_retries, retry_interval,
@@ -534,80 +535,80 @@ async def non_stream_request(
                 )
 
                 if should_retry and attempt < max_retries:
-                    # 重新获取凭证并重试
-                    log.info(f"[NON-STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
+                    # {ts(f"id_1629")}
+                    log.info(f"[NON-STREAM] {ts('id_1543')} (attempt {attempt + 2}/{max_retries + 1})...")
 
-                    # 使用预热的凭证任务,避免等待
+                    # {ts(f"id_1544")},{ts('id_1545')}
                     if next_cred_task is not None:
                         try:
                             cred_result = await next_cred_task
-                            next_cred_task = None  # 重置任务
+                            next_cred_task = None  # {ts(f"id_1546")}
 
                             if cred_result:
                                 current_file, credential_data = cred_result
-                                # 使用快速更新方式
+                                # {ts(f"id_1614")}
                                 token = credential_data.get("token") or credential_data.get("access_token", "")
                                 project_id = credential_data.get("project_id", "")
                                 if token and project_id:
                                     auth_headers["Authorization"] = f"Bearer {token}"
                                     final_payload["project"] = project_id
                                     await asyncio.sleep(retry_interval)
-                                    continue  # 重试
+                                    continue  # {ts(f"id_1279")}
                         except Exception as e:
-                            log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
+                            log.warning(f"[NON-STREAM] {ts('id_1547')}: {e}")
                             next_cred_task = None
 
-                    # 如果预热的凭证不可用,则同步获取
+                    # {ts(f"id_1548")},{ts('id_1549')}
                     await asyncio.sleep(retry_interval)
 
                     if not await refresh_credential_fast():
-                        log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
+                        log.error(f"[NON-STREAM] {ts('id_1615')}")
                         return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
+                            content=json.dumps({f"error": "{ts('id_1493')}"}),
                             status_code=500,
                             media_type="application/json"
                         )
-                    continue  # 重试
+                    continue  # {ts(f"id_1279")}
                 else:
-                    # 不重试，直接返回原始错误
-                    log.error(f"[NON-STREAM] 达到最大重试次数或不应重试，返回原始错误")
+                    # {ts(f"id_1524")}
+                    log.error(f"[NON-STREAM] {ts('id_1525')}")
                     return last_error_response
 
         except Exception as e:
-            log.error(f"非流式请求异常: {e}, 凭证: {current_file}")
+            log.error(f"{ts('id_1574')}: {e}, {ts('id_100')}: {current_file}")
             if attempt < max_retries:
-                log.info(f"[NON-STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1})...")
+                log.info(f"[NON-STREAM] {ts('id_1552')} (attempt {attempt + 2}/{max_retries + 1})...")
                 await asyncio.sleep(retry_interval)
                 continue
             else:
-                # 所有重试都失败，返回最后一次的错误（如果有）或500错误
-                log.error(f"[NON-STREAM] 所有重试均失败，最后异常: {e}")
+                # {ts(f"id_1630500")}{ts('id_806')}
+                log.error(f"[NON-STREAM] {ts('id_1554')}: {e}")
                 if last_error_response:
                     return last_error_response
                 else:
                     return Response(
-                        content=json.dumps({"error": f"请求异常: {str(e)}"}),
+                        content=json.dumps({f"error": f"{ts('id_1631')}: {str(e)}"}),
                         status_code=500,
                         media_type="application/json"
                     )
 
-    # 所有重试都失败，返回最后一次的原始错误
-    log.error("[NON-STREAM] 所有重试均失败")
+    # {ts(f"id_1575")}
+    log.error(f"[NON-STREAM] {ts('id_1576')}")
     return last_error_response
 
 
-# ==================== 测试代码 ====================
+# ==================== {ts(f"id_1632")} ====================
 
 if __name__ == "__main__":
     """
-    测试代码：演示API返回的流式和非流式数据格式
-    运行方式: python src/api/geminicli.py
+    {ts(f"id_1634")}API{ts('id_1633')}
+    {ts(f"id_1635")}: python src/api/geminicli.py
     """
     print("=" * 80)
-    print("GeminiCli API 测试")
+    print(f"GeminiCli API {ts('id_1444')}")
     print("=" * 80)
 
-    # 测试请求体
+    # {ts(f"id_1636")}
     test_body = {
         "model": "gemini-2.5-flash",
         "request": {
@@ -621,94 +622,94 @@ if __name__ == "__main__":
     }
 
     async def test_stream_request():
-        """测试流式请求"""
+        f"""{ts('id_1637')}"""
         print("\n" + "=" * 80)
-        print("【测试1】流式请求 (stream_request with native=False)")
+        print(f"{ts('id_14461')}{ts('id_1445')} (stream_request with native=False)")
         print("=" * 80)
-        print(f"请求体: {json.dumps(test_body, indent=2, ensure_ascii=False)}\n")
+        print(f"{ts('id_1447')}: {json.dumps(test_body, indent=2, ensure_ascii=False)}\n")
 
-        print("流式响应数据 (每个chunk):")
+        print(f"{ts('id_1448')} ({ts('id_1449')}chunk):")
         print("-" * 80)
 
         chunk_count = 0
         async for chunk in stream_request(body=test_body, native=False):
             chunk_count += 1
             if isinstance(chunk, Response):
-                # 错误响应
-                print(f"\n❌ 错误响应:")
-                print(f"  状态码: {chunk.status_code}")
+                # {ts(f"id_1638")}
+                print(f"\n❌ {ts('id_1638')}:")
+                print(f"  {ts('id_1461')}: {chunk.status_code}")
                 print(f"  Content-Type: {chunk.headers.get('content-type', 'N/A')}")
                 try:
                     content = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
-                    print(f"  内容: {content}")
+                    print(f"  {ts('id_1639')}: {content}")
                 except Exception as e:
-                    print(f"  内容解析失败: {e}")
+                    print(f"  {ts('id_1640')}: {e}")
             else:
-                # 正常的流式数据块 (str类型)
+                # {ts(f"id_1641")} (str{ts('id_1454')})
                 print(f"\nChunk #{chunk_count}:")
-                print(f"  类型: {type(chunk).__name__}")
-                print(f"  长度: {len(chunk) if hasattr(chunk, '__len__') else 'N/A'}")
-                print(f"  内容预览: {repr(chunk[:200] if len(chunk) > 200 else chunk)}")
+                print(f"  {ts('id_1454')}: {type(chunk).__name__}")
+                print(f"  {ts('id_1455')}: {len(chunk) if hasattr(chunk, '__len__') else 'N/A'}")
+                print(f"  {ts('id_1456')}: {repr(chunk[:200] if len(chunk) > 200 else chunk)}")
 
-                # 如果是SSE格式，尝试解析
+                # {ts(f"id_1643")}SSE{ts('id_1642')}
                 if isinstance(chunk, str) and chunk.startswith("data: "):
                     try:
                         data_line = chunk.strip()
                         if data_line.startswith("data: "):
-                            json_str = data_line[6:]  # 去掉 "data: " 前缀
+                            json_str = data_line[6:]  # {ts(f"id_1644")} "data: " {ts('id_365')}
                             json_data = json.loads(json_str)
-                            print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                            print(f"  {ts('id_1457')}JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
                     except Exception as e:
-                        print(f"  SSE解析尝试失败: {e}")
+                        print(f"  SSE{ts('id_1645')}: {e}")
 
-        print(f"\n总共收到 {chunk_count} 个chunk")
+        print(f"\n{ts('id_1458')} {chunk_count} {ts('id_723')}chunk")
 
     async def test_non_stream_request():
-        """测试非流式请求"""
+        f"""{ts('id_1646')}"""
         print("\n" + "=" * 80)
-        print("【测试2】非流式请求 (non_stream_request)")
+        print(f"{ts('id_14462')}{ts('id_1459')} (non_stream_request)")
         print("=" * 80)
-        print(f"请求体: {json.dumps(test_body, indent=2, ensure_ascii=False)}\n")
+        print(f"{ts('id_1447')}: {json.dumps(test_body, indent=2, ensure_ascii=False)}\n")
 
         response = await non_stream_request(body=test_body)
 
-        print("非流式响应数据:")
+        print(f"{ts('id_1460')}:")
         print("-" * 80)
-        print(f"状态码: {response.status_code}")
+        print(f"{ts('id_1461')}: {response.status_code}")
         print(f"Content-Type: {response.headers.get('content-type', 'N/A')}")
-        print(f"\n响应头: {dict(response.headers)}\n")
+        print(f"\n{ts('id_1462')}: {dict(response.headers)}\n")
 
         try:
             content = response.body.decode('utf-8') if isinstance(response.body, bytes) else str(response.body)
-            print(f"响应内容 (原始):\n{content}\n")
+            print(f"{ts('id_1463')} ({ts('id_1464')}):\n{content}\n")
 
-            # 尝试解析JSON
+            # {ts(f"id_1647")}JSON
             try:
                 json_data = json.loads(content)
-                print(f"响应内容 (格式化JSON):")
+                print(f"{ts('id_1463')} ({ts('id_1465')}JSON):")
                 print(json.dumps(json_data, indent=2, ensure_ascii=False))
             except json.JSONDecodeError:
-                print("(非JSON格式)")
+                print(f"({ts('id_1648')}JSON{ts('id_57')})")
         except Exception as e:
-            print(f"内容解析失败: {e}")
+            print(f"{ts('id_1640')}: {e}")
 
     async def main():
-        """主测试函数"""
+        f"""{ts('id_1649')}"""
         try:
-            # 测试流式请求
+            # {ts(f"id_1637")}
             await test_stream_request()
 
-            # 测试非流式请求
+            # {ts(f"id_1646")}
             await test_non_stream_request()
 
             print("\n" + "=" * 80)
-            print("测试完成")
+            print(f"{ts('id_1466')}")
             print("=" * 80)
 
         except Exception as e:
-            print(f"\n❌ 测试过程中出现异常: {e}")
+            print(f"\n❌ {ts('id_1650')}: {e}")
             import traceback
             traceback.print_exc()
 
-    # 运行测试
+    # {ts(f"id_1651")}
     asyncio.run(main())

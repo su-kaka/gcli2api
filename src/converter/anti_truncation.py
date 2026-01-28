@@ -1,6 +1,7 @@
+from src.i18n import ts
 """
 Anti-Truncation Module - Ensures complete streaming output
-保持一个流式请求内完整输出的反截断模块
+{ts(f"id_2241")}
 """
 
 import io
@@ -12,39 +13,39 @@ from fastapi.responses import StreamingResponse
 
 from log import log
 
-# 反截断配置
+# {ts(f"id_2242")}
 DONE_MARKER = "[done]"
-CONTINUATION_PROMPT = f"""请从刚才被截断的地方继续输出剩余的所有内容。
+CONTINUATION_PROMPT = f"""{ts('id_2243')}
 
-重要提醒：
-1. 不要重复前面已经输出的内容
-2. 直接继续输出，无需任何前言或解释
-3. 当你完整完成所有内容输出后，必须在最后一行单独输出：{DONE_MARKER}
-4. {DONE_MARKER} 标记表示你的回答已经完全结束，这是必需的结束标记
+{ts('id_2244')}
+1. {ts('id_2245')}
+2. {ts('id_2246')}
+3. {ts('id_2247')}{DONE_MARKER}
+4. {DONE_MARKER} {ts('id_2248')}
 
-现在请继续输出："""
+{ts('id_2249')}"""
 
-# 正则替换配置
+# {ts(f"id_2250")}
 REGEX_REPLACEMENTS: List[Tuple[str, str, str]] = [
     (
-        "age_pattern",  # 替换规则名称
-        r"(?:[1-9]|1[0-8])岁(?:的)?|(?:十一|十二|十三|十四|十五|十六|十七|十八|十|一|二|三|四|五|六|七|八|九)岁(?:的)?",  # 正则模式
-        "",  # 替换文本
+        f"age_pattern",  # {ts('id_2251')}
+        rf"(?:[1-9]|1[0-8]){ts('id_2266')}(?:{ts('id_61f')})?|(?:{ts('id_2257')}|{ts('id_2254f')}|{ts('id_2258')}|{ts('id_2260f')}|{ts('id_2253')}|{ts('id_2255f')}|{ts('id_2256')}|{ts('id_2259f')}|{ts('id_2264')}|{ts('id_2265f')}|{ts('id_2270')}|{ts('id_2267f')}|{ts('id_2262')}|{ts('id_2268f')}|{ts('id_2269')}|{ts('id_2271f')}|{ts('id_2261')}|{ts('id_2263f')}){ts('id_2266')}(?:{ts('id_61')})?",  # {ts('id_2252')}
+        f"",  # {ts('id_2272')}
     ),
-    # 可在此处添加更多替换规则
+    # {ts(f"id_2273")}
     # ("rule_name", r"pattern", "replacement"),
 ]
 
 
 def apply_regex_replacements(text: str) -> str:
     """
-    对文本应用正则替换规则
+    {ts(f"id_2274")}
 
     Args:
-        text: 要处理的文本
+        text: {ts(f"id_2275")}
 
     Returns:
-        处理后的文本
+        {ts(f"id_2276")}
     """
     if not text:
         return text
@@ -54,10 +55,10 @@ def apply_regex_replacements(text: str) -> str:
 
     for rule_name, pattern, replacement in REGEX_REPLACEMENTS:
         try:
-            # 编译正则表达式，使用IGNORECASE标志
+            # {ts(f"id_2277")}IGNORECASE{ts('id_2278')}
             regex = re.compile(pattern, re.IGNORECASE)
 
-            # 执行替换
+            # {ts(f"id_2279")}
             new_text, count = regex.subn(replacement, processed_text)
 
             if count > 0:
@@ -77,13 +78,13 @@ def apply_regex_replacements(text: str) -> str:
 
 def apply_regex_replacements_to_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    对请求payload中的文本内容应用正则替换
+    {ts(f"id_2281")}payload{ts('id_2280')}
 
     Args:
-        payload: 请求payload
+        payload: {ts(f"id_2282")}payload
 
     Returns:
-        应用替换后的payload
+        {ts(f"id_2283")}payload
     """
     if not REGEX_REPLACEMENTS:
         return payload
@@ -91,7 +92,7 @@ def apply_regex_replacements_to_payload(payload: Dict[str, Any]) -> Dict[str, An
     modified_payload = payload.copy()
     request_data = modified_payload.get("request", {})
 
-    # 处理contents中的文本
+    # {ts(f"id_590")}contents{ts('id_2284')}
     contents = request_data.get("contents", [])
     if contents:
         new_contents = []
@@ -122,49 +123,49 @@ def apply_regex_replacements_to_payload(payload: Dict[str, Any]) -> Dict[str, An
 
 def apply_anti_truncation(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    对请求payload应用反截断处理和正则替换
-    在systemInstruction中添加提醒，要求模型在结束时输出DONE_MARKER标记
+    {ts(f"id_2281")}payload{ts('id_2285')}
+    {ts(f"id_429")}systemInstruction{ts('id_2286')}DONE_MARKER{ts('id_2287')}
 
     Args:
-        payload: 原始请求payload
+        payload: {ts(f"id_1602")}payload
 
     Returns:
-        添加了反截断指令并应用了正则替换的payload
+        {ts(f"id_2288")}payload
     """
-    # 首先应用正则替换
+    # {ts(f"id_2289")}
     modified_payload = apply_regex_replacements_to_payload(payload)
     request_data = modified_payload.get("request", {})
 
-    # 获取或创建systemInstruction
+    # {ts(f"id_2290")}systemInstruction
     system_instruction = request_data.get("systemInstruction", {})
     if not system_instruction:
         system_instruction = {"parts": []}
     elif "parts" not in system_instruction:
         system_instruction["parts"] = []
 
-    # 添加反截断指令
+    # {ts(f"id_2291")}
     anti_truncation_instruction = {
-        "text": f"""严格执行以下输出结束规则：
+        "text": f"""{ts('id_2292')}
 
-1. 当你完成完整回答时，必须在输出的最后单独一行输出：{DONE_MARKER}
-2. {DONE_MARKER} 标记表示你的回答已经完全结束，这是必需的结束标记
-3. 只有输出了 {DONE_MARKER} 标记，系统才认为你的回答是完整的
-4. 如果你的回答被截断，系统会要求你继续输出剩余内容
-5. 无论回答长短，都必须以 {DONE_MARKER} 标记结束
+1. {ts('id_2293')}{DONE_MARKER}
+2. {DONE_MARKER} {ts('id_2248')}
+3. {ts('id_2295')} {DONE_MARKER} {ts('id_2294')}
+4. {ts('id_2296')}
+5. {ts('id_2297')} {DONE_MARKER} {ts('id_2298')}
 
-示例格式：
+{ts('id_2299')}
 ```
-你的回答内容...
-更多回答内容...
+{ts('id_2300')}...
+{ts('id_2301')}...
 {DONE_MARKER}
 ```
 
-注意：{DONE_MARKER} 必须单独占一行，前面不要有任何其他字符。
+{ts('id_1288')}{DONE_MARKER} {ts('id_2302')}
 
-这个规则对于确保输出完整性极其重要，请严格遵守。"""
+{ts('id_2303')}"""
     }
 
-    # 检查是否已经包含反截断指令
+    # {ts(f"id_2304")}
     has_done_instruction = any(
         part.get("text", "").find(DONE_MARKER) != -1
         for part in system_instruction["parts"]
@@ -182,7 +183,7 @@ def apply_anti_truncation(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class AntiTruncationStreamProcessor:
-    """反截断流式处理器"""
+    f"""{ts('id_2305')}"""
 
     def __init__(
         self,
@@ -193,46 +194,46 @@ class AntiTruncationStreamProcessor:
         self.original_request_func = original_request_func
         self.base_payload = payload.copy()
         self.max_attempts = max_attempts
-        # 使用 StringIO 避免字符串拼接的内存问题
+        # {ts(f"id_463")} StringIO {ts('id_2306')}
         self.collected_content = io.StringIO()
         self.current_attempt = 0
 
     def _get_collected_text(self) -> str:
-        """获取收集的文本内容"""
+        f"""{ts('id_2307')}"""
         return self.collected_content.getvalue()
 
     def _append_content(self, content: str):
-        """追加内容到收集器"""
+        f"""{ts('id_2308')}"""
         if content:
             self.collected_content.write(content)
 
     def _clear_content(self):
-        """清空收集的内容，释放内存"""
+        f"""{ts('id_2309')}"""
         self.collected_content.close()
         self.collected_content = io.StringIO()
 
     async def process_stream(self) -> AsyncGenerator[bytes, None]:
-        """处理流式响应，检测并处理截断"""
+        f"""{ts('id_2310')}"""
 
         while self.current_attempt < self.max_attempts:
             self.current_attempt += 1
 
-            # 构建当前请求payload
+            # {ts(f"id_2311")}payload
             current_payload = self._build_current_payload()
 
             log.debug(f"Anti-truncation attempt {self.current_attempt}/{self.max_attempts}")
 
-            # 发送请求
+            # {ts(f"id_2312")}
             try:
                 response = await self.original_request_func(current_payload)
 
                 if not isinstance(response, StreamingResponse):
-                    # 非流式响应，直接处理
+                    # {ts(f"id_2313")}
                     yield await self._handle_non_streaming_response(response)
                     return
 
-                # 处理流式响应（按行处理）
-                chunk_buffer = io.StringIO()  # 使用 StringIO 缓存当前轮次的chunk
+                # {ts(f"id_2314")}
+                chunk_buffer = io.StringIO()  # {ts(f"id_463")} StringIO {ts('id_2315')}chunk
                 found_done_marker = False
 
                 async for line in response.body_iterator:
@@ -240,37 +241,37 @@ class AntiTruncationStreamProcessor:
                         yield line
                         continue
 
-                    # 处理 bytes 类型的流式数据
+                    # {ts(f"id_590")} bytes {ts('id_2316')}
                     if isinstance(line, bytes):
-                        # 解码 bytes 为字符串
+                        # {ts(f"id_2318")} bytes {ts('id_2317')}
                         line_str = line.decode('utf-8', errors='ignore').strip()
                     else:
                         line_str = str(line).strip()
 
-                    # 跳过空行
+                    # {ts(f"id_2319")}
                     if not line_str:
                         yield line
                         continue
 
-                    # 处理 SSE 格式的数据行
+                    # {ts(f"id_590")} SSE {ts('id_2320')}
                     if line_str.startswith("data: "):
-                        payload_str = line_str[6:]  # 去掉 "data: " 前缀
+                        payload_str = line_str[6:]  # {ts(f"id_1644")} "data: " {ts('id_365')}
 
-                        # 检查是否是 [DONE] 标记
+                        # {ts(f"id_2321")} [DONE] {ts('id_2287')}
                         if payload_str.strip() == "[DONE]":
                             if found_done_marker:
                                 log.info("Anti-truncation: Found [done] marker, output complete")
                                 yield line
-                                # 清理内存
+                                # {ts(f"id_2322")}
                                 chunk_buffer.close()
                                 self._clear_content()
                                 return
                             else:
                                 log.warning("Anti-truncation: Stream ended without [done] marker")
-                                # 不发送[DONE]，准备继续
+                                # {ts(f"id_2324")}[DONE]{ts('id_2323')}
                                 break
 
-                        # 尝试解析 JSON 数据
+                        # {ts(f"id_1647")} JSON {ts('id_2325')}
                         try:
                             data = json.loads(payload_str)
                             content = self._extract_content_from_chunk(data)
@@ -280,26 +281,26 @@ class AntiTruncationStreamProcessor:
                             if content:
                                 chunk_buffer.write(content)
 
-                                # 检查是否包含done标记
+                                # {ts(f"id_2326")}done{ts('id_2287')}
                                 has_marker = self._check_done_marker_in_chunk_content(content)
                                 log.debug(f"Anti-truncation: Check done marker result: {has_marker}, DONE_MARKER='{DONE_MARKER}'")
                                 if has_marker:
                                     found_done_marker = True
                                     log.debug(f"Anti-truncation: Found [done] marker in chunk, content: {content[:200]}")
 
-                            # 清理行中的[done]标记后再发送
+                            # {ts(f"id_2328")}[done]{ts('id_2327')}
                             cleaned_line = self._remove_done_marker_from_line(line, line_str, data)
                             yield cleaned_line
 
                         except (json.JSONDecodeError, ValueError):
-                            # 无法解析的行，直接传递
+                            # {ts(f"id_2329")}
                             yield line
                             continue
                     else:
-                        # 非 data: 开头的行，直接传递
+                        # {ts(f"id_1648")} data: {ts('id_2330')}
                         yield line
 
-                # 更新收集的内容 - 使用 StringIO 高效处理
+                # {ts(f"id_2331")} - {ts('id_463')} StringIO {ts('id_2332')}
                 chunk_text = chunk_buffer.getvalue()
                 if chunk_text:
                     self._append_content(chunk_text)
@@ -307,24 +308,24 @@ class AntiTruncationStreamProcessor:
 
                 log.debug(f"Anti-truncation: After processing stream, found_done_marker={found_done_marker}")
 
-                # 如果找到了done标记，结束
+                # {ts(f"id_2334")}done{ts('id_2333')}
                 if found_done_marker:
-                    # 立即清理内容释放内存
+                    # {ts(f"id_2335")}
                     self._clear_content()
                     yield b"data: [DONE]\n\n"
                     return
 
-                # 只有在单个chunk中没有找到done标记时，才检查累积内容（防止done标记跨chunk出现）
+                # {ts(f"id_2337")}chunk{ts('id_2338')}done{ts('id_2336f')}done{ts('id_2340')}chunk{ts('id_2339')}
                 if not found_done_marker:
                     accumulated_text = self._get_collected_text()
                     if self._check_done_marker_in_text(accumulated_text):
                         log.info("Anti-truncation: Found [done] marker in accumulated content")
-                        # 立即清理内容释放内存
+                        # {ts(f"id_2335")}
                         self._clear_content()
                         yield b"data: [DONE]\n\n"
                         return
 
-                # 如果没找到done标记且不是最后一次尝试，准备续传
+                # {ts(f"id_2342")}done{ts('id_2341')}
                 if self.current_attempt < self.max_attempts:
                     accumulated_text = self._get_collected_text()
                     total_length = len(accumulated_text)
@@ -335,12 +336,12 @@ class AntiTruncationStreamProcessor:
                         log.debug(
                             f"Anti-truncation: Current collected content ends with: ...{accumulated_text[-100:]}"
                         )
-                    # 在下一次循环中会继续
+                    # {ts(f"id_2343")}
                     continue
                 else:
-                    # 最后一次尝试，直接结束
+                    # {ts(f"id_2344")}
                     log.warning("Anti-truncation: Max attempts reached, ending stream")
-                    # 立即清理内容释放内存
+                    # {ts(f"id_2335")}
                     self._clear_content()
                     yield b"data: [DONE]\n\n"
                     return
@@ -348,7 +349,7 @@ class AntiTruncationStreamProcessor:
             except Exception as e:
                 log.error(f"Anti-truncation error in attempt {self.current_attempt}: {str(e)}")
                 if self.current_attempt >= self.max_attempts:
-                    # 发送错误chunk
+                    # {ts(f"id_2345")}chunk
                     error_chunk = {
                         "error": {
                             "message": f"Anti-truncation failed: {str(e)}",
@@ -359,44 +360,44 @@ class AntiTruncationStreamProcessor:
                     yield f"data: {json.dumps(error_chunk)}\n\n".encode()
                     yield b"data: [DONE]\n\n"
                     return
-                # 否则继续下一次尝试
+                # {ts(f"id_2346")}
 
-        # 如果所有尝试都失败了
+        # {ts(f"id_2347")}
         log.error("Anti-truncation: All attempts failed")
-        # 清理内存
+        # {ts(f"id_2322")}
         self._clear_content()
         yield b"data: [DONE]\n\n"
 
     def _build_current_payload(self) -> Dict[str, Any]:
-        """构建当前请求的payload"""
+        f"""{ts('id_2348')}payload"""
         if self.current_attempt == 1:
-            # 第一次请求，使用原始payload（已经包含反截断指令）
+            # {ts(f"id_2350")}payload{ts('id_2349')}
             return self.base_payload
 
-        # 后续请求，添加续传指令
+        # {ts(f"id_2351")}
         continuation_payload = self.base_payload.copy()
         request_data = continuation_payload.get("request", {})
 
-        # 获取原始对话内容
+        # {ts(f"id_2352")}
         contents = request_data.get("contents", [])
         new_contents = contents.copy()
 
-        # 如果有收集到的内容，添加到对话中
+        # {ts(f"id_2353")}
         accumulated_text = self._get_collected_text()
         if accumulated_text:
             new_contents.append({"role": "model", "parts": [{"text": accumulated_text}]})
 
-        # 构建具体的续写指令，包含前面的内容摘要
+        # {ts(f"id_2354")}
         content_summary = ""
         if accumulated_text:
             if len(accumulated_text) > 200:
-                content_summary = f'\n\n前面你已经输出了约 {len(accumulated_text)} 个字符的内容，结尾是：\n"...{accumulated_text[-100:]}"'
+                content_summary = f'\n\n{ts(f"id_2356")} {len(accumulated_text)} {ts('id_2355')}\n"...{accumulated_text[-100:]}"'
             else:
-                content_summary = f'\n\n前面你已经输出的内容是：\n"{accumulated_text}"'
+                content_summary = f'\n\n{ts(f"id_2357")}\n"{accumulated_text}"'
 
         detailed_continuation_prompt = f"""{CONTINUATION_PROMPT}{content_summary}"""
 
-        # 添加继续指令
+        # {ts(f"id_2358")}
         continuation_message = {"role": "user", "parts": [{"text": detailed_continuation_prompt}]}
         new_contents.append(continuation_message)
 
@@ -406,14 +407,14 @@ class AntiTruncationStreamProcessor:
         return continuation_payload
 
     def _extract_content_from_chunk(self, data: Dict[str, Any]) -> str:
-        """从chunk数据中提取文本内容"""
+        f"""{ts('id_1731')}chunk{ts('id_2359')}"""
         content = ""
 
-        # 先尝试解包 response 字段（Gemini API 格式）
+        # {ts(f"id_2360")} response {ts('id_2361')}Gemini API {ts('id_493')}
         if "response" in data:
             data = data["response"]
 
-        # 处理 Gemini 格式
+        # {ts(f"id_590")} Gemini {ts('id_57')}
         if "candidates" in data:
             for candidate in data["candidates"]:
                 if "content" in candidate:
@@ -422,7 +423,7 @@ class AntiTruncationStreamProcessor:
                         if "text" in part:
                             content += part["text"]
         
-        # 处理 OpenAI 流式格式（choices/delta）
+        # {ts(f"id_590")} OpenAI {ts('id_2362')}choices/delta{ts('id_292')}
         elif "choices" in data:
             for choice in data["choices"]:
                 if "delta" in choice and "content" in choice["delta"]:
@@ -433,19 +434,19 @@ class AntiTruncationStreamProcessor:
         return content
 
     async def _handle_non_streaming_response(self, response) -> bytes:
-        """处理非流式响应 - 使用循环代替递归避免栈溢出"""
-        # 使用循环代替递归
+        f"""{ts('id_2364')} - {ts('id_2363')}"""
+        # {ts(f"id_2365")}
         while True:
             try:
-                # 特殊处理：如果返回的是StreamingResponse，需要读取其body_iterator
+                # {ts(f"id_2366")}StreamingResponse{ts('id_2367')}body_iterator
                 if isinstance(response, StreamingResponse):
                     log.error("Anti-truncation: Received StreamingResponse in non-streaming handler - this should not happen")
-                    # 尝试读取流式响应的内容
+                    # {ts(f"id_2368")}
                     chunks = []
                     async for chunk in response.body_iterator:
                         chunks.append(chunk)
                     content = b"".join(chunks).decode() if chunks else ""
-                # 提取响应内容
+                # {ts(f"id_2369")}
                 elif hasattr(response, "body"):
                     content = (
                         response.body.decode() if isinstance(response.body, bytes) else response.body
@@ -460,7 +461,7 @@ class AntiTruncationStreamProcessor:
                     log.error(f"Anti-truncation: Unknown response type: {type(response)}")
                     content = str(response)
 
-                # 验证内容不为空
+                # {ts(f"id_2370")}
                 if not content or not content.strip():
                     log.error("Anti-truncation: Received empty response content")
                     return json.dumps(
@@ -473,36 +474,36 @@ class AntiTruncationStreamProcessor:
                         }
                     ).encode()
 
-                # 尝试解析 JSON
+                # {ts(f"id_1647")} JSON
                 try:
                     response_data = json.loads(content)
                 except json.JSONDecodeError as json_err:
                     log.error(f"Anti-truncation: Failed to parse JSON response: {json_err}, content: {content[:200]}")
-                    # 如果不是 JSON，直接返回原始内容
+                    # {ts(f"id_2150")} JSON{ts('id_2371')}
                     return content.encode() if isinstance(content, str) else content
 
-                # 检查是否包含done标记
+                # {ts(f"id_2326")}done{ts('id_2287')}
                 text_content = self._extract_content_from_response(response_data)
                 has_done_marker = self._check_done_marker_in_text(text_content)
 
                 if has_done_marker or self.current_attempt >= self.max_attempts:
-                    # 找到done标记或达到最大尝试次数，返回结果
+                    # {ts(f"id_2373")}done{ts('id_2372')}
                     return content.encode() if isinstance(content, str) else content
 
-                # 需要继续，收集内容并构建下一个请求
+                # {ts(f"id_2374")}
                 if text_content:
                     self._append_content(text_content)
 
                 log.info("Anti-truncation: Non-streaming response needs continuation")
 
-                # 增加尝试次数
+                # {ts(f"id_2375")}
                 self.current_attempt += 1
 
-                # 构建续传payload并发送下一个请求
+                # {ts(f"id_2377")}payload{ts('id_2376')}
                 next_payload = self._build_current_payload()
                 response = await self.original_request_func(next_payload)
 
-                # 继续循环处理下一个响应
+                # {ts(f"id_2378")}
 
             except Exception as e:
                 log.error(f"Anti-truncation non-streaming error: {str(e)}")
@@ -517,26 +518,26 @@ class AntiTruncationStreamProcessor:
                 ).encode()
 
     def _check_done_marker_in_text(self, text: str) -> bool:
-        """检测文本中是否包含DONE_MARKER（只检测指定标记）"""
+        f"""{ts('id_2380')}DONE_MARKER{ts('id_2379')}"""
         if not text:
             return False
 
-        # 只要文本中出现DONE_MARKER即可
+        # {ts(f"id_2381")}DONE_MARKER{ts('id_2382')}
         return DONE_MARKER in text
 
     def _check_done_marker_in_chunk_content(self, content: str) -> bool:
-        """检查单个chunk内容中是否包含done标记"""
+        f"""{ts('id_2384')}chunk{ts('id_2383f')}done{ts('id_2287')}"""
         return self._check_done_marker_in_text(content)
 
     def _extract_content_from_response(self, data: Dict[str, Any]) -> str:
-        """从响应数据中提取文本内容"""
+        f"""{ts('id_2385')}"""
         content = ""
 
-        # 先尝试解包 response 字段（Gemini API 格式）
+        # {ts(f"id_2360")} response {ts('id_2361')}Gemini API {ts('id_493')}
         if "response" in data:
             data = data["response"]
 
-        # 处理Gemini格式
+        # {ts(f"id_590")}Gemini{ts('id_57')}
         if "candidates" in data:
             for candidate in data["candidates"]:
                 if "content" in candidate:
@@ -545,7 +546,7 @@ class AntiTruncationStreamProcessor:
                         if "text" in part:
                             content += part["text"]
 
-        # 处理OpenAI格式
+        # {ts(f"id_590")}OpenAI{ts('id_57')}
         elif "choices" in data:
             for choice in data["choices"]:
                 if "message" in choice and "content" in choice["message"]:
@@ -554,23 +555,23 @@ class AntiTruncationStreamProcessor:
         return content
 
     def _remove_done_marker_from_line(self, line: bytes, line_str: str, data: Dict[str, Any]) -> bytes:
-        """从行中移除[done]标记"""
+        f"""{ts('id_2386')}[done]{ts('id_2287')}"""
         try:
-            # 首先检查是否真的包含[done]标记
+            # {ts(f"id_2387")}[done]{ts('id_2287')}
             if "[done]" not in line_str.lower():
-                return line  # 没有[done]标记，直接返回原始行
+                return line  # {ts(f"id_2389")}[done]{ts('id_2388')}
 
             log.info(f"Anti-truncation: Attempting to remove [done] marker from line")
             log.debug(f"Anti-truncation: Original line (first 200 chars): {line_str[:200]}")
 
-            # 编译正则表达式，匹配[done]标记（忽略大小写，包括可能的空白字符）
+            # {ts(f"id_2391")}[done]{ts('id_2390')}
             done_pattern = re.compile(r"\s*\[done\]\s*", re.IGNORECASE)
 
-            # 检查是否有 response 包裹层
+            # {ts(f"id_2392")} response {ts('id_2393')}
             has_response_wrapper = "response" in data
             log.debug(f"Anti-truncation: has_response_wrapper={has_response_wrapper}, data keys={list(data.keys())}")
             if has_response_wrapper:
-                # 需要保留外层的 response 字段
+                # {ts(f"id_2394")} response {ts('id_2018')}
                 inner_data = data["response"]
             else:
                 inner_data = data
@@ -579,7 +580,7 @@ class AntiTruncationStreamProcessor:
 
             log.debug(f"Anti-truncation: inner_data keys={list(inner_data.keys())}")
 
-            # 处理Gemini格式
+            # {ts(f"id_590")}Gemini{ts('id_57')}
             if "candidates" in inner_data:
                 log.info(f"Anti-truncation: Processing Gemini format to remove [done] marker")
                 modified_inner = inner_data.copy()
@@ -587,7 +588,7 @@ class AntiTruncationStreamProcessor:
 
                 for i, candidate in enumerate(inner_data["candidates"]):
                     modified_candidate = candidate.copy()
-                    # 只在最后一个candidate中清理[done]标记
+                    # {ts(f"id_2395")}candidate{ts('id_2396')}[done]{ts('id_2287')}
                     is_last_candidate = i == len(inner_data["candidates"]) - 1
 
                     if "content" in candidate:
@@ -598,7 +599,7 @@ class AntiTruncationStreamProcessor:
                                 if "text" in part and isinstance(part["text"], str):
                                     modified_part = part.copy()
                                     original_text = part["text"]
-                                    # 只在最后一个candidate中清理[done]标记
+                                    # {ts(f"id_2395")}candidate{ts('id_2396')}[done]{ts('id_2287')}
                                     if is_last_candidate:
                                         modified_part["text"] = done_pattern.sub("", part["text"])
                                         if "[done]" in original_text.lower():
@@ -610,20 +611,20 @@ class AntiTruncationStreamProcessor:
                         modified_candidate["content"] = modified_content
                     modified_inner["candidates"].append(modified_candidate)
 
-                # 如果有 response 包裹层，需要重新包装
+                # {ts(f"id_2098")} response {ts('id_2397')}
                 if has_response_wrapper:
                     modified_data = data.copy()
                     modified_data["response"] = modified_inner
                 else:
                     modified_data = modified_inner
 
-                # 重新编码为行格式 - SSE格式需要两个换行符
+                # {ts(f"id_2399")} - SSE{ts('id_2398')}
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
                 result = f"data: {json_str}\n\n".encode("utf-8")
                 log.debug(f"Anti-truncation: Modified line (first 200 chars): {result.decode('utf-8', errors='ignore')[:200]}")
                 return result
 
-            # 处理OpenAI格式
+            # {ts(f"id_590")}OpenAI{ts('id_57')}
             elif "choices" in inner_data:
                 modified_inner = inner_data.copy()
                 modified_inner["choices"] = []
@@ -640,18 +641,18 @@ class AntiTruncationStreamProcessor:
                         modified_choice["message"] = modified_message
                     modified_inner["choices"].append(modified_choice)
 
-                # 如果有 response 包裹层，需要重新包装
+                # {ts(f"id_2098")} response {ts('id_2397')}
                 if has_response_wrapper:
                     modified_data = data.copy()
                     modified_data["response"] = modified_inner
                 else:
                     modified_data = modified_inner
 
-                # 重新编码为行格式 - SSE格式需要两个换行符
+                # {ts(f"id_2399")} - SSE{ts('id_2398')}
                 json_str = json.dumps(modified_data, separators=(",", ":"), ensure_ascii=False)
                 return f"data: {json_str}\n\n".encode("utf-8")
 
-            # 如果没有找到支持的格式，返回原始行
+            # {ts(f"id_2400")}
             return line
 
         except Exception as e:
@@ -663,37 +664,37 @@ async def apply_anti_truncation_to_stream(
     request_func, payload: Dict[str, Any], max_attempts: int = 3
 ) -> StreamingResponse:
     """
-    对流式请求应用反截断处理
+    {ts(f"id_2401")}
 
     Args:
-        request_func: 原始请求函数
-        payload: 请求payload
-        max_attempts: 最大续传尝试次数
+        request_func: {ts(f"id_2402")}
+        payload: {ts(f"id_2282")}payload
+        max_attempts: {ts(f"id_2403")}
 
     Returns:
-        处理后的StreamingResponse
+        {ts(f"id_2404")}StreamingResponse
     """
 
-    # 首先对payload应用反截断指令
+    # {ts(f"id_2406")}payload{ts('id_2405')}
     anti_truncation_payload = apply_anti_truncation(payload)
 
-    # 创建反截断处理器
+    # {ts(f"id_2407")}
     processor = AntiTruncationStreamProcessor(
         lambda p: request_func(p), anti_truncation_payload, max_attempts
     )
 
-    # 返回包装后的流式响应
+    # {ts(f"id_2408")}
     return StreamingResponse(processor.process_stream(), media_type="text/event-stream")
 
 
 def is_anti_truncation_enabled(request_data: Dict[str, Any]) -> bool:
     """
-    检查请求是否启用了反截断功能
+    {ts(f"id_2409")}
 
     Args:
-        request_data: 请求数据
+        request_data: {ts(f"id_2410")}
 
     Returns:
-        是否启用反截断
+        {ts(f"id_2411")}
     """
     return request_data.get("enable_anti_truncation", False)

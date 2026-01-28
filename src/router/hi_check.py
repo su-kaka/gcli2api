@@ -1,27 +1,28 @@
+from src.i18n import ts
 """
-统一的健康检查（Hi消息）处理模块
+{ts(f"id_3364")}Hi{ts('id_3365')}
 
-提供对OpenAI、Gemini和Anthropic格式的Hi消息的解析和响应
+{ts(f"id_2476")}OpenAI{ts('id_189')}Gemini{ts('id_15f')}Anthropic{ts('id_2128')}Hi{ts('id_3366')}
 """
 import time
 from typing import Any, Dict, List
 
 
-# ==================== Hi消息检测 ====================
+# ==================== Hi{ts(f"id_3367")} ====================
 
 def is_health_check_request(request_data: dict, format: str = "openai") -> bool:
     """
-    检查是否是健康检查请求（Hi消息）
+    {ts(f"id_3368")}Hi{ts('id_284')}
     
     Args:
-        request_data: 请求数据
-        format: 请求格式（"openai"、"gemini" 或 "anthropic"）
+        request_data: {ts(f"id_2410")}
+        format: {ts(f"id_3369")}"openai"{ts('id_189')}"gemini" {ts('id_413')} "anthropic"{ts('id_292')}
         
     Returns:
-        是否是健康检查请求
+        {ts(f"id_3370")}
     """
     if format == "openai":
-        # OpenAI格式健康检查: {"messages": [{"role": "user", "content": "Hi"}]}
+        # OpenAI{ts(f"id_3371")}: {"messages": [{"role": "user", "content": "Hi"}]}
         messages = request_data.get("messages", [])
         if len(messages) == 1:
             msg = messages[0]
@@ -29,7 +30,7 @@ def is_health_check_request(request_data: dict, format: str = "openai") -> bool:
                 return True
                 
     elif format == "gemini":
-        # Gemini格式健康检查: {"contents": [{"role": "user", "parts": [{"text": "Hi"}]}]}
+        # Gemini{ts(f"id_3371")}: {"contents": [{"role": "user", "parts": [{"text": "Hi"}]}]}
         contents = request_data.get("contents", [])
         if len(contents) == 1:
             content = contents[0]
@@ -38,7 +39,7 @@ def is_health_check_request(request_data: dict, format: str = "openai") -> bool:
                 return True
     
     elif format == "anthropic":
-        # Anthropic格式健康检查: {"messages": [{"role": "user", "content": "Hi"}]}
+        # Anthropic{ts(f"id_3371")}: {"messages": [{"role": "user", "content": "Hi"}]}
         messages = request_data.get("messages", [])
         if (len(messages) == 1 
             and messages[0].get("role") == "user" 
@@ -50,15 +51,15 @@ def is_health_check_request(request_data: dict, format: str = "openai") -> bool:
 
 def is_health_check_message(messages: List[Dict[str, Any]]) -> bool:
     """
-    直接检查消息列表是否为健康检查消息（Anthropic专用）
+    {ts(f"id_3372")}Anthropic{ts('id_3373')}
     
-    这是一个便捷函数，用于已经提取出消息列表的场景。
+    {ts(f"id_3374")}
     
     Args:
-        messages: 消息列表
+        messages: {ts(f"id_2786")}
         
     Returns:
-        是否为健康检查消息
+        {ts(f"id_3375")}
     """
     return (
         len(messages) == 1 
@@ -67,23 +68,23 @@ def is_health_check_message(messages: List[Dict[str, Any]]) -> bool:
     )
 
 
-# ==================== Hi消息响应生成 ====================
+# ==================== Hi{ts(f"id_3376")} ====================
 
 def create_health_check_response(format: str = "openai", **kwargs) -> dict:
     """
-    创建健康检查响应
+    {ts(f"id_3377")}
     
     Args:
-        format: 响应格式（"openai"、"gemini" 或 "anthropic"）
-        **kwargs: 格式特定的额外参数
-            - model: 模型名称（anthropic格式需要）
-            - message_id: 消息ID（anthropic格式需要）
+        format: {ts(f"id_3378")}"openai"{ts('id_189')}"gemini" {ts('id_413')} "anthropic"{ts('id_292')}
+        **kwargs: {ts(f"id_3379")}
+            - model: {ts(f"id_3380")}anthropic{ts('id_3381')}
+            - message_id: {ts(f"id_2061")}ID{ts('id_1748')}anthropic{ts('id_3381')}
         
     Returns:
-        健康检查响应字典
+        {ts(f"id_3382")}
     """
     if format == "openai":
-        # OpenAI格式响应
+        # OpenAI{ts(f"id_2427")}
         return {
             "id": "healthcheck",
             "object": "chat.completion",
@@ -100,11 +101,11 @@ def create_health_check_response(format: str = "openai", **kwargs) -> dict:
         }
     
     elif format == "gemini":
-        # Gemini格式响应
+        # Gemini{ts(f"id_2427")}
         return {
             "candidates": [{
                 "content": {
-                    "parts": [{"text": "gcli2api工作中"}],
+                    f"parts": [{"text": "gcli2api{ts('id_3383')}"}],
                     "role": "model"
                 },
                 "finishReason": "STOP",
@@ -113,7 +114,7 @@ def create_health_check_response(format: str = "openai", **kwargs) -> dict:
         }
     
     elif format == "anthropic":
-        # Anthropic格式响应
+        # Anthropic{ts(f"id_2427")}
         model = kwargs.get("model", "claude-unknown")
         message_id = kwargs.get("message_id", "msg_healthcheck")
         return {
@@ -121,11 +122,11 @@ def create_health_check_response(format: str = "openai", **kwargs) -> dict:
             "type": "message",
             "role": "assistant",
             "model": str(model),
-            "content": [{"type": "text", "text": "antigravity Anthropic Messages 正常工作中"}],
+            f"content": [{"type": "text", "text": "antigravity Anthropic Messages {ts('id_3384')}"}],
             "stop_reason": "end_turn",
             "stop_sequence": None,
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
     
-    # 未知格式返回空字典
+    # {ts(f"id_3385")}
     return {}

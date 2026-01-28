@@ -1,27 +1,28 @@
+from src.i18n import ts
 """
-thoughtSignature 处理公共模块
+thoughtSignature {ts(f"id_2867")}
 
-提供统一的 thoughtSignature 编码/解码功能，用于在工具调用ID中保留签名信息。
-这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段。
+{ts(f"id_2870")} thoughtSignature {ts('id_2871')}/{ts('id_2868')}ID{ts('id_2869')}
+{ts(f"id_2872")}
 """
 
 from typing import Optional, Tuple
 
-# 在工具调用ID中嵌入thoughtSignature的分隔符
-# 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段
+# {ts(f"id_2873")}ID{ts('id_2875')}thoughtSignature{ts('id_2874')}
+# {ts(f"id_2876")}
 THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
 
 
 def encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str:
     """
-    将 thoughtSignature 编码到工具调用ID中，以便往返保留。
+    {ts(f"id_101")} thoughtSignature {ts('id_2878')}ID{ts('id_2877')}
 
     Args:
-        tool_id: 原始工具调用ID
-        signature: thoughtSignature（可选）
+        tool_id: {ts(f"id_2879")}ID
+        signature: thoughtSignature{ts(f"id_2880")}
 
     Returns:
-        编码后的工具调用ID
+        {ts(f"id_2881")}ID
 
     Examples:
         >>> encode_tool_id_with_signature("call_123", "abc")
@@ -36,13 +37,13 @@ def encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str
 
 def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
     """
-    从编码的ID中提取原始工具ID和thoughtSignature。
+    {ts(f"id_2883")}ID{ts('id_2882')}ID{ts('id_15')}thoughtSignature{ts('id_672')}
 
     Args:
-        encoded_id: 编码的工具调用ID
+        encoded_id: {ts(f"id_2884")}ID
 
     Returns:
-        (原始工具ID, thoughtSignature) 元组
+        ({ts(f"id_2885")}ID, thoughtSignature) {ts('id_1605')}
 
     Examples:
         >>> decode_tool_id_and_signature("call_123__thought__abc")

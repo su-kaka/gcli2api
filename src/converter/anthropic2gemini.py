@@ -1,7 +1,8 @@
+from src.i18n import ts
 """
-Anthropic 到 Gemini 格式转换器
+Anthropic {ts(f"id_2030")} Gemini {ts('id_2029')}
 
-提供请求体、响应和流式转换的完整功能。
+{ts(f"id_2031")}
 """
 from __future__ import annotations
 
@@ -22,38 +23,38 @@ DEFAULT_TEMPERATURE = 0.4
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
 # ============================================================================
-# Thinking 块验证和清理
+# Thinking {ts(f"id_2032")}
 # ============================================================================
 
-# 最小有效签名长度
+# {ts(f"id_2033")}
 MIN_SIGNATURE_LENGTH = 10
 
 
 def has_valid_thoughtsignature(block: Dict[str, Any]) -> bool:
     """
-    检查 thinking 块是否有有效签名
+    {ts(f"id_1890")} thinking {ts('id_2034')}
     
     Args:
-        block: content block 字典
+        block: content block {ts(f"id_2035")}
         
     Returns:
-        bool: 是否有有效签名
+        bool: {ts(f"id_2036")}
     """
     if not isinstance(block, dict):
         return True
     
     block_type = block.get("type")
     if block_type not in ("thinking", "redacted_thinking"):
-        return True  # 非 thinking 块默认有效
+        return True  # {ts(f"id_1648")} thinking {ts('id_2037')}
     
     thinking = block.get("thinking", "")
     thoughtsignature = block.get("thoughtSignature")
     
-    # 空 thinking + 任意 thoughtsignature = 有效 (trailing signature case)
+    # {ts(f"id_2040")} thinking + {ts('id_2039')} thoughtsignature = {ts('id_2038')} (trailing signature case)
     if not thinking and thoughtsignature is not None:
         return True
     
-    # 有内容 + 足够长度的 thoughtsignature = 有效
+    # {ts(f"id_2042")} + {ts('id_2041')} thoughtsignature = {ts('id_2038')}
     if thoughtsignature and isinstance(thoughtsignature, str) and len(thoughtsignature) >= MIN_SIGNATURE_LENGTH:
         return True
     
@@ -62,13 +63,13 @@ def has_valid_thoughtsignature(block: Dict[str, Any]) -> bool:
 
 def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
     """
-    清理 thinking 块,只保留必要字段(移除 cache_control 等)
+    {ts(f"id_2045")} thinking {ts('id_2046')},{ts('id_2043f')}({ts('id_2044')} cache_control {ts('id_118')})
     
     Args:
-        block: content block 字典
+        block: content block {ts(f"id_2035")}
         
     Returns:
-        清理后的 block 字典
+        {ts(f"id_2047")} block {ts('id_2035')}
     """
     if not isinstance(block, dict):
         return block
@@ -77,7 +78,7 @@ def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
     if block_type not in ("thinking", "redacted_thinking"):
         return block
     
-    # 重建块,移除额外字段
+    # {ts(f"id_2049")},{ts('id_2048')}
     sanitized: Dict[str, Any] = {
         "type": block_type,
         "thinking": block.get("thinking", "")
@@ -92,15 +93,15 @@ def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
 
 def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
     """
-    移除尾部的无签名 thinking 块
+    {ts(f"id_2050")} thinking {ts('id_2046')}
     
     Args:
-        blocks: content blocks 列表 (会被修改)
+        blocks: content blocks {ts(f"id_2052")} ({ts('id_2051')})
     """
     if not blocks:
         return
     
-    # 从后向前扫描
+    # {ts(f"id_2053")}
     end_index = len(blocks)
     for i in range(len(blocks) - 1, -1, -1):
         block = blocks[i]
@@ -112,9 +113,9 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
             if not has_valid_thoughtsignature(block):
                 end_index = i
             else:
-                break  # 遇到有效签名的 thinking 块,停止
+                break  # {ts(f"id_2054")} thinking {ts('id_2046')},{ts('id_2055')}
         else:
-            break  # 遇到非 thinking 块,停止
+            break  # {ts(f"id_2056")} thinking {ts('id_2046')},{ts('id_2055')}
     
     if end_index < len(blocks):
         removed = len(blocks) - end_index
@@ -124,15 +125,15 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
 
 def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
     """
-    过滤消息中的无效 thinking 块，并清理所有 thinking 块的额外字段（如 cache_control）
+    {ts(f"id_2057")} thinking {ts('id_2059')} thinking {ts('id_2058')} cache_control{ts('id_292')}
 
     Args:
-        messages: Anthropic messages 列表 (会被修改)
+        messages: Anthropic messages {ts(f"id_2052")} ({ts('id_2051')})
     """
     total_filtered = 0
 
     for msg in messages:
-        # 只处理 assistant 和 model 消息
+        # {ts(f"id_2060")} assistant {ts('id_15')} model {ts('id_2061')}
         role = msg.get("role", "")
         if role not in ("assistant", "model"):
             continue
@@ -154,13 +155,13 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
                 new_blocks.append(block)
                 continue
 
-            # 所有 thinking 块都需要清理（移除 cache_control 等额外字段）
-            # 检查 thinking 块的有效性
+            # {ts(f"id_930")} thinking {ts('id_2062')} cache_control {ts('id_2063')}
+            # {ts(f"id_1890")} thinking {ts('id_2064')}
             if has_valid_thoughtsignature(block):
-                # 有效签名，清理后保留
+                # {ts(f"id_2065")}
                 new_blocks.append(sanitize_thinking_block(block))
             else:
-                # 无效签名，将内容转换为 text 块
+                # {ts(f"id_2066")} text {ts('id_2046')}
                 thinking_text = block.get("thinking", "")
                 if thinking_text and str(thinking_text).strip():
                     log.info(
@@ -175,7 +176,7 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
         filtered_count = original_len - len(new_blocks)
         total_filtered += filtered_count
 
-        # 如果过滤后为空,添加一个空文本块以保持消息有效
+        # {ts(f"id_2068")},{ts('id_2067')}
         if not new_blocks:
             msg["content"] = [{"type": "text", "text": ""}]
 
@@ -184,22 +185,22 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
 
 
 # ============================================================================
-# 请求验证和提取
+# {ts(f"id_2069")}
 # ============================================================================
 
 
 def _anthropic_debug_enabled() -> bool:
-    """检查是否启用 Anthropic 调试模式"""
+    f"""{ts('id_2070')} Anthropic {ts('id_2071')}"""
     return str(os.getenv("ANTHROPIC_DEBUG", "true")).strip().lower() in _DEBUG_TRUE
 
 
 def _is_non_whitespace_text(value: Any) -> bool:
     """
-    判断文本是否包含"非空白"内容。
+    {ts(f"id_2072")}"{ts('id_2074')}"{ts('id_2073')}
 
-    说明：下游（Antigravity/Claude 兼容层）会对纯 text 内容块做校验：
-    - text 不能为空字符串
-    - text 不能仅由空白字符（空格/换行/制表等）组成
+    {ts(f"id_2077")}Antigravity/Claude {ts('id_2076')} text {ts('id_2075')}
+    - text {ts(f"id_2078")}
+    - text {ts(f"id_2079")}/{ts('id_2081')}/{ts('id_2080')}
     """
     if value is None:
         return False
@@ -211,10 +212,10 @@ def _is_non_whitespace_text(value: Any) -> bool:
 
 def _remove_nulls_for_tool_input(value: Any) -> Any:
     """
-    递归移除 dict/list 中值为 null/None 的字段/元素。
+    {ts(f"id_2082")} dict/list {ts('id_2085')} null/None {ts('id_2084')}/{ts('id_2083')}
 
-    背景：Roo/Kilo 在 Anthropic native tool 路径下，若收到 tool_use.input 中包含 null，
-    可能会把 null 当作真实入参执行（例如"在 null 中搜索"）。
+    {ts(f"id_2087")}Roo/Kilo {ts('id_429')} Anthropic native tool {ts('id_2086f')} tool_use.input {ts('id_2088')} null{ts('id_2089')}
+    {ts(f"id_2091")} null {ts('id_2090')}"{ts(f"id_429")} null {ts('id_2092')}"{ts('id_2093')}
     """
     if isinstance(value, dict):
         cleaned: Dict[str, Any] = {}
@@ -235,17 +236,17 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
     return value
 
 # ============================================================================
-# 2. JSON Schema 清理
+# 2. JSON Schema {ts(f"id_2045")}
 # ============================================================================
 
 def clean_json_schema(schema: Any) -> Any:
     """
-    清理 JSON Schema，移除下游不支持的字段，并把验证要求追加到 description。
+    {ts(f"id_2045")} JSON Schema{ts('id_2094')} description{ts('id_672')}
     """
     if not isinstance(schema, dict):
         return schema
 
-    # 下游不支持的字段
+    # {ts(f"id_2095")}
     unsupported_keys = {
         "$schema", "$id", "$ref", "$defs", "definitions", "title",
         "example", "examples", "readOnly", "writeOnly", "default",
@@ -303,7 +304,7 @@ def clean_json_schema(schema: Any) -> Any:
     if validations and "description" not in cleaned:
         cleaned["description"] = f"Validation: {', '.join(validations)}"
 
-    # 如果有 properties 但没有显式 type，则补齐为 object
+    # {ts(f"id_2098")} properties {ts('id_2097')} type{ts('id_2096')} object
     if "properties" in cleaned and "type" not in cleaned:
         cleaned["type"] = "object"
 
@@ -311,12 +312,12 @@ def clean_json_schema(schema: Any) -> Any:
 
 
 # ============================================================================
-# 4. Tools 转换
+# 4. Tools {ts(f"id_2099")}
 # ============================================================================
 
 def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
     """
-    将 Anthropic tools[] 转换为下游 tools（functionDeclarations）结构。
+    {ts(f"id_101")} Anthropic tools[] {ts('id_2100')} tools{ts('id_1748')}functionDeclarations{ts('id_2101')}
     """
     if not anthropic_tools:
         return None
@@ -344,11 +345,11 @@ def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[L
 
 
 # ============================================================================
-# 5. Messages 转换
+# 5. Messages {ts(f"id_2099")}
 # ============================================================================
 
 def _extract_tool_result_output(content: Any) -> str:
-    """从 tool_result.content 中提取输出字符串"""
+    f"""{ts('id_1731')} tool_result.content {ts('id_2102')}"""
     if isinstance(content, list):
         if not content:
             return ""
@@ -367,16 +368,16 @@ def convert_messages_to_contents(
     include_thinking: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    将 Anthropic messages[] 转换为下游 contents[]（role: user/model, parts: []）。
+    {ts(f"id_101")} Anthropic messages[] {ts('id_2100')} contents[]{ts('id_1748')}role: user/model, parts: []{ts('id_2093')}
 
     Args:
-        messages: Anthropic 格式的消息列表
-        include_thinking: 是否包含 thinking 块
+        messages: Anthropic {ts(f"id_2103")}
+        include_thinking: {ts(f"id_2104")} thinking {ts('id_2046')}
     """
     contents: List[Dict[str, Any]] = []
 
-    # 第一遍：构建 tool_use_id -> (name, thoughtsignature) 的映射
-    # 注意：存储的是编码后的 ID（可能包含签名）
+    # {ts(f"id_2105")} tool_use_id -> (name, thoughtsignature) {ts('id_2106')}
+    # {ts(f"id_2107")} ID{ts('id_2108')}
     tool_use_info: Dict[str, tuple[str, Optional[str]]] = {}
     for msg in messages:
         raw_content = msg.get("content", "")
@@ -386,19 +387,19 @@ def convert_messages_to_contents(
                     encoded_tool_id = item.get("id")
                     tool_name = item.get("name")
                     if encoded_tool_id and tool_name:
-                        # 解码获取原始ID和签名
+                        # {ts(f"id_2109")}ID{ts('id_2110')}
                         original_id, thoughtsignature = decode_tool_id_and_signature(encoded_tool_id)
-                        # 存储映射：编码ID -> (name, thoughtsignature)
+                        # {ts(f"id_2111")}ID -> (name, thoughtsignature)
                         tool_use_info[str(encoded_tool_id)] = (tool_name, thoughtsignature)
 
     for msg in messages:
         role = msg.get("role", "user")
         
-        # system 消息已经由 merge_system_messages 处理，这里跳过
+        # system {ts(f"id_2113")} merge_system_messages {ts('id_2112')}
         if role == "system":
             continue
         
-        # 支持 'assistant' 和 'model' 角色（Google history usage）
+        # {ts(f"id_56")} 'assistant' {ts('id_15')} 'model' {ts('id_2114')}Google history usage{ts('id_292')}
         gemini_role = "model" if role in ("assistant", "model") else "user"
         raw_content = msg.get("content", "")
 
@@ -427,7 +428,7 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # 如果有 thoughtsignature 则添加
+                    # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
                     thoughtsignature = item.get("thoughtSignature")
                     if thoughtsignature:
                         part["thoughtSignature"] = thoughtsignature
@@ -446,7 +447,7 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # 如果有 thoughtsignature 则添加
+                    # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
                     thoughtsignature = item.get("thoughtSignature")
                     if thoughtsignature:
                         part_dict["thoughtSignature"] = thoughtsignature
@@ -473,13 +474,13 @@ def convert_messages_to_contents(
 
                     fc_part: Dict[str, Any] = {
                         "functionCall": {
-                            "id": original_id,  # 使用原始ID，不带签名
+                            f"id": original_id,  # {ts('id_2117')}ID{ts('id_2116')}
                             "name": item.get("name"),
                             "args": item.get("input", {}) or {},
                         }
                     }
 
-                    # 如果提取到签名则添加，否则使用占位符以满足 Gemini API 要求
+                    # {ts(f"id_2118")} Gemini API {ts('id_2119')}
                     if thoughtsignature:
                         fc_part["thoughtSignature"] = thoughtsignature
                     else:
@@ -490,23 +491,23 @@ def convert_messages_to_contents(
                     output = _extract_tool_result_output(item.get("content"))
                     encoded_tool_use_id = item.get("tool_use_id") or ""
                     
-                    # 解码获取原始ID（functionResponse不需要签名）
+                    # {ts(f"id_2109")}ID{ts('id_1748')}functionResponse{ts('id_2120')}
                     original_tool_use_id, _ = decode_tool_id_and_signature(encoded_tool_use_id)
 
-                    # 从 tool_result 获取 name，如果没有则从映射中查找
+                    # {ts(f"id_1731")} tool_result {ts('id_712')} name{ts('id_2121')}
                     func_name = item.get("name")
                     if not func_name and encoded_tool_use_id:
-                        # 使用编码ID查找映射
+                        # {ts(f"id_2123")}ID{ts('id_2122')}
                         tool_info = tool_use_info.get(str(encoded_tool_use_id))
                         if tool_info:
-                            func_name = tool_info[0]  # 获取 name
+                            func_name = tool_info[0]  # {ts(f"id_712")} name
                     if not func_name:
                         func_name = "unknown_function"
                     
                     parts.append(
                         {
                             "functionResponse": {
-                                "id": original_tool_use_id,  # 使用解码后的原始ID以匹配functionCall
+                                f"id": original_tool_use_id,  # {ts('id_2124')}ID{ts('id_2125')}functionCall
                                 "name": func_name,
                                 "response": {"output": output},
                             }
@@ -528,7 +529,7 @@ def convert_messages_to_contents(
 
 def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    重新组织消息，满足 tool_use/tool_result 约束。
+    {ts(f"id_2126")} tool_use/tool_result {ts('id_2127')}
     """
     tool_results: Dict[str, Dict[str, Any]] = {}
 
@@ -572,21 +573,21 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 # ============================================================================
-# 7. Tool Choice 转换
+# 7. Tool Choice {ts(f"id_2099")}
 # ============================================================================
 
 def convert_tool_choice_to_tool_config(tool_choice: Any) -> Optional[Dict[str, Any]]:
     """
-    将 Anthropic tool_choice 转换为 Gemini toolConfig
+    {ts(f"id_101")} Anthropic tool_choice {ts('id_188')} Gemini toolConfig
 
     Args:
-        tool_choice: Anthropic 格式的 tool_choice
-            - {"type": "auto"}: 模型自动决定是否使用工具
-            - {"type": "any"}: 模型必须使用工具
-            - {"type": "tool", "name": "tool_name"}: 模型必须使用指定工具
+        tool_choice: Anthropic {ts(f"id_2128")} tool_choice
+            - {f"type": "auto"}: {ts('id_2129')}
+            - {f"type": "any"}: {ts('id_2130')}
+            - {f"type": "tool", "name": "tool_name"}: {ts('id_2131')}
 
     Returns:
-        Gemini 格式的 toolConfig，如果无效则返回 None
+        Gemini {ts(f"id_2128")} toolConfig{ts('id_2132')} None
     """
     if not tool_choice:
         return None
@@ -608,20 +609,20 @@ def convert_tool_choice_to_tool_config(tool_choice: Any) -> Optional[Dict[str, A
                     }
                 }
     
-    # 无效或不支持的 tool_choice，返回 None
+    # {ts(f"id_2133")} tool_choice{ts('id_2134')} None
     return None
 
 
 # ============================================================================
-# 8. Generation Config 构建
+# 8. Generation Config {ts(f"id_1475")}
 # ============================================================================
 
 def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    根据 Anthropic Messages 请求构造下游 generationConfig。
+    {ts(f"id_2136")} Anthropic Messages {ts('id_2135')} generationConfig{ts('id_672')}
 
     Returns:
-        generation_config: 生成配置字典
+        generation_config: {ts(f"id_2137")}
     """
     config: Dict[str, Any] = {
         "topP": 1,
@@ -650,32 +651,32 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if max_tokens is not None:
         config["maxOutputTokens"] = max_tokens
 
-    # 处理 extended thinking 参数 (plan mode)
+    # {ts(f"id_590")} extended thinking {ts('id_226')} (plan mode)
     thinking = payload.get("thinking")
     is_plan_mode = False
     if thinking and isinstance(thinking, dict):
         thinking_type = thinking.get("type")
         budget_tokens = thinking.get("budget_tokens")
         
-        # 如果启用了 extended thinking，设置 thinkingConfig
+        # {ts(f"id_2138")} extended thinking{ts('id_2139')} thinkingConfig
         if thinking_type == "enabled":
             is_plan_mode = True
             thinking_config: Dict[str, Any] = {}
             
-            # 设置思考预算，默认使用较大的值以支持计划模式
+            # {ts(f"id_2140")}
             if budget_tokens is not None:
                 thinking_config["thinkingBudget"] = budget_tokens
             else:
-                # 默认给一个较大的思考预算以支持完整的计划生成
+                # {ts(f"id_2141")}
                 thinking_config["thinkingBudget"] = 48000
             
-            # 始终包含思考内容，这样才能看到计划
+            # {ts(f"id_2142")}
             thinking_config["includeThoughts"] = True
             
             config["thinkingConfig"] = thinking_config
             log.info(f"[ANTHROPIC2GEMINI] Extended thinking enabled with budget: {thinking_config['thinkingBudget']}")
         elif thinking_type == "disabled":
-            # 明确禁用思考模式
+            # {ts(f"id_2143")}
             config["thinkingConfig"] = {
                 "includeThoughts": False
             }
@@ -685,88 +686,88 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(stop_sequences, list) and stop_sequences:
         config["stopSequences"] = config["stopSequences"] + [str(s) for s in stop_sequences]
     elif is_plan_mode:
-        # Plan mode 时清空默认 stop sequences，避免过早停止
-        # 默认的 stop sequences 可能会导致模型在生成计划时过早停止
+        # Plan mode {ts(f"id_2145")} stop sequences{ts('id_2144')}
+        # {ts(f"id_2147")} stop sequences {ts('id_2146')}
         config["stopSequences"] = []
         log.info("[ANTHROPIC2GEMINI] Plan mode: cleared default stop sequences to prevent premature stopping")
     
-    # 如果不是 plan mode 且没有自定义 stop_sequences，保持默认值
-    # (默认值已经在 config 初始化时设置)
+    # {ts(f"id_2150")} plan mode {ts('id_2149')} stop_sequences{ts('id_2148')}
+    # ({ts(f"id_2152")} config {ts('id_2151')})
 
     return config
 
 
 # ============================================================================
-# 8. 主要转换函数
+# 8. {ts(f"id_2153")}
 # ============================================================================
 
 async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    将 Anthropic 格式请求体转换为 Gemini 格式请求体
+    {ts(f"id_101")} Anthropic {ts('id_2154')} Gemini {ts('id_2155')}
 
-    注意: 此函数只负责基础转换，不包含 normalize_gemini_request 中的处理
-    (如 thinking config 自动设置、search tools、参数范围限制等)
+    {ts(f"id_2158")}: {ts('id_2156')} normalize_gemini_request {ts('id_2157')}
+    ({ts(f"id_716")} thinking config {ts('id_2160')}search tools{ts('id_2159')})
 
     Args:
-        payload: Anthropic 格式的请求体字典
+        payload: Anthropic {ts(f"id_2161")}
 
     Returns:
-        Gemini 格式的请求体字典，包含:
-        - contents: 转换后的消息内容
-        - generationConfig: 生成配置
-        - systemInstruction: 系统指令 (如果有)
-        - tools: 工具定义 (如果有)
-        - toolConfig: 工具调用配置 (如果有 tool_choice)
+        Gemini {ts(f"id_2162")}:
+        - contents: {ts(f"id_2163")}
+        - generationConfig: {ts(f"id_2164")}
+        - systemInstruction: {ts(f"id_2165")} ({ts('id_2098')})
+        - tools: {ts(f"id_2166")} ({ts('id_2098')})
+        - toolConfig: {ts(f"id_2167")} ({ts('id_2098')} tool_choice)
     """
-    # 处理连续的system消息（兼容性模式）
+    # {ts(f"id_2169")}system{ts('id_2168')}
     payload = await merge_system_messages(payload)
 
-    # 提取和转换基础信息
+    # {ts(f"id_2170")}
     messages = payload.get("messages") or []
     if not isinstance(messages, list):
         messages = []
     
-    # [CRITICAL FIX] 过滤并修复 Thinking 块签名
-    # 在转换前先过滤无效的 thinking 块
+    # [CRITICAL FIX] {ts(f"id_2171")} Thinking {ts('id_2172')}
+    # {ts(f"id_2173")} thinking {ts('id_2046')}
     filter_invalid_thinking_blocks(messages)
 
-    # 构建生成配置
+    # {ts(f"id_2174")}
     generation_config = build_generation_config(payload)
 
-    # 转换消息内容（始终包含thinking块，由响应端处理）
+    # {ts(f"id_2175")}thinking{ts('id_2176')}
     contents = convert_messages_to_contents(messages, include_thinking=True)
     
-    # [CRITICAL FIX] 移除尾部无签名的 thinking 块
-    # 对真实请求应用额外的清理
+    # [CRITICAL FIX] {ts(f"id_2177")} thinking {ts('id_2046')}
+    # {ts(f"id_2178")}
     for content in contents:
         role = content.get("role", "")
-        if role == "model":  # 只处理 model/assistant 消息
+        if role == f"model":  # {ts('id_2060')} model/assistant {ts('id_2061')}
             parts = content.get("parts", [])
             if isinstance(parts, list):
                 remove_trailing_unsigned_thinking(parts)
     
     contents = reorganize_tool_messages(contents)
 
-    # 转换工具
+    # {ts(f"id_2179")}
     tools = convert_tools(payload.get("tools"))
     
-    # 转换 tool_choice
+    # {ts(f"id_2099")} tool_choice
     tool_config = convert_tool_choice_to_tool_config(payload.get("tool_choice"))
 
-    # 构建基础请求数据
+    # {ts(f"id_2180")}
     gemini_request = {
         "contents": contents,
         "generationConfig": generation_config,
     }
     
-    # 如果 merge_system_messages 已经添加了 systemInstruction，使用它
+    # {ts(f"id_2183")} merge_system_messages {ts('id_2181')} systemInstruction{ts('id_2182')}
     if "systemInstruction" in payload:
         gemini_request["systemInstruction"] = payload["systemInstruction"]
     
     if tools:
         gemini_request["tools"] = tools
     
-    # 添加 toolConfig（如果有 tool_choice）
+    # {ts(f"id_848")} toolConfig{ts('id_2184')} tool_choice{ts('id_292')}
     if tool_config:
         gemini_request["toolConfig"] = tool_config
 
@@ -779,40 +780,40 @@ def gemini_to_anthropic_response(
     status_code: int = 200
 ) -> Dict[str, Any]:
     """
-    将 Gemini 格式非流式响应转换为 Anthropic 格式非流式响应
+    {ts(f"id_101")} Gemini {ts('id_2185')} Anthropic {ts('id_2186')}
 
-    注意: 如果收到的不是 200 开头的响应体，不做任何处理，直接转发
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2187')}
 
     Args:
-        gemini_response: Gemini 格式的响应体字典
-        model: 模型名称
-        status_code: HTTP 状态码 (默认 200)
+        gemini_response: Gemini {ts(f"id_2189")}
+        model: {ts(f"id_1737")}
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Returns:
-        Anthropic 格式的响应体字典，或原始响应 (如果状态码不是 2xx)
+        Anthropic {ts(f"id_2190")} ({ts('id_2191')} 2xx)
     """
-    # 非 2xx 状态码直接返回原始响应
+    # {ts(f"id_1648")} 2xx {ts('id_2192')}
     if not (200 <= status_code < 300):
         return gemini_response
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
     if "response" in gemini_response:
         response_data = gemini_response["response"]
     else:
         response_data = gemini_response
 
-    # 提取候选结果
+    # {ts(f"id_2194")}
     candidate = response_data.get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
 
-    # 获取 usage metadata
+    # {ts(f"id_712")} usage metadata
     usage_metadata = {}
     if "usageMetadata" in response_data:
         usage_metadata = response_data["usageMetadata"]
     elif "usageMetadata" in candidate:
         usage_metadata = candidate["usageMetadata"]
 
-    # 转换内容块
+    # {ts(f"id_2195")}
     content = []
     has_tool_use = False
 
@@ -820,7 +821,7 @@ def gemini_to_anthropic_response(
         if not isinstance(part, dict):
             continue
 
-        # 处理 thinking 块
+        # {ts(f"id_590")} thinking {ts('id_2046')}
         if part.get("thought") is True:
             thinking_text = part.get("text", "")
             if thinking_text is None:
@@ -828,7 +829,7 @@ def gemini_to_anthropic_response(
             
             block: Dict[str, Any] = {"type": "thinking", "thinking": str(thinking_text)}
             
-            # 如果有 thoughtsignature 则添加
+            # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
             thoughtsignature = part.get("thoughtSignature")
             if thoughtsignature:
                 block["thoughtSignature"] = thoughtsignature
@@ -836,19 +837,19 @@ def gemini_to_anthropic_response(
             content.append(block)
             continue
 
-        # 处理文本块
+        # {ts(f"id_2196")}
         if "text" in part:
             content.append({"type": "text", "text": part.get("text", "")})
             continue
 
-        # 处理工具调用
+        # {ts(f"id_2197")}
         if "functionCall" in part:
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
             thoughtsignature = part.get("thoughtSignature")
             
-            # 对工具调用ID进行签名编码
+            # {ts(f"id_2199")}ID{ts('id_2198')}
             encoded_id = encode_tool_id_with_signature(original_id, thoughtsignature)
             content.append(
                 {
@@ -860,7 +861,7 @@ def gemini_to_anthropic_response(
             )
             continue
 
-        # 处理图片
+        # {ts(f"id_2200")}
         if "inlineData" in part:
             inline = part.get("inlineData", {}) or {}
             content.append(
@@ -875,24 +876,24 @@ def gemini_to_anthropic_response(
             )
             continue
 
-    # 确定停止原因
+    # {ts(f"id_2201")}
     finish_reason = candidate.get("finishReason")
     
-    # 只有在正常停止（STOP）且有工具调用时才设为 tool_use
-    # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_use 导致循环
+    # {ts(f"id_2203")}STOP{ts('id_2202')} tool_use
+    # {ts(f"id_2206")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_use {ts('id_2205')}
     if has_tool_use and finish_reason == "STOP":
         stop_reason = "tool_use"
     elif finish_reason == "MAX_TOKENS":
         stop_reason = "max_tokens"
     else:
-        # 其他情况（SAFETY、RECITATION 等）默认为 end_turn
+        # {ts(f"id_2207")}SAFETY{ts('id_189')}RECITATION {ts('id_2208')} end_turn
         stop_reason = "end_turn"
 
-    # 提取 token 使用情况
+    # {ts(f"id_2210")} token {ts('id_2209')}
     input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
     output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
 
-    # 构建 Anthropic 响应
+    # {ts(f"id_1475")} Anthropic {ts('id_1516')}
     message_id = f"msg_{uuid.uuid4().hex}"
 
     return {
@@ -916,25 +917,25 @@ async def gemini_stream_to_anthropic_stream(
     status_code: int = 200
 ) -> AsyncIterator[bytes]:
     """
-    将 Gemini 格式流式响应转换为 Anthropic SSE 格式流式响应
+    {ts(f"id_101")} Gemini {ts('id_2211')} Anthropic SSE {ts('id_2212')}
 
-    注意: 如果收到的不是 200 开头的响应体，不做任何处理，直接转发
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2187')}
 
     Args:
-        gemini_stream: Gemini 格式的流式响应 (bytes 迭代器)
-        model: 模型名称
-        status_code: HTTP 状态码 (默认 200)
+        gemini_stream: Gemini {ts(f"id_2213")} (bytes {ts('id_2214')})
+        model: {ts(f"id_1737")}
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Yields:
-        Anthropic SSE 格式的响应块 (bytes)
+        Anthropic SSE {ts(f"id_2215")} (bytes)
     """
-    # 非 2xx 状态码直接转发原始流
+    # {ts(f"id_1648")} 2xx {ts('id_2216')}
     if not (200 <= status_code < 300):
         async for chunk in gemini_stream:
             yield chunk
         return
 
-    # 初始化状态
+    # {ts(f"id_2217")}
     message_id = f"msg_{uuid.uuid4().hex}"
     message_start_sent = False
     current_block_type: Optional[str] = None
@@ -946,12 +947,12 @@ async def gemini_stream_to_anthropic_stream(
     finish_reason: Optional[str] = None
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
-        """生成 SSE 事件"""
+        f"""{ts('id_2218')} SSE {ts('id_2219')}"""
         payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
 
     def _close_block() -> Optional[bytes]:
-        """关闭当前内容块"""
+        f"""{ts('id_2220')}"""
         nonlocal current_block_type
         if current_block_type is None:
             return None
@@ -962,13 +963,13 @@ async def gemini_stream_to_anthropic_stream(
         current_block_type = None
         return event
 
-    # 处理流式数据
+    # {ts(f"id_2221")}
     try:
         async for chunk in gemini_stream:
-            # 记录接收到的原始chunk
+            # {ts(f"id_2222")}chunk
             log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
 
-            # 解析 Gemini 流式块
+            # {ts(f"id_2224")} Gemini {ts('id_2223')}
             if not chunk or not chunk.startswith(b"data: "):
                 log.debug(f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)")
                 continue
@@ -987,7 +988,7 @@ async def gemini_stream_to_anthropic_stream(
                 log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
                 continue
 
-            # 处理 GeminiCLI 的 response 包装格式
+            # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
             if "response" in data:
                 response = data["response"]
             else:
@@ -996,7 +997,7 @@ async def gemini_stream_to_anthropic_stream(
             candidate = (response.get("candidates", []) or [{}])[0] or {}
             parts = (candidate.get("content", {}) or {}).get("parts", []) or []
 
-            # 更新 usage metadata
+            # {ts(f"id_689")} usage metadata
             if "usageMetadata" in response:
                 usage = response["usageMetadata"]
                 if isinstance(usage, dict):
@@ -1005,7 +1006,7 @@ async def gemini_stream_to_anthropic_stream(
                     if "candidatesTokenCount" in usage:
                         output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
 
-            # 发送 message_start（仅一次）
+            # {ts(f"id_2226")} message_start{ts('id_2225')}
             if not message_start_sent:
                 message_start_sent = True
                 yield _sse_event(
@@ -1025,17 +1026,17 @@ async def gemini_stream_to_anthropic_stream(
                     },
                 )
 
-            # 处理各种 parts
+            # {ts(f"id_2227")} parts
             for part in parts:
                 if not isinstance(part, dict):
                     continue
 
-                # 处理 thinking 块
+                # {ts(f"id_590")} thinking {ts('id_2046')}
                 if part.get("thought") is True:
                     thinking_text = part.get("text", "")
                     thoughtsignature = part.get("thoughtSignature")
                     
-                    # 检查是否需要关闭上一个块并开启新的 thinking 块
+                    # {ts(f"id_2228")} thinking {ts('id_2046')}
                     if current_block_type != "thinking":
                         close_evt = _close_block()
                         if close_evt:
@@ -1057,7 +1058,7 @@ async def gemini_stream_to_anthropic_stream(
                             },
                         )
                     elif thoughtsignature and thoughtsignature != current_thinking_signature:
-                        # 签名变化，需要开启新的 thinking 块
+                        # {ts(f"id_2229")} thinking {ts('id_2046')}
                         close_evt = _close_block()
                         if close_evt:
                             yield close_evt
@@ -1079,7 +1080,7 @@ async def gemini_stream_to_anthropic_stream(
                             },
                         )
 
-                    # 发送 thinking 文本增量
+                    # {ts(f"id_2226")} thinking {ts('id_2230')}
                     if thinking_text:
                         yield _sse_event(
                             "content_block_delta",
@@ -1091,7 +1092,7 @@ async def gemini_stream_to_anthropic_stream(
                         )
                     continue
 
-                # 处理文本块
+                # {ts(f"id_2196")}
                 if "text" in part:
                     text = part.get("text", "")
                     if isinstance(text, str) and not text.strip():
@@ -1125,7 +1126,7 @@ async def gemini_stream_to_anthropic_stream(
                         )
                     continue
 
-                # 处理工具调用
+                # {ts(f"id_2197")}
                 if "functionCall" in part:
                     close_evt = _close_block()
                     if close_evt:
@@ -1141,12 +1142,12 @@ async def gemini_stream_to_anthropic_stream(
 
                     if _anthropic_debug_enabled():
                         log.info(
-                            f"[ANTHROPIC][tool_use] 处理工具调用: name={tool_name}, "
+                            f"[ANTHROPIC][tool_use] {ts('id_2197')}: name={tool_name}, "
                             f"id={tool_id}, has_signature={thoughtsignature is not None}"
                         )
 
                     current_block_index += 1
-                    # 注意：工具调用不设置 current_block_type，因为它是独立完整的块
+                    # {ts(f"id_2232")} current_block_type{ts('id_2231')}
 
                     yield _sse_event(
                         "content_block_start",
@@ -1176,42 +1177,42 @@ async def gemini_stream_to_anthropic_stream(
                         "content_block_stop",
                         {"type": "content_block_stop", "index": current_block_index},
                     )
-                    # 工具调用块已完全关闭，current_block_type 保持为 None
+                    # {ts(f"id_2233")}current_block_type {ts('id_2234')} None
                     
                     if _anthropic_debug_enabled():
-                        log.info(f"[ANTHROPIC][tool_use] 工具调用块已关闭: index={current_block_index}")
+                        log.info(f"[ANTHROPIC][tool_use] {ts('id_2235')}: index={current_block_index}")
                     
                     continue
 
-            # 检查是否结束
+            # {ts(f"id_2236")}
             if candidate.get("finishReason"):
                 finish_reason = candidate.get("finishReason")
                 break
 
-        # 关闭最后的内容块
+        # {ts(f"id_2237")}
         close_evt = _close_block()
         if close_evt:
             yield close_evt
 
-        # 确定停止原因
-        # 只有在正常停止（STOP）且有工具调用时才设为 tool_use
-        # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_use 导致循环
+        # {ts(f"id_2201")}
+        # {ts(f"id_2203")}STOP{ts('id_2202')} tool_use
+        # {ts(f"id_2206")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_use {ts('id_2205')}
         if has_tool_use and finish_reason == "STOP":
             stop_reason = "tool_use"
         elif finish_reason == "MAX_TOKENS":
             stop_reason = "max_tokens"
         else:
-            # 其他情况（SAFETY、RECITATION 等）默认为 end_turn
+            # {ts(f"id_2207")}SAFETY{ts('id_189')}RECITATION {ts('id_2208')} end_turn
             stop_reason = "end_turn"
 
         if _anthropic_debug_enabled():
             log.info(
-                f"[ANTHROPIC][stream_end] 流式结束: stop_reason={stop_reason}, "
+                f"[ANTHROPIC][stream_end] {ts('id_2238')}: stop_reason={stop_reason}, "
                 f"has_tool_use={has_tool_use}, finish_reason={finish_reason}, "
                 f"input_tokens={input_tokens}, output_tokens={output_tokens}"
             )
 
-        # 发送 message_delta 和 message_stop
+        # {ts(f"id_2226")} message_delta {ts('id_15')} message_stop
         yield _sse_event(
             "message_delta",
             {
@@ -1226,8 +1227,8 @@ async def gemini_stream_to_anthropic_stream(
         yield _sse_event("message_stop", {"type": "message_stop"})
 
     except Exception as e:
-        log.error(f"[ANTHROPIC] 流式转换失败: {e}")
-        # 发送错误事件
+        log.error(f"[ANTHROPIC] {ts('id_2239')}: {e}")
+        # {ts(f"id_2240")}
         if not message_start_sent:
             yield _sse_event(
                 "message_start",

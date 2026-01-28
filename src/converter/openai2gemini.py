@@ -1,6 +1,7 @@
+from src.i18n import ts
 """
 OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API formats
-被openai-router调用，负责OpenAI格式与Gemini格式的双向转换
+{ts(f"id_2597")}openai-router{ts('id_2595')}OpenAI{ts('id_2596')}Gemini{ts('id_2594')}
 """
 
 import json
@@ -20,13 +21,13 @@ from log import log
 
 def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
     """
-    将Gemini的usageMetadata转换为OpenAI格式的usage字段
+    {ts(f"id_101")}Gemini{ts('id_61')}usageMetadata{ts('id_188f')}OpenAI{ts('id_2128')}usage{ts('id_2018')}
 
     Args:
-        usage_metadata: Gemini API的usageMetadata字段
+        usage_metadata: Gemini API{ts(f"id_61")}usageMetadata{ts('id_2018')}
 
     Returns:
-        OpenAI格式的usage字典，如果没有usage数据则返回None
+        OpenAI{ts(f"id_2128")}usage{ts('id_2598')}usage{ts('id_2599')}None
     """
     if not usage_metadata:
         return None
@@ -39,10 +40,10 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Dict[str, int]:
 
 
 def _build_message_with_reasoning(role: str, content: str, reasoning_content: str) -> dict:
-    """构建包含可选推理内容的消息对象"""
+    f"""{ts('id_2600')}"""
     message = {"role": role, "content": content}
 
-    # 如果有thinking tokens，添加reasoning_content
+    # {ts(f"id_2098")}thinking tokens{ts('id_2601')}reasoning_content
     if reasoning_content:
         message["reasoning_content"] = reasoning_content
 
@@ -51,13 +52,13 @@ def _build_message_with_reasoning(role: str, content: str, reasoning_content: st
 
 def _map_finish_reason(gemini_reason: str) -> str:
     """
-    将Gemini结束原因映射到OpenAI结束原因
+    {ts(f"id_101")}Gemini{ts('id_2602')}OpenAI{ts('id_2435')}
 
     Args:
-        gemini_reason: 来自Gemini API的结束原因
+        gemini_reason: {ts(f"id_2604")}Gemini API{ts('id_2603')}
 
     Returns:
-        OpenAI兼容的结束原因
+        OpenAI{ts(f"id_2605")}
     """
     if gemini_reason == "STOP":
         return "stop"
@@ -66,8 +67,8 @@ def _map_finish_reason(gemini_reason: str) -> str:
     elif gemini_reason in ["SAFETY", "RECITATION"]:
         return "content_filter"
     else:
-        # 对于 None 或未知的 finishReason，返回 "stop" 作为默认值
-        # 避免返回 None 导致 MCP 客户端误判为响应未完成而循环调用
+        # {ts(f"id_2608")} None {ts('id_2607')} finishReason{ts('id_2134')} "stop" {ts('id_2606')}
+        # {ts(f"id_2610")} None {ts('id_2611')} MCP {ts('id_2609')}
         return "stop"
 
 
@@ -76,37 +77,37 @@ def _map_finish_reason(gemini_reason: str) -> str:
 
 def _normalize_function_name(name: str) -> str:
     """
-    规范化函数名以符合 Gemini API 要求
+    {ts(f"id_2612")} Gemini API {ts('id_2119')}
 
-    规则：
-    - 必须以字母或下划线开头
-    - 只能包含 a-z, A-Z, 0-9, 下划线, 英文句点, 英文短划线
-    - 最大长度 64 个字符
+    {ts(f"id_2613")}
+    - {ts(f"id_2614")}
+    - {ts(f"id_2617")} a-z, A-Z, 0-9, {ts('id_2618')}, {ts('id_2616')}, {ts('id_2615')}
+    - {ts(f"id_2619")} 64 {ts('id_1422')}
 
-    转换策略：
-    1. 中文字符转换为拼音
-    2. 将非法字符替换为下划线
-    3. 如果以非字母/下划线开头，添加下划线前缀
-    4. 截断到 64 个字符
+    {ts(f"id_2620")}
+    1. {ts(f"id_2621")}
+    2. {ts(f"id_2622")}
+    3. {ts(f"id_2624")}/{ts('id_2623')}
+    4. {ts(f"id_2625")} 64 {ts('id_1422')}
 
     Args:
-        name: 原始函数名
+        name: {ts(f"id_2626")}
 
     Returns:
-        规范化后的函数名
+        {ts(f"id_2627")}
     """
     import re
 
     if not name:
         return "_unnamed_function"
 
-    # 步骤1：转换中文字符为拼音
+    # {ts(f"id_4521")}{ts('id_2628')}
     if re.search(r"[\u4e00-\u9fff]", name):
         try:
             parts = []
             for char in name:
                 if "\u4e00" <= char <= "\u9fff":
-                    # 中文字符转换为拼音
+                    # {ts(f"id_2621")}
                     pinyin = lazy_pinyin(char, style=Style.NORMAL)
                     parts.append("".join(pinyin))
                 else:
@@ -118,20 +119,20 @@ def _normalize_function_name(name: str) -> str:
     else:
         normalized = name
 
-    # 步骤2：将非法字符替换为下划线
-    # 合法字符：a-z, A-Z, 0-9, _, ., -
+    # {ts(f"id_4522")}{ts('id_2629')}
+    # {ts(f"id_2630")}a-z, A-Z, 0-9, _, ., -
     normalized = re.sub(r"[^a-zA-Z0-9_.\-]", "_", normalized)
 
-    # 步骤3：确保以字母或下划线开头
+    # {ts(f"id_4523")}{ts('id_2631')}
     if normalized and not (normalized[0].isalpha() or normalized[0] == "_"):
-        # 以数字、点或短横线开头，添加下划线前缀
+        # {ts(f"id_2632")}
         normalized = "_" + normalized
 
-    # 步骤4：截断到 64 个字符
+    # {ts(f"id_4524")}{ts('id_2633')} 64 {ts('id_1422')}
     if len(normalized) > 64:
         normalized = normalized[:64]
 
-    # 步骤5：确保不为空
+    # {ts(f"id_4525")}{ts('id_2634')}
     if not normalized:
         normalized = "_unnamed_function"
 
@@ -140,14 +141,14 @@ def _normalize_function_name(name: str) -> str:
 
 def _resolve_ref(ref: str, root_schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    解析 $ref 引用
+    {ts(f"id_2224")} $ref {ts('id_1828')}
     
     Args:
-        ref: 引用路径，如 "#/definitions/MyType"
-        root_schema: 根 schema 对象
+        ref: {ts(f"id_2635")} "#/definitions/MyType"
+        root_schema: {ts(f"id_2636")} schema {ts('id_1509')}
         
     Returns:
-        解析后的 schema，如果失败返回 None
+        {ts(f"id_1457")} schema{ts('id_2637')} None
     """
     if not ref.startswith('#/'):
         return None
@@ -166,44 +167,44 @@ def _resolve_ref(ref: str, root_schema: Dict[str, Any]) -> Optional[Dict[str, An
 
 def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] = None, visited: Optional[set] = None) -> Any:
     """
-    清理 JSON Schema，转换为 Claude API 支持的格式（符合 JSON Schema draft 2020-12）
+    {ts(f"id_2045")} JSON Schema{ts('id_2639')} Claude API {ts('id_2638')} JSON Schema draft 2020-12{ts('id_292')}
 
-    处理逻辑：
-    1. 解析 $ref 引用
-    2. 合并 allOf 中的 schema
-    3. 转换 anyOf 为更兼容的格式
-    4. 保持标准 JSON Schema 类型（不转换为大写）
-    5. 处理 array 的 items
-    6. 清理 Claude 不支持的字段
+    {ts(f"id_2640")}
+    1. {ts(f"id_2224")} $ref {ts('id_1828')}
+    2. {ts(f"id_2641")} allOf {ts('id_2642')} schema
+    3. {ts(f"id_2099")} anyOf {ts('id_2643')}
+    4. {ts(f"id_2645")} JSON Schema {ts('id_2644')}
+    5. {ts(f"id_590")} array {ts('id_61')} items
+    6. {ts(f"id_2045")} Claude {ts('id_2646')}
 
     Args:
-        schema: JSON Schema 对象
-        root_schema: 根 schema（用于解析 $ref）
-        visited: 已访问的对象集合（防止循环引用）
+        schema: JSON Schema {ts(f"id_1509")}
+        root_schema: {ts(f"id_2636")} schema{ts('id_2647')} $ref{ts('id_292')}
+        visited: {ts(f"id_2648")}
 
     Returns:
-        清理后的 schema
+        {ts(f"id_2047")} schema
     """
-    # 非字典类型直接返回
+    # {ts(f"id_2649")}
     if not isinstance(schema, dict):
         return schema
 
-    # 初始化
+    # {ts(f"id_1111")}
     if root_schema is None:
         root_schema = schema
     if visited is None:
         visited = set()
 
-    # 防止循环引用
+    # {ts(f"id_2650")}
     schema_id = id(schema)
     if schema_id in visited:
         return schema
     visited.add(schema_id)
 
-    # 创建副本避免修改原对象
+    # {ts(f"id_2518")}
     result = {}
 
-    # 1. 处理 $ref
+    # 1. {ts(f"id_590")} $ref
     if "$ref" in schema:
         resolved = _resolve_ref(schema["$ref"], root_schema)
         if resolved:
@@ -215,7 +216,7 @@ def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] 
             schema = result
             result = {}
 
-    # 2. 处理 allOf（合并所有 schema）
+    # 2. {ts(f"id_590")} allOf{ts('id_2651')} schema{ts('id_292')}
     if "allOf" in schema:
         all_of_schemas = schema["allOf"]
         for item in all_of_schemas:
@@ -243,19 +244,19 @@ def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] 
     else:
         result = dict(schema)
 
-    # 3. 处理 type 数组（如 ["string", "null"]）
+    # 3. {ts(f"id_590")} type {ts('id_2652')} ["string", "null"]{ts('id_292')}
     if "type" in result:
         type_value = result["type"]
         if isinstance(type_value, list):
-            # Claude 支持 type 数组，保持不变
+            # Claude {ts(f"id_56")} type {ts('id_2653')}
             pass
 
-    # 4. 处理 array 的 items
+    # 4. {ts(f"id_590")} array {ts('id_61')} items
     if result.get("type") == "array":
         if "items" not in result:
             result["items"] = {}
         elif isinstance(result["items"], list):
-            # Tuple 定义，检查是否所有元素类型相同
+            # Tuple {ts(f"id_2654")}
             tuple_items = result["items"]
             first_type = tuple_items[0].get("type") if tuple_items else None
             is_homogeneous = all(item.get("type") == first_type for item in tuple_items)
@@ -263,50 +264,50 @@ def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] 
             if is_homogeneous and first_type:
                 result["items"] = _clean_schema_for_claude(tuple_items[0], root_schema, visited)
             else:
-                # 异质元组，使用 anyOf 表示
+                # {ts(f"id_2655")} anyOf {ts('id_2656')}
                 result["items"] = {
                     "anyOf": [_clean_schema_for_claude(item, root_schema, visited) for item in tuple_items]
                 }
         else:
             result["items"] = _clean_schema_for_claude(result["items"], root_schema, visited)
 
-    # 5. 处理 anyOf（保持 anyOf，递归清理）
+    # 5. {ts(f"id_590")} anyOf{ts('id_2658')} anyOf{ts('id_2657')}
     if "anyOf" in result:
         result["anyOf"] = [_clean_schema_for_claude(item, root_schema, visited) for item in result["anyOf"]]
 
-    # 6. 清理 Claude 不支持的字段（根据 JSON Schema 2020-12）
-    # Claude API 对某些字段比较严格，移除可能导致问题的字段
+    # 6. {ts(f"id_2045")} Claude {ts('id_2659')} JSON Schema 2020-12{ts('id_292')}
+    # Claude API {ts(f"id_2660")}
     unsupported_keys = {
         "title", "$schema", "strict",
-        "additionalItems",  # 废弃字段，使用 items 替代
-        "exclusiveMaximum", "exclusiveMinimum",  # 在 2020-12 中这些应该是数值而非布尔值
-        "$defs", "definitions",  # 移除 definitions 相关字段避免冲突
+        f"additionalItems",  # {ts('id_2661')} items {ts('id_2662')}
+        f"exclusiveMaximum", "exclusiveMinimum",  # {ts('id_429')} 2020-12 {ts('id_2663')}
+        f"$defs", "definitions",  # {ts('id_2044')} definitions {ts('id_2664')}
         "example", "examples", "readOnly", "writeOnly",
-        "const",  # const 可能导致问题
+        f"const",  # const {ts('id_2665')}
         "contentEncoding", "contentMediaType",
-        "oneOf",  # oneOf 可能导致问题，用 anyOf 替代
+        f"oneOf",  # oneOf {ts('id_2666')} anyOf {ts('id_2662')}
     }
 
     for key in list(result.keys()):
         if key in unsupported_keys:
             del result[key]
 
-    # 递归处理 additionalProperties（如果存在）
+    # {ts(f"id_2667")} additionalProperties{ts('id_2539')}
     if "additionalProperties" in result and isinstance(result["additionalProperties"], dict):
         result["additionalProperties"] = _clean_schema_for_claude(result["additionalProperties"], root_schema, visited)
 
-    # 7. 递归处理 properties
+    # 7. {ts(f"id_2667")} properties
     if "properties" in result:
         cleaned_props = {}
         for prop_name, prop_schema in result["properties"].items():
             cleaned_props[prop_name] = _clean_schema_for_claude(prop_schema, root_schema, visited)
         result["properties"] = cleaned_props
 
-    # 8. 确保有 type 字段（如果有 properties 但没有 type）
+    # 8. {ts(f"id_2670")} type {ts('id_2668')} properties {ts('id_2669')} type{ts('id_292')}
     if "properties" in result and "type" not in result:
         result["type"] = "object"
 
-    # 9. 去重 required 数组
+    # 9. {ts(f"id_2671")} required {ts('id_2465')}
     if "required" in result and isinstance(result["required"], list):
         result["required"] = list(dict.fromkeys(result["required"]))
 
@@ -315,104 +316,104 @@ def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] 
 
 def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] = None, visited: Optional[set] = None) -> Any:
     """
-    清理 JSON Schema，转换为 Gemini 支持的格式
+    {ts(f"id_2045")} JSON Schema{ts('id_2639')} Gemini {ts('id_2672')}
 
-    参考 worker.mjs 的 transformOpenApiSchemaToGemini 实现
+    {ts(f"id_583")} worker.mjs {ts('id_61')} transformOpenApiSchemaToGemini {ts('id_2673')}
 
-    处理逻辑：
-    1. 解析 $ref 引用
-    2. 合并 allOf 中的 schema
-    3. 转换 anyOf 为 enum（如果可能）
-    4. 类型映射（string -> STRING）
-    5. 处理 ARRAY 的 items（包括 Tuple）
-    6. 将 default 值移到 description
-    7. 清理不支持的字段
+    {ts(f"id_2640")}
+    1. {ts(f"id_2224")} $ref {ts('id_1828')}
+    2. {ts(f"id_2641")} allOf {ts('id_2642')} schema
+    3. {ts(f"id_2099")} anyOf {ts('id_2432')} enum{ts('id_2674')}
+    4. {ts(f"id_2675")}string -> STRING{ts('id_292')}
+    5. {ts(f"id_590")} ARRAY {ts('id_61')} items{ts('id_2676')} Tuple{ts('id_292')}
+    6. {ts(f"id_101")} default {ts('id_2677')} description
+    7. {ts(f"id_2678")}
 
     Args:
-        schema: JSON Schema 对象
-        root_schema: 根 schema（用于解析 $ref）
-        visited: 已访问的对象集合（防止循环引用）
+        schema: JSON Schema {ts(f"id_1509")}
+        root_schema: {ts(f"id_2636")} schema{ts('id_2647')} $ref{ts('id_292')}
+        visited: {ts(f"id_2648")}
 
     Returns:
-        清理后的 schema
+        {ts(f"id_2047")} schema
     """
-    # 非字典类型直接返回
+    # {ts(f"id_2649")}
     if not isinstance(schema, dict):
         return schema
     
-    # 初始化
+    # {ts(f"id_1111")}
     if root_schema is None:
         root_schema = schema
     if visited is None:
         visited = set()
     
-    # 防止循环引用
+    # {ts(f"id_2650")}
     schema_id = id(schema)
     if schema_id in visited:
         return schema
     visited.add(schema_id)
     
-    # 创建副本避免修改原对象
+    # {ts(f"id_2518")}
     result = {}
     
-    # 1. 处理 $ref
+    # 1. {ts(f"id_590")} $ref
     if "$ref" in schema:
         resolved = _resolve_ref(schema["$ref"], root_schema)
         if resolved:
-            # 合并解析后的 schema 和当前 schema
+            # {ts(f"id_2679")} schema {ts('id_2680')} schema
             import copy
             result = copy.deepcopy(resolved)
-            # 当前 schema 的其他字段会覆盖解析后的字段
+            # {ts(f"id_392")} schema {ts('id_2681')}
             for key, value in schema.items():
                 if key != "$ref":
                     result[key] = value
             schema = result
             result = {}
     
-    # 2. 处理 allOf（合并所有 schema）
+    # 2. {ts(f"id_590")} allOf{ts('id_2651')} schema{ts('id_292')}
     if "allOf" in schema:
         all_of_schemas = schema["allOf"]
         for item in all_of_schemas:
             cleaned_item = _clean_schema_for_gemini(item, root_schema, visited)
             
-            # 合并 properties
+            # {ts(f"id_2641")} properties
             if "properties" in cleaned_item:
                 if "properties" not in result:
                     result["properties"] = {}
                 result["properties"].update(cleaned_item["properties"])
             
-            # 合并 required
+            # {ts(f"id_2641")} required
             if "required" in cleaned_item:
                 if "required" not in result:
                     result["required"] = []
                 result["required"].extend(cleaned_item["required"])
             
-            # 合并其他字段（简单覆盖）
+            # {ts(f"id_2682")}
             for key, value in cleaned_item.items():
                 if key not in ["properties", "required"]:
                     result[key] = value
         
-        # 复制其他字段
+        # {ts(f"id_2683")}
         for key, value in schema.items():
             if key not in ["allOf", "properties", "required"]:
                 result[key] = value
             elif key in ["properties", "required"] and key not in result:
                 result[key] = value
     else:
-        # 复制所有字段
+        # {ts(f"id_2684")}
         result = dict(schema)
     
-    # 3. 类型映射（转换为大写）
-    # 注意：Gemini API 的 type 字段必须是字符串，不能是数组
+    # 3. {ts(f"id_2685")}
+    # {ts(f"id_1288")}Gemini API {ts('id_61')} type {ts('id_2686')}
     if "type" in result:
         type_value = result["type"]
 
-        # 如果 type 是列表，提取主要类型（非 null）
+        # {ts(f"id_2183")} type {ts('id_2687')} null{ts('id_292')}
         if isinstance(type_value, list):
             primary_type = next((t for t in type_value if t != "null"), None)
-            type_value = primary_type if primary_type else "STRING"  # 默认为 STRING
+            type_value = primary_type if primary_type else f"STRING"  # {ts('id_2688')} STRING
 
-        # 类型映射
+        # {ts(f"id_2689")}
         type_map = {
             "string": "STRING",
             "number": "NUMBER",
@@ -423,50 +424,50 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
         }
 
         if isinstance(type_value, str) and type_value.lower() in type_map:
-            # 确保 result["type"] 是字符串而不是列表
+            # {ts(f"id_683")} result["type"] {ts('id_2690')}
             result["type"] = type_map[type_value.lower()]
         else:
-            # 未知类型，删除该字段
+            # {ts(f"id_2691")}
             del result["type"]
     
-    # 4. 处理 ARRAY 的 items
+    # 4. {ts(f"id_590")} ARRAY {ts('id_61')} items
     if result.get("type") == "ARRAY":
         if "items" not in result:
-            # 没有 items，默认允许任意类型
+            # {ts(f"id_2389")} items{ts('id_2692')}
             result["items"] = {}
         elif isinstance(result["items"], list):
-            # Tuple 定义（items 是数组）
+            # Tuple {ts(f"id_2694")}items {ts('id_2693')}
             tuple_items = result["items"]
             
-            # 提取类型信息用于 description
+            # {ts(f"id_2695")} description
             tuple_types = [item.get("type", "any") for item in tuple_items]
             tuple_desc = f"(Tuple: [{', '.join(tuple_types)}])"
             
             original_desc = result.get("description", "")
             result["description"] = f"{original_desc} {tuple_desc}".strip()
             
-            # 检查是否所有元素类型相同
+            # {ts(f"id_2696")}
             first_type = tuple_items[0].get("type") if tuple_items else None
             is_homogeneous = all(item.get("type") == first_type for item in tuple_items)
             
             if is_homogeneous and first_type:
-                # 同质元组，转换为 List<Type>
+                # {ts(f"id_2697")} List<Type>
                 result["items"] = _clean_schema_for_gemini(tuple_items[0], root_schema, visited)
             else:
-                # 异质元组，Gemini 不支持，设为 {}
+                # {ts(f"id_2699")}Gemini {ts('id_2698')} {}
                 result["items"] = {}
         else:
-            # 递归处理 items
+            # {ts(f"id_2667")} items
             result["items"] = _clean_schema_for_gemini(result["items"], root_schema, visited)
     
-    # 5. 处理 anyOf（尝试转换为 enum）
+    # 5. {ts(f"id_590")} anyOf{ts('id_2700')} enum{ts('id_292')}
     if "anyOf" in result:
         any_of_schemas = result["anyOf"]
         
-        # 递归处理每个 schema
+        # {ts(f"id_2701")} schema
         cleaned_any_of = [_clean_schema_for_gemini(item, root_schema, visited) for item in any_of_schemas]
         
-        # 尝试提取 enum
+        # {ts(f"id_2702")} enum
         if all("const" in item for item in cleaned_any_of):
             enum_values = [
                 str(item["const"]) 
@@ -477,22 +478,22 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
                 result["type"] = "STRING"
                 result["enum"] = enum_values
         elif "type" not in result:
-            # 如果不是 enum，尝试取第一个有效的类型定义
+            # {ts(f"id_2150")} enum{ts('id_2703')}
             first_valid = next((item for item in cleaned_any_of if item.get("type") or item.get("enum")), None)
             if first_valid:
                 result.update(first_valid)
         
-        # 删除 anyOf
+        # {ts(f"id_753")} anyOf
         del result["anyOf"]
     
-    # 6. 将 default 值移到 description
+    # 6. {ts(f"id_101")} default {ts('id_2677')} description
     if "default" in result:
         default_value = result["default"]
         original_desc = result.get("description", "")
         result["description"] = f"{original_desc} (Default: {json.dumps(default_value)})".strip()
         del result["default"]
     
-    # 7. 清理不支持的字段
+    # 7. {ts(f"id_2678")}
     unsupported_keys = {
         "title", "$schema", "$ref", "strict", "exclusiveMaximum",
         "exclusiveMinimum", "additionalProperties", "oneOf", "allOf",
@@ -506,20 +507,20 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
         if key in unsupported_keys:
             del result[key]
     
-    # 8. 递归处理 properties
+    # 8. {ts(f"id_2667")} properties
     if "properties" in result:
         cleaned_props = {}
         for prop_name, prop_schema in result["properties"].items():
             cleaned_props[prop_name] = _clean_schema_for_gemini(prop_schema, root_schema, visited)
         result["properties"] = cleaned_props
     
-    # 9. 确保有 type 字段（如果有 properties 但没有 type）
+    # 9. {ts(f"id_2670")} type {ts('id_2668')} properties {ts('id_2669')} type{ts('id_292')}
     if "properties" in result and "type" not in result:
         result["type"] = "OBJECT"
     
-    # 10. 去重 required 数组
+    # 10. {ts(f"id_2671")} required {ts('id_2465')}
     if "required" in result and isinstance(result["required"], list):
-        result["required"] = list(dict.fromkeys(result["required"]))  # 保持顺序去重
+        result[f"required"] = list(dict.fromkeys(result["required"]))  # {ts('id_2704')}
     
     return result
 
@@ -529,16 +530,16 @@ def fix_tool_call_args_types(
     parameters_schema: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    根据工具的参数 schema 修正函数调用参数的类型
+    {ts(f"id_2706")} schema {ts('id_2705')}
     
-    例如：将字符串 "5" 转换为数字 5，根据 schema 中的 type 定义
+    {ts(f"id_2707")} "5" {ts('id_2708')} 5{ts('id_2709f')} schema {ts('id_2642')} type {ts('id_2710')}
     
     Args:
-        args: 函数调用的参数字典
-        parameters_schema: 工具定义中的 parameters schema
+        args: {ts(f"id_2711")}
+        parameters_schema: {ts(f"id_2712")} parameters schema
         
     Returns:
-        类型修正后的参数字典
+        {ts(f"id_2713")}
     """
     if not args or not parameters_schema:
         return args
@@ -550,33 +551,33 @@ def fix_tool_call_args_types(
     fixed_args = {}
     for key, value in args.items():
         if key not in properties:
-            # 参数不在 schema 中，保持原样
+            # {ts(f"id_2715")} schema {ts('id_2714')}
             fixed_args[key] = value
             continue
         
         param_schema = properties[key]
         param_type = param_schema.get("type")
         
-        # 根据 schema 中的类型修正参数值
+        # {ts(f"id_2136")} schema {ts('id_2716')}
         if param_type == "number" or param_type == "integer":
-            # 如果值是字符串，尝试转换为数字
+            # {ts(f"id_2717")}
             if isinstance(value, str):
                 try:
                     if param_type == "integer":
                         fixed_args[key] = int(value)
                     else:
-                        # 尝试转换为 float，如果是整数则保持为 int
+                        # {ts(f"id_2719")} float{ts('id_2718')} int
                         num_value = float(value)
                         fixed_args[key] = int(num_value) if num_value.is_integer() else num_value
-                    log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} '{value}' -> {fixed_args[key]} ({param_type})")
+                    log.debug(f"[OPENAI2GEMINI] {ts('id_2720')}: {key} '{value}' -> {fixed_args[key]} ({param_type})")
                 except (ValueError, AttributeError):
-                    # 转换失败，保持原样
+                    # {ts(f"id_2721")}
                     fixed_args[key] = value
-                    log.warning(f"[OPENAI2GEMINI] 无法将参数 {key} 的值 '{value}' 转换为 {param_type}")
+                    log.warning(f"[OPENAI2GEMINI] {ts('id_2722')} {key} {ts('id_2723f')} '{value}' {ts('id_188')} {param_type}")
             else:
                 fixed_args[key] = value
         elif param_type == "boolean":
-            # 如果值是字符串，转换为布尔值
+            # {ts(f"id_2724")}
             if isinstance(value, str):
                 if value.lower() in ("true", "1", "yes"):
                     fixed_args[key] = True
@@ -585,18 +586,18 @@ def fix_tool_call_args_types(
                 else:
                     fixed_args[key] = value
                 if fixed_args[key] != value:
-                    log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} '{value}' -> {fixed_args[key]} (boolean)")
+                    log.debug(f"[OPENAI2GEMINI] {ts('id_2720')}: {key} '{value}' -> {fixed_args[key]} (boolean)")
             else:
                 fixed_args[key] = value
         elif param_type == "string":
-            # 如果值不是字符串，转换为字符串
+            # {ts(f"id_2725")}
             if not isinstance(value, str):
                 fixed_args[key] = str(value)
-                log.debug(f"[OPENAI2GEMINI] 修正参数类型: {key} {value} -> '{fixed_args[key]}' (string)")
+                log.debug(f"[OPENAI2GEMINI] {ts('id_2720')}: {key} {value} -> '{fixed_args[key]}' (string)")
             else:
                 fixed_args[key] = value
         else:
-            # 其他类型（array, object 等）保持原样
+            # {ts(f"id_2727")}array, object {ts('id_2726')}
             fixed_args[key] = value
     
     return fixed_args
@@ -604,19 +605,19 @@ def fix_tool_call_args_types(
 
 def convert_openai_tools_to_gemini(openai_tools: List, model: str = "") -> List[Dict[str, Any]]:
     """
-    将 OpenAI tools 格式转换为 Gemini functionDeclarations 格式
+    {ts(f"id_101")} OpenAI tools {ts('id_2455')} Gemini functionDeclarations {ts('id_57')}
 
     Args:
-        openai_tools: OpenAI 格式的工具列表（可能是字典或 Pydantic 模型）
-        model: 模型名称（用于判断是否为 Claude 模型）
+        openai_tools: OpenAI {ts(f"id_2728")} Pydantic {ts('id_2729')}
+        model: {ts(f"id_2730")} Claude {ts('id_2729')}
 
     Returns:
-        Gemini 格式的工具列表
+        Gemini {ts(f"id_2731")}
     """
     if not openai_tools:
         return []
 
-    # 判断是否为 Claude 模型
+    # {ts(f"id_2732")} Claude {ts('id_794')}
     is_claude_model = "claude" in model.lower()
 
     function_declarations = []
@@ -631,7 +632,7 @@ def convert_openai_tools_to_gemini(openai_tools: List, model: str = "") -> List[
             log.warning("Tool missing 'function' field")
             continue
 
-        # 获取并规范化函数名
+        # {ts(f"id_2733")}
         original_name = function.get("name")
         if not original_name:
             log.warning("Tool missing 'name' field, using default")
@@ -639,17 +640,17 @@ def convert_openai_tools_to_gemini(openai_tools: List, model: str = "") -> List[
 
         normalized_name = _normalize_function_name(original_name)
 
-        # 如果名称被修改了，记录日志
+        # {ts(f"id_2734")}
         if normalized_name != original_name:
             log.debug(f"Function name normalized: '{original_name}' -> '{normalized_name}'")
 
-        # 构建 Gemini function declaration
+        # {ts(f"id_1475")} Gemini function declaration
         declaration = {
             "name": normalized_name,
             "description": function.get("description", ""),
         }
 
-        # 添加参数（如果有）- 根据模型选择不同的清理函数
+        # {ts(f"id_2736")}- {ts('id_2735')}
         if "parameters" in function:
             if is_claude_model:
                 cleaned_params = _clean_schema_for_claude(function["parameters"])
@@ -665,19 +666,19 @@ def convert_openai_tools_to_gemini(openai_tools: List, model: str = "") -> List[
     if not function_declarations:
         return []
 
-    # Gemini 格式：工具数组中包含 functionDeclarations
+    # Gemini {ts(f"id_2737")} functionDeclarations
     return [{"functionDeclarations": function_declarations}]
 
 
 def convert_tool_choice_to_tool_config(tool_choice: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    将 OpenAI tool_choice 转换为 Gemini toolConfig
+    {ts(f"id_101")} OpenAI tool_choice {ts('id_188')} Gemini toolConfig
 
     Args:
-        tool_choice: OpenAI 格式的 tool_choice
+        tool_choice: OpenAI {ts(f"id_2128")} tool_choice
 
     Returns:
-        Gemini 格式的 toolConfig
+        Gemini {ts(f"id_2128")} toolConfig
     """
     if isinstance(tool_choice, str):
         if tool_choice == "auto":
@@ -698,30 +699,30 @@ def convert_tool_choice_to_tool_config(tool_choice: Union[str, Dict[str, Any]]) 
                     }
                 }
 
-    # 默认返回 AUTO 模式
+    # {ts(f"id_2738")} AUTO {ts('id_407')}
     return {"functionCallingConfig": {"mode": "AUTO"}}
 
 
 def convert_tool_message_to_function_response(message, all_messages: List = None) -> Dict[str, Any]:
     """
-    将 OpenAI 的 tool role 消息转换为 Gemini functionResponse
+    {ts(f"id_101")} OpenAI {ts('id_61')} tool role {ts('id_283')} Gemini functionResponse
 
     Args:
-        message: OpenAI 格式的工具消息
-        all_messages: 所有消息的列表，用于查找 tool_call_id 对应的函数名
+        message: OpenAI {ts(f"id_2739")}
+        all_messages: {ts(f"id_2740")} tool_call_id {ts('id_2741')}
 
     Returns:
-        Gemini 格式的 functionResponse part
+        Gemini {ts(f"id_2128")} functionResponse part
     """
-    # 获取 name 字段
+    # {ts(f"id_712")} name {ts('id_2018')}
     name = getattr(message, "name", None)
     encoded_tool_call_id = getattr(message, "tool_call_id", None) or ""
 
-    # 解码获取原始ID（functionResponse不需要签名）
+    # {ts(f"id_2109")}ID{ts('id_1748')}functionResponse{ts('id_2120')}
     original_tool_call_id, _ = decode_tool_id_and_signature(encoded_tool_call_id)
 
-    # 如果没有 name，尝试从 all_messages 中查找对应的 tool_call_id
-    # 注意：使用编码ID查找，因为存储的是编码ID
+    # {ts(f"id_2744")} name{ts('id_2743')} all_messages {ts('id_2742')} tool_call_id
+    # {ts(f"id_2746")}ID{ts('id_2745')}ID
     if not name and encoded_tool_call_id and all_messages:
         for msg in all_messages:
             if getattr(msg, "role", None) == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls:
@@ -734,21 +735,21 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
                 if name:
                     break
 
-    # 最终兜底：如果仍然没有 name，使用默认值
+    # {ts(f"id_2747")} name{ts('id_2748')}
     if not name:
         name = "unknown_function"
         log.warning(f"Tool message missing function name, using default: {name}")
 
     try:
-        # 尝试将 content 解析为 JSON
+        # {ts(f"id_2749")} content {ts('id_2750')} JSON
         response_data = (
             json.loads(message.content) if isinstance(message.content, str) else message.content
         )
     except (json.JSONDecodeError, TypeError):
-        # 如果不是有效的 JSON，包装为对象
+        # {ts(f"id_2751")} JSON{ts('id_2752')}
         response_data = {"result": str(message.content)}
 
-    # 确保 response_data 是字典类型（Gemini API 要求 response 必须是对象）
+    # {ts(f"id_683")} response_data {ts('id_2753')}Gemini API {ts('id_2119')} response {ts('id_2754')}
     if not isinstance(response_data, dict):
         response_data = {"result": response_data}
 
@@ -757,20 +758,20 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
 
 def _reverse_transform_value(value: Any) -> Any:
     """
-    将值转换回原始类型（Gemini 可能将所有值转为字符串）
+    {ts(f"id_2756")}Gemini {ts('id_2755')}
     
-    参考 worker.mjs 的 reverseTransformValue
+    {ts(f"id_583")} worker.mjs {ts('id_61')} reverseTransformValue
     
     Args:
-        value: 要转换的值
+        value: {ts(f"id_2757")}
         
     Returns:
-        转换后的值
+        {ts(f"id_2758")}
     """
     if not isinstance(value, str):
         return value
     
-    # 布尔值
+    # {ts(f"id_2759")}
     if value == 'true':
         return True
     if value == 'false':
@@ -780,33 +781,33 @@ def _reverse_transform_value(value: Any) -> Any:
     if value == 'null':
         return None
     
-    # 数字（确保字符串确实是纯数字）
+    # {ts(f"id_2760")}
     if value.strip() and not value.startswith('0') and value.replace('.', '', 1).replace('-', '', 1).replace('+', '', 1).isdigit():
         try:
-            # 尝试转换为数字
+            # {ts(f"id_2761")}
             num_value = float(value)
-            # 如果是整数，返回 int
+            # {ts(f"id_2762")} int
             if num_value == int(num_value):
                 return int(num_value)
             return num_value
         except ValueError:
             pass
     
-    # 其他情况保持字符串
+    # {ts(f"id_2763")}
     return value
 
 
 def _reverse_transform_args(args: Any) -> Any:
     """
-    递归转换函数参数，将字符串转回原始类型
+    {ts(f"id_2764")}
     
-    参考 worker.mjs 的 reverseTransformArgs
+    {ts(f"id_583")} worker.mjs {ts('id_61')} reverseTransformArgs
     
     Args:
-        args: 函数参数（可能是字典、列表或其他类型）
+        args: {ts(f"id_2765")}
         
     Returns:
-        转换后的参数
+        {ts(f"id_2766")}
     """
     if not isinstance(args, (dict, list)):
         return args
@@ -814,7 +815,7 @@ def _reverse_transform_args(args: Any) -> Any:
     if isinstance(args, list):
         return [_reverse_transform_args(item) for item in args]
     
-    # 处理字典
+    # {ts(f"id_2767")}
     result = {}
     for key, value in args.items():
         if isinstance(value, (dict, list)):
@@ -829,31 +830,31 @@ def extract_tool_calls_from_parts(
     parts: List[Dict[str, Any]], is_streaming: bool = False
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
-    从 Gemini response parts 中提取工具调用和文本内容
+    {ts(f"id_1731")} Gemini response parts {ts('id_2768')}
 
     Args:
-        parts: Gemini response 的 parts 数组
-        is_streaming: 是否为流式响应（流式响应需要添加 index 字段）
+        parts: Gemini response {ts(f"id_61")} parts {ts('id_2465')}
+        is_streaming: {ts(f"id_2769")} index {ts('id_1608')}
 
     Returns:
-        (tool_calls, text_content) 元组
+        (tool_calls, text_content) {ts(f"id_1605")}
     """
     tool_calls = []
     text_content = ""
 
     for idx, part in enumerate(parts):
-        # 检查是否是函数调用
+        # {ts(f"id_2770")}
         if "functionCall" in part:
             function_call = part["functionCall"]
-            # 获取原始ID或生成新ID
+            # {ts(f"id_2772")}ID{ts('id_2771')}ID
             original_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:24]}"
-            # 将thoughtSignature编码到ID中以便往返保留
+            # {ts(f"id_101")}thoughtSignature{ts('id_2774')}ID{ts('id_2773')}
             signature = part.get("thoughtSignature")
             encoded_id = encode_tool_id_with_signature(original_id, signature)
 
-            # 获取参数并转换类型
+            # {ts(f"id_2775")}
             args = function_call.get("args", {})
-            # 将字符串类型的值转回原始类型
+            # {ts(f"id_2776")}
             args = _reverse_transform_args(args)
 
             tool_call = {
@@ -864,12 +865,12 @@ def extract_tool_calls_from_parts(
                     "arguments": json.dumps(args),
                 },
             }
-            # 流式响应需要 index 字段
+            # {ts(f"id_2777")} index {ts('id_2018')}
             if is_streaming:
                 tool_call["index"] = idx
             tool_calls.append(tool_call)
 
-        # 提取文本内容（排除 thinking tokens）
+        # {ts(f"id_2778")} thinking tokens{ts('id_292')}
         elif "text" in part and not part.get("thought", False):
             text_content += part["text"]
 
@@ -878,13 +879,13 @@ def extract_tool_calls_from_parts(
 
 def extract_images_from_content(content: Any) -> Dict[str, Any]:
     """
-    从 OpenAI content 中提取文本和图片
+    {ts(f"id_1731")} OpenAI content {ts('id_2779')}
     
     Args:
-        content: OpenAI 消息的 content 字段（可能是字符串或列表）
+        content: OpenAI {ts(f"id_2781")} content {ts('id_2780')}
     
     Returns:
-        包含 text 和 images 的字典
+        {ts(f"id_906")} text {ts('id_15')} images {ts('id_2782')}
     """
     result = {"text": "", "images": []}
 
@@ -897,7 +898,7 @@ def extract_images_from_content(content: Any) -> Dict[str, Any]:
                     result["text"] += item.get("text", "")
                 elif item.get("type") == "image_url":
                     image_url = item.get("image_url", {}).get("url", "")
-                    # 解析 data:image/png;base64,xxx 格式
+                    # {ts(f"id_2224")} data:image/png;base64,xxx {ts('id_57')}
                     if image_url.startswith("data:image/"):
                         import re
                         match = re.match(r"^data:image/(\w+);base64,(.+)$", image_url)
@@ -915,34 +916,34 @@ def extract_images_from_content(content: Any) -> Dict[str, Any]:
 
 async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Dict[str, Any]:
     """
-    将 OpenAI 格式请求体转换为 Gemini 格式请求体
+    {ts(f"id_101")} OpenAI {ts('id_2154')} Gemini {ts('id_2155')}
 
-    注意: 此函数只负责基础转换,不包含 normalize_gemini_request 中的处理
-    (如 thinking config, search tools, 参数范围限制等)
+    {ts(f"id_2158")}: {ts('id_2783')},{ts('id_2784')} normalize_gemini_request {ts('id_2157')}
+    ({ts(f"id_716")} thinking config, search tools, {ts('id_2785')})
 
     Args:
-        openai_request: OpenAI 格式的请求体字典,包含:
-            - messages: 消息列表
-            - temperature, top_p, max_tokens, stop 等生成参数
-            - tools, tool_choice (可选)
-            - response_format (可选)
+        openai_request: OpenAI {ts(f"id_2161")},{ts('id_906')}:
+            - messages: {ts(f"id_2786")}
+            - temperature, top_p, max_tokens, stop {ts(f"id_2787")}
+            - tools, tool_choice ({ts(f"id_54")})
+            - response_format ({ts(f"id_54")})
 
     Returns:
-        Gemini 格式的请求体字典,包含:
-            - contents: 转换后的消息内容
-            - generationConfig: 生成配置
-            - systemInstruction: 系统指令 (如果有)
-            - tools, toolConfig (如果有)
+        Gemini {ts(f"id_2161")},{ts('id_906')}:
+            - contents: {ts(f"id_2163")}
+            - generationConfig: {ts(f"id_2164")}
+            - systemInstruction: {ts(f"id_2165")} ({ts('id_2098')})
+            - tools, toolConfig ({ts(f"id_2098")})
     """
-    # 处理连续的system消息（兼容性模式）
+    # {ts(f"id_2169")}system{ts('id_2168')}
     openai_request = await merge_system_messages(openai_request)
 
     contents = []
 
-    # 提取消息列表
+    # {ts(f"id_2788")}
     messages = openai_request.get("messages", [])
     
-    # 构建 tool_call_id -> (name, original_id, signature) 的映射
+    # {ts(f"id_1475")} tool_call_id -> (name, original_id, signature) {ts('id_2106')}
     tool_call_mapping = {}
     for msg in messages:
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -950,11 +951,11 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                 encoded_id = tc.get("id", "")
                 func_name = tc.get("function", {}).get("name") or ""
                 if encoded_id:
-                    # 解码获取原始ID和签名
+                    # {ts(f"id_2109")}ID{ts('id_2110')}
                     original_id, signature = decode_tool_id_and_signature(encoded_id)
                     tool_call_mapping[encoded_id] = (func_name, original_id, signature)
     
-    # 构建工具名称到参数 schema 的映射（用于类型修正）
+    # {ts(f"id_2790")} schema {ts('id_2789')}
     tool_schemas = {}
     if "tools" in openai_request and openai_request["tools"]:
         for tool in openai_request["tools"]:
@@ -968,16 +969,16 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         role = message.get("role", "user")
         content = message.get("content", "")
 
-        # 处理工具消息（tool role）
+        # {ts(f"id_2791")}tool role{ts('id_292')}
         if role == "tool":
             tool_call_id = message.get("tool_call_id", "")
             func_name = message.get("name")
 
-            # 使用映射表查找
+            # {ts(f"id_2792")}
             if tool_call_id in tool_call_mapping:
                 func_name, original_id, _ = tool_call_mapping[tool_call_id]
             else:
-                # 如果没有name,尝试从消息列表中查找
+                # {ts(f"id_2744")}name,{ts('id_2793')}
                 if not func_name and tool_call_id:
                     for msg in messages:
                         if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -988,25 +989,25 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                             if func_name:
                                 break
 
-                # 解码 tool_call_id 获取原始 ID
+                # {ts(f"id_2318")} tool_call_id {ts('id_2772')} ID
                 original_id, _ = decode_tool_id_and_signature(tool_call_id)
 
-            # 最终兜底：确保 func_name 不为空
+            # {ts(f"id_2794")} func_name {ts('id_2795')}
             if not func_name:
                 func_name = "unknown_function"
                 log.warning(f"Tool message missing function name for tool_call_id={tool_call_id}, using default: {func_name}")
 
-            # 解析响应数据
+            # {ts(f"id_2796")}
             try:
                 response_data = json.loads(content) if isinstance(content, str) else content
             except (json.JSONDecodeError, TypeError):
                 response_data = {"result": str(content)}
 
-            # 确保 response_data 是字典类型（Gemini API 要求 response 必须是对象）
+            # {ts(f"id_683")} response_data {ts('id_2753')}Gemini API {ts('id_2119')} response {ts('id_2754')}
             if not isinstance(response_data, dict):
                 response_data = {"result": response_data}
 
-            # 使用原始 ID（不带签名）
+            # {ts(f"id_2117")} ID{ts('id_2797')}
             contents.append({
                 "role": "user",
                 "parts": [{
@@ -1019,24 +1020,24 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
             })
             continue
 
-        # system 消息已经由 merge_system_messages 处理，这里跳过
+        # system {ts(f"id_2113")} merge_system_messages {ts('id_2112')}
         if role == "system":
             continue
 
-        # 将OpenAI角色映射到Gemini角色
+        # {ts(f"id_101")}OpenAI{ts('id_2798')}Gemini{ts('id_2799')}
         if role == "assistant":
             role = "model"
 
-        # 检查是否有tool_calls
+        # {ts(f"id_2392")}tool_calls
         tool_calls = message.get("tool_calls")
         if tool_calls:
             parts = []
 
-            # 如果有文本内容,先添加文本
+            # {ts(f"id_2800")},{ts('id_2801')}
             if content:
                 parts.append({"text": content})
 
-            # 添加每个工具调用
+            # {ts(f"id_2802")}
             for tool_call in tool_calls:
                 try:
                     args = (
@@ -1045,16 +1046,16 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                         else tool_call["function"]["arguments"]
                     )
                     
-                    # 根据工具的 schema 修正参数类型
+                    # {ts(f"id_2803")} schema {ts('id_2720')}
                     func_name = tool_call["function"]["name"]
                     if func_name in tool_schemas:
                         args = fix_tool_call_args_types(args, tool_schemas[func_name])
 
-                    # 解码工具ID和thoughtSignature
+                    # {ts(f"id_2804")}ID{ts('id_15')}thoughtSignature
                     encoded_id = tool_call.get("id", "")
                     original_id, signature = decode_tool_id_and_signature(encoded_id)
 
-                    # 构建functionCall part
+                    # {ts(f"id_1475")}functionCall part
                     function_call_part = {
                         "functionCall": {
                             "id": original_id,
@@ -1063,7 +1064,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                         }
                     }
 
-                    # 如果有thoughtSignature则添加，否则使用占位符以满足 Gemini API 要求
+                    # {ts(f"id_2098")}thoughtSignature{ts('id_2805')} Gemini API {ts('id_2119')}
                     if signature:
                         function_call_part["thoughtSignature"] = signature
                     else:
@@ -1078,7 +1079,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                 contents.append({"role": role, "parts": parts})
             continue
 
-        # 处理普通内容
+        # {ts(f"id_2806")}
         if isinstance(content, list):
             parts = []
             for part in content:
@@ -1104,11 +1105,11 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         elif content:
             contents.append({"role": role, "parts": [{"text": content}]})
 
-    # 构建生成配置
+    # {ts(f"id_2174")}
     generation_config = {}
     model = openai_request.get("model", "")
     
-    # 基础参数映射
+    # {ts(f"id_2807")}
     if "temperature" in openai_request:
         generation_config["temperature"] = openai_request["temperature"]
     if "top_p" in openai_request:
@@ -1116,7 +1117,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     if "top_k" in openai_request:
         generation_config["topK"] = openai_request["top_k"]
     if "max_tokens" in openai_request or "max_completion_tokens" in openai_request:
-        # max_completion_tokens 优先于 max_tokens
+        # max_completion_tokens {ts(f"id_2808")} max_tokens
         max_tokens = openai_request.get("max_completion_tokens") or openai_request.get("max_tokens")
         generation_config["maxOutputTokens"] = max_tokens
     if "stop" in openai_request:
@@ -1131,45 +1132,45 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     if "seed" in openai_request:
         generation_config["seed"] = openai_request["seed"]
     
-    # 处理 response_format
+    # {ts(f"id_590")} response_format
     if "response_format" in openai_request and openai_request["response_format"]:
         response_format = openai_request["response_format"]
         format_type = response_format.get("type")
         
         if format_type == "json_schema":
-            # JSON Schema 模式
+            # JSON Schema {ts(f"id_407")}
             if "json_schema" in response_format and "schema" in response_format["json_schema"]:
                 schema = response_format["json_schema"]["schema"]
-                # 清理 schema
+                # {ts(f"id_2045")} schema
                 generation_config["responseSchema"] = _clean_schema_for_gemini(schema)
                 generation_config["responseMimeType"] = "application/json"
         elif format_type == "json_object":
-            # JSON Object 模式
+            # JSON Object {ts(f"id_407")}
             generation_config["responseMimeType"] = "application/json"
         elif format_type == "text":
-            # Text 模式
+            # Text {ts(f"id_407")}
             generation_config["responseMimeType"] = "text/plain"
             
-    # 如果contents为空,添加默认用户消息
+    # {ts(f"id_2183")}contents{ts('id_2810')},{ts('id_2809')}
     if not contents:
-        contents.append({"role": "user", "parts": [{"text": "请根据系统指令回答。"}]})
+        contents.append({f"role": "user", "parts": [{"text": "{ts('id_2811')}"}]})
 
-    # 构建基础请求
+    # {ts(f"id_2812")}
     gemini_request = {
         "contents": contents,
         "generationConfig": generation_config
     }
 
-    # 如果 merge_system_messages 已经添加了 systemInstruction，使用它
+    # {ts(f"id_2183")} merge_system_messages {ts('id_2181')} systemInstruction{ts('id_2182')}
     if "systemInstruction" in openai_request:
         gemini_request["systemInstruction"] = openai_request["systemInstruction"]
 
-    # 处理工具 - 传递 model 参数以便根据模型类型选择清理策略
+    # {ts(f"id_2814")} - {ts('id_2815')} model {ts('id_2813')}
     model = openai_request.get("model", "")
     if "tools" in openai_request and openai_request["tools"]:
         gemini_request["tools"] = convert_openai_tools_to_gemini(openai_request["tools"], model)
 
-    # 处理tool_choice
+    # {ts(f"id_590")}tool_choice
     if "tool_choice" in openai_request and openai_request["tool_choice"]:
         gemini_request["toolConfig"] = convert_tool_choice_to_tool_config(openai_request["tool_choice"])
 
@@ -1182,24 +1183,24 @@ def convert_gemini_to_openai_response(
     status_code: int = 200
 ) -> Dict[str, Any]:
     """
-    将 Gemini 格式非流式响应转换为 OpenAI 格式非流式响应
+    {ts(f"id_101")} Gemini {ts('id_2185')} OpenAI {ts('id_2186')}
 
-    注意: 如果收到的不是 200 开头的响应,不做任何处理,直接转发原始响应
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2818f')},{ts('id_2817')},{ts('id_2816')}
 
     Args:
-        gemini_response: Gemini 格式的响应体 (字典或响应对象)
-        model: 模型名称
-        status_code: HTTP 状态码 (默认 200)
+        gemini_response: Gemini {ts(f"id_2820")} ({ts('id_2819')})
+        model: {ts(f"id_1737")}
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Returns:
-        OpenAI 格式的响应体字典,或原始响应 (如果状态码不是 2xx)
+        OpenAI {ts(f"id_2189")},{ts('id_2821')} ({ts('id_2191')} 2xx)
     """
-    # 非 2xx 状态码直接返回原始响应
+    # {ts(f"id_1648")} 2xx {ts('id_2192')}
     if not (200 <= status_code < 300):
         if isinstance(gemini_response, dict):
             return gemini_response
         else:
-            # 如果是响应对象,尝试解析为字典
+            # {ts(f"id_2822")},{ts('id_2823')}
             try:
                 if hasattr(gemini_response, "json"):
                     return gemini_response.json()
@@ -1213,7 +1214,7 @@ def convert_gemini_to_openai_response(
             except:
                 return {"error": str(gemini_response)}
 
-    # 确保是字典格式
+    # {ts(f"id_2824")}
     if not isinstance(gemini_response, dict):
         try:
             if hasattr(gemini_response, "json"):
@@ -1229,40 +1230,40 @@ def convert_gemini_to_openai_response(
         except:
             return {"error": "Invalid response format"}
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
     if "response" in gemini_response:
         gemini_response = gemini_response["response"]
 
-    # 转换为 OpenAI 格式
+    # {ts(f"id_188")} OpenAI {ts('id_57')}
     choices = []
 
     for candidate in gemini_response.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
 
-        # 将Gemini角色映射回OpenAI角色
+        # {ts(f"id_101")}Gemini{ts('id_2825')}OpenAI{ts('id_2799')}
         if role == "model":
             role = "assistant"
 
-        # 提取并分离thinking tokens和常规内容
+        # {ts(f"id_2826")}thinking tokens{ts('id_2827')}
         parts = candidate.get("content", {}).get("parts", [])
 
-        # 提取工具调用和文本内容
+        # {ts(f"id_2828")}
         tool_calls, text_content = extract_tool_calls_from_parts(parts)
 
-        # 提取多种类型的内容
+        # {ts(f"id_2829")}
         content_parts = []
         reasoning_parts = []
         
         for part in parts:
-            # 处理 executableCode（代码生成）
+            # {ts(f"id_590")} executableCode{ts('id_2830')}
             if "executableCode" in part:
                 exec_code = part["executableCode"]
                 lang = exec_code.get("language", "python").lower()
                 code = exec_code.get("code", "")
-                # 添加代码块（前后加换行符确保 Markdown 渲染正确）
+                # {ts(f"id_2831")} Markdown {ts('id_2832')}
                 content_parts.append(f"\n```{lang}\n{code}\n```\n")
             
-            # 处理 codeExecutionResult（代码执行结果）
+            # {ts(f"id_590")} codeExecutionResult{ts('id_2833')}
             elif "codeExecutionResult" in part:
                 result = part["codeExecutionResult"]
                 outcome = result.get("outcome")
@@ -1272,47 +1273,47 @@ def convert_gemini_to_openai_response(
                     label = "output" if outcome == "OUTCOME_OK" else "error"
                     content_parts.append(f"\n```{label}\n{output}\n```\n")
             
-            # 处理 thought（思考内容）
+            # {ts(f"id_590")} thought{ts('id_2834')}
             elif part.get("thought", False) and "text" in part:
                 reasoning_parts.append(part["text"])
             
-            # 处理普通文本（非思考内容）
+            # {ts(f"id_2835")}
             elif "text" in part and not part.get("thought", False):
-                # 这部分已经在 extract_tool_calls_from_parts 中处理
+                # {ts(f"id_2836")} extract_tool_calls_from_parts {ts('id_2837')}
                 pass
             
-            # 处理 inlineData（图片）
+            # {ts(f"id_590")} inlineData{ts('id_2838')}
             elif "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "image/png")
                 base64_data = inline_data.get("data", "")
-                # 使用 Markdown 格式
+                # {ts(f"id_463")} Markdown {ts('id_57')}
                 content_parts.append(f"![gemini-generated-content](data:{mime_type};base64,{base64_data})")
         
-        # 合并所有内容部分
+        # {ts(f"id_2839")}
         if content_parts:
-            # 使用双换行符连接各部分，确保块之间有间距
+            # {ts(f"id_2840")}
             additional_content = "\n\n".join(content_parts)
             if text_content:
                 text_content = text_content + "\n\n" + additional_content
             else:
                 text_content = additional_content
         
-        # 合并 reasoning content
+        # {ts(f"id_2641")} reasoning content
         reasoning_content = "\n\n".join(reasoning_parts) if reasoning_parts else ""
 
-        # 构建消息对象
+        # {ts(f"id_2841")}
         message = {"role": role}
 
-        # 获取 Gemini 的 finishReason
+        # {ts(f"id_712")} Gemini {ts('id_61')} finishReason
         gemini_finish_reason = candidate.get("finishReason")
         
-        # 如果有工具调用
+        # {ts(f"id_2842")}
         if tool_calls:
             message["tool_calls"] = tool_calls
             message["content"] = text_content if text_content else None
-            # 只有在正常停止（STOP）时才设为 tool_calls，其他情况保持原始 finish_reason
-            # 这样可以避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_calls 导致循环
+            # {ts(f"id_2203")}STOP{ts('id_2844')} tool_calls{ts('id_2843')} finish_reason
+            # {ts(f"id_2845")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_calls {ts('id_2205')}
             if gemini_finish_reason == "STOP":
                 finish_reason = "tool_calls"
             else:
@@ -1321,7 +1322,7 @@ def convert_gemini_to_openai_response(
             message["content"] = text_content
             finish_reason = _map_finish_reason(gemini_finish_reason)
 
-        # 添加 reasoning content (如果有)
+        # {ts(f"id_848")} reasoning content ({ts('id_2098')})
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
 
@@ -1331,7 +1332,7 @@ def convert_gemini_to_openai_response(
             "finish_reason": finish_reason,
         })
 
-    # 转换 usageMetadata
+    # {ts(f"id_2099")} usageMetadata
     usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
 
     response_data = {
@@ -1355,28 +1356,28 @@ def convert_gemini_to_openai_stream(
     status_code: int = 200
 ) -> Optional[str]:
     """
-    将 Gemini 格式流式响应块转换为 OpenAI SSE 格式流式响应
+    {ts(f"id_101")} Gemini {ts('id_2846')} OpenAI SSE {ts('id_2212')}
 
-    注意: 如果收到的不是 200 开头的响应,不做任何处理,直接转发原始内容
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2818f')},{ts('id_2817')},{ts('id_2847')}
 
     Args:
-        gemini_stream_chunk: Gemini 格式的流式响应块 (字符串,通常是 "data: {json}" 格式)
-        model: 模型名称
-        response_id: 此流式响应的一致ID
-        status_code: HTTP 状态码 (默认 200)
+        gemini_stream_chunk: Gemini {ts(f"id_2848")} ({ts('id_2850')},{ts('id_2849')} "data: {json}" {ts('id_57')})
+        model: {ts(f"id_1737")}
+        response_id: {ts(f"id_2851")}ID
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Returns:
-        OpenAI SSE 格式的响应字符串 (如 "data: {json}\n\n"),
-        或原始内容 (如果状态码不是 2xx),
-        或 None (如果解析失败)
+        OpenAI SSE {ts(f"id_2852")} ({ts('id_716')} "data: {json}\n\n"),
+        {ts(f"id_2853")} ({ts('id_2191')} 2xx),
+        {ts(f"id_413")} None ({ts('id_2854')})
     """
-    # 非 2xx 状态码直接返回原始内容
+    # {ts(f"id_1648")} 2xx {ts('id_2855')}
     if not (200 <= status_code < 300):
         return gemini_stream_chunk
 
-    # 解析 Gemini 流式块
+    # {ts(f"id_2224")} Gemini {ts('id_2223')}
     try:
-        # 去除 "data: " 前缀
+        # {ts(f"id_2856")} "data: " {ts('id_365')}
         if isinstance(gemini_stream_chunk, bytes):
             if gemini_stream_chunk.startswith(b"data: "):
                 payload_str = gemini_stream_chunk[len(b"data: "):].strip().decode("utf-8")
@@ -1388,51 +1389,51 @@ def convert_gemini_to_openai_stream(
             else:
                 payload_str = gemini_stream_chunk.strip()
 
-        # 跳过空块
+        # {ts(f"id_2857")}
         if not payload_str:
             return None
 
-        # 解析 JSON
+        # {ts(f"id_2224")} JSON
         gemini_chunk = json.loads(payload_str)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        # 解析失败,跳过此块
+        # {ts(f"id_2859")},{ts('id_2858')}
         return None
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
     if "response" in gemini_chunk:
         gemini_response = gemini_chunk["response"]
     else:
         gemini_response = gemini_chunk
 
-    # 转换为 OpenAI 流式格式
+    # {ts(f"id_188")} OpenAI {ts('id_2860')}
     choices = []
 
     for candidate in gemini_response.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
 
-        # 将Gemini角色映射回OpenAI角色
+        # {ts(f"id_101")}Gemini{ts('id_2825')}OpenAI{ts('id_2799')}
         if role == "model":
             role = "assistant"
 
-        # 提取并分离thinking tokens和常规内容
+        # {ts(f"id_2826")}thinking tokens{ts('id_2827')}
         parts = candidate.get("content", {}).get("parts", [])
 
-        # 提取工具调用和文本内容 (流式需要 index)
+        # {ts(f"id_2828")} ({ts('id_2861')} index)
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
 
-        # 提取多种类型的内容
+        # {ts(f"id_2829")}
         content_parts = []
         reasoning_parts = []
         
         for part in parts:
-            # 处理 executableCode（代码生成）
+            # {ts(f"id_590")} executableCode{ts('id_2830')}
             if "executableCode" in part:
                 exec_code = part["executableCode"]
                 lang = exec_code.get("language", "python").lower()
                 code = exec_code.get("code", "")
                 content_parts.append(f"\n```{lang}\n{code}\n```\n")
             
-            # 处理 codeExecutionResult（代码执行结果）
+            # {ts(f"id_590")} codeExecutionResult{ts('id_2833')}
             elif "codeExecutionResult" in part:
                 result = part["codeExecutionResult"]
                 outcome = result.get("outcome")
@@ -1442,23 +1443,23 @@ def convert_gemini_to_openai_stream(
                     label = "output" if outcome == "OUTCOME_OK" else "error"
                     content_parts.append(f"\n```{label}\n{output}\n```\n")
             
-            # 处理 thought（思考内容）
+            # {ts(f"id_590")} thought{ts('id_2834')}
             elif part.get("thought", False) and "text" in part:
                 reasoning_parts.append(part["text"])
             
-            # 处理普通文本（非思考内容）
+            # {ts(f"id_2835")}
             elif "text" in part and not part.get("thought", False):
-                # 这部分已经在 extract_tool_calls_from_parts 中处理
+                # {ts(f"id_2836")} extract_tool_calls_from_parts {ts('id_2837')}
                 pass
             
-            # 处理 inlineData（图片）
+            # {ts(f"id_590")} inlineData{ts('id_2838')}
             elif "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "image/png")
                 base64_data = inline_data.get("data", "")
                 content_parts.append(f"![gemini-generated-content](data:{mime_type};base64,{base64_data})")
         
-        # 合并所有内容部分
+        # {ts(f"id_2839")}
         if content_parts:
             additional_content = "\n\n".join(content_parts)
             if text_content:
@@ -1466,10 +1467,10 @@ def convert_gemini_to_openai_stream(
             else:
                 text_content = additional_content
         
-        # 合并 reasoning content
+        # {ts(f"id_2641")} reasoning content
         reasoning_content = "\n\n".join(reasoning_parts) if reasoning_parts else ""
 
-        # 构建 delta 对象
+        # {ts(f"id_1475")} delta {ts('id_1509')}
         delta = {}
 
         if tool_calls:
@@ -1482,12 +1483,12 @@ def convert_gemini_to_openai_stream(
         if reasoning_content:
             delta["reasoning_content"] = reasoning_content
 
-        # 获取 Gemini 的 finishReason
+        # {ts(f"id_712")} Gemini {ts('id_61')} finishReason
         gemini_finish_reason = candidate.get("finishReason")
         finish_reason = _map_finish_reason(gemini_finish_reason)
         
-        # 只有在正常停止（STOP）且有工具调用时才设为 tool_calls
-        # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_calls 导致循环
+        # {ts(f"id_2203")}STOP{ts('id_2202')} tool_calls
+        # {ts(f"id_2206")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_calls {ts('id_2205')}
         if tool_calls and gemini_finish_reason == "STOP":
             finish_reason = "tool_calls"
 
@@ -1497,10 +1498,10 @@ def convert_gemini_to_openai_stream(
             "finish_reason": finish_reason,
         })
 
-    # 转换 usageMetadata (只在流结束时存在)
+    # {ts(f"id_2099")} usageMetadata ({ts('id_2862')})
     usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
 
-    # 构建 OpenAI 流式响应
+    # {ts(f"id_1475")} OpenAI {ts('id_2863')}
     response_data = {
         "id": response_id,
         "object": "chat.completion.chunk",
@@ -1509,11 +1510,11 @@ def convert_gemini_to_openai_stream(
         "choices": choices,
     }
 
-    # 只在有 usage 数据且有 finish_reason 时添加 usage
+    # {ts(f"id_2866")} usage {ts('id_2864')} finish_reason {ts('id_2865')} usage
     if usage:
         has_finish_reason = any(choice.get("finish_reason") for choice in choices)
         if has_finish_reason:
             response_data["usage"] = usage
 
-    # 转换为 SSE 格式: "data: {json}\n\n"
+    # {ts(f"id_188")} SSE {ts('id_57')}: "data: {json}\n\n"
     return f"data: {json.dumps(response_data)}\n\n"

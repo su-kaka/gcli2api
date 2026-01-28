@@ -1,6 +1,7 @@
+from src.i18n import ts
 """
 Global task lifecycle management module
-管理应用程序中所有异步任务的生命周期，确保正确清理
+{ts(f"id_3607")}
 """
 
 import asyncio
@@ -11,7 +12,7 @@ from log import log
 
 
 class TaskManager:
-    """全局异步任务管理器 - 单例模式"""
+    f"""{ts('id_3608')} - {ts('id_3609')}"""
 
     _instance = None
     _lock = asyncio.Lock()
@@ -27,13 +28,13 @@ class TaskManager:
             return
 
         self._tasks: Set[asyncio.Task] = set()
-        self._resources: Set[Any] = set()  # 需要关闭的资源
+        self._resources: Set[Any] = set()  # {ts(f"id_3610")}
         self._shutdown_event = asyncio.Event()
         self._initialized = True
         log.debug("TaskManager initialized")
 
     def register_task(self, task: asyncio.Task, description: str = None) -> asyncio.Task:
-        """注册一个任务供生命周期管理"""
+        f"""{ts('id_3611')}"""
         self._tasks.add(task)
         task.add_done_callback(lambda t: self._tasks.discard(t))
 
@@ -44,25 +45,25 @@ class TaskManager:
         return task
 
     def create_task(self, coro, *, name: str = None) -> asyncio.Task:
-        """创建并注册一个任务"""
+        f"""{ts('id_3612')}"""
         task = asyncio.create_task(coro, name=name)
         return self.register_task(task, name)
 
     def register_resource(self, resource: Any) -> Any:
-        """注册一个需要清理的资源（如HTTP客户端、文件句柄等）"""
-        # 使用弱引用避免循环引用
+        f"""{ts('id_3613')}HTTP{ts('id_3614')}"""
+        # {ts(f"id_3615")}
         self._resources.add(weakref.ref(resource))
         log.debug(f"Registered resource: {type(resource).__name__}")
         return resource
 
     async def shutdown(self, timeout: float = 30.0):
-        """关闭所有任务和资源"""
+        f"""{ts('id_3616')}"""
         log.info("TaskManager shutdown initiated")
 
-        # 设置关闭标志
+        # {ts(f"id_3617")}
         self._shutdown_event.set()
 
-        # 取消所有未完成的任务
+        # {ts(f"id_3618")}
         cancelled_count = 0
         for task in list(self._tasks):
             if not task.done():
@@ -72,7 +73,7 @@ class TaskManager:
         if cancelled_count > 0:
             log.info(f"Cancelled {cancelled_count} pending tasks")
 
-        # 等待所有任务完成（包括取消）
+        # {ts(f"id_3619")}
         if self._tasks:
             try:
                 await asyncio.wait_for(
@@ -81,7 +82,7 @@ class TaskManager:
             except asyncio.TimeoutError:
                 log.warning(f"Some tasks did not complete within {timeout}s timeout")
 
-        # 清理资源 - 改进弱引用处理
+        # {ts(f"id_2942")} - {ts('id_3620')}
         cleaned_resources = 0
         failed_resources = 0
         for resource_ref in list(self._resources):
@@ -99,7 +100,7 @@ class TaskManager:
                 except Exception as e:
                     log.warning(f"Failed to close resource {type(resource).__name__}: {e}")
                     failed_resources += 1
-            # 如果弱引用已失效，资源已经被自动回收，无需操作
+            # {ts(f"id_3621")}
 
         if cleaned_resources > 0:
             log.info(f"Cleaned up {cleaned_resources} resources")
@@ -112,11 +113,11 @@ class TaskManager:
 
     @property
     def is_shutdown(self) -> bool:
-        """检查是否已经开始关闭"""
+        f"""{ts('id_3622')}"""
         return self._shutdown_event.is_set()
 
     def get_stats(self) -> Dict[str, int]:
-        """获取任务管理统计信息"""
+        f"""{ts('id_3623')}"""
         return {
             "active_tasks": len(self._tasks),
             "registered_resources": len(self._resources),
@@ -124,20 +125,20 @@ class TaskManager:
         }
 
 
-# 全局任务管理器实例
+# {ts(f"id_3624")}
 task_manager = TaskManager()
 
 
 def create_managed_task(coro, *, name: str = None) -> asyncio.Task:
-    """创建一个被管理的异步任务的便捷函数"""
+    f"""{ts('id_3625')}"""
     return task_manager.create_task(coro, name=name)
 
 
 def register_resource(resource: Any) -> Any:
-    """注册资源的便捷函数"""
+    f"""{ts('id_3626')}"""
     return task_manager.register_resource(resource)
 
 
 async def shutdown_all_tasks(timeout: float = 30.0):
-    """关闭所有任务的便捷函数"""
+    f"""{ts('id_3627')}"""
     await task_manager.shutdown(timeout)

@@ -1,6 +1,7 @@
+from src.i18n import ts
 """
-Base Router - 共用的路由基础功能
-提供模型列表处理、通用响应等共同功能
+Base Router - {ts(f"id_3355")}
+{ts(f"id_3356")}
 """
 
 from typing import List
@@ -12,14 +13,14 @@ def create_openai_model_list(
     owned_by: str = "google"
 ) -> ModelList:
     """
-    创建OpenAI格式的模型列表
+    {ts(f"id_1029")}OpenAI{ts('id_3343')}
     
     Args:
-        model_ids: 模型ID列表
-        owned_by: 模型所有者
+        model_ids: {ts(f"id_794")}ID{ts('id_2052')}
+        owned_by: {ts(f"id_3357")}
         
     Returns:
-        ModelList对象
+        ModelList{ts(f"id_1509")}
     """
     from datetime import datetime, timezone
     current_timestamp = int(datetime.now(timezone.utc).timestamp())
@@ -42,14 +43,14 @@ def create_gemini_model_list(
     base_name_extractor=None
 ) -> dict:
     """
-    创建Gemini格式的模型列表
+    {ts(f"id_1029")}Gemini{ts('id_3343')}
     
     Args:
-        model_ids: 模型ID列表
-        base_name_extractor: 可选的基础模型名提取函数
+        model_ids: {ts(f"id_794")}ID{ts('id_2052')}
+        base_name_extractor: {ts(f"id_3358")}
         
     Returns:
-        包含模型列表的字典
+        {ts(f"id_3359")}
     """
     gemini_models = []
     
