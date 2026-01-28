@@ -1,3 +1,4 @@
+from src.i18n import ts
 from typing import Any, Dict, List, Tuple
 import json
 from src.converter.utils import extract_content_and_reasoning
@@ -5,15 +6,15 @@ from log import log
 from src.converter.openai2gemini import _convert_usage_metadata
 
 def safe_get_nested(obj: Any, *keys: str, default: Any = None) -> Any:
-    """安全获取嵌套字典值
+    """{ts("id_2412")}
     
     Args:
-        obj: 字典对象
-        *keys: 嵌套键路径
-        default: 默认值
+        obj: {ts("id_2413")}
+        *keys: {ts("id_2414")}
+        default: {ts("id_110")}
     
     Returns:
-        获取到的值或默认值
+        {ts("id_2415")}
     """
     for key in keys:
         if not isinstance(obj, dict):
@@ -24,17 +25,17 @@ def safe_get_nested(obj: Any, *keys: str, default: Any = None) -> Any:
     return obj
 
 def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
-    """从完整响应中提取内容和推理内容(用于假流式)
+    f"""{ts("id_2416")}({ts("id_2417")})
 
     Args:
-        response_data: Gemini API 响应数据
+        response_data: Gemini API {ts("id_2418")}
 
     Returns:
-        (content, reasoning_content, finish_reason, images): 内容、推理内容、结束原因和图片数据的元组
+        (content, reasoning_content, finish_reason, images): {ts("id_2419")}
     """
     import json
 
-    # 处理GeminiCLI的response包装格式
+    # {ts(f"id_590")}GeminiCLI{ts("id_61")}response{ts("id_2193")}
     if "response" in response_data and "candidates" not in response_data:
         log.debug(f"[FAKE_STREAM] Unwrapping response field")
         response_data = response_data["response"]
@@ -55,17 +56,17 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
 
 def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]]:
     """
-    从 Gemini 非流式响应中提取内容，用于假流式处理
+    {ts("id_1731")} Gemini {ts("id_2420")}
     
     Args:
-        response: Gemini API 响应对象
+        response: Gemini API {ts("id_2421")}
     
     Returns:
-        (content, reasoning_content, usage) 元组
+        (content, reasoning_content, usage) {ts("id_1605")}
     """
     from src.converter.utils import extract_content_and_reasoning
     
-    # 解析响应体
+    # {ts("id_2422")}
     if hasattr(response, "body"):
         body_str = (
             response.body.decode()
@@ -84,55 +85,55 @@ def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]
     try:
         response_data = json.loads(body_str)
 
-        # GeminiCLI 返回的格式是 {"response": {...}, "traceId": "..."}
-        # 需要先提取 response 字段
+        # GeminiCLI {ts("id_2423")} {"response": {...}, "traceId": "..."}
+        # {ts("id_2424")} response {ts("id_2018")}
         if "response" in response_data:
             gemini_response = response_data["response"]
         else:
             gemini_response = response_data
 
-        # 从Gemini响应中提取内容，使用思维链分离逻辑
+        # {ts("id_1731")}Gemini{ts("id_2425")}
         content = ""
         reasoning_content = ""
         images = []
         if "candidates" in gemini_response and gemini_response["candidates"]:
-            # Gemini格式响应 - 使用思维链分离
+            # Gemini{ts("id_2427")} - {ts("id_2426")}
             candidate = gemini_response["candidates"][0]
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
                 content, reasoning_content, images = extract_content_and_reasoning(parts)
         elif "choices" in gemini_response and gemini_response["choices"]:
-            # OpenAI格式响应
+            # OpenAI{ts("id_2427")}
             content = gemini_response["choices"][0].get("message", {}).get("content", "")
 
-        # 如果没有正常内容但有思维内容，给出警告
+        # {ts("id_2428")}
         if not content and reasoning_content:
             log.warning("Fake stream response contains only thinking content")
-            content = "[模型正在思考中，请稍后再试或重新提问]"
+            content = f"[{ts("id_2429")}]"
         
-        # 如果完全没有内容，提供默认回复
+        # {ts("id_2430")}
         if not content:
             log.warning(f"No content found in response: {gemini_response}")
-            content = "[响应为空，请重新尝试]"
+            content = f"[{ts("id_2431")}]"
 
-        # 转换usageMetadata为OpenAI格式
+        # {ts(f"id_2099")}usageMetadata{ts("id_2432")}OpenAI{ts("id_57")}
         usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
         
         return content, reasoning_content, usage
 
     except json.JSONDecodeError:
-        # 如果不是JSON，直接返回原始文本
+        # {ts("id_2150")}JSON{ts("id_2433")}
         return body_str, "", None
 
 def _build_candidate(parts: List[Dict[str, Any]], finish_reason: str = "STOP") -> Dict[str, Any]:
-    """构建标准候选响应结构
+    """{ts("id_2434")}
     
     Args:
-        parts: parts 列表
-        finish_reason: 结束原因
+        parts: parts {ts("id_2052")}
+        finish_reason: {ts("id_2435")}
     
     Returns:
-        候选响应字典
+        {ts("id_2436")}
     """
     return {
         "candidates": [{
@@ -144,10 +145,10 @@ def _build_candidate(parts: List[Dict[str, Any]], finish_reason: str = "STOP") -
 
 def create_openai_heartbeat_chunk() -> Dict[str, Any]:
     """
-    创建 OpenAI 格式的心跳块（用于假流式）
+    {ts("id_1029")} OpenAI {ts("id_2437")}
     
     Returns:
-        心跳响应块字典
+        {ts("id_2438")}
     """
     return {
         "choices": [
@@ -160,17 +161,17 @@ def create_openai_heartbeat_chunk() -> Dict[str, Any]:
     }
 
 def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    """构建假流式响应的数据块
+    """{ts("id_2439")}
 
     Args:
-        content: 主要内容
-        reasoning_content: 推理内容
-        finish_reason: 结束原因
-        images: 图片数据列表（可选）
-        chunk_size: 每个chunk的字符数（默认50）
+        content: {ts("id_2440")}
+        reasoning_content: {ts("id_2441")}
+        finish_reason: {ts("id_2435")}
+        images: {ts("id_2442")}
+        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
 
     Returns:
-        响应数据块列表
+        {ts("id_2444")}
     """
     if images is None:
         images = []
@@ -178,26 +179,26 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
     log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
 
-    # 如果没有正常内容但有思维内容,提供默认回复
+    # {ts("id_2445")},{ts("id_2446")}
     if not content:
-        default_text = "[模型正在思考中,请稍后再试或重新提问]" if reasoning_content else "[响应为空,请重新尝试]"
+        default_text = f"[{ts("id_2448")},{ts("id_2447f")}]" if reasoning_content else "[{ts("id_2450")},{ts("id_2449")}]"
         return [_build_candidate([{"text": default_text}], finish_reason)]
 
-    # 分块发送主要内容
+    # {ts("id_2451")}
     first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
         chunk_finish_reason = finish_reason if is_last_chunk else None
 
-        # 如果是第一个chunk且有图片，将图片包含在parts中
+        # {ts(f"id_2453")}chunk{ts("id_2452")}parts{ts("id_692")}
         parts = []
         if first_chunk and images:
-            # 在Gemini格式中，需要将image_url格式转换为inlineData格式
+            # {ts(f"id_429")}Gemini{ts("id_2454")}image_url{ts("id_2455")}inlineData{ts("id_57")}
             for img in images:
                 if img.get("type") == "image_url":
                     url = img.get("image_url", {}).get("url", "")
-                    # 解析 data URL: data:{mime_type};base64,{data}
+                    # {ts("id_2224")} data URL: data:{mime_type};base64,{data}
                     if url.startswith("data:"):
                         parts_of_url = url.split(";base64,")
                         if len(parts_of_url) == 2:
@@ -216,7 +217,7 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
         log.debug(f"[build_gemini_fake_stream_chunks] Generated chunk: {chunk_data}")
         chunks.append(chunk_data)
 
-    # 如果有推理内容，分块发送
+    # {ts("id_2456")}
     if reasoning_content:
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
@@ -229,10 +230,10 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
 
 
 def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
-    """创建 Gemini 格式的心跳数据块
+    f"""{ts("id_1029")} Gemini {ts("id_2457")}
 
     Returns:
-        心跳数据块
+        {ts("id_2458")}
     """
     chunk = _build_candidate([{"text": ""}])
     chunk["candidates"][0]["finishReason"] = None
@@ -240,18 +241,18 @@ def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
 
 
 def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    """构建 OpenAI 格式的假流式响应数据块
+    f"""{ts("id_1475")} OpenAI {ts("id_2459")}
 
     Args:
-        content: 主要内容
-        reasoning_content: 推理内容
-        finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
-        model: 模型名称
-        images: 图片数据列表（可选）
-        chunk_size: 每个chunk的字符数（默认50）
+        content: {ts("id_2440")}
+        reasoning_content: {ts("id_2441")}
+        finish_reason: {ts("id_2460")} "STOP", "MAX_TOKENS"{ts("id_292")}
+        model: {ts("id_1737")}
+        images: {ts("id_2442")}
+        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
 
     Returns:
-        OpenAI 格式的响应数据块列表
+        OpenAI {ts("id_2461")}
     """
     import time
     import uuid
@@ -264,7 +265,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
     response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
-    # 映射 Gemini finish_reason 到 OpenAI 格式
+    # {ts(f"id_2462")} Gemini finish_reason {ts("id_2030")} OpenAI {ts("id_57")}
     openai_finish_reason = None
     if finish_reason == "STOP":
         openai_finish_reason = "stop"
@@ -273,9 +274,9 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
     elif finish_reason in ["SAFETY", "RECITATION"]:
         openai_finish_reason = "content_filter"
 
-    # 如果没有正常内容但有思维内容，提供默认回复
+    # {ts("id_2463")}
     if not content:
-        default_text = "[模型正在思考中，请稍后再试或重新提问]" if reasoning_content else "[响应为空，请重新尝试]"
+        default_text = f"[{ts("id_2429")}]" if reasoning_content else f"[{ts("id_2431")}]"
         return [{
             "id": response_id,
             "object": "chat.completion.chunk",
@@ -288,7 +289,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
             }]
         }]
 
-    # 分块发送主要内容
+    # {ts("id_2451")}
     first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
@@ -297,7 +298,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
 
         delta_content = {}
 
-        # 如果是第一个chunk且有图片，构建包含图片的content数组
+        # {ts(f"id_2453")}chunk{ts("id_2464")}content{ts("id_2465")}
         if first_chunk and images:
             delta_content["content"] = images + [{"type": "text", "text": chunk_text}]
             first_chunk = False
@@ -318,7 +319,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
         log.debug(f"[build_openai_fake_stream_chunks] Generated chunk: {chunk_data}")
         chunks.append(chunk_data)
 
-    # 如果有推理内容，分块发送（使用 reasoning_content 字段）
+    # {ts("id_2466")} reasoning_content {ts("id_1608")}
     if reasoning_content:
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
@@ -343,10 +344,10 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
 
 def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
     """
-    创建 Anthropic 格式的心跳块（用于假流式）
+    {ts("id_1029")} Anthropic {ts("id_2437")}
 
     Returns:
-        心跳响应块字典
+        {ts("id_2438")}
     """
     return {
         "type": "ping"
@@ -354,18 +355,18 @@ def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
 
 
 def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    """构建 Anthropic 格式的假流式响应数据块
+    f"""{ts("id_1475")} Anthropic {ts("id_2459")}
 
     Args:
-        content: 主要内容
-        reasoning_content: 推理内容（thinking content）
-        finish_reason: 结束原因（如 "STOP", "MAX_TOKENS"）
-        model: 模型名称
-        images: 图片数据列表（可选）
-        chunk_size: 每个chunk的字符数（默认50）
+        content: {ts("id_2440")}
+        reasoning_content: {ts("id_2467")}thinking content{ts("id_292")}
+        finish_reason: {ts("id_2460")} "STOP", "MAX_TOKENS"{ts("id_292")}
+        model: {ts("id_1737")}
+        images: {ts("id_2442")}
+        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
 
     Returns:
-        Anthropic SSE 格式的响应数据块列表
+        Anthropic SSE {ts("id_2461")}
     """
     import uuid
 
@@ -376,14 +377,14 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
     chunks = []
     message_id = f"msg_{uuid.uuid4().hex}"
 
-    # 映射 Gemini finish_reason 到 Anthropic 格式
+    # {ts(f"id_2462")} Gemini finish_reason {ts("id_2030")} Anthropic {ts("id_57")}
     anthropic_stop_reason = "end_turn"
     if finish_reason == "MAX_TOKENS":
         anthropic_stop_reason = "max_tokens"
     elif finish_reason in ["SAFETY", "RECITATION"]:
         anthropic_stop_reason = "end_turn"
 
-    # 1. 发送 message_start 事件
+    # 1. {ts("id_2226")} message_start {ts("id_2219")}
     chunks.append({
         "type": "message_start",
         "message": {
@@ -398,9 +399,9 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         }
     })
 
-    # 如果没有正常内容但有思维内容，提供默认回复
+    # {ts("id_2463")}
     if not content:
-        default_text = "[模型正在思考中，请稍后再试或重新提问]" if reasoning_content else "[响应为空，请重新尝试]"
+        default_text = f"[{ts("id_2429")}]" if reasoning_content else f"[{ts("id_2431")}]"
 
         # content_block_start
         chunks.append({
@@ -438,7 +439,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
     block_index = 0
 
-    # 2. 如果有推理内容，先发送 thinking 块
+    # 2. {ts("id_2468")} thinking {ts("id_2046")}
     if reasoning_content:
         # thinking content_block_start
         chunks.append({
@@ -447,7 +448,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
             "content_block": {"type": "thinking", "thinking": ""}
         })
 
-        # 分块发送推理内容
+        # {ts("id_2469")}
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
             chunks.append({
@@ -464,12 +465,12 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
         block_index += 1
 
-    # 3. 如果有图片，发送图片块
+    # 3. {ts("id_2470")}
     if images:
         for img in images:
             if img.get("type") == "image_url":
                 url = img.get("image_url", {}).get("url", "")
-                # 解析 data URL: data:{mime_type};base64,{data}
+                # {ts("id_2224")} data URL: data:{mime_type};base64,{data}
                 if url.startswith("data:"):
                     parts_of_url = url.split(";base64,")
                     if len(parts_of_url) == 2:
@@ -498,7 +499,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
                         block_index += 1
 
-    # 4. 发送主要内容（text 块）
+    # 4. {ts("id_2471")}text {ts("id_2472")}
     # text content_block_start
     chunks.append({
         "type": "content_block_start",
@@ -506,7 +507,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         "content_block": {"type": "text", "text": ""}
     })
 
-    # 分块发送主要内容
+    # {ts("id_2451")}
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         chunks.append({
@@ -521,14 +522,14 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         "index": block_index
     })
 
-    # 5. 发送 message_delta
+    # 5. {ts("id_2226")} message_delta
     chunks.append({
         "type": "message_delta",
         "delta": {"stop_reason": anthropic_stop_reason, "stop_sequence": None},
         "usage": {"output_tokens": len(content) + len(reasoning_content)}
     })
 
-    # 6. 发送 message_stop
+    # 6. {ts("id_2226")} message_stop
     chunks.append({
         "type": "message_stop"
     })

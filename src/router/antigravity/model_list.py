@@ -1,87 +1,88 @@
+from src.i18n import ts
 """
 Antigravity Model List Router - Handles model list requests
-Antigravity 模型列表路由 - 处理模型列表请求
+Antigravity {ts("id_3330")} - {ts("id_3329")}
 """
 
 import sys
 from pathlib import Path
 
-# 添加项目根目录到Python路径
+# {ts("id_1599")}Python{ts("id_796")}
 project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# 第三方库
+# {ts("id_3199")}
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-# 本地模块 - 工具和认证
+# {ts("id_3201")} - {ts("id_3202")}
 from src.utils import (
     get_base_model_from_feature_model,
     authenticate_flexible
 )
 
-# 本地模块 - API
+# {ts("id_3201")} - API
 from src.api.antigravity import fetch_available_models
 
-# 本地模块 - 基础路由工具
+# {ts("id_3201")} - {ts("id_3204")}
 from src.router.base_router import create_gemini_model_list, create_openai_model_list
 from src.models import model_to_dict
 from log import log
 
 
-# ==================== 路由器初始化 ====================
+# ==================== {ts("id_3207")} ====================
 
 router = APIRouter()
 
 
-# ==================== 辅助函数 ====================
+# ==================== {ts("id_1473")} ====================
 
 async def get_antigravity_models_with_features():
     """
-    获取 Antigravity 模型列表并添加功能前缀
+    {ts("id_712")} Antigravity {ts("id_3331")}
     
     Returns:
-        带有功能前缀的模型列表
+        {ts("id_3332")}
     """
-    # 从 API 获取基础模型列表
+    # {ts("id_1731")} API {ts("id_3333")}
     base_models_data = await fetch_available_models()
     
     if not base_models_data:
-        log.warning("[ANTIGRAVITY MODEL LIST] 无法获取模型列表，返回空列表")
+        log.warning(f"[ANTIGRAVITY MODEL LIST] {ts("id_3334")}")
         return []
     
-    # 提取模型 ID
+    # {ts("id_3335")} ID
     base_model_ids = [model['id'] for model in base_models_data if 'id' in model]
     
-    # 添加功能前缀
+    # {ts("id_3336")}
     models = []
     for base_model in base_model_ids:
-        # 基础模型
+        # {ts("id_117")}
         models.append(base_model)
         
-        # 假流式模型 (前缀格式)
-        models.append(f"假流式/{base_model}")
+        # {ts("id_3337")} ({ts("id_3338")})
+        models.append(ff"{ts("id_121")}/{base_model}")
         
-        # 流式抗截断模型 (仅在流式传输时有效，前缀格式)
-        models.append(f"流式抗截断/{base_model}")
+        # {ts("id_3340")} ({ts("id_3339")})
+        models.append(ff"{ts("id_80")}/{base_model}")
     
-    log.info(f"[ANTIGRAVITY MODEL LIST] 生成了 {len(models)} 个模型（包含功能前缀）")
+    log.info(ff"[ANTIGRAVITY MODEL LIST] {ts("id_3342")} {len(models)} {ts("id_3341")}")
     return models
 
 
-# ==================== API 路由 ====================
+# ==================== API {ts("id_3208")} ====================
 
 @router.get("/antigravity/v1beta/models")
 async def list_gemini_models(token: str = Depends(authenticate_flexible)):
     """
-    返回 Gemini 格式的模型列表
+    {ts("id_1530")} Gemini {ts("id_3343")}
     
-    从 src.api.antigravity.fetch_available_models 动态获取模型列表
-    并添加假流式和流式抗截断前缀
+    {ts("id_1731")} src.api.antigravity.fetch_available_models {ts("id_3344")}
+    {ts("id_3345")}
     """
     models = await get_antigravity_models_with_features()
-    log.info("[ANTIGRAVITY MODEL LIST] 返回 Gemini 格式")
+    log.info(f"[ANTIGRAVITY MODEL LIST] {ts("id_1530")} Gemini {ts("id_57")}")
     return JSONResponse(content=create_gemini_model_list(
         models,
         base_name_extractor=get_base_model_from_feature_model
@@ -91,13 +92,13 @@ async def list_gemini_models(token: str = Depends(authenticate_flexible)):
 @router.get("/antigravity/v1/models")
 async def list_openai_models(token: str = Depends(authenticate_flexible)):
     """
-    返回 OpenAI 格式的模型列表
+    {ts("id_1530")} OpenAI {ts("id_3343")}
     
-    从 src.api.antigravity.fetch_available_models 动态获取模型列表
-    并添加假流式和流式抗截断前缀
+    {ts("id_1731")} src.api.antigravity.fetch_available_models {ts("id_3344")}
+    {ts("id_3345")}
     """
     models = await get_antigravity_models_with_features()
-    log.info("[ANTIGRAVITY MODEL LIST] 返回 OpenAI 格式")
+    log.info(f"[ANTIGRAVITY MODEL LIST] {ts("id_1530")} OpenAI {ts("id_57")}")
     model_list = create_openai_model_list(models, owned_by="google")
     return JSONResponse(content={
         "object": "list",

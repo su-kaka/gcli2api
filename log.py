@@ -1,5 +1,6 @@
+from src.i18n import ts
 """
-日志模块 - 使用环境变量配置
+{ts("id_1406")} - {ts("id_1405")}
 """
 
 import os
@@ -7,39 +8,39 @@ import sys
 import threading
 from datetime import datetime
 
-# 日志级别定义
+# {ts("id_1407")}
 LOG_LEVELS = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
 
-# 线程锁，用于文件写入同步
+# {ts("id_1408")}
 _file_lock = threading.Lock()
 
-# 文件写入状态标志
+# {ts("id_1409")}
 _file_writing_disabled = False
 _disable_reason = None
 
 
 def _get_current_log_level():
-    """获取当前日志级别"""
+    f"""{ts("id_1410")}"""
     level = os.getenv("LOG_LEVEL", "info").lower()
     return LOG_LEVELS.get(level, LOG_LEVELS["info"])
 
 
 def _get_log_file_path():
-    """获取日志文件路径"""
+    f"""{ts("id_1411")}"""
     return os.getenv("LOG_FILE", "log.txt")
 
 
 def _clear_log_file():
-    """清空日志文件（在启动时调用）"""
+    f"""{ts("id_1412")}"""
     global _file_writing_disabled, _disable_reason
 
     try:
         log_file = _get_log_file_path()
         with _file_lock:
             with open(log_file, "w", encoding="utf-8") as f:
-                f.write("")  # 清空文件
+                f.write("")  # {ts("id_1413")}
     except (PermissionError, OSError, IOError) as e:
-        # 检测只读文件系统或权限问题，禁用文件写入
+        # {ts("id_1414")}
         _file_writing_disabled = True
         _disable_reason = str(e)
         print(
@@ -49,15 +50,15 @@ def _clear_log_file():
         )
         print("Log messages will continue to display in console only.", file=sys.stderr)
     except Exception as e:
-        # 其他异常仍然输出警告但不禁用写入（可能是临时问题）
+        # {ts("id_1415")}
         print(f"Warning: Failed to clear log file: {e}", file=sys.stderr)
 
 
 def _write_to_file(message: str):
-    """线程安全地写入日志文件"""
+    f"""{ts("id_1416")}"""
     global _file_writing_disabled, _disable_reason
 
-    # 如果文件写入已被禁用，直接返回
+    # {ts("id_1417")}
     if _file_writing_disabled:
         return
 
@@ -66,9 +67,9 @@ def _write_to_file(message: str):
         with _file_lock:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(message + "\n")
-                f.flush()  # 强制刷新到磁盘，确保实时写入
+                f.flush()  # {ts("id_1418")}
     except (PermissionError, OSError, IOError) as e:
-        # 检测只读文件系统或权限问题，禁用文件写入
+        # {ts("id_1414")}
         _file_writing_disabled = True
         _disable_reason = str(e)
         print(
@@ -78,44 +79,44 @@ def _write_to_file(message: str):
         )
         print("Log messages will continue to display in console only.", file=sys.stderr)
     except Exception as e:
-        # 其他异常仍然输出警告但不禁用写入（可能是临时问题）
+        # {ts("id_1415")}
         print(f"Warning: Failed to write to log file: {e}", file=sys.stderr)
 
 
 def _log(level: str, message: str):
     """
-    内部日志函数
+    {ts("id_1419")}
     """
     level = level.lower()
     if level not in LOG_LEVELS:
         print(f"Warning: Unknown log level '{level}'", file=sys.stderr)
         return
 
-    # 检查日志级别
+    # {ts("id_1420")}
     current_level = _get_current_log_level()
     if LOG_LEVELS[level] < current_level:
         return
 
-    # 截断日志消息到最多500个字符
+    # {ts("id_1421500")}{ts("id_1422")}
     #if len(message) > 500:
         #message = message[:500] + "..."
 
-    # 格式化日志消息
+    # {ts("id_1423")}
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{timestamp}] [{level.upper()}] {message}"
 
-    # 输出到控制台
+    # {ts("id_1424")}
     if level in ("error", "critical"):
         print(entry, file=sys.stderr)
     else:
         print(entry)
 
-    # 实时写入文件
+    # {ts("id_1425")}
     _write_to_file(entry)
 
 
 def set_log_level(level: str):
-    """设置日志级别提示"""
+    f"""{ts("id_1426")}"""
     level = level.lower()
     if level not in LOG_LEVELS:
         print(f"Warning: Unknown log level '{level}'. Valid levels: {', '.join(LOG_LEVELS.keys())}")
@@ -126,34 +127,34 @@ def set_log_level(level: str):
 
 
 class Logger:
-    """支持 log('info', 'msg') 和 log.info('msg') 两种调用方式"""
+    f"""{ts("id_56")} log('info', 'msg') {ts("id_15f")} log.info('msg') {ts("id_1427")}"""
 
     def __call__(self, level: str, message: str):
-        """支持 log('info', 'message') 调用方式"""
+        f"""{ts("id_56")} log('info', 'message') {ts("id_1428")}"""
         _log(level, message)
 
     def debug(self, message: str):
-        """记录调试信息"""
+        f"""{ts("id_1429")}"""
         _log("debug", message)
 
     def info(self, message: str):
-        """记录一般信息"""
+        f"""{ts("id_1430")}"""
         _log("info", message)
 
     def warning(self, message: str):
-        """记录警告信息"""
+        f"""{ts("id_1431")}"""
         _log("warning", message)
 
     def error(self, message: str):
-        """记录错误信息"""
+        f"""{ts("id_1432")}"""
         _log("error", message)
 
     def critical(self, message: str):
-        """记录严重错误信息"""
+        f"""{ts("id_1433")}"""
         _log("critical", message)
 
     def get_current_level(self) -> str:
-        """获取当前日志级别名称"""
+        f"""{ts("id_1434")}"""
         current_level = _get_current_log_level()
         for name, value in LOG_LEVELS.items():
             if value == current_level:
@@ -161,19 +162,19 @@ class Logger:
         return "info"
 
     def get_log_file(self) -> str:
-        """获取当前日志文件路径"""
+        f"""{ts("id_1435")}"""
         return _get_log_file_path()
 
 
-# 导出全局日志实例
+# {ts("id_1436")}
 log = Logger()
 
-# 导出的公共接口
+# {ts("id_1437")}
 __all__ = ["log", "set_log_level", "LOG_LEVELS"]
 
-# 在模块加载时清空日志文件
+# {ts("id_1438")}
 _clear_log_file()
 
-# 使用说明:
-# 1. 设置日志级别: export LOG_LEVEL=debug (或在.env文件中设置)
-# 2. 设置日志文件: export LOG_FILE=log.txt (或在.env文件中设置)
+# {ts("id_1439")}:
+# 1. {ts(f"id_1440")}: export LOG_LEVEL=debug ({ts("id_1442")}.env{ts("id_1441")})
+# 2. {ts(f"id_1443")}: export LOG_FILE=log.txt ({ts("id_1442")}.env{ts("id_1441")})

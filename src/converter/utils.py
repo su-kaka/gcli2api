@@ -1,17 +1,18 @@
+from src.i18n import ts
 from typing import Any, Dict
 
 
 def extract_content_and_reasoning(parts: list) -> tuple:
-    """从Gemini响应部件中提取内容和推理内容
+    f"""{ts("id_1731")}Gemini{ts("id_2886")}
 
     Args:
-        parts: Gemini 响应中的 parts 列表
+        parts: Gemini {ts("id_2887")} parts {ts("id_2052")}
 
     Returns:
-        (content, reasoning_content, images): 文本内容、推理内容和图片数据的元组
-        - content: 文本内容字符串
-        - reasoning_content: 推理内容字符串
-        - images: 图片数据列表,每个元素格式为:
+        (content, reasoning_content, images): {ts("id_2888")}
+        - content: {ts("id_2889")}
+        - reasoning_content: {ts("id_2890")}
+        - images: {ts("id_2892")},{ts("id_2891")}:
           {
               "type": "image_url",
               "image_url": {
@@ -24,7 +25,7 @@ def extract_content_and_reasoning(parts: list) -> tuple:
     images = []
 
     for part in parts:
-        # 提取文本内容
+        # {ts("id_2893")}
         text = part.get("text", "")
         if text:
             if part.get("thought", False):
@@ -32,7 +33,7 @@ def extract_content_and_reasoning(parts: list) -> tuple:
             else:
                 content += text
 
-        # 提取图片数据
+        # {ts("id_2894")}
         if "inlineData" in part:
             inline_data = part["inlineData"]
             mime_type = inline_data.get("mimeType", "image/png")
@@ -49,19 +50,19 @@ def extract_content_and_reasoning(parts: list) -> tuple:
 
 async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
     """
-    根据兼容性模式处理请求体中的system消息
+    {ts("id_2895")}system{ts("id_2061")}
 
-    - 兼容性模式关闭（False）：将连续的system消息合并为systemInstruction
-    - 兼容性模式开启（True）：将所有system消息转换为user消息
+    - {ts(f"id_2896")}False{ts("id_2897")}system{ts("id_2898")}systemInstruction
+    - {ts(f"id_2899")}True{ts("id_2900")}system{ts("id_283")}user{ts("id_2061")}
 
     Args:
-        request_body: OpenAI或Claude格式的请求体，包含messages字段
+        request_body: OpenAI{ts(f"id_413")}Claude{ts("id_2901")}messages{ts("id_2018")}
 
     Returns:
-        处理后的请求体
+        {ts("id_2479")}
 
-    Example (兼容性模式关闭):
-        输入:
+    Example ({ts("id_2902")}):
+        {ts("id_2903")}:
         {
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -70,7 +71,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
 
-        输出:
+        {ts("id_2904")}:
         {
             "systemInstruction": {
                 "parts": [
@@ -83,8 +84,8 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
 
-    Example (兼容性模式开启):
-        输入:
+    Example ({ts("id_2905")}):
+        {ts("id_2903")}:
         {
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -92,7 +93,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
 
-        输出:
+        {ts("id_2904")}:
         {
             "messages": [
                 {"role": "user", "content": "You are a helpful assistant."},
@@ -100,8 +101,8 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
     
-    Example (Anthropic格式，兼容性模式关闭):
-        输入:
+    Example (Anthropic{ts("id_2906")}):
+        {ts("id_2903")}:
         {
             "system": "You are a helpful assistant.",
             "messages": [
@@ -109,7 +110,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
 
-        输出:
+        {ts("id_2904")}:
         {
             "systemInstruction": {
                 "parts": [
@@ -125,8 +126,8 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
 
     compatibility_mode = await get_compatibility_mode_enabled()
     
-    # 处理 Anthropic 格式的顶层 system 参数
-    # Anthropic API 规范: system 是顶层参数，不在 messages 中
+    # {ts(f"id_590")} Anthropic {ts("id_2907")} system {ts("id_226")}
+    # Anthropic API {ts(f"id_222")}: system {ts("id_2908")} messages {ts("id_692")}
     system_content = request_body.get("system")
     if system_content:
         system_parts = []
@@ -135,7 +136,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             if system_content.strip():
                 system_parts.append({"text": system_content})
         elif isinstance(system_content, list):
-            # system 可以是包含多个块的列表
+            # system {ts("id_2909")}
             for item in system_content:
                 if isinstance(item, dict):
                     if item.get("type") == "text" and item.get("text", "").strip():
@@ -145,7 +146,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
         
         if system_parts:
             if compatibility_mode:
-                # 兼容性模式：将 system 转换为 user 消息插入到 messages 开头
+                # {ts(f"id_2910")} system {ts("id_188")} user {ts("id_2911")} messages {ts("id_2912")}
                 user_system_message = {
                     "role": "user",
                     "content": system_content if isinstance(system_content, str) else 
@@ -155,7 +156,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
                 request_body = request_body.copy()
                 request_body["messages"] = [user_system_message] + messages
             else:
-                # 非兼容性模式：添加为 systemInstruction
+                # {ts("id_2913")} systemInstruction
                 request_body = request_body.copy()
                 request_body["systemInstruction"] = {"parts": system_parts}
 
@@ -166,11 +167,11 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
     compatibility_mode = await get_compatibility_mode_enabled()
 
     if compatibility_mode:
-        # 兼容性模式开启：将所有system消息转换为user消息
+        # {ts(f"id_2914")}system{ts("id_283")}user{ts("id_2061")}
         converted_messages = []
         for message in messages:
             if message.get("role") == "system":
-                # 创建新的消息对象，将role改为user
+                # {ts("id_2915")}role{ts("id_2916")}user
                 converted_message = message.copy()
                 converted_message["role"] = "user"
                 converted_messages.append(converted_message)
@@ -181,10 +182,10 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
         result["messages"] = converted_messages
         return result
     else:
-        # 兼容性模式关闭：提取连续的system消息合并为systemInstruction
+        # {ts("id_2917")}system{ts("id_2898")}systemInstruction
         system_parts = []
         
-        # 如果已经从顶层 system 参数创建了 systemInstruction，获取现有的 parts
+        # {ts(f"id_2918")} system {ts("id_2920")} systemInstruction{ts("id_2919")} parts
         if "systemInstruction" in request_body:
             existing_instruction = request_body.get("systemInstruction", {})
             if isinstance(existing_instruction, dict):
@@ -198,12 +199,12 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
             content = message.get("content", "")
 
             if role == "system" and collecting_system:
-                # 提取system消息的文本内容
+                # {ts("id_2210")}system{ts("id_2921")}
                 if isinstance(content, str):
                     if content.strip():
                         system_parts.append({"text": content})
                 elif isinstance(content, list):
-                    # 处理列表格式的content
+                    # {ts("id_2922")}content
                     for item in content:
                         if isinstance(item, dict):
                             if item.get("type") == "text" and item.get("text", "").strip():
@@ -211,27 +212,27 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
                         elif isinstance(item, str) and item.strip():
                             system_parts.append({"text": item})
             else:
-                # 遇到非system消息，停止收集
+                # {ts("id_2056")}system{ts("id_2923")}
                 collecting_system = False
                 if role == "system":
-                    # 将后续的system消息转换为user消息
+                    # {ts(f"id_2924")}system{ts("id_283")}user{ts("id_2061")}
                     converted_message = message.copy()
                     converted_message["role"] = "user"
                     remaining_messages.append(converted_message)
                 else:
                     remaining_messages.append(message)
 
-        # 如果没有找到任何system消息（包括顶层参数和messages中的），返回原始请求体
+        # {ts(f"id_2927")}system{ts("id_2926")}messages{ts("id_2925")}
         if not system_parts:
             return request_body
 
-        # 构建新的请求体
+        # {ts("id_2928")}
         result = request_body.copy()
 
-        # 添加或更新systemInstruction
+        # {ts("id_2929")}systemInstruction
         result["systemInstruction"] = {"parts": system_parts}
 
-        # 更新messages列表（移除已处理的system消息）
+        # {ts(f"id_689")}messages{ts("id_2930")}system{ts("id_284")}
         result["messages"] = remaining_messages
 
         return result

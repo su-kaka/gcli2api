@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>GCLI2API 移动端控制面板</title>
+    <title>GCLI2API $id_1376</title>
     <style>
         * {
             box-sizing: border-box;
@@ -97,7 +97,7 @@
             margin: 2px;
         }
 
-        /* 移动端优化的标签页 */
+        /* $id_1377 */
         .tabs {
             display: flex;
             background: linear-gradient(145deg, #f5f5f7, #e8e8ed);
@@ -116,7 +116,7 @@
             position: relative;
         }
 
-        /* 滑块指示器 */
+        /* $id_1119 */
         .tab-slider {
             position: absolute;
             top: 5px;
@@ -133,7 +133,7 @@
             pointer-events: none;
         }
 
-        /* 滑块微光效果 */
+        /* $id_1120 */
         .tab-slider::after {
             content: '';
             position: absolute;
@@ -179,7 +179,7 @@
             overflow: hidden;
         }
 
-        /* 点击波纹效果 */
+        /* $id_1121 */
         .tab::before {
             content: '';
             position: absolute;
@@ -202,7 +202,7 @@
         .tab.active {
             color: #1a1a1a;
             font-weight: 550;
-            /* 背景和阴影由滑块提供 */
+            /* $id_1122 */
         }
 
         .tab:hover:not(.active) {
@@ -210,7 +210,7 @@
             color: #333;
         }
 
-        /* 按压效果 */
+        /* $id_1123 */
         .tab:active {
             transform: scale(0.96);
             transition: transform 0.1s ease;
@@ -224,14 +224,14 @@
         .tab-content {
             display: none;
             padding: 10px 0;
-            /* 动画由 JavaScript 控制，避免冲突 */
+            /* $id_1126 JavaScript $id_1125 */
         }
 
         .tab-content.active {
             display: block;
         }
 
-        /* Toast 固定定位在右上角 */
+        /* Toast $id_1113 */
         #statusSection {
             position: fixed;
             top: 10px;
@@ -244,7 +244,7 @@
             min-width: 200px;
         }
 
-        /* Toast 专用样式 - 只在 #statusSection 内生效 */
+        /* Toast $id_1114 - $id_180 #statusSection $id_1115 */
         #statusSection .status {
             padding: 10px 16px;
             border-radius: 8px;
@@ -290,7 +290,7 @@
             color: white;
         }
 
-        /* 页面内嵌的 status 样式 - 保持原有风格 */
+        /* $id_1117 status $id_1118 - $id_1116 */
         .status {
             padding: 12px;
             border-radius: 8px;
@@ -331,7 +331,7 @@
             padding: 40px 20px;
         }
 
-        /* 移动端优化的卡片样式 */
+        /* $id_1378 */
         .card {
             background-color: white;
             border: 1px solid #e1e4e8;
@@ -363,7 +363,7 @@
             margin-top: 10px;
         }
 
-        /* 移动端优化的统计样式 */
+        /* $id_1379 */
         .stats-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -393,7 +393,7 @@
             margin-top: 4px;
         }
 
-        /* 移动端优化的进度条 */
+        /* $id_1380 */
         .progress-bar {
             width: 100%;
             height: 8px;
@@ -409,7 +409,7 @@
             transition: width 0.3s ease;
         }
 
-        /* 移动端优化的模态框 */
+        /* $id_1381 */
         .modal {
             display: none;
             position: fixed;
@@ -449,7 +449,7 @@
             color: #999;
         }
 
-        /* 响应式优化 */
+        /* $id_1382 */
         @media (max-width: 768px) {
             .container {
                 padding: 5px;
@@ -552,7 +552,7 @@
             word-break: break-all;
         }
 
-        /* 文件管理卡片样式 */
+        /* $id_1383 */
         .cred-card {
             background-color: #f8f9fa;
             border: 1px solid #e1e4e8;
@@ -722,7 +722,7 @@
             overflow-y: auto;
         }
 
-        /* 额度信息显示样式 */
+        /* $id_1128 */
         .cred-quota-details {
             margin-top: 10px;
             animation: slideDown 0.3s ease-out;
@@ -748,7 +748,7 @@
             box-shadow: 0 2px 8px rgba(23, 162, 184, 0.15);
         }
 
-        /* 批量操作按钮禁用状态 */
+        /* $id_1384 */
         .btn-small:disabled {
             background-color: #e9ecef !important;
             color: #6c757d !important;
@@ -756,7 +756,7 @@
             opacity: 0.6;
         }
 
-        /* 批量操作控件优化 */
+        /* $id_1385 */
         .batch-controls-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -769,7 +769,7 @@
             }
         }
 
-        /* 文件卡片复选框区域优化 */
+        /* $id_1386 */
         .file-selection-area {
             display: flex;
             align-items: flex-start;
@@ -791,110 +791,110 @@
 <body>
     <div class="container">
 
-        <!-- 登录界面 -->
+        <!-- $id_1136 -->
         <div id="loginSection" class="login-form">
-            <h1>GCLI2API 移动端控制面板</h1>
-            <p>请输入访问密码：</p>
-            <input type="password" id="loginPassword" placeholder="输入密码" onkeypress="handlePasswordEnter(event)" />
+            <h1>GCLI2API $id_1376</h1>
+            <p>$id_1138</p>
+            <input type="password" id="loginPassword" placeholder="$id_1139" onkeypress="handlePasswordEnter(event)" />
             <br><br>
-            <button class="btn" onclick="login()">登录</button>
+            <button class="btn" onclick="login()">$id_1140</button>
         </div>
 
-        <!-- 主界面 -->
+        <!-- $id_1141 -->
         <div id="mainSection" class="hidden">
             <div
                 style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                 <div style="display: flex; flex-direction: column; gap: 6px; flex: 1;">
-                    <h1 style="margin: 0; font-size: 20px;">GCLI2API 移动端控制面板</h1>
+                    <h1 style="margin: 0; font-size: 20px;">GCLI2API $id_1376</h1>
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <span id="versionInfo" style="font-size: 11px; color: #666;">
-                            <span id="versionText">加载中...</span>
+                            <span id="versionText">$id_1142...</span>
                         </span>
                         <button onclick="checkForUpdates()" id="checkUpdateBtn"
                             style="padding: 2px 8px; background-color: #17a2b8; color: white; border: none; border-radius: 3px; font-size: 10px; cursor: pointer; white-space: nowrap;">
-                            检查更新
+                            $id_1092
                         </button>
                     </div>
                 </div>
                 <button onclick="logout()"
                     style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
-                    退出登录
+                    $id_1143
                 </button>
             </div>
 
-            <!-- 移动端优化的标签页 -->
-            <!-- 移动端优化的标签页 -->
+            <!-- $id_1377 -->
+            <!-- $id_1377 -->
             <div class="tabs">
                 <div class="tab-slider"></div>
-                <button class="tab active" onclick="switchTab('oauth')">OAuth认证</button>
-                <button class="tab" onclick="switchTab('antigravity')">Antigravity认证</button>
-                <button class="tab" onclick="switchTab('upload')">批量上传</button>
-                <button class="tab" onclick="switchTab('manage')">GCLI凭证</button>
-                <button class="tab" onclick="switchTab('antigravity-manage')">AG凭证</button>
-                <button class="tab" onclick="switchTab('config')">配置管理</button>
-                <button class="tab" onclick="switchTab('logs')">实时日志</button>
-                <button class="tab" onclick="switchTab('about')">项目信息</button>
+                <button class="tab active" onclick="switchTab('oauth')">OAuth$id_251</button>
+                <button class="tab" onclick="switchTab('antigravity')">Antigravity$id_251</button>
+                <button class="tab" onclick="switchTab('upload')">$id_428</button>
+                <button class="tab" onclick="switchTab('manage')">GCLI$id_100</button>
+                <button class="tab" onclick="switchTab('antigravity-manage')">AG$id_100</button>
+                <button class="tab" onclick="switchTab('config')">$id_707</button>
+                <button class="tab" onclick="switchTab('logs')">$id_1145</button>
+                <button class="tab" onclick="switchTab('about')">$id_1146</button>
             </div>
 
-            <!-- OAuth认证标签页 -->
+            <!-- OAuth$id_1147 -->
             <div id="oauthTab" class="tab-content active">
-                <!-- API 自动启用说明 -->
+                <!-- API $id_1148 -->
                 <div class="status success" style="margin-bottom: 20px;">
-                    <strong>✨ 自动化优化：</strong> 系统现在会在认证成功后自动为您的项目启用必需的API服务
+                    <strong>✨ $id_1150</strong> $id_1149API$id_1151
                     <ul style="margin: 10px 0; padding-left: 20px; font-size: 13px;">
                         <li><strong>Gemini Cloud Assist API</strong></li>
                         <li><strong>Gemini for Google Cloud API</strong></li>
                     </ul>
                     <p style="margin: 10px 0; color: #155724; font-size: 13px;">
-                        <strong>说明：</strong>无需手动启用API，系统会自动处理这些配置步骤，让认证流程更加顺畅。
+                        <strong>$id_563</strong>$id_1153API$id_1152
                     </p>
                 </div>
 
-                <!-- 折叠式 Project ID 输入框 -->
+                <!-- $id_1154 Project ID $id_1155 -->
                 <div class="form-group">
                     <div style="cursor: pointer; user-select: none; padding: 12px; border: 2px solid #ddd; border-radius: 8px; background: #f8f8f8; display: flex; justify-content: space-between; align-items: center;"
                         onclick="toggleProjectIdSection()">
-                        <span style="font-weight: bold; color: #555; font-size: 14px;">📁 高级选项：Google Cloud Project ID
-                            (不用管，直接点击获取链接即可)</span>
+                        <span style="font-weight: bold; color: #555; font-size: 14px;">📁 $id_1156Google Cloud Project ID
+                            ($id_1157)</span>
                         <span id="projectIdToggleIcon"
                             style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▶</span>
                     </div>
                     <div id="projectIdSection"
                         style="display: none; margin-top: 10px; padding: 12px; border: 2px solid #ddd; border-top: none; border-radius: 0 0 8px 8px; background: #ffffff;">
-                        <label for="projectId">Google Cloud Project ID (可选):</label>
-                        <input type="text" id="projectId" placeholder="留空将尝试自动检测，或手动输入项目ID" />
+                        <label for="projectId">Google Cloud Project ID ($id_54):</label>
+                        <input type="text" id="projectId" placeholder="$id_1158ID" />
                         <small style="color: #666; font-size: 12px; margin-top: 5px; display: block;">
-                            💡 提示：如果你不懂这是什么，可以留空此字段让系统自动检测项目ID
+                            💡 $id_1159ID
                         </small>
                     </div>
                 </div>
 
-                <button class="btn" id="getAuthBtn" onclick="startAuth()">获取认证链接</button>
+                <button class="btn" id="getAuthBtn" onclick="startAuth()">$id_867</button>
 
                 <div id="authUrlSection" class="hidden">
-                    <h4>认证链接：</h4>
+                    <h4>$id_1160</h4>
                     <div
                         style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0; word-break: break-all;">
                         <a id="authUrl" href="#" target="_blank"
-                            style="color: #4285f4; text-decoration: none;">点击此链接进行认证</a>
+                            style="color: #4285f4; text-decoration: none;">$id_1161</a>
                     </div>
                     <div class="status info">
-                        <strong>重要说明：</strong>
+                        <strong>$id_1162</strong>
                         <ol style="margin: 10px 0; padding-left: 20px; font-size: 13px;">
-                            <li>点击上方认证链接，会在新窗口中打开Google OAuth页面</li>
-                            <li>完成Google账号登录和授权</li>
-                            <li>授权成功后会跳转到localhost:11451显示成功页面</li>
-                            <li>关闭OAuth窗口，返回本页面</li>
-                            <li>点击下方"获取认证文件"按钮完成流程</li>
+                            <li>$id_1163Google OAuth$id_1164</li>
+                            <li>$id_405Google$id_1165</li>
+                            <li>$id_1166localhost:11451$id_1167</li>
+                            <li>$id_1169OAuth$id_1168</li>
+                            <li>$id_1171"$id_890"$id_1170</li>
                         </ol>
                     </div>
 
-                    <!-- 快捷回调URL输入选项 -->
+                    <!-- $id_1173URL$id_1172 -->
                     <div class="form-group"
                         style="margin: 20px 0; padding: 15px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
                         <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;"
                             onclick="toggleCallbackUrlSection()">
-                            <span style="font-weight: bold; color: #0066cc;">🚀 无法回源？试试快捷方式</span>
+                            <span style="font-weight: bold; color: #0066cc;">🚀 $id_1174</span>
                             <span id="callbackUrlToggleIcon"
                                 style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
                         </div>
@@ -902,18 +902,18 @@
                             <div
                                 style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
                                 <div style="color: #856404; font-size: 14px; font-weight: bold; margin-bottom: 6px;">📚
-                                    适用场景：</div>
+                                    $id_1175</div>
                                 <ul
                                     style="color: #856404; font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.5;">
-                                    <li>云服务器、VPS等非本地环境</li>
-                                    <li>防火墙阻止了11451端口访问</li>
-                                    <li>网络环境无法正常回源到localhost</li>
-                                    <li>Docker容器内运行，端口映射问题</li>
+                                    <li>$id_1177VPS$id_1176</li>
+                                    <li>$id_117811451$id_1179</li>
+                                    <li>$id_1180localhost</li>
+                                    <li>Docker$id_1181</li>
                                 </ul>
                             </div>
                             <div style="color: #666; font-size: 13px; margin-bottom: 12px; line-height: 1.6;">
-                                <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
-                                完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
+                                <strong style="color: #0066cc;">🔍 $id_1182URL$id_1183</strong><br>
+                                $id_405Google OAuth$id_1184URL$id_1185<br>
                                 <code
                                     style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 12px; word-break: break-all;">
                                     http://localhost:11451/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
@@ -922,70 +922,70 @@
                             <div
                                 style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
                                 <div style="color: #0066cc; font-size: 13px; font-weight: bold; margin-bottom: 4px;">📋
-                                    使用步骤：</div>
+                                    $id_1186</div>
                                 <ol
                                     style="color: #0066cc; font-size: 12px; margin: 0; padding-left: 18px; line-height: 1.4;">
-                                    <li>点击上方认证链接，完成Google授权</li>
-                                    <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
-                                    <li>粘贴到下方输入框，点击获取凭证即可</li>
+                                    <li>$id_1187Google$id_907</li>
+                                    <li>$id_1188<strong>$id_584URL</strong></li>
+                                    <li>$id_1189</li>
                                 </ol>
                             </div>
                             <div class="input-group">
                                 <input type="url" id="callbackUrlInput"
-                                    placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
+                                    placeholder="$id_1190URL$id_1191http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
                             </div>
                             <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
                                 onclick="processCallbackUrl()">
-                                从回调URL获取凭证
+                                $id_592URL$id_909
                             </button>
                         </div>
                     </div>
 
-                    <button class="btn" id="getCredsBtn" onclick="getCredentials()">获取认证文件</button>
+                    <button class="btn" id="getCredsBtn" onclick="getCredentials()">$id_890</button>
                 </div>
 
                 <div id="credentialsSection" class="hidden">
-                    <h4>认证文件内容：</h4>
+                    <h4>$id_1192</h4>
                     <div style="background-color: #f0f8ff; border: 1px solid #b0d4ff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;"
                         id="credentialsContent"></div>
                 </div>
             </div>
 
-            <!-- Antigravity 认证标签页 -->
+            <!-- Antigravity $id_1147 -->
             <div id="antigravityTab" class="tab-content">
                 <div class="status info" style="margin-bottom: 20px;">
-                    <strong>🚀 Antigravity 认证模式</strong>
+                    <strong>🚀 Antigravity $id_418</strong>
                     <p style="margin: 10px 0; font-size: 13px;">
-                        获取谷歌Antigravity 凭证
+                        $id_1193Antigravity $id_100
                     </p>
                 </div>
 
-                <button class="btn" id="getAntigravityAuthBtn">获取 Antigravity 认证链接</button>
+                <button class="btn" id="getAntigravityAuthBtn">$id_712 Antigravity $id_893</button>
 
                 <div id="antigravityAuthUrlSection" class="hidden">
-                    <h4>Antigravity 认证链接：</h4>
+                    <h4>Antigravity $id_1160</h4>
                     <div
                         style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0; word-break: break-all;">
                         <a id="antigravityAuthUrl" href="#" target="_blank"
-                            style="color: #4285f4; text-decoration: none;">点击此链接进行认证</a>
+                            style="color: #4285f4; text-decoration: none;">$id_1161</a>
                     </div>
                     <div class="status info">
-                        <strong>使用说明：</strong>
+                        <strong>$id_1194</strong>
                         <ol style="margin: 10px 0; padding-left: 20px; font-size: 13px;">
-                            <li>点击上方认证链接，在新窗口中完成 Google 授权</li>
-                            <li>授权成功后会跳转到 localhost 显示成功页面</li>
-                            <li>关闭 OAuth 窗口，返回本页面</li>
-                            <li>点击下方"获取凭证"按钮完成流程</li>
+                            <li>$id_1195 Google $id_907</li>
+                            <li>$id_1166 localhost $id_1167</li>
+                            <li>$id_1169 OAuth $id_1168</li>
+                            <li>$id_1171"$id_909"$id_1170</li>
                         </ol>
                     </div>
 
-                    <!-- 快捷回调URL输入选项 -->
+                    <!-- $id_1173URL$id_1172 -->
                     <div class="form-group"
                         style="margin: 15px 0; padding: 12px; border: 2px solid #e8f4fd; border-radius: 8px; background: #f8fcff;">
                         <div style="cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"
                             onclick="toggleAntigravityCallbackUrlSection()">
-                            <span style="font-weight: bold; color: #0066cc; font-size: 13px;">🚀 无法回源？试试快捷方式</span>
+                            <span style="font-weight: bold; color: #0066cc; font-size: 13px;">🚀 $id_1174</span>
                             <span id="antigravityCallbackUrlToggleIcon"
                                 style="font-size: 14px; color: #666; transition: transform 0.3s ease;">▼</span>
                         </div>
@@ -993,18 +993,18 @@
                             <div
                                 style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 10px; margin-bottom: 10px;">
                                 <div style="color: #856404; font-size: 12px; font-weight: bold; margin-bottom: 4px;">📚
-                                    适用场景：</div>
+                                    $id_1175</div>
                                 <ul
                                     style="color: #856404; font-size: 11px; margin: 0; padding-left: 16px; line-height: 1.4;">
-                                    <li>云服务器、VPS等非本地环境</li>
-                                    <li>防火墙阻止了11451端口访问</li>
-                                    <li>网络环境无法正常回源到localhost</li>
-                                    <li>Docker容器内运行，端口映射问题</li>
+                                    <li>$id_1177VPS$id_1176</li>
+                                    <li>$id_117811451$id_1179</li>
+                                    <li>$id_1180localhost</li>
+                                    <li>Docker$id_1181</li>
                                 </ul>
                             </div>
                             <div style="color: #666; font-size: 11px; margin-bottom: 10px; line-height: 1.5;">
-                                <strong style="color: #0066cc;">🔍 什么是回调URL？</strong><br>
-                                完成Google OAuth授权后，浏览器地址栏显示的完整URL，通常看起来像这样：<br>
+                                <strong style="color: #0066cc;">🔍 $id_1182URL$id_1183</strong><br>
+                                $id_405Google OAuth$id_1184URL$id_1185<br>
                                 <code
                                     style="background: #f1f3f4; padding: 2px 4px; border-radius: 3px; font-size: 10px; word-break: break-all;">
                                     http://localhost:11451/?state=abc123...&code=4/0AVMBsJ...&scope=email%20profile...
@@ -1013,78 +1013,78 @@
                             <div
                                 style="background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 6px; padding: 8px; margin-bottom: 10px;">
                                 <div style="color: #0066cc; font-size: 11px; font-weight: bold; margin-bottom: 3px;">📋
-                                    使用步骤：</div>
+                                    $id_1186</div>
                                 <ol
                                     style="color: #0066cc; font-size: 10px; margin: 0; padding-left: 16px; line-height: 1.3;">
-                                    <li>点击上方认证链接，完成Google授权</li>
-                                    <li>授权成功后，复制浏览器地址栏的<strong>完整URL</strong></li>
-                                    <li>粘贴到下方输入框，点击获取凭证即可</li>
+                                    <li>$id_1187Google$id_907</li>
+                                    <li>$id_1188<strong>$id_584URL</strong></li>
+                                    <li>$id_1189</li>
                                 </ol>
                             </div>
                             <div class="input-group">
                                 <input type="url" id="antigravityCallbackUrlInput"
-                                    placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
+                                    placeholder="$id_1190URL$id_1191http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 4px; font-size: 12px;">
                             </div>
                             <button class="btn"
                                 style="margin-top: 8px; background: #28a745; border-color: #28a745; font-size: 13px;"
                                 onclick="processAntigravityCallbackUrl()">
-                                从回调URL获取凭证
+                                $id_592URL$id_909
                             </button>
                         </div>
                     </div>
 
-                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">获取 Antigravity
-                        凭证</button>
+                    <button class="btn" id="getAntigravityCredsBtn" onclick="getAntigravityCredentials()">$id_712 Antigravity
+                        $id_100</button>
 
                     <div id="antigravityCredsSection" class="hidden">
-                        <h4>Antigravity 凭证内容：</h4>
+                        <h4>Antigravity $id_1196</h4>
                         <div
                             style="background-color: #f0f8ff; border: 1px solid #b0d4ff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">
                             <pre id="antigravityCredsContent"></pre>
                         </div>
                         <button class="btn" onclick="downloadAntigravityCredentials()"
-                            style="margin-top: 10px;">下载凭证文件</button>
+                            style="margin-top: 10px;">$id_1197</button>
                     </div>
                 </div>
             </div>
 
-            <!-- 批量上传标签页 -->
+            <!-- $id_1198 -->
             <div id="uploadTab" class="tab-content">
-                <h3>批量上传认证文件</h3>
-                <p>支持批量上传 GCLI 和 Antigravity 认证文件</p>
+                <h3>$id_1199</h3>
+                <p>$id_1200 GCLI $id_15 Antigravity $id_1201</p>
 
-                <!-- GCLI凭证上传区域 -->
+                <!-- GCLI$id_1202 -->
                 <div
                     style="margin-bottom: 25px; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background: #f8f9fa;">
                     <h4
                         style="margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 8px; font-size: 16px;">
-                        📤 GCLI 凭证批量上传</h4>
+                        📤 GCLI $id_1203</h4>
 
                     <div style="border: 2px dashed #007bff; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer; transition: border-color 0.3s;"
                         id="uploadArea" onclick="document.getElementById('fileInput').click()">
-                        <p style="margin: 10px 0; font-size: 16px;">📁 点击选择文件或拖拽文件到此区域</p>
-                        <p style="color: #666; font-size: 14px; margin: 5px 0;">支持 .json 和 .zip 格式文件</p>
-                        <p style="color: #888; font-size: 12px; margin: 5px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                        <p style="margin: 10px 0; font-size: 16px;">📁 $id_1204</p>
+                        <p style="color: #666; font-size: 14px; margin: 5px 0;">$id_56 .json $id_15 .zip $id_1205</p>
+                        <p style="color: #888; font-size: 12px; margin: 5px 0;">ZIP$id_1206JSON$id_100</p>
                     </div>
 
                     <input type="file" id="fileInput" multiple accept=".json,.zip" style="display: none;"
                         onchange="handleFileSelect(event)" />
 
                     <div id="fileListSection" class="hidden">
-                        <h4>选择的文件：</h4>
+                        <h4>$id_1207</h4>
                         <div id="fileList"></div>
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <button class="btn" onclick="uploadFiles()" style="flex: 1;">上传文件</button>
+                            <button class="btn" onclick="uploadFiles()" style="flex: 1;">$id_1208</button>
                             <button class="btn" style="background-color: #6c757d; flex: 1;"
-                                onclick="clearFiles()">清空列表</button>
+                                onclick="clearFiles()">$id_1209</button>
                         </div>
                     </div>
 
                     <div id="uploadProgressSection" class="hidden">
                         <div
                             style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin: 20px 0;">
-                            <h4>上传进度：</h4>
+                            <h4>$id_1210</h4>
                             <div class="progress-bar" style="height: 20px;">
                                 <div class="progress-fill" id="progressFill" style="width: 0%"></div>
                             </div>
@@ -1093,38 +1093,38 @@
                     </div>
                 </div>
 
-                <!-- Antigravity凭证上传区域 -->
+                <!-- Antigravity$id_1202 -->
                 <div style="padding: 15px; border: 2px solid #28a745; border-radius: 8px; background: #f8f9fa;">
                     <h4
                         style="margin-top: 0; color: #28a745; border-bottom: 2px solid #28a745; padding-bottom: 8px; font-size: 16px;">
-                        📤 Antigravity 凭证批量上传</h4>
+                        📤 Antigravity $id_1203</h4>
 
                     <div style="border: 2px dashed #28a745; border-radius: 8px; padding: 25px; text-align: center; background-color: #fafafa; margin: 15px 0; cursor: pointer;"
                         onclick="document.getElementById('antigravityFileInput').click()">
-                        <p style="color: #28a745; font-size: 16px; font-weight: bold; margin: 8px 0;">📤 批量上传
-                            Antigravity 凭证文件</p>
-                        <p style="color: #666; font-size: 14px; margin: 4px 0;">支持 .json 和 .zip 格式文件</p>
-                        <p style="color: #888; font-size: 12px; margin: 4px 0;">ZIP文件会自动解压提取其中的JSON凭证</p>
+                        <p style="color: #28a745; font-size: 16px; font-weight: bold; margin: 8px 0;">📤 $id_428
+                            Antigravity $id_721</p>
+                        <p style="color: #666; font-size: 14px; margin: 4px 0;">$id_56 .json $id_15 .zip $id_1205</p>
+                        <p style="color: #888; font-size: 12px; margin: 4px 0;">ZIP$id_1206JSON$id_100</p>
                     </div>
 
                     <input type="file" id="antigravityFileInput" multiple accept=".json,.zip" style="display: none;"
                         onchange="handleAntigravityFileSelect(event)" />
 
                     <div id="antigravityFileListSection" class="hidden">
-                        <h4>选择的文件：</h4>
+                        <h4>$id_1207</h4>
                         <div id="antigravityFileList"></div>
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
                             <button class="btn" style="background-color: #28a745; flex: 1;"
-                                onclick="uploadAntigravityFiles()">上传文件</button>
+                                onclick="uploadAntigravityFiles()">$id_1208</button>
                             <button class="btn" style="background-color: #6c757d; flex: 1;"
-                                onclick="clearAntigravityFiles()">清空列表</button>
+                                onclick="clearAntigravityFiles()">$id_1209</button>
                         </div>
                     </div>
 
                     <div id="antigravityUploadProgressSection" class="hidden">
                         <div
                             style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin: 20px 0;">
-                            <h4>上传进度：</h4>
+                            <h4>$id_1210</h4>
                             <div class="progress-bar" style="height: 20px;">
                                 <div class="progress-fill" id="antigravityProgressFill" style="width: 0%"></div>
                             </div>
@@ -1135,86 +1135,86 @@
             </div>
 
             <div id="manageTab" class="tab-content">
-                <h3>凭证文件管理</h3>
-                <p>管理所有认证文件，查看状态和执行操作</p>
+                <h3>$id_1212</h3>
+                <p>$id_1387</p>
 
-                <!-- 检验功能说明 -->
+                <!-- $id_1215 -->
                 <div class="status info" style="margin-bottom: 15px;">
-                    <strong>💡 检验功能说明：</strong>
+                    <strong>💡 $id_1216</strong>
                     <p style="margin: 8px 0; font-size: 14px;">
-                        点击每个凭证的"检验"按钮可以重新获取Project ID。<br>
-                        <strong style="color: #0c5460;">✅ 检验成功可以恢复403错误</strong>，让凭证重新正常工作。<br>
-                        建议在遇到403错误时使用此功能。
+                        $id_1218"$id_805"$id_1217Project ID$id_672<br>
+                        <strong style="color: #0c5460;">✅ $id_1220403$id_806</strong>$id_1219<br>
+                        $id_1222403$id_1221
                     </p>
                 </div>
 
-                <!-- 状态统计 -->
+                <!-- $id_1223 -->
                 <div class="stats-container" id="statsContainer">
                     <div class="stat-item" style="border-left: 4px solid #007bff;">
                         <span class="stat-number" id="statTotal">0</span>
-                        <span class="stat-label">总计</span>
+                        <span class="stat-label">$id_985</span>
                     </div>
                     <div class="stat-item" style="border-left: 4px solid #28a745;">
                         <span class="stat-number" id="statNormal">0</span>
-                        <span class="stat-label">正常</span>
+                        <span class="stat-label">$id_1224</span>
                     </div>
                     <div class="stat-item" style="border-left: 4px solid #6c757d;">
                         <span class="stat-number" id="statDisabled">0</span>
-                        <span class="stat-label">禁用</span>
+                        <span class="stat-label">$id_300</span>
                     </div>
                 </div>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
                     <button class="btn btn-small" onclick="refreshCredsStatus()"
-                        style="background-color: #17a2b8;">刷新状态</button>
+                        style="background-color: #17a2b8;">$id_1225</button>
                     <button class="btn btn-small" onclick="downloadAllCreds()"
-                        style="background-color: #28a745;">打包下载</button>
+                        style="background-color: #28a745;">$id_1388</button>
                 </div>
 
-                <!-- 批量操作控件 -->
+                <!-- $id_1227 -->
                 <div class="card" style="margin: 15px 0;">
-                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">批量操作</h4>
+                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">$id_751</h4>
                     <div style="margin-bottom: 10px;">
                         <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px;">
                             <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"
                                 style="margin-right: 8px; transform: scale(1.2);">
-                            全选
+                            $id_1228
                         </label>
-                        <span id="selectedCount" style="font-weight: bold; color: #007bff; font-size: 12px;">已选择 0
-                            项</span>
+                        <span id="selectedCount" style="font-weight: bold; color: #007bff; font-size: 12px;">$id_747 0
+                            $id_741</span>
                     </div>
                     <div class="batch-controls-grid">
                         <button class="btn btn-small" id="batchEnableBtn" onclick="batchAction('enable')" disabled
-                            style="background-color: #28a745;">批量启用</button>
+                            style="background-color: #28a745;">$id_298</button>
                         <button class="btn btn-small" id="batchDisableBtn" onclick="batchAction('disable')" disabled
-                            style="background-color: #6c757d;">批量禁用</button>
+                            style="background-color: #6c757d;">$id_1229</button>
                         <button class="btn btn-small" id="batchDeleteBtn" onclick="batchAction('delete')" disabled
-                            style="background-color: #dc3545;">批量删除</button>
+                            style="background-color: #dc3545;">$id_1230</button>
                         <button class="btn btn-small" id="batchVerifyBtn" onclick="batchVerifyProjectIds()" disabled
-                            style="background-color: #ff9800;">批量检验</button>
+                            style="background-color: #ff9800;">$id_1231</button>
                         <button class="btn btn-small" onclick="refreshAllEmails()"
-                            style="background-color: #17a2b8;">刷新所有邮箱</button>
+                            style="background-color: #17a2b8;">$id_1232</button>
                         <button class="btn btn-small" onclick="deduplicateByEmail()"
-                            style="background-color: #e91e63;">凭证一键去重</button>
+                            style="background-color: #e91e63;">$id_1233</button>
                     </div>
                 </div>
 
-                <!-- 筛选控件 -->
+                <!-- $id_1389 -->
                 <div
                     style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0;">
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="statusFilter">状态筛选：</label>
+                        <label for="statusFilter">$id_1390</label>
                         <select id="statusFilter" onchange="applyStatusFilter()">
-                            <option value="all">全部凭证</option>
-                            <option value="enabled">仅启用</option>
-                            <option value="disabled">仅禁用</option>
+                            <option value="all">$id_1236</option>
+                            <option value="enabled">$id_724</option>
+                            <option value="disabled">$id_725</option>
                         </select>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="errorCodeFilter">错误码筛选：</label>
+                        <label for="errorCodeFilter">$id_1391</label>
                         <select id="errorCodeFilter" onchange="applyStatusFilter()">
-                            <option value="all">全部</option>
+                            <option value="all">$id_1238</option>
                             <option value="400">400</option>
                             <option value="403">403</option>
                             <option value="429">429</option>
@@ -1223,16 +1223,16 @@
                     </div>
 
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="cooldownFilter">冷却状态：</label>
+                        <label for="cooldownFilter">$id_1239</label>
                         <select id="cooldownFilter" onchange="applyStatusFilter()">
-                            <option value="all">全部</option>
-                            <option value="in_cooldown">CD中</option>
-                            <option value="no_cooldown">未CD</option>
+                            <option value="all">$id_1238</option>
+                            <option value="in_cooldown">CD$id_692</option>
+                            <option value="no_cooldown">$id_1240CD</option>
                         </select>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label for="pageSizeSelect">每页显示：</label>
+                        <label for="pageSizeSelect">$id_1241</label>
                         <select id="pageSizeSelect" onchange="changePageSize()">
                             <option value="10">10</option>
                             <option value="20" selected>20</option>
@@ -1243,23 +1243,23 @@
                 </div>
 
                 <div id="credsListSection">
-                    <div class="loading" id="credsLoading">正在加载凭证文件...</div>
+                    <div class="loading" id="credsLoading">$id_1242...</div>
                     <div id="credsList"></div>
 
-                    <!-- 分页控件 -->
+                    <!-- $id_1243 -->
                     <div id="paginationContainer" style="display: none; text-align: center; margin: 20px 0;">
                         <div
                             style="display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;">
                             <button class="btn btn-small" id="prevPageBtn" onclick="changePage(-1)"
-                                style="background-color: #6c757d;">上一页</button>
-                            <div id="paginationInfo" style="font-size: 14px; color: #666;">第 1 页，共 1 页</div>
+                                style="background-color: #6c757d;">$id_1244</button>
+                            <div id="paginationInfo" style="font-size: 14px; color: #666;">$id_742 1 $id_737 1 $id_740</div>
                             <button class="btn btn-small" id="nextPageBtn" onclick="changePage(1)"
-                                style="background-color: #6c757d;">下一页</button>
+                                style="background-color: #6c757d;">$id_1245</button>
                         </div>
                         <div
                             style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                             <div>
-                                <label for="pageSizeSelect" style="font-size: 12px; margin-right: 5px;">每页显示：</label>
+                                <label for="pageSizeSelect" style="font-size: 12px; margin-right: 5px;">$id_1241</label>
                                 <select id="pageSizeSelect" onchange="changePageSize()"
                                     style="padding: 4px; font-size: 12px;">
                                     <option value="10">10</option>
@@ -1273,94 +1273,94 @@
                 </div>
             </div>
 
-            <!-- Antigravity凭证管理标签页 -->
+            <!-- Antigravity$id_1211 -->
             <div id="antigravity-manageTab" class="tab-content">
-                <h3>Antigravity凭证文件管理</h3>
-                <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
+                <h3>Antigravity$id_1212</h3>
+                <p>$id_1214Antigravity$id_1213</p>
 
-                <!-- 检验功能说明 -->
+                <!-- $id_1215 -->
                 <div class="status info" style="margin-bottom: 15px;">
-                    <strong>💡 检验功能说明：</strong>
+                    <strong>💡 $id_1216</strong>
                     <p style="margin: 8px 0; font-size: 14px;">
-                        点击每个凭证的"检验"按钮可以重新获取Project ID。<br>
-                        <strong style="color: #0c5460;">✅ 检验成功可以恢复403错误</strong>，让凭证重新正常工作。<br>
-                        建议在遇到403错误时使用此功能。
+                        $id_1218"$id_805"$id_1217Project ID$id_672<br>
+                        <strong style="color: #0c5460;">✅ $id_1220403$id_806</strong>$id_1219<br>
+                        $id_1222403$id_1221
                     </p>
                 </div>
 
-                <!-- 状态统计 -->
+                <!-- $id_1223 -->
                 <div class="stats-container" id="antigravityStatsContainer">
                     <div class="stat-item" style="border-left: 4px solid #007bff;">
                         <span class="stat-number" id="antigravityStatTotal">0</span>
-                        <span class="stat-label">总计</span>
+                        <span class="stat-label">$id_985</span>
                     </div>
                     <div class="stat-item" style="border-left: 4px solid #28a745;">
                         <span class="stat-number" id="antigravityStatNormal">0</span>
-                        <span class="stat-label">正常</span>
+                        <span class="stat-label">$id_1224</span>
                     </div>
                     <div class="stat-item" style="border-left: 4px solid #6c757d;">
                         <span class="stat-number" id="antigravityStatDisabled">0</span>
-                        <span class="stat-label">禁用</span>
+                        <span class="stat-label">$id_300</span>
                     </div>
                 </div>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
                     <button class="btn btn-small" onclick="refreshAntigravityCredsList()"
-                        style="background-color: #17a2b8;">刷新状态</button>
+                        style="background-color: #17a2b8;">$id_1225</button>
                     <button class="btn btn-small" onclick="downloadAllAntigravityCreds()"
-                        style="background-color: #28a745;">打包下载</button>
+                        style="background-color: #28a745;">$id_1388</button>
                 </div>
 
-                <!-- 批量操作控件 -->
+                <!-- $id_1227 -->
                 <div class="card" style="margin: 15px 0;">
-                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">批量操作</h4>
+                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">$id_751</h4>
                     <div style="margin-bottom: 10px;">
                         <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px;">
                             <input type="checkbox" id="selectAllAntigravityCheckbox"
                                 onchange="toggleSelectAllAntigravity()"
                                 style="margin-right: 8px; transform: scale(1.2);">
-                            全选
+                            $id_1228
                         </label>
                         <span id="antigravitySelectedCount"
-                            style="font-weight: bold; color: #007bff; font-size: 12px;">已选择 0
-                            项</span>
+                            style="font-weight: bold; color: #007bff; font-size: 12px;">$id_747 0
+                            $id_741</span>
                     </div>
                     <div class="batch-controls-grid">
                         <button class="btn btn-small" id="antigravityBatchEnableBtn"
                             onclick="batchAntigravityAction('enable')" disabled
-                            style="background-color: #28a745;">批量启用</button>
+                            style="background-color: #28a745;">$id_298</button>
                         <button class="btn btn-small" id="antigravityBatchDisableBtn"
                             onclick="batchAntigravityAction('disable')" disabled
-                            style="background-color: #6c757d;">批量禁用</button>
+                            style="background-color: #6c757d;">$id_1229</button>
                         <button class="btn btn-small" id="antigravityBatchDeleteBtn"
                             onclick="batchAntigravityAction('delete')" disabled
-                            style="background-color: #dc3545;">批量删除</button>
+                            style="background-color: #dc3545;">$id_1230</button>
                         <button class="btn btn-small" id="antigravityBatchVerifyBtn"
                             onclick="batchVerifyAntigravityProjectIds()" disabled
-                            style="background-color: #ff9800;">批量检验</button>
+                            style="background-color: #ff9800;">$id_1231</button>
                         <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
-                            style="background-color: #17a2b8;">刷新所有邮箱</button>
+                            style="background-color: #17a2b8;">$id_1232</button>
                         <button class="btn btn-small" onclick="deduplicateAntigravityByEmail()"
-                            style="background-color: #e91e63;">凭证一键去重</button>
+                            style="background-color: #e91e63;">$id_1233</button>
                     </div>
                 </div>
 
-                <!-- 筛选控件 -->
+                <!-- $id_1389 -->
                 <div
                     style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0;">
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="antigravityStatusFilter">状态筛选：</label>
+                        <label for="antigravityStatusFilter">$id_1390</label>
                         <select id="antigravityStatusFilter" onchange="applyAntigravityStatusFilter()">
-                            <option value="all">全部凭证</option>
-                            <option value="enabled">仅启用</option>
-                            <option value="disabled">仅禁用</option>
+                            <option value="all">$id_1236</option>
+                            <option value="enabled">$id_724</option>
+                            <option value="disabled">$id_725</option>
                         </select>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="antigravityErrorCodeFilter">错误码筛选：</label>
+                        <label for="antigravityErrorCodeFilter">$id_1391</label>
                         <select id="antigravityErrorCodeFilter" onchange="applyAntigravityStatusFilter()">
-                            <option value="all">全部</option>
+                            <option value="all">$id_1238</option>
                             <option value="400">400</option>
                             <option value="403">403</option>
                             <option value="429">429</option>
@@ -1369,16 +1369,16 @@
                     </div>
 
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="antigravityCooldownFilter">冷却状态：</label>
+                        <label for="antigravityCooldownFilter">$id_1239</label>
                         <select id="antigravityCooldownFilter" onchange="applyAntigravityStatusFilter()">
-                            <option value="all">全部</option>
-                            <option value="in_cooldown">CD中</option>
-                            <option value="no_cooldown">未CD</option>
+                            <option value="all">$id_1238</option>
+                            <option value="in_cooldown">CD$id_692</option>
+                            <option value="no_cooldown">$id_1240CD</option>
                         </select>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label for="antigravityPageSizeSelect">每页显示：</label>
+                        <label for="antigravityPageSizeSelect">$id_1241</label>
                         <select id="antigravityPageSizeSelect" onchange="changeAntigravityPageSize()">
                             <option value="10">10</option>
                             <option value="20" selected>20</option>
@@ -1389,133 +1389,133 @@
                 </div>
 
                 <div id="antigravityCredsListSection">
-                    <div class="loading" id="antigravityCredsLoading">正在加载凭证文件...</div>
+                    <div class="loading" id="antigravityCredsLoading">$id_1242...</div>
                     <div id="antigravityCredsList"></div>
 
-                    <!-- 分页控件 -->
+                    <!-- $id_1243 -->
                     <div id="antigravityPaginationContainer" style="display: none; text-align: center; margin: 20px 0;">
                         <div
                             style="display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;">
                             <button class="btn btn-small" id="antigravityPrevPageBtn"
-                                onclick="changeAntigravityPage(-1)" style="background-color: #6c757d;">上一页</button>
-                            <div id="antigravityPaginationInfo" style="font-size: 14px; color: #666;">第 1 页，共 1 页</div>
+                                onclick="changeAntigravityPage(-1)" style="background-color: #6c757d;">$id_1244</button>
+                            <div id="antigravityPaginationInfo" style="font-size: 14px; color: #666;">$id_742 1 $id_737 1 $id_740</div>
                             <button class="btn btn-small" id="antigravityNextPageBtn" onclick="changeAntigravityPage(1)"
-                                style="background-color: #6c757d;">下一页</button>
+                                style="background-color: #6c757d;">$id_1245</button>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div id="configTab" class="tab-content">
-                <h3>配置管理</h3>
-                <p>管理系统配置参数，修改后立即生效</p>
+                <h3>$id_707</h3>
+                <p>$id_1247</p>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
                     <button class="btn btn-small" onclick="loadConfig()"
-                        style="background-color: #17a2b8;">刷新配置</button>
-                    <button class="btn btn-small" onclick="saveConfig()">保存配置</button>
+                        style="background-color: #17a2b8;">$id_1248</button>
+                    <button class="btn btn-small" onclick="saveConfig()">$id_612</button>
                 </div>
 
                 <div id="configSection">
-                    <div class="loading" id="configLoading">正在加载配置...</div>
+                    <div class="loading" id="configLoading">$id_1249...</div>
                     <div id="configForm" class="hidden">
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">服务器配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_4</h4>
 
                             <div class="form-group">
-                                <label for="host">服务器主机地址:</label>
-                                <input type="text" id="host" placeholder="例如: 0.0.0.0, 127.0.0.1" />
+                                <label for="host">$id_1250:</label>
+                                <input type="text" id="host" placeholder="$id_155: 0.0.0.0, 127.0.0.1" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">服务器监听的主机地址，0.0.0.0表示监听所有接口</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_12510.0.0.0$id_1252</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="port">服务器端口:</label>
+                                <label for="port">$id_8:</label>
                                 <input type="number" id="port" min="1" max="65535" placeholder="7861" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">服务器监听的端口号，修改后需要重启服务器</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1253</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="configApiPassword">API访问密码:</label>
+                                <label for="configApiPassword">API$id_12:</label>
                                 <input type="text" id="configApiPassword" placeholder="pwd" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">聊天API访问密码，用于OpenAI和Gemini
-                                    API端点的认证</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_13API$id_1254OpenAI$id_15Gemini
+                                    API$id_1255</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="configPanelPassword">控制面板密码:</label>
+                                <label for="configPanelPassword">$id_134:</label>
                                 <input type="text" id="configPanelPassword" placeholder="pwd" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">控制面板访问密码，用于web界面登录认证</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1256web$id_18</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="configPassword">通用密码:</label>
+                                <label for="configPassword">$id_136:</label>
                                 <input type="text" id="configPassword" placeholder="pwd" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">（兼容性保留）设置后将覆盖上述两个密码，留空则使用分开的密码设置</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1257</small>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">基础配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_137</h4>
 
                             <div class="form-group">
-                                <label for="credentialsDir">凭证目录路径:</label>
+                                <label for="credentialsDir">$id_1258:</label>
                                 <input type="text" id="credentialsDir" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">存储认证文件的目录路径</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1259</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="proxy">代理设置:</label>
+                                <label for="proxy">$id_1260:</label>
                                 <input type="text" id="proxy"
-                                    placeholder="例如: http://proxy:11451 或 socks5://proxy:1080" />
+                                    placeholder="$id_155: http://proxy:11451 $id_413 socks5://proxy:1080" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP/HTTPS/SOCKS5Endpoint，留空表示不使用代理</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">HTTP/HTTPS/SOCKS5Endpoint$id_1261</small>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">端点配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_1262</h4>
 
-                            <!-- 快速配置按钮 -->
+                            <!-- $id_1263 -->
                             <div class="form-group">
                                 <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
                                     <button type="button" class="btn" onclick="useMirrorUrls()"
                                         style="background-color: #28a745; font-size: 13px; flex: 1; min-width: 120px;">
-                                        🚀 镜像网址
+                                        🚀 $id_1392
                                     </button>
                                     <button type="button" class="btn" onclick="restoreOfficialUrls()"
                                         style="background-color: #17a2b8; font-size: 13px; flex: 1; min-width: 120px;">
-                                        🔄 官方端点
+                                        🔄 $id_1393
                                     </button>
                                 </div>
                                 <small
-                                    style="display: block; color: #666; font-size: 11px; margin-bottom: 10px;">镜像网址主要解决墙内无法访问官方端点的问题，部分地区可能无法使用</small>
+                                    style="display: block; color: #666; font-size: 11px; margin-bottom: 10px;">$id_1266</small>
                             </div>
 
                             <div class="form-group">
                                 <label for="codeAssistEndpoint">Code Assist Endpoint:</label>
                                 <input type="text" id="codeAssistEndpoint" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    Cloud Code Assist API端点地址</small>
+                                    Cloud Code Assist API$id_410</small>
                             </div>
 
                             <div class="form-group">
                                 <label for="oauthProxyUrl">OAuth Endpoint:</label>
                                 <input type="text" id="oauthProxyUrl" placeholder="https://oauth2.googleapis.com" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    OAuth2 API端点地址，用于token获取和刷新</small>
+                                    OAuth2 API$id_1267token$id_1268</small>
                             </div>
 
                             <div class="form-group">
                                 <label for="googleapisProxyUrl">Google APIs Endpoint:</label>
                                 <input type="text" id="googleapisProxyUrl" placeholder="https://www.googleapis.com" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    APIs API端点地址，用于API服务调用</small>
+                                    APIs API$id_1267API$id_1269</small>
                             </div>
 
 
@@ -1524,7 +1524,7 @@
                                 <input type="text" id="resourceManagerApiUrl"
                                     placeholder="https://cloudresourcemanager.googleapis.com" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    Cloud Resource Manager API端点地址，用于项目管理</small>
+                                    Cloud Resource Manager API$id_1270</small>
                             </div>
 
                             <div class="form-group">
@@ -1532,7 +1532,7 @@
                                 <input type="text" id="serviceUsageApiUrl"
                                     placeholder="https://serviceusage.googleapis.com" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    Cloud Service Usage API端点地址，用于服务启用管理</small>
+                                    Cloud Service Usage API$id_1271</small>
                             </div>
 
                             <div class="form-group">
@@ -1540,74 +1540,74 @@
                                 <input type="text" id="antigravityApiUrl"
                                     placeholder="https://daily-cloudcode-pa.sandbox.googleapis.com" />
                                 <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">Google
-                                    Antigravity API端点地址，用于反重力模式</small>
+                                    Antigravity API$id_1272</small>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">自动封禁配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_1273</h4>
 
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; cursor: pointer;">
                                     <input type="checkbox" id="autoBanEnabled" style="margin-right: 8px;" />
-                                    启用自动封禁
+                                    $id_1274
                                 </label>
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">遇到指定错误码时自动禁用凭证</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1275</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="autoBanErrorCodes">自动封禁错误码:</label>
-                                <input type="text" id="autoBanErrorCodes" placeholder="例如: 400,403" />
+                                <label for="autoBanErrorCodes">$id_1276:</label>
+                                <input type="text" id="autoBanErrorCodes" placeholder="$id_155: 400,403" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">用逗号分隔的错误码列表</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1277</small>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">429重试配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">429$id_1278</h4>
 
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; cursor: pointer;">
                                     <input type="checkbox" id="retry429Enabled" style="margin-right: 8px;" />
-                                    启用429重试
+                                    $id_126429$id_1279
                                 </label>
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">遇到429错误时自动重试</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1281429$id_1280</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="retry429MaxRetries">429重试次数:</label>
+                                <label for="retry429MaxRetries">429$id_1282:</label>
                                 <input type="number" id="retry429MaxRetries" min="1" max="50" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">遇到429错误时的最大重试次数</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1281429$id_1283</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="retry429Interval">429重试间隔(秒):</label>
+                                <label for="retry429Interval">429$id_1284($id_72):</label>
                                 <input type="number" id="retry429Interval" min="0.01" max="10" step="0.01" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">遇到429错误时每两次重试间的等待时间</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1281429$id_1285</small>
                             </div>
                         </div>
 
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">兼容性配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_531</h4>
 
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px;">
                                     <input type="checkbox" id="compatibilityModeEnabled"
                                         style="width: auto; margin: 0;" />
-                                    启用兼容性模式
+                                    $id_630
                                 </label>
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">启用后所有system消息全部转换成user，停用system_instructions
-                                    <span style="color: #28a745;">✓ 支持热更新</span></small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1286system$id_670user$id_671system_instructions
+                                    <span style="color: #28a745;">✓ $id_1287</span></small>
                                 <div
                                     style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #856404;">
-                                    <strong>⚠️ 注意：</strong>该选项可能会降低模型理解能力，但是能避免流式空回的情况。
-                                    <br><strong>适用场景：</strong>当遇到流式传输时模型不返回内容或返回空响应时启用此选项。
+                                    <strong>⚠️ $id_1288</strong>$id_673
+                                    <br><strong>$id_1175</strong>$id_1289
                                 </div>
                             </div>
 
@@ -1615,15 +1615,15 @@
                                 <label style="display: flex; align-items: center; gap: 8px;">
                                     <input type="checkbox" id="returnThoughtsToFrontend"
                                         style="width: auto; margin: 0;" />
-                                    返回思维链到前端
+                                    $id_1290
                                 </label>
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">启用后，模型的思维链会在响应中返回；禁用后，思维链会被过滤掉
-                                    <span style="color: #28a745;">✓ 支持热更新</span></small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1291
+                                    <span style="color: #28a745;">✓ $id_1287</span></small>
                                 <div
                                     style="background-color: #e3f2fd; border: 1px solid #2196f3; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #0d47a1;">
-                                    <strong>💭 说明：</strong>某些模型（如Gemini 2.0
-                                    Pro）支持thinking模式，会在生成回答前先输出思考过程。启用后可以看到模型的思考过程；禁用后只显示最终回答，让输出更简洁。
+                                    <strong>💭 $id_563</strong>$id_1292Gemini 2.0
+                                    Pro$id_1294thinking$id_1293
                                 </div>
                             </div>
 
@@ -1631,61 +1631,61 @@
                                 <label style="display: flex; align-items: center; gap: 8px;">
                                     <input type="checkbox" id="antigravityStream2nostream"
                                         style="width: auto; margin: 0;" />
-                                    Antigravity流式转非流式
+                                    Antigravity$id_1295
                                 </label>
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">启用后，非流式请求将使用流式API并收集为完整响应
-                                    <span style="color: #28a745;">✓ 支持热更新</span></small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1296API$id_1297
+                                    <span style="color: #28a745;">✓ $id_1287</span></small>
                                 <div
                                     style="background-color: #f3e5f5; border: 1px solid #9c27b0; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #4a148c;">
-                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
-                                    <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
-                                    <br><strong>默认：</strong>已启用
+                                    <strong>🔄 $id_563</strong>$id_1300Antigravity$id_1298API$id_1299
+                                    <br><strong>$id_1175</strong>$id_1302API$id_1303API$id_1301
+                                    <br><strong>$id_1304</strong>$id_790
                                 </div>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">抗截断配置</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_1305</h4>
 
                             <div class="form-group">
-                                <label for="antiTruncationMaxAttempts">抗截断最大重试次数:</label>
+                                <label for="antiTruncationMaxAttempts">$id_319:</label>
                                 <input type="number" id="antiTruncationMaxAttempts" min="1" max="10" />
                                 <small
-                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">当检测到输出截断时的最大续传尝试次数</small>
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">$id_1306</small>
                             </div>
 
                             <div
                                 style="background-color: #e3f2fd; border: 1px solid #1976d2; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #1565c0;">
-                                <strong>注意：</strong>抗截断功能现在通过模型名控制：
+                                <strong>$id_1288</strong>$id_1307
                                 <ul style="margin: 5px 0; padding-left: 20px; color: #424242;">
-                                    <li>选择带有 "-流式抗截断" 后缀的模型即可启用</li>
-                                    <li>该功能仅在流式传输时生效</li>
-                                    <li>例如: "gemini-2.5-pro-流式抗截断"</li>
+                                    <li>$id_1309 "-$id_80" $id_1308</li>
+                                    <li>$id_1310</li>
+                                    <li>$id_155: "gemini-2.5-pro-$id_80"</li>
                                 </ul>
                             </div>
                         </div>
 
                         <div class="card">
-                            <h4 style="margin-top: 0; margin-bottom: 15px;">配置热更新说明</h4>
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">$id_1311</h4>
 
                             <div
                                 style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 6px; padding: 12px; font-size: 13px; color: #155724; margin-bottom: 10px;">
-                                <strong>🔥 热更新配置（立即生效）：</strong>
+                                <strong>🔥 $id_1312</strong>
                                 <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
-                                    <li><strong>网络配置：</strong>代理、端点配置、超时、连接数</li>
-                                    <li><strong>API配置：</strong>轮换次数、重试设置、自动封禁</li>
-                                    <li><strong>密码配置：</strong>API密码、面板密码</li>
-                                    <li><strong>功能配置：</strong>抗截断重试次数</li>
+                                    <li><strong>$id_1315</strong>$id_1394</li>
+                                    <li><strong>API$id_1318</strong>$id_1395</li>
+                                    <li><strong>$id_1320</strong>API$id_1396</li>
+                                    <li><strong>$id_1321</strong>$id_1397</li>
                                 </ul>
                             </div>
 
                             <div
                                 style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px; font-size: 13px; color: #856404; margin-bottom: 10px;">
-                                <strong>🔄 需要重启的配置：</strong>
+                                <strong>🔄 $id_1322</strong>
                                 <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
-                                    <li><strong>服务器配置：</strong>主机地址、端口号</li>
-                                    <li><strong>文件路径：</strong>凭证目录</li>
+                                    <li><strong>$id_1324</strong>$id_1323</li>
+                                    <li><strong>$id_1398</strong>$id_1399</li>
                                 </ul>
                             </div>
 
@@ -1695,127 +1695,127 @@
             </div>
 
             <div id="logsTab" class="tab-content">
-                <h3>实时日志</h3>
-                <p>查看系统实时日志输出，支持日志筛选和自动滚动</p>
+                <h3>$id_1145</h3>
+                <p>$id_1328</p>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
                     <button class="btn btn-small" onclick="connectWebSocket()"
-                        style="background-color: #17a2b8;">连接日志流</button>
+                        style="background-color: #17a2b8;">$id_1329</button>
                     <button class="btn btn-small" onclick="disconnectWebSocket()"
-                        style="background-color: #dc3545;">断开连接</button>
+                        style="background-color: #dc3545;">$id_1330</button>
                     <button class="btn btn-small" onclick="downloadLogs()"
-                        style="background-color: #28a745;">下载日志</button>
-                    <button class="btn btn-small" onclick="clearLogs()" style="background-color: #6c757d;">清空日志</button>
+                        style="background-color: #28a745;">$id_1331</button>
+                    <button class="btn btn-small" onclick="clearLogs()" style="background-color: #6c757d;">$id_614</button>
                 </div>
 
                 <div
                     style="background-color: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; margin: 15px 0;">
                     <div class="form-group" style="margin-bottom: 8px;">
-                        <label for="logLevelFilter">日志级别筛选:</label>
+                        <label for="logLevelFilter">$id_1400:</label>
                         <select id="logLevelFilter" onchange="filterLogs()">
-                            <option value="all">全部</option>
-                            <option value="ERROR">错误</option>
-                            <option value="WARNING">警告</option>
-                            <option value="INFO">信息</option>
-                            <option value="DEBUG">调试</option>
+                            <option value="all">$id_1238</option>
+                            <option value="ERROR">$id_806</option>
+                            <option value="WARNING">$id_1333</option>
+                            <option value="INFO">$id_184</option>
+                            <option value="DEBUG">$id_1334</option>
                         </select>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0;">
                         <label style="display: flex; align-items: center; cursor: pointer;">
                             <input type="checkbox" id="autoScroll" checked style="margin-right: 8px;" />
-                            自动滚动到底部
+                            $id_1335
                         </label>
                     </div>
                 </div>
 
                 <div id="logConnectionStatus" class="status info">
-                    <strong>连接状态：</strong> <span id="connectionStatusText">未连接</span>
+                    <strong>$id_1336</strong> <span id="connectionStatusText">$id_1030</span>
                 </div>
 
                 <div id="logContainer"
                     style="background-color: #1e1e1e; color: #ffffff; font-family: 'Courier New', monospace; font-size: 12px; height: 600px; overflow-y: auto; border: 1px solid #333; border-radius: 5px; padding: 15px; white-space: pre-wrap; word-break: break-all;">
-                    <div id="logContent">等待连接日志流...</div>
+                    <div id="logContent">$id_1337...</div>
                 </div>
             </div>
 
-            <!-- 项目信息标签页 -->
+            <!-- $id_1338 -->
             <div id="aboutTab" class="tab-content">
-                <h3>项目信息</h3>
-                <p>关于GCLI2API项目的详细信息</p>
+                <h3>$id_1146</h3>
+                <p>$id_1340GCLI2API$id_1401</p>
 
-                <!-- 项目介绍 -->
+                <!-- $id_1341 -->
                 <div class="card">
-                    <h4 style="margin-top: 0; color: #007bff;">📋 项目简介</h4>
+                    <h4 style="margin-top: 0; color: #007bff;">📋 $id_1342</h4>
                     <p style="margin: 10px 0; line-height: 1.6; color: #495057; font-size: 14px;">
-                        GCLI2API是一个将Google Gemini API转换为OpenAI 和GEMINI API格式的代理工具，支持多账户管理、自动轮换、实时日志监控等功能。
+                        GCLI2API$id_1344Google Gemini API$id_188OpenAI $id_15GEMINI API$id_1343
                     </p>
                     <div style="margin: 15px 0; font-size: 14px;">
-                        <p style="margin: 5px 0;"><strong>🔗 项目地址：</strong> <a
+                        <p style="margin: 5px 0;"><strong>🔗 $id_1345</strong> <a
                                 href="https://github.com/su-kaka/gcli2api" target="_blank"
                                 style="color: #007bff; text-decoration: none;">GitHub - su-kaka/gcli2api</a></p>
-                        <p style="margin: 5px 0;"><strong>⚠️ 使用声明：</strong> <span
-                                style="color: #dc3545; font-weight: 500;">禁止商业用途和倒卖 - 仅供学习使用</span></p>
+                        <p style="margin: 5px 0;"><strong>⚠️ $id_1346</strong> <span
+                                style="color: #dc3545; font-weight: 500;">$id_1347 - $id_1348</span></p>
                     </div>
                 </div>
 
-                <!-- 功能特性 -->
+                <!-- $id_619 -->
                 <div class="card">
-                    <h4 style="margin-top: 0; color: #17a2b8;">✨ 主要功能</h4>
+                    <h4 style="margin-top: 0; color: #17a2b8;">✨ $id_1349</h4>
                     <div style="font-size: 14px; line-height: 1.6;">
-                        <p><strong>🔄 多账户管理：</strong> 支持批量上传和管理多个Google账户</p>
-                        <p><strong>⚡ 自动轮换：</strong> 智能轮换账户，避免单账户限额</p>
-                        <p><strong>📊 实时监控：</strong> 使用统计、错误监控、实时日志</p>
-                        <p><strong>🛡️ 安全可靠：</strong> OAuth2认证、自动封禁异常账户</p>
-                        <p><strong>🎛️ 配置灵活：</strong> 支持热更新配置、代理设置</p>
-                        <p><strong>📱 界面友好：</strong> 响应式设计、移动端适配</p>
+                        <p><strong>🔄 $id_1351</strong> $id_1350Google$id_1352</p>
+                        <p><strong>⚡ $id_1354</strong> $id_1353</p>
+                        <p><strong>📊 $id_1356</strong> $id_1355</p>
+                        <p><strong>🛡️ $id_1358</strong> OAuth2$id_1357</p>
+                        <p><strong>🎛️ $id_1360</strong> $id_1359</p>
+                        <p><strong>📱 $id_1362</strong> $id_1361</p>
                     </div>
                 </div>
 
-                <!-- 交流群 -->
+                <!-- $id_634 -->
                 <div class="card" style="border-left: 4px solid #4285f4; text-align: center;">
-                    <h4 style="margin-top: 0; color: #1976d2;">💬 交流群</h4>
+                    <h4 style="margin-top: 0; color: #1976d2;">💬 $id_634</h4>
                     <div style="color: #1565c0; line-height: 1.6; font-size: 14px;">
-                        <p>欢迎加入 QQ 群交流讨论！</p>
-                        <p style="font-size: 16px; font-weight: bold; color: #4285f4;">QQ 群号：937681997</p>
+                        <p>$id_636 QQ $id_635</p>
+                        <p style="font-size: 16px; font-weight: bold; color: #4285f4;">QQ $id_637937681997</p>
                     </div>
                     <div
                         style="display: inline-block; background: white; padding: 12px; border-radius: 10px; box-shadow: 0 2px 15px rgba(0,0,0,0.1); margin-top: 10px;">
-                        <img src="docs/qq群.jpg" alt="QQ群二维码"
+                        <img src="docs/qq$id_639.jpg" alt="QQ$id_638"
                             style="width: 180px; height: 180px; border-radius: 6px; display: block;">
                         <p
                             style="color: #666; margin: 8px 0 0 0; font-size: 12px; font-weight: 600; text-align: center;">
-                            扫码加入QQ群</p>
+                            $id_1363QQ$id_639</p>
                     </div>
                 </div>
 
-                <!-- 联系和反馈 -->
+                <!-- $id_1364 -->
                 <div class="card">
-                    <h4 style="margin-top: 0; color: #0c5460;">📞 联系我们</h4>
+                    <h4 style="margin-top: 0; color: #0c5460;">📞 $id_1365</h4>
                     <div style="color: #0c5460; line-height: 1.6; font-size: 14px;">
-                        <p>• <strong>问题反馈：</strong> 通过GitHub Issues提交问题和建议</p>
-                        <p>• <strong>功能请求：</strong> 在GitHub Discussions中讨论新功能</p>
-                        <p>• <strong>代码贡献：</strong> 欢迎提交Pull Request改进项目</p>
-                        <p>• <strong>文档完善：</strong> 帮助改进项目文档和使用指南</p>
+                        <p>• <strong>$id_1367</strong> $id_935GitHub Issues$id_1366</p>
+                        <p>• <strong>$id_1369</strong> $id_429GitHub Discussions$id_1368</p>
+                        <p>• <strong>$id_1370</strong> $id_1371Pull Request$id_1372</p>
+                        <p>• <strong>$id_1374</strong> $id_1373</p>
                     </div>
                 </div>
             </div>
 
             <div id="statusSection"></div>
 
-            <!-- 项目信息 -->
+            <!-- $id_1146 -->
             <div
                 style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 10px; margin-top: 20px; text-align: center; border-left: 4px solid #007bff;">
                 <p style="margin: 4px 0; font-size: 12px; color: #495057;">GitHub: <a
                         href="https://github.com/su-kaka/gcli2api" target="_blank"
                         style="color: #007bff; text-decoration: none;">github.com/su-kaka/gcli2api</a></p>
-                <p style="margin: 4px 0; font-size: 12px; color: #dc3545; font-weight: 500;">⚠️ 禁止商业用途和倒卖 - 仅供学习使用 ⚠️
+                <p style="margin: 4px 0; font-size: 12px; color: #dc3545; font-weight: 500;">⚠️ $id_1347 - $id_1348 ⚠️
                 </p>
             </div>
         </div>
     </div>
 
-    <!-- 引入公共JavaScript模块 -->
+    <!-- $id_1375JavaScript$id_702 -->
     <script src="./front/common.js"></script>
 </body>
 

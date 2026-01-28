@@ -1,21 +1,22 @@
-"""简单的 token 估算，不追求精确"""
+from src.i18n import ts
+f"""{ts("id_3322")} token {ts("id_3628")}"""
 from __future__ import annotations
 
 from typing import Any, Dict
 
 
 def estimate_input_tokens(payload: Dict[str, Any]) -> int:
-    """粗略估算 token 数：字符数 / 4 + 图片固定值"""
+    f"""{ts("id_3631")} token {ts("id_3629f")} / 4 + {ts("id_3630")}"""
     total_chars = 0
     image_count = 0
 
-    # 统计所有文本字符
+    # {ts("id_3632")}
     def count_str(obj: Any) -> None:
         nonlocal total_chars, image_count
         if isinstance(obj, str):
             total_chars += len(obj)
         elif isinstance(obj, dict):
-            # 检测图片
+            # {ts("id_3633")}
             if obj.get("type") == "image" or "inlineData" in obj:
                 image_count += 1
             for v in obj.values():
@@ -26,5 +27,5 @@ def estimate_input_tokens(payload: Dict[str, Any]) -> int:
 
     count_str(payload)
 
-    # 粗略估算：字符数/4 + 每张图片300 tokens
+    # {ts("id_3634")}/4 + {ts("id_3635300")} tokens
     return max(1, total_chars // 4 + image_count * 300)

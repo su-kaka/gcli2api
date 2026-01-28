@@ -1,6 +1,7 @@
+from src.i18n import ts
 """
-Base API Client - 共用的 API 客户端基础功能
-提供错误处理、自动封禁、重试逻辑等共同功能
+Base API Client - {ts("id_1653")} API {ts("id_1652")}
+{ts("id_1654")}
 """
 
 import asyncio
@@ -21,17 +22,17 @@ from log import log
 from src.credential_manager import CredentialManager
 
 
-# ==================== 错误检查与处理 ====================
+# ==================== {ts("id_1655")} ====================
 
 async def check_should_auto_ban(status_code: int) -> bool:
     """
-    检查是否应该触发自动封禁
+    {ts("id_1656")}
     
     Args:
-        status_code: HTTP状态码
+        status_code: HTTP{ts("id_1461")}
         
     Returns:
-        bool: 是否应该触发自动封禁
+        bool: {ts("id_1657")}
     """
     return (
         await get_auto_ban_enabled()
@@ -46,13 +47,13 @@ async def handle_auto_ban(
     mode: str = "geminicli"
 ) -> None:
     """
-    处理自动封禁：直接禁用凭证
+    {ts("id_1658")}
     
     Args:
-        credential_manager: 凭证管理器实例
-        status_code: HTTP状态码
-        credential_name: 凭证名称
-        mode: 模式（geminicli 或 antigravity）
+        credential_manager: {ts("id_1659")}
+        status_code: HTTP{ts("id_1461")}
+        credential_name: {ts("id_1660")}
+        mode: {ts(f"id_1661")}geminicli {ts("id_413")} antigravity{ts("id_292")}
     """
     if credential_manager and credential_name:
         log.warning(
@@ -74,34 +75,34 @@ async def handle_error_with_retry(
     mode: str = "geminicli"
 ) -> bool:
     """
-    统一处理错误和重试逻辑
+    {ts("id_1662")}
 
-    仅在以下情况下进行自动重试:
-    1. 429错误(速率限制)
-    2. 503错误(服务不可用)
-    3. 导致凭证封禁的错误(AUTO_BAN_ERROR_CODES配置)
+    {ts("id_1663")}:
+    1. 429{ts("id_806")}({ts("id_1664")})
+    2. 503{ts("id_806")}({ts("id_1665")})
+    3. {ts("id_1666")}(AUTO_BAN_ERROR_CODES{ts("id_43")})
 
     Args:
-        credential_manager: 凭证管理器实例
-        status_code: HTTP状态码
-        credential_name: 凭证名称
-        retry_enabled: 是否启用重试
-        attempt: 当前重试次数
-        max_retries: 最大重试次数
-        retry_interval: 重试间隔
-        mode: 模式（geminicli 或 antigravity）
+        credential_manager: {ts("id_1659")}
+        status_code: HTTP{ts("id_1461")}
+        credential_name: {ts("id_1660")}
+        retry_enabled: {ts("id_1667")}
+        attempt: {ts("id_1668")}
+        max_retries: {ts("id_1669")}
+        retry_interval: {ts("id_1284")}
+        mode: {ts(f"id_1661")}geminicli {ts("id_413")} antigravity{ts("id_292")}
         
     Returns:
-        bool: True表示需要继续重试，False表示不需要重试
+        bool: True{ts("id_1670")}False{ts("id_1671")}
     """
-    # 优先检查自动封禁
+    # {ts("id_1672")}
     should_auto_ban = await check_should_auto_ban(status_code)
 
     if should_auto_ban:
-        # 触发自动封禁
+        # {ts("id_1673")}
         await handle_auto_ban(credential_manager, status_code, credential_name, mode)
 
-        # 自动封禁后，仍然尝试重试（会在下次循环中自动获取新凭证）
+        # {ts("id_1674")}
         if retry_enabled and attempt < max_retries:
             log.info(
                 f"[{mode.upper()} RETRY] Retrying with next credential after auto-ban "
@@ -111,7 +112,7 @@ async def handle_error_with_retry(
             return True
         return False
 
-    # 如果不触发自动封禁，仅对429和503错误进行重试
+    # {ts(f"id_1675429")}{ts("id_15503")}{ts("id_1676")}
     if (status_code == 429 or status_code == 503) and retry_enabled and attempt < max_retries:
         log.info(
             f"[{mode.upper()} RETRY] {status_code} error encountered, retrying "
@@ -120,18 +121,18 @@ async def handle_error_with_retry(
         await asyncio.sleep(retry_interval)
         return True
 
-    # 其他错误不进行重试
+    # {ts("id_1677")}
     return False
 
 
-# ==================== 重试配置获取 ====================
+# ==================== {ts("id_1678")} ====================
 
 async def get_retry_config() -> Dict[str, Any]:
     """
-    获取重试配置
+    {ts("id_1679")}
     
     Returns:
-        包含重试配置的字典
+        {ts("id_1680")}
     """
     return {
         "retry_enabled": await get_retry_429_enabled(),
@@ -140,7 +141,7 @@ async def get_retry_config() -> Dict[str, Any]:
     }
 
 
-# ==================== API调用结果记录 ====================
+# ==================== API{ts("id_1681")} ====================
 
 async def record_api_call_success(
     credential_manager: CredentialManager,
@@ -149,13 +150,13 @@ async def record_api_call_success(
     model_key: Optional[str] = None
 ) -> None:
     """
-    记录API调用成功
+    {ts("id_1683")}API{ts("id_1682")}
     
     Args:
-        credential_manager: 凭证管理器实例
-        credential_name: 凭证名称
-        mode: 模式（geminicli 或 antigravity）
-        model_key: 模型键（用于模型级CD）
+        credential_manager: {ts("id_1659")}
+        credential_name: {ts("id_1660")}
+        mode: {ts(f"id_1661")}geminicli {ts("id_413")} antigravity{ts("id_292")}
+        model_key: {ts("id_1684")}CD{ts("id_292")}
     """
     if credential_manager and credential_name:
         await credential_manager.record_api_call_result(
@@ -172,15 +173,15 @@ async def record_api_call_error(
     model_key: Optional[str] = None
 ) -> None:
     """
-    记录API调用错误
+    {ts("id_1683")}API{ts("id_1685")}
     
     Args:
-        credential_manager: 凭证管理器实例
-        credential_name: 凭证名称
-        status_code: HTTP状态码
-        cooldown_until: 冷却截止时间（Unix时间戳）
-        mode: 模式（geminicli 或 antigravity）
-        model_key: 模型键（用于模型级CD）
+        credential_manager: {ts("id_1659")}
+        credential_name: {ts("id_1660")}
+        status_code: HTTP{ts("id_1461")}
+        cooldown_until: {ts("id_1686")}Unix{ts("id_1687")}
+        mode: {ts(f"id_1661")}geminicli {ts("id_413")} antigravity{ts("id_292")}
+        model_key: {ts("id_1684")}CD{ts("id_292")}
     """
     if credential_manager and credential_name:
         await credential_manager.record_api_call_result(
@@ -193,28 +194,28 @@ async def record_api_call_error(
         )
 
 
-# ==================== 429错误处理 ====================
+# ==================== 429{ts("id_1688")} ====================
 
 async def parse_and_log_cooldown(
     error_text: str,
     mode: str = "geminicli"
 ) -> Optional[float]:
     """
-    解析并记录冷却时间
+    {ts("id_1689")}
 
     Args:
-        error_text: 错误响应文本
-        mode: 模式（geminicli 或 antigravity）
+        error_text: {ts("id_1690")}
+        mode: {ts(f"id_1661")}geminicli {ts("id_413")} antigravity{ts("id_292")}
 
     Returns:
-        冷却截止时间（Unix时间戳），如果解析失败则返回None
+        {ts("id_1686")}Unix{ts("id_1691")}None
     """
     try:
         error_data = json.loads(error_text)
         cooldown_until = parse_quota_reset_timestamp(error_data)
         if cooldown_until:
             log.info(
-                f"[{mode.upper()}] 检测到quota冷却时间: "
+                ff"[{mode.upper()}] {ts("id_1693")}quota{ts("id_1692")}: "
                 f"{datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
             )
             return cooldown_until
@@ -223,24 +224,24 @@ async def parse_and_log_cooldown(
     return None
 
 
-# ==================== 流式响应收集 ====================
+# ==================== {ts("id_1694")} ====================
 
 async def collect_streaming_response(stream_generator) -> Response:
     """
-    将Gemini流式响应收集为一条完整的非流式响应
+    {ts("id_101")}Gemini{ts("id_1695")}
 
     Args:
-        stream_generator: 流式响应生成器，产生 "data: {json}" 格式的行或Response对象
+        stream_generator: {ts(f"id_1696")} "data: {json}" {ts("id_1697")}Response{ts("id_1509")}
 
     Returns:
-        Response: 合并后的完整响应对象
+        Response: {ts("id_1698")}
 
     Example:
         >>> async for line in stream_generator:
         ...     # line format: "data: {...}" or Response object
         >>> response = await collect_streaming_response(stream_generator)
     """
-    # 初始化响应结构
+    # {ts("id_1699")}
     merged_response = {
         "response": {
             "candidates": [{
@@ -260,9 +261,9 @@ async def collect_streaming_response(stream_generator) -> Response:
         }
     }
 
-    collected_text = []  # 用于收集文本内容
-    collected_thought_text = []  # 用于收集思维链内容
-    collected_other_parts = []  # 用于收集其他类型的parts（图片、文件等）
+    collected_text = []  # {ts("id_1700")}
+    collected_thought_text = []  # {ts("id_1701")}
+    collected_other_parts = []  # {ts("id_1702")}parts{ts("id_1703")}
     has_data = False
     line_count = 0
 
@@ -272,12 +273,12 @@ async def collect_streaming_response(stream_generator) -> Response:
         async for line in stream_generator:
             line_count += 1
 
-            # 如果收到的是Response对象（错误），直接返回
+            # {ts("id_1705")}Response{ts("id_1704")}
             if isinstance(line, Response):
-                log.debug(f"[STREAM COLLECTOR] 收到错误Response，状态码: {line.status_code}")
+                log.debug(ff"[STREAM COLLECTOR] {ts("id_1707")}Response{ts("id_1706")}: {line.status_code}")
                 return line
 
-            # 处理 bytes 类型
+            # {ts("id_590")} bytes {ts("id_1454")}
             if isinstance(line, bytes):
                 line_str = line.decode('utf-8', errors='ignore')
                 log.debug(f"[STREAM COLLECTOR] Processing bytes line {line_count}: {line_str[:200] if line_str else 'empty'}")
@@ -288,7 +289,7 @@ async def collect_streaming_response(stream_generator) -> Response:
                 log.debug(f"[STREAM COLLECTOR] Skipping non-string/bytes line: {type(line)}")
                 continue
 
-            # 解析流式数据行
+            # {ts("id_1708")}
             if not line_str.startswith("data: "):
                 log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line_str[:100]}")
                 continue
@@ -304,11 +305,11 @@ async def collect_streaming_response(stream_generator) -> Response:
                 has_data = True
                 log.debug(f"[STREAM COLLECTOR] Chunk keys: {chunk.keys() if isinstance(chunk, dict) else type(chunk)}")
 
-                # 提取响应对象
+                # {ts("id_1709")}
                 response_obj = chunk.get("response", {})
                 if not response_obj:
                     log.debug("[STREAM COLLECTOR] No 'response' key in chunk, trying direct access")
-                    response_obj = chunk  # 尝试直接使用chunk
+                    response_obj = chunk  # {ts("id_1710")}chunk
 
                 candidates = response_obj.get("candidates", [])
                 log.debug(f"[STREAM COLLECTOR] Found {len(candidates)} candidates")
@@ -318,7 +319,7 @@ async def collect_streaming_response(stream_generator) -> Response:
 
                 candidate = candidates[0]
 
-                # 收集文本内容
+                # {ts("id_1711")}
                 content = candidate.get("content", {})
                 parts = content.get("parts", [])
                 log.debug(f"[STREAM COLLECTOR] Processing {len(parts)} parts from candidate")
@@ -327,22 +328,22 @@ async def collect_streaming_response(stream_generator) -> Response:
                     if not isinstance(part, dict):
                         continue
 
-                    # 处理文本内容
+                    # {ts("id_1712")}
                     text = part.get("text", "")
                     if text:
-                        # 区分普通文本和思维链
+                        # {ts("id_1713")}
                         if part.get("thought", False):
                             collected_thought_text.append(text)
                             log.debug(f"[STREAM COLLECTOR] Collected thought text: {text[:100]}")
                         else:
                             collected_text.append(text)
                             log.debug(f"[STREAM COLLECTOR] Collected regular text: {text[:100]}")
-                    # 处理非文本内容（图片、文件等）
+                    # {ts("id_1714")}
                     elif "inlineData" in part or "fileData" in part or "executableCode" in part or "codeExecutionResult" in part:
                         collected_other_parts.append(part)
                         log.debug(f"[STREAM COLLECTOR] Collected non-text part: {list(part.keys())}")
 
-                # 收集其他信息（使用最后一个块的值）
+                # {ts("id_1715")}
                 if candidate.get("finishReason"):
                     merged_response["response"]["candidates"][0]["finishReason"] = candidate["finishReason"]
 
@@ -352,7 +353,7 @@ async def collect_streaming_response(stream_generator) -> Response:
                 if candidate.get("citationMetadata"):
                     merged_response["response"]["candidates"][0]["citationMetadata"] = candidate["citationMetadata"]
 
-                # 更新使用元数据
+                # {ts("id_1716")}
                 usage = response_obj.get("usageMetadata", {})
                 if usage:
                     merged_response["response"]["usageMetadata"].update(usage)
@@ -367,14 +368,14 @@ async def collect_streaming_response(stream_generator) -> Response:
     except Exception as e:
         log.error(f"[STREAM COLLECTOR] Error collecting stream after {line_count} lines: {e}")
         return Response(
-            content=json.dumps({"error": f"收集流式响应失败: {str(e)}"}),
+            content=json.dumps({f"error": f"{ts("id_1717")}: {str(e)}"}),
             status_code=500,
             media_type="application/json"
         )
 
     log.debug(f"[STREAM COLLECTOR] Finished iteration, has_data={has_data}, line_count={line_count}")
 
-    # 如果没有收集到任何数据，返回错误
+    # {ts("id_1718")}
     if not has_data:
         log.error(f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines")
         return Response(
@@ -383,26 +384,26 @@ async def collect_streaming_response(stream_generator) -> Response:
             media_type="application/json"
         )
 
-    # 组装最终的parts
+    # {ts("id_1719")}parts
     final_parts = []
 
-    # 先添加思维链内容（如果有）
+    # {ts("id_1720")}
     if collected_thought_text:
         final_parts.append({
             "text": "".join(collected_thought_text),
             "thought": True
         })
 
-    # 再添加普通文本内容
+    # {ts("id_1721")}
     if collected_text:
         final_parts.append({
             "text": "".join(collected_text)
         })
 
-    # 添加其他类型的parts（图片、文件等）
+    # {ts("id_1722")}parts{ts("id_1703")}
     final_parts.extend(collected_other_parts)
 
-    # 如果没有任何内容，添加空文本
+    # {ts("id_1723")}
     if not final_parts:
         final_parts.append({"text": ""})
 
@@ -410,12 +411,12 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     log.info(f"[STREAM COLLECTOR] Collected {len(collected_text)} text chunks, {len(collected_thought_text)} thought chunks, and {len(collected_other_parts)} other parts")
 
-    # 去掉嵌套的 "response" 包装（Antigravity格式 -> 标准Gemini格式）
+    # {ts(f"id_1724")} "response" {ts("id_1725")}Antigravity{ts("id_57f")} -> {ts("id_1726")}Gemini{ts("id_493")}
     if "response" in merged_response and "candidates" not in merged_response:
-        log.debug(f"[STREAM COLLECTOR] 展开response包装")
+        log.debug(ff"[STREAM COLLECTOR] {ts("id_953")}response{ts("id_1727")}")
         merged_response = merged_response["response"]
 
-    # 返回纯JSON格式
+    # {ts("id_1728")}JSON{ts("id_57")}
     return Response(
         content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
         status_code=200,
@@ -426,15 +427,15 @@ async def collect_streaming_response(stream_generator) -> Response:
 
 def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     """
-    从Google API错误响应中提取quota重置时间戳
+    {ts(f"id_1731")}Google API{ts("id_1729")}quota{ts("id_1730")}
 
     Args:
-        error_response: Google API返回的错误响应字典
+        error_response: Google API{ts("id_1732")}
 
     Returns:
-        Unix时间戳（秒），如果无法解析则返回None
+        Unix{ts("id_1733")}None
 
-    示例错误响应:
+    {ts("id_1734")}:
     {
       "error": {
         "code": 429,
@@ -477,22 +478,22 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
 def get_model_group(model_name: str) -> str:
     """
-    获取模型组，用于 GCLI CD 机制。
+    {ts("id_1735")} GCLI CD {ts("id_1736")}
 
     Args:
-        model_name: 模型名称
+        model_name: {ts("id_1737")}
 
     Returns:
-        "pro" 或 "flash"
+        f"pro" {ts("id_413")} "flash"
 
-    说明:
-        - pro 组: gemini-2.5-pro, gemini-3-pro-preview 共享额度
-        - flash 组: gemini-2.5-flash 单独额度
+    {ts("id_1738")}:
+        - pro {ts("id_1740")}: gemini-2.5-pro, gemini-3-pro-preview {ts("id_1739")}
+        - flash {ts("id_1740")}: gemini-2.5-flash {ts("id_1741")}
     """
 
-    # 判断模型组
+    # {ts("id_1742")}
     if "flash" in model_name.lower():
         return "flash"
     else:
-        # pro 模型（包括 gemini-2.5-pro 和 gemini-3-pro-preview）
+        # pro {ts(f"id_1743")} gemini-2.5-pro {ts("id_15")} gemini-3-pro-preview{ts("id_292")}
         return "pro"
