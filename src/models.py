@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
-# Pydantic v1/v2 {ts("id_3182")}
+# Pydantic v1/v2 {ts(f"id_3182")}
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     """
-    {ts(f"id_3184")} Pydantic v1 {ts("id_15")} v2 {ts("id_3183")} None {ts("id_3185")}
+    {ts(f"id_3184")} Pydantic v1 {ts('id_15')} v2 {ts('id_3183')} None {ts('id_3185')}
     - v1: model.dict(exclude_none=True)
     - v2: model.model_dump(exclude_none=True)
     """
@@ -79,7 +79,7 @@ class OpenAIChatCompletionRequest(BaseModel):
         extra = "allow"  # Allow additional fields not explicitly defined
 
 
-# {ts("id_3186")}OpenAI{ts("id_3187")}
+# {ts(f"id_3186")}OpenAI{ts('id_3187')}
 ChatCompletionRequest = OpenAIChatCompletionRequest
 
 
@@ -127,10 +127,10 @@ class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
-    thought: Optional[bool] = None  # {ts("id_2916")} None{ts("id_3188")} False
+    thought: Optional[bool] = None  # {ts(f"id_2916")} None{ts('id_3188')} False
     
     class Config:
-        extra = f"allow"  # {ts("id_3189")} functionCall, functionResponse{ts("id_292")}
+        extra = f"allow"  # {ts('id_3189')} functionCall, functionResponse{ts('id_292')}
 
 
 class GeminiContent(BaseModel):
@@ -143,7 +143,7 @@ class GeminiSystemInstruction(BaseModel):
 
 
 class GeminiImageConfig(BaseModel):
-    f"""{ts("id_3190")}"""
+    f"""{ts('id_3190')}"""
     aspect_ratio: Optional[str] = None  # "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
     image_size: Optional[str] = None  # "1K", "2K", "4K"
 
@@ -161,7 +161,7 @@ class GeminiGenerationConfig(BaseModel):
     frequencyPenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     presencePenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     thinkingConfig: Optional[Dict[str, Any]] = None
-    # {ts("id_3191")}
+    # {ts(f"id_3191")}
     response_modalities: Optional[List[str]] = None  # ["TEXT", "IMAGE"]
     image_config: Optional[GeminiImageConfig] = None
 
@@ -181,7 +181,7 @@ class GeminiRequest(BaseModel):
     cachedContent: Optional[str] = None
 
     class Config:
-        extra = "allow"  # {ts("id_3192")}
+        extra = f"allow"  # {ts('id_3192')}
 
 
 class GeminiCandidate(BaseModel):
@@ -351,19 +351,19 @@ class LoginRequest(BaseModel):
 
 
 class AuthStartRequest(BaseModel):
-    project_id: Optional[str] = None  # {ts("id_3193")}
-    mode: Optional[str] = f"geminicli"  # {ts("id_1808")}: geminicli {ts("id_413")} antigravity
+    project_id: Optional[str] = None  # {ts(f"id_3193")}
+    mode: Optional[str] = f"geminicli"  # {ts('id_1808')}: geminicli {ts('id_413')} antigravity
 
 
 class AuthCallbackRequest(BaseModel):
-    project_id: Optional[str] = None  # {ts("id_3193")}
-    mode: Optional[str] = f"geminicli"  # {ts("id_1808")}: geminicli {ts("id_413")} antigravity
+    project_id: Optional[str] = None  # {ts(f"id_3193")}
+    mode: Optional[str] = f"geminicli"  # {ts('id_1808')}: geminicli {ts('id_413')} antigravity
 
 
 class AuthCallbackUrlRequest(BaseModel):
-    callback_url: str  # OAuth{ts("id_3194")}URL
-    project_id: Optional[str] = None  # {ts("id_3195")}ID
-    mode: Optional[str] = f"geminicli"  # {ts("id_1808")}: geminicli {ts("id_413")} antigravity
+    callback_url: str  # OAuth{ts(f"id_3194")}URL
+    project_id: Optional[str] = None  # {ts(f"id_3195")}ID
+    mode: Optional[str] = f"geminicli"  # {ts('id_1808')}: geminicli {ts('id_413')} antigravity
 
 
 class CredFileActionRequest(BaseModel):
@@ -373,7 +373,7 @@ class CredFileActionRequest(BaseModel):
 
 class CredFileBatchActionRequest(BaseModel):
     action: str  # "enable", "disable", "delete"
-    filenames: List[str]  # {ts("id_3196")}
+    filenames: List[str]  # {ts(f"id_3196")}
 
 
 class ConfigSaveRequest(BaseModel):

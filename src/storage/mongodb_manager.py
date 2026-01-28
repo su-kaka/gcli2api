@@ -1,6 +1,6 @@
 from src.i18n import ts
 """
-MongoDB {ts("id_3386")}
+MongoDB {ts(f"id_3386")}
 """
 
 import os
@@ -14,9 +14,9 @@ from log import log
 
 
 class MongoDBManager:
-    f"""MongoDB {ts("id_3387")}"""
+    f"""MongoDB {ts('id_3387')}"""
 
-    # {ts("id_3388")}
+    # {ts(f"id_3388")}
     STATE_FIELDS = {
         "error_codes",
         "disabled",
@@ -28,13 +28,13 @@ class MongoDBManager:
     @staticmethod
     def _escape_model_key(model_key: str) -> str:
         """
-        {ts(f"id_3390")},{ts("id_3391")} MongoDB {ts("id_3389")}
+        {ts(f"id_3390")},{ts('id_3391')} MongoDB {ts('id_3389')}
 
         Args:
-            model_key: {ts(f"id_3392")} ({ts("id_716")} "gemini-2.5-flash")
+            model_key: {ts(f"id_3392")} ({ts('id_716')} "gemini-2.5-flash")
 
         Returns:
-            {ts(f"id_3393")} ({ts("id_716")} "gemini-2-5-flash")
+            {ts(f"id_3393")} ({ts('id_716')} "gemini-2-5-flash")
         """
         return model_key.replace(".", "-")
 
@@ -43,12 +43,12 @@ class MongoDBManager:
         self._db: Optional[AsyncIOMotorDatabase] = None
         self._initialized = False
 
-        # {ts("id_3395")} - {ts("id_3394")}
+        # {ts(f"id_3395")} - {ts('id_3394')}
         self._config_cache: Dict[str, Any] = {}
         self._config_loaded = False
 
     async def initialize(self) -> None:
-        f"""{ts("id_1111")} MongoDB {ts("id_451")}"""
+        f"""{ts('id_1111')} MongoDB {ts('id_451')}"""
         if self._initialized:
             return
 
@@ -62,13 +62,13 @@ class MongoDBManager:
             self._client = AsyncIOMotorClient(mongodb_uri)
             self._db = self._client[database_name]
 
-            # {ts("id_3396")}
+            # {ts(f"id_3396")}
             await self._db.command("ping")
 
-            # {ts("id_3397")}
+            # {ts(f"id_3397")}
             await self._create_indexes()
 
-            # {ts("id_3398")}
+            # {ts(f"id_3398")}
             await self._load_config_cache()
 
             self._initialized = True
@@ -79,36 +79,36 @@ class MongoDBManager:
             raise
 
     async def _create_indexes(self):
-        f"""{ts("id_3397")}"""
+        f"""{ts('id_3397')}"""
         credentials_collection = self._db["credentials"]
         antigravity_credentials_collection = self._db["antigravity_credentials"]
 
-        # {ts("id_3399")}
+        # {ts(f"id_3399")}
         await credentials_collection.create_index("filename", unique=True)
         await credentials_collection.create_index("disabled")
         await credentials_collection.create_index("rotation_order")
 
-        # {ts("id_3400")}
+        # {ts(f"id_3400")}
         await credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
 
-        # {ts("id_3401")}
+        # {ts(f"id_3401")}
         await credentials_collection.create_index("error_codes")
 
-        # {ts("id_1029")} Antigravity {ts("id_3402")}
+        # {ts(f"id_1029")} Antigravity {ts('id_3402')}
         await antigravity_credentials_collection.create_index("filename", unique=True)
         await antigravity_credentials_collection.create_index("disabled")
         await antigravity_credentials_collection.create_index("rotation_order")
 
-        # {ts("id_3400")}
+        # {ts(f"id_3400")}
         await antigravity_credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
 
-        # {ts("id_3401")}
+        # {ts(f"id_3401")}
         await antigravity_credentials_collection.create_index("error_codes")
 
         log.debug("MongoDB indexes created")
 
     async def _load_config_cache(self):
-        f"""{ts("id_3403")}"""
+        f"""{ts('id_3403')}"""
         if self._config_loaded:
             return
 
@@ -127,7 +127,7 @@ class MongoDBManager:
             self._config_cache = {}
 
     async def close(self) -> None:
-        f"""{ts("id_1169")} MongoDB {ts("id_451")}"""
+        f"""{ts('id_1169')} MongoDB {ts('id_451')}"""
         if self._client:
             self._client.close()
             self._client = None
@@ -136,12 +136,12 @@ class MongoDBManager:
         log.debug("MongoDB storage closed")
 
     def _ensure_initialized(self):
-        f"""{ts("id_2978")}"""
+        f"""{ts('id_2978')}"""
         if not self._initialized:
             raise RuntimeError("MongoDB manager not initialized")
 
     def _get_collection_name(self, mode: str) -> str:
-        f"""{ts("id_2136")} mode {ts("id_3404")}"""
+        f"""{ts('id_2136')} mode {ts('id_3404')}"""
         if mode == "antigravity":
             return "antigravity_credentials"
         elif mode == "geminicli":
@@ -149,25 +149,25 @@ class MongoDBManager:
         else:
             raise ValueError(f"Invalid mode: {mode}. Must be 'geminicli' or 'antigravity'")
 
-    # ============ SQL {ts("id_3405")} ============
+    # ============ SQL {ts(f"id_3405")} ============
 
     async def get_next_available_credential(
         self, mode: str = "geminicli", model_key: Optional[str] = None
     ) -> Optional[tuple[str, Dict[str, Any]]]:
         """
-        {ts("id_3406")}
-        - {ts("id_3407")}
-        - {ts("id_2996")} model_key{ts("id_3408")}
-        - {ts("id_3409")}
+        {ts(f"id_3406")}
+        - {ts(f"id_3407")}
+        - {ts(f"id_2996")} model_key{ts('id_3408')}
+        - {ts(f"id_3409")}
 
         Args:
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
-            model_key: {ts(f"id_3410")}antigravity {ts("id_3411")}gcli {ts("id_3412")} pro/flash{ts("id_292")}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
+            model_key: {ts(f"id_3410")}antigravity {ts('id_3411')}gcli {ts('id_3412')} pro/flash{ts('id_292')}
 
         Note:
-            - {ts(f"id_2608")} antigravity: model_key {ts("id_3413")} "gemini-2.0-flash-exp"{ts("id_292")}
-            - {ts(f"id_2608")} gcli: model_key {ts("id_150")} "prof" {ts("id_413")} "flash"
-            - {ts("id_3414")}
+            - {ts(f"id_2608")} antigravity: model_key {ts('id_3413')} "gemini-2.0-flash-exp"{ts('id_292')}
+            - {ts(f"id_2608")} gcli: model_key {ts('id_150')} "prof" {ts('id_413')} "flash"
+            - {ts(f"id_3414")}
         """
         self._ensure_initialized()
 
@@ -176,38 +176,38 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # {ts("id_3415")}
+            # {ts(f"id_3415")}
             pipeline = [
-                # {ts("id_3417")}: {ts("id_3416")}
+                # {ts(f"id_3417")}: {ts('id_3416')}
                 {"$match": {"disabled": False}},
             ]
 
-            # {ts("id_2996")} model_key{ts("id_3418")}
+            # {ts(f"id_2996")} model_key{ts('id_3418')}
             if model_key:
-                # {ts("id_3390")}
+                # {ts(f"id_3390")}
                 escaped_model_key = self._escape_model_key(model_key)
                 pipeline.extend([
-                    # {ts("id_3420")}: {ts("id_3419")}
+                    # {ts(f"id_3420")}: {ts('id_3419')}
                     {
                         "$addFields": {
                             "is_available": {
                                 "$or": [
-                                    # model_cooldowns {ts("id_3421")} model_key
+                                    # model_cooldowns {ts(f"id_3421")} model_key
                                     {"$not": {"$ifNull": [f"$model_cooldowns.{escaped_model_key}", False]}},
-                                    # {ts("id_3422")}
+                                    # {ts(f"id_3422")}
                                     {"$lte": [f"$model_cooldowns.{escaped_model_key}", current_time]}
                                 ]
                             }
                         }
                     },
-                    # {ts("id_3424")}: {ts("id_3423")}
+                    # {ts(f"id_3424")}: {ts('id_3423')}
                     {"$match": {"is_available": True}},
                 ])
 
-            # {ts("id_3426")}: {ts("id_3425")}
+            # {ts(f"id_3426")}: {ts('id_3425')}
             pipeline.append({"$sample": {"size": 1}})
 
-            # {ts("id_3428")}: {ts("id_3427")}
+            # {ts(f"id_3428")}: {ts('id_3427')}
             pipeline.append({
                 "$project": {
                     "filename": 1,
@@ -216,7 +216,7 @@ class MongoDBManager:
                 }
             })
 
-            # {ts("id_3429")}
+            # {ts(f"id_3429")}
             docs = await collection.aggregate(pipeline).to_list(length=1)
 
             if docs:
@@ -231,9 +231,9 @@ class MongoDBManager:
 
     async def get_available_credentials_list(self, mode: str = "geminicli") -> List[str]:
         """
-        {ts("id_3430")}
-        - {ts("id_3407")}
-        - {ts("id_3431")}
+        {ts(f"id_3430")}
+        - {ts(f"id_3407")}
+        - {ts(f"id_3431")}
         """
         self._ensure_initialized()
 
@@ -254,10 +254,10 @@ class MongoDBManager:
             log.error(f"Error getting available credentials list (mode={mode}): {e}")
             return []
 
-    # ============ StorageBackend {ts("id_3432")} ============
+    # ============ StorageBackend {ts(f"id_3432")} ============
 
     async def store_credential(self, filename: str, credential_data: Dict[str, Any], mode: str = "geminicli") -> bool:
-        f"""{ts("id_3433")}"""
+        f"""{ts('id_3433')}"""
         self._ensure_initialized()
 
         try:
@@ -265,11 +265,11 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_ts = time.time()
 
-            # {ts("id_463")} upsert + $setOnInsert
-            # {ts("id_3434")} credential_data {ts("id_15")} updated_at
-            # {ts("id_3435")}
+            # {ts(f"id_463")} upsert + $setOnInsert
+            # {ts(f"id_3434")} credential_data {ts('id_15')} updated_at
+            # {ts(f"id_3435")}
 
-            # {ts("id_3436")}
+            # {ts(f"id_3436")}
             result = await collection.update_one(
                 {"filename": filename},
                 {
@@ -280,9 +280,9 @@ class MongoDBManager:
                 }
             )
 
-            # {ts("id_3437")}
+            # {ts(f"id_3437")}
             if result.matched_count == 0:
-                # {ts("id_3438")} rotation_order
+                # {ts(f"id_3438")} rotation_order
                 pipeline = [
                     {"$group": {"_id": None, "max_order": {"$max": "$rotation_order"}}},
                     {"$project": {"_id": 0, "next_order": {"$add": ["$max_order", 1]}}}
@@ -291,7 +291,7 @@ class MongoDBManager:
                 result_list = await collection.aggregate(pipeline).to_list(length=1)
                 next_order = result_list[0]["next_order"] if result_list else 0
 
-                # {ts("id_3440")} insert_one{ts("id_3439")}
+                # {ts(f"id_3440")} insert_one{ts('id_3439')}
                 try:
                     await collection.insert_one({
                         "filename": filename,
@@ -307,9 +307,9 @@ class MongoDBManager:
                         "updated_at": current_ts,
                     })
                 except Exception as insert_error:
-                    # {ts("id_3441")}
+                    # {ts(f"id_3441")}
                     if "duplicate key" in str(insert_error).lower():
-                        # {ts("id_3442")}
+                        # {ts(f"id_3442")}
                         await collection.update_one(
                             {"filename": filename},
                             {"$set": {"credential_data": credential_data, "updated_at": current_ts}}
@@ -325,14 +325,14 @@ class MongoDBManager:
             return False
 
     async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
-        f"""{ts("id_3443")}basename{ts("id_3444")}"""
+        f"""{ts('id_3443')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3445")}
+            # {ts(f"id_3445")}
             doc = await collection.find_one(
                 {"filename": filename},
                 {"credential_data": 1, "_id": 0}
@@ -340,8 +340,8 @@ class MongoDBManager:
             if doc:
                 return doc.get("credential_data")
 
-            # {ts("id_3447")}basename{ts("id_3446")}
-            # {ts(f"id_3449")} $regex {ts("id_3448")} $or {ts("id_1889")}
+            # {ts(f"id_3447")}basename{ts('id_3446')}
+            # {ts(f"id_3449")} $regex {ts('id_3448')} $or {ts('id_1889')}
             regex_pattern = re.escape(filename)
             doc = await collection.find_one(
                 {"filename": {"$regex": f".*{regex_pattern}$"}},
@@ -358,14 +358,14 @@ class MongoDBManager:
             return None
 
     async def list_credentials(self, mode: str = "geminicli") -> List[str]:
-        f"""{ts("id_3450")}"""
+        f"""{ts('id_3450')}"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3451")}
+            # {ts(f"id_3451")}
             pipeline = [
                 {"$sort": {"rotation_order": 1}},
                 {"$project": {"filename": 1, "_id": 0}}
@@ -379,18 +379,18 @@ class MongoDBManager:
             return []
 
     async def delete_credential(self, filename: str, mode: str = "geminicli") -> bool:
-        f"""{ts("id_3452")}basename{ts("id_3444")}"""
+        f"""{ts('id_3452')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3453")}
+            # {ts(f"id_3453")}
             result = await collection.delete_one({"filename": filename})
             deleted_count = result.deleted_count
 
-            # {ts("id_3454")}basename{ts("id_3455")}
+            # {ts(f"id_3454")}basename{ts('id_3455')}
             if deleted_count == 0:
                 regex_pattern = re.escape(filename)
                 result = await collection.delete_one({
@@ -411,14 +411,14 @@ class MongoDBManager:
 
     async def get_duplicate_credentials_by_email(self, mode: str = "geminicli") -> Dict[str, Any]:
         """
-        {ts("id_3456")}
-        {ts("id_3457")}
+        {ts(f"id_3456")}
+        {ts(f"id_3457")}
 
         Args:
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
 
         Returns:
-            {ts(f"id_906")} email_groups{ts("id_3460")}duplicate_count{ts("id_3459")}no_email_count{ts("id_3458")}
+            {ts(f"id_906")} email_groups{ts('id_3460')}duplicate_count{ts('id_3459')}no_email_count{ts('id_3458')}
         """
         self._ensure_initialized()
 
@@ -426,7 +426,7 @@ class MongoDBManager:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts(f"id_3461")} filename {ts("id_15")} user_email {ts("id_2018")}
+            # {ts(f"id_3461")} filename {ts('id_15')} user_email {ts('id_2018')}
             pipeline = [
                 {
                     "$project": {
@@ -442,7 +442,7 @@ class MongoDBManager:
 
             docs = await collection.aggregate(pipeline).to_list(length=None)
 
-            # {ts("id_3462")}
+            # {ts(f"id_3462")}
             email_to_files = {}
             no_email_files = []
 
@@ -457,13 +457,13 @@ class MongoDBManager:
                 else:
                     no_email_files.append(filename)
 
-            # {ts("id_3463")}
+            # {ts(f"id_3463")}
             duplicate_groups = []
             total_duplicate_count = 0
 
             for email, files in email_to_files.items():
                 if len(files) > 1:
-                    # {ts("id_3464")}
+                    # {ts(f"id_3464")}
                     duplicate_groups.append({
                         "email": email,
                         "kept_file": files[0],
@@ -497,14 +497,14 @@ class MongoDBManager:
     async def update_credential_state(
         self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli"
     ) -> bool:
-        f"""{ts("id_3465")}basename{ts("id_3444")}"""
+        f"""{ts('id_3465')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3466")}
+            # {ts(f"id_3466")}
             valid_updates = {
                 k: v for k, v in state_updates.items() if k in self.STATE_FIELDS
             }
@@ -514,13 +514,13 @@ class MongoDBManager:
 
             valid_updates["updated_at"] = time.time()
 
-            # {ts("id_3467")}
+            # {ts(f"id_3467")}
             result = await collection.update_one(
                 {"filename": filename}, {"$set": valid_updates}
             )
             updated_count = result.modified_count + result.matched_count
 
-            # {ts("id_3468")}basename{ts("id_3455")}
+            # {ts(f"id_3468")}basename{ts('id_3455')}
             if updated_count == 0:
                 regex_pattern = re.escape(filename)
                 result = await collection.update_one(
@@ -536,7 +536,7 @@ class MongoDBManager:
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        f"""{ts("id_3469")}basename{ts("id_3444")}"""
+        f"""{ts('id_3469')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
@@ -544,12 +544,12 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # {ts("id_3470")}
+            # {ts(f"id_3470")}
             doc = await collection.find_one({"filename": filename})
 
             if doc:
                 model_cooldowns = doc.get("model_cooldowns", {})
-                # {ts(f"id_3471")}(dict{ts("id_1454")}){ts("id_3472")}
+                # {ts(f"id_3471")}(dict{ts('id_1454')}){ts('id_3472')}
                 if model_cooldowns:
                     model_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
@@ -564,7 +564,7 @@ class MongoDBManager:
                     "model_cooldowns": model_cooldowns,
                 }
 
-            # {ts("id_3473")}basename{ts("id_3455")}
+            # {ts(f"id_3473")}basename{ts('id_3455')}
             regex_pattern = re.escape(filename)
             doc = await collection.find_one({
                 "filename": {"$regex": f".*{regex_pattern}$"}
@@ -572,7 +572,7 @@ class MongoDBManager:
 
             if doc:
                 model_cooldowns = doc.get("model_cooldowns", {})
-                # {ts(f"id_3471")}(dict{ts("id_1454")}){ts("id_3472")}
+                # {ts(f"id_3471")}(dict{ts('id_1454')}){ts('id_3472')}
                 if model_cooldowns:
                     model_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
@@ -587,7 +587,7 @@ class MongoDBManager:
                     "model_cooldowns": model_cooldowns,
                 }
 
-            # {ts("id_3474")}
+            # {ts(f"id_3474")}
             return {
                 "disabled": False,
                 "error_codes": [],
@@ -601,14 +601,14 @@ class MongoDBManager:
             return {}
 
     async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
-        f"""{ts("id_3475")}"""
+        f"""{ts('id_3475')}"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3476")}
+            # {ts(f"id_3476")}
             cursor = collection.find(
                 {},
                 projection={
@@ -629,7 +629,7 @@ class MongoDBManager:
                 filename = doc["filename"]
                 model_cooldowns = doc.get("model_cooldowns", {})
 
-                # {ts("id_3477")}CD
+                # {ts(f"id_3477")}CD
                 if model_cooldowns:
                     model_cooldowns = {
                         k: v for k, v in model_cooldowns.items()
@@ -660,34 +660,34 @@ class MongoDBManager:
         cooldown_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        {ts("id_3478")}- {ts("id_3479")}
+        {ts(f"id_3478")}- {ts('id_3479')}
 
         Args:
-            offset: {ts("id_34800")}{ts("id_292")}
-            limit: {ts("id_3481")}None{ts("id_3482")}
-            status_filter: {ts(f"id_3483")}all={ts("id_1238")}, enabled={ts("id_724")}, disabled={ts("id_3484")}
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
-            error_code_filter: {ts(f"id_3486")}"400"{ts("id_413")}"403"{ts("id_3485")}
-            cooldown_filter: {ts(f"id_3487")}"in_cooldown"={ts("id_3489")}, "no_cooldown"={ts("id_3488")}
+            offset: {ts(f"id_34800")}{ts('id_292')}
+            limit: {ts(f"id_3481")}None{ts('id_3482')}
+            status_filter: {ts(f"id_3483")}all={ts('id_1238')}, enabled={ts('id_724')}, disabled={ts('id_3484')}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
+            error_code_filter: {ts(f"id_3486")}"400"{ts('id_413')}"403"{ts('id_3485')}
+            cooldown_filter: {ts(f"id_3487")}"in_cooldown"={ts('id_3489')}, "no_cooldown"={ts('id_3488')}
 
         Returns:
-            {ts(f"id_906")} items{ts("id_3490")}total{ts("id_3491f")}offset{ts("id_189")}limit {ts("id_2782")}
+            {ts(f"id_906")} items{ts('id_3490')}total{ts('id_3491f')}offset{ts('id_189')}limit {ts('id_2782')}
         """
         self._ensure_initialized()
 
         try:
-            # {ts("id_2136")} mode {ts("id_3492")}
+            # {ts(f"id_2136")} mode {ts('id_3492')}
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3493")}
+            # {ts(f"id_3493")}
             query = {}
             if status_filter == "enabled":
                 query["disabled"] = False
             elif status_filter == "disabled":
                 query["disabled"] = True
 
-            # {ts("id_3495")} - {ts("id_3494")}
+            # {ts(f"id_3495")} - {ts('id_3494')}
             if error_code_filter and str(error_code_filter).strip().lower() != "all":
                 filter_value = str(error_code_filter).strip()
                 query_values = [filter_value]
@@ -697,7 +697,7 @@ class MongoDBManager:
                     pass
                 query["error_codes"] = {"$in": query_values}
 
-            # {ts("id_3496")}
+            # {ts(f"id_3496")}
             global_stats = {"total": 0, "normal": 0, "disabled": 0}
             stats_pipeline = [
                 {
@@ -717,7 +717,7 @@ class MongoDBManager:
                 else:
                     global_stats["normal"] = count
 
-            # {ts("id_3497")}Python{ts("id_3498")}
+            # {ts(f"id_3497")}Python{ts('id_3498')}
             cursor = collection.find(
                 query,
                 projection={
@@ -738,7 +738,7 @@ class MongoDBManager:
             async for doc in cursor:
                 model_cooldowns = doc.get("model_cooldowns", {})
 
-                # {ts("id_3477")}CD
+                # {ts(f"id_3477")}CD
                 active_cooldowns = {}
                 if model_cooldowns:
                     active_cooldowns = {
@@ -756,20 +756,20 @@ class MongoDBManager:
                     "model_cooldowns": active_cooldowns,
                 }
 
-                # {ts("id_3499")}
+                # {ts(f"id_3499")}
                 if cooldown_filter == "in_cooldown":
-                    # {ts("id_3500")}
+                    # {ts(f"id_3500")}
                     if active_cooldowns:
                         all_summaries.append(summary)
                 elif cooldown_filter == "no_cooldown":
-                    # {ts("id_3501")}
+                    # {ts(f"id_3501")}
                     if not active_cooldowns:
                         all_summaries.append(summary)
                 else:
-                    # {ts("id_3502")}
+                    # {ts(f"id_3502")}
                     all_summaries.append(summary)
 
-            # {ts("id_3503")}
+            # {ts(f"id_3503")}
             total_count = len(all_summaries)
             if limit is not None:
                 summaries = all_summaries[offset:offset + limit]
@@ -794,10 +794,10 @@ class MongoDBManager:
                 "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
-    # ============ {ts("id_3504")}============
+    # ============ {ts(f"id_3504")}============
 
     async def set_config(self, key: str, value: Any) -> bool:
-        f"""{ts("id_3505")} + {ts("id_3506")}"""
+        f"""{ts('id_3505')} + {ts('id_3506')}"""
         self._ensure_initialized()
 
         try:
@@ -808,7 +808,7 @@ class MongoDBManager:
                 upsert=True,
             )
 
-            # {ts("id_3507")}
+            # {ts(f"id_3507")}
             self._config_cache[key] = value
             return True
 
@@ -817,31 +817,31 @@ class MongoDBManager:
             return False
 
     async def reload_config_cache(self):
-        f"""{ts("id_3508")}"""
+        f"""{ts('id_3508')}"""
         self._ensure_initialized()
         self._config_loaded = False
         await self._load_config_cache()
         log.info("Config cache reloaded from database")
 
     async def get_config(self, key: str, default: Any = None) -> Any:
-        f"""{ts("id_3509")}"""
+        f"""{ts('id_3509')}"""
         self._ensure_initialized()
         return self._config_cache.get(key, default)
 
     async def get_all_config(self) -> Dict[str, Any]:
-        f"""{ts("id_3510")}"""
+        f"""{ts('id_3510')}"""
         self._ensure_initialized()
         return self._config_cache.copy()
 
     async def delete_config(self, key: str) -> bool:
-        f"""{ts("id_3511")}"""
+        f"""{ts('id_3511')}"""
         self._ensure_initialized()
 
         try:
             config_collection = self._db["config"]
             result = await config_collection.delete_one({"key": key})
 
-            # {ts("id_3512")}
+            # {ts(f"id_3512")}
             self._config_cache.pop(key, None)
             return result.deleted_count > 0
 
@@ -849,7 +849,7 @@ class MongoDBManager:
             log.error(f"Error deleting config {key}: {e}")
             return False
 
-    # ============ {ts("id_3513")} ============
+    # ============ {ts(f"id_3513")} ============
 
     async def set_model_cooldown(
         self,
@@ -859,16 +859,16 @@ class MongoDBManager:
         mode: str = "geminicli"
     ) -> bool:
         """
-        {ts("id_3514")}
+        {ts(f"id_3514")}
 
         Args:
-            filename: {ts("id_3515")}
-            model_key: {ts(f"id_3516")}antigravity {ts("id_3411")}gcli {ts("id_3412")} pro/flash{ts("id_292")}
-            cooldown_until: {ts("id_2991")}None {ts("id_3517")}
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
+            filename: {ts(f"id_3515")}
+            model_key: {ts(f"id_3516")}antigravity {ts('id_3411')}gcli {ts('id_3412')} pro/flash{ts('id_292')}
+            cooldown_until: {ts(f"id_2991")}None {ts('id_3517')}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
 
         Returns:
-            {ts("id_2989")}
+            {ts(f"id_2989")}
         """
         self._ensure_initialized()
 
@@ -876,12 +876,12 @@ class MongoDBManager:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # {ts("id_3390")}
+            # {ts(f"id_3390")}
             escaped_model_key = self._escape_model_key(model_key)
 
-            # {ts("id_3518")}
+            # {ts(f"id_3518")}
             if cooldown_until is None:
-                # {ts("id_3519")}
+                # {ts(f"id_3519")}
                 result = await collection.update_one(
                     {"filename": filename},
                     {
@@ -890,7 +890,7 @@ class MongoDBManager:
                     }
                 )
             else:
-                # {ts("id_3520")}
+                # {ts(f"id_3520")}
                 result = await collection.update_one(
                     {"filename": filename},
                     {

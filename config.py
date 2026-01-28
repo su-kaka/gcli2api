@@ -5,19 +5,22 @@ Centralizes all configuration to avoid duplication across modules.
 
 import os
 from typing import Any, Optional
+from dotenv import load_dotenv
+load_dotenv()
+from src.i18n import ts
 
-# {ts("id_649")}
+# {ts(f"id_649")}
 _config_cache: dict[str, Any] = {}
 _config_initialized = False
 
 # Client Configuration
 
-# {ts("id_651")} ({ts("id_650")})
+# {ts(f"id_651")} ({ts('id_650')})
 AUTO_BAN_ERROR_CODES = [403]
 
-# ====================== {ts("id_652")} ======================
-# {ts("id_653")}
-# {ts(f"id_57")}: "{ts("id_654")}": f"{ts("id_655")}"
+# ====================== {ts(f"id_652")} ======================
+# {ts(f"id_653")}
+# {ts(f"id_57")}: "{ts('id_654')}": f"{ts('id_655')}"
 ENV_MAPPINGS = {
     "CODE_ASSIST_ENDPOINT": "code_assist_endpoint",
     "CREDENTIALS_DIR": "credentials_dir",
@@ -41,13 +44,14 @@ ENV_MAPPINGS = {
     "API_PASSWORD": "api_password",
     "PANEL_PASSWORD": "panel_password",
     "PASSWORD": "password",
+    "I18N_LANG": "i18n_lang",
 }
 
 
-# ====================== {ts("id_656")} ======================
+# ====================== {ts(f"id_656")} ======================
 
 async def init_config():
-    f"""{ts("id_657")}"""
+    f"""{ts('id_657')}"""
     global _config_cache, _config_initialized
 
     if _config_initialized:
@@ -59,24 +63,24 @@ async def init_config():
         _config_cache = await storage_adapter.get_all_config()
         _config_initialized = True
     except Exception:
-        # {ts("id_658")}
+        # {ts(f"id_658")}
         _config_cache = {}
         _config_initialized = True
 
 
 async def reload_config():
-    f"""{ts("id_659")}"""
+    f"""{ts('id_659')}"""
     global _config_cache, _config_initialized
 
     try:
         from src.storage_adapter import get_storage_adapter
         storage_adapter = await get_storage_adapter()
 
-        # {ts("id_660")} reload_config_cache{ts("id_661")}
+        # {ts(f"id_660")} reload_config_cache{ts('id_661')}
         if hasattr(storage_adapter._backend, 'reload_config_cache'):
             await storage_adapter._backend.reload_config_cache()
 
-        # {ts("id_662")}
+        # {ts(f"id_662")}
         _config_cache = await storage_adapter.get_all_config()
         _config_initialized = True
     except Exception:
@@ -84,13 +88,13 @@ async def reload_config():
 
 
 def _get_cached_config(key: str, default: Any = None) -> Any:
-    f"""{ts("id_663")}"""
+    f"""{ts('id_663')}"""
     return _config_cache.get(key, default)
 
 
 async def get_config_value(key: str, default: Any = None, env_var: Optional[str] = None) -> Any:
     """Get configuration value with priority: ENV > Storage > default."""
-    # {ts("id_664")}
+    # {ts(f"id_664")}
     if not _config_initialized:
         await init_config()
 
@@ -232,12 +236,12 @@ async def get_api_password() -> str:
     Database config key: api_password
     Default: Uses PASSWORD env var for compatibility, otherwise 'pwd'
     """
-    # {ts(f"id_667")} API_PASSWORD{ts("id_665")} PASSWORD {ts("id_666")}
+    # {ts(f"id_667")} API_PASSWORD{ts('id_665')} PASSWORD {ts('id_666')}
     api_password = await get_config_value("api_password", None, "API_PASSWORD")
     if api_password is not None:
         return str(api_password)
 
-    # {ts("id_668")}
+    # {ts(f"id_668")}
     return str(await get_config_value("password", "pwd", "PASSWORD"))
 
 
@@ -249,12 +253,12 @@ async def get_panel_password() -> str:
     Database config key: panel_password
     Default: Uses PASSWORD env var for compatibility, otherwise 'pwd'
     """
-    # {ts(f"id_667")} PANEL_PASSWORD{ts("id_665")} PASSWORD {ts("id_666")}
+    # {ts(f"id_667")} PANEL_PASSWORD{ts('id_665')} PASSWORD {ts('id_666')}
     panel_password = await get_config_value("panel_password", None, "PANEL_PASSWORD")
     if panel_password is not None:
         return str(panel_password)
 
-    # {ts("id_668")}
+    # {ts(f"id_668")}
     return str(await get_config_value("password", "pwd", "PASSWORD"))
 
 
@@ -299,8 +303,8 @@ async def get_compatibility_mode_enabled() -> bool:
     """
     Get compatibility mode setting.
 
-    {ts(f"id_669")}system{ts("id_670")}user{ts("id_671")}system_instructions{ts("id_672")}
-    {ts("id_673")}
+    {ts(f"id_669")}system{ts('id_670')}user{ts('id_671')}system_instructions{ts('id_672')}
+    {ts(f"id_673")}
 
     Environment variable: COMPATIBILITY_MODE
     Database config key: compatibility_mode_enabled
@@ -317,8 +321,8 @@ async def get_return_thoughts_to_frontend() -> bool:
     """
     Get return thoughts to frontend setting.
 
-    {ts("id_674")}
-    {ts("id_675")}
+    {ts(f"id_674")}
+    {ts(f"id_675")}
 
     Environment variable: RETURN_THOUGHTS_TO_FRONTEND
     Database config key: return_thoughts_to_frontend
@@ -335,8 +339,8 @@ async def get_antigravity_stream2nostream() -> bool:
     """
     Get use stream for non-stream setting.
 
-    {ts(f"id_678")}antigravity{ts("id_676")}API{ts("id_677")}
-    {ts("id_680")}API{ts("id_679")}
+    {ts(f"id_678")}antigravity{ts('id_676')}API{ts('id_677')}
+    {ts(f"id_680")}API{ts('id_679')}
 
     Environment variable: ANTIGRAVITY_STREAM2NOSTREAM
     Database config key: antigravity_stream2nostream
@@ -353,7 +357,7 @@ async def get_oauth_proxy_url() -> str:
     """
     Get OAuth proxy URL setting.
 
-    {ts(f"id_14")}Google OAuth2{ts("id_59")}URL{ts("id_672")}
+    {ts(f"id_14")}Google OAuth2{ts('id_59')}URL{ts('id_672')}
 
     Environment variable: OAUTH_PROXY_URL
     Database config key: oauth_proxy_url
@@ -370,7 +374,7 @@ async def get_googleapis_proxy_url() -> str:
     """
     Get Google APIs proxy URL setting.
 
-    {ts(f"id_14")}Google APIs{ts("id_60")}URL{ts("id_672")}
+    {ts(f"id_14")}Google APIs{ts('id_60')}URL{ts('id_672')}
 
     Environment variable: GOOGLEAPIS_PROXY_URL
     Database config key: googleapis_proxy_url
@@ -387,7 +391,7 @@ async def get_resource_manager_api_url() -> str:
     """
     Get Google Cloud Resource Manager API URL setting.
 
-    {ts(f"id_14")}Google Cloud Resource Manager API{ts("id_61")}URL{ts("id_672")}
+    {ts(f"id_14")}Google Cloud Resource Manager API{ts('id_61')}URL{ts('id_672')}
 
     Environment variable: RESOURCE_MANAGER_API_URL
     Database config key: resource_manager_api_url
@@ -406,7 +410,7 @@ async def get_service_usage_api_url() -> str:
     """
     Get Google Cloud Service Usage API URL setting.
 
-    {ts(f"id_14")}Google Cloud Service Usage API{ts("id_61")}URL{ts("id_672")}
+    {ts(f"id_14")}Google Cloud Service Usage API{ts('id_61')}URL{ts('id_672')}
 
     Environment variable: SERVICE_USAGE_API_URL
     Database config key: service_usage_api_url
@@ -423,7 +427,7 @@ async def get_antigravity_api_url() -> str:
     """
     Get Antigravity API URL setting.
 
-    {ts(f"id_14")}Google Antigravity API{ts("id_61")}URL{ts("id_672")}
+    {ts(f"id_14")}Google Antigravity API{ts('id_61')}URL{ts('id_672')}
 
     Environment variable: ANTIGRAVITY_API_URL
     Database config key: antigravity_api_url
@@ -436,3 +440,7 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
+
+async def get_i18n_lang() -> str:
+    """Get i18n language setting."""
+    return str(await get_config_value("i18n_lang", "zh", "I18N_LANG"))

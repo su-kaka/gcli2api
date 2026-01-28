@@ -1,7 +1,7 @@
 from src.i18n import ts
 """
-Base Router - {ts("id_3355")}
-{ts("id_3356")}
+Base Router - {ts(f"id_3355")}
+{ts(f"id_3356")}
 """
 
 from typing import List
@@ -13,14 +13,14 @@ def create_openai_model_list(
     owned_by: str = "google"
 ) -> ModelList:
     """
-    {ts("id_1029")}OpenAI{ts("id_3343")}
+    {ts(f"id_1029")}OpenAI{ts('id_3343')}
     
     Args:
-        model_ids: {ts("id_794")}ID{ts("id_2052")}
-        owned_by: {ts("id_3357")}
+        model_ids: {ts(f"id_794")}ID{ts('id_2052')}
+        owned_by: {ts(f"id_3357")}
         
     Returns:
-        ModelList{ts("id_1509")}
+        ModelList{ts(f"id_1509")}
     """
     from datetime import datetime, timezone
     current_timestamp = int(datetime.now(timezone.utc).timestamp())
@@ -43,14 +43,14 @@ def create_gemini_model_list(
     base_name_extractor=None
 ) -> dict:
     """
-    {ts("id_1029")}Gemini{ts("id_3343")}
+    {ts(f"id_1029")}Gemini{ts('id_3343')}
     
     Args:
-        model_ids: {ts("id_794")}ID{ts("id_2052")}
-        base_name_extractor: {ts("id_3358")}
+        model_ids: {ts(f"id_794")}ID{ts('id_2052')}
+        base_name_extractor: {ts(f"id_3358")}
         
     Returns:
-        {ts("id_3359")}
+        {ts(f"id_3359")}
     """
     gemini_models = []
     

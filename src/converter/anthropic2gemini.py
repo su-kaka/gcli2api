@@ -1,8 +1,8 @@
 from src.i18n import ts
 """
-Anthropic {ts("id_2030")} Gemini {ts("id_2029")}
+Anthropic {ts(f"id_2030")} Gemini {ts('id_2029')}
 
-{ts("id_2031")}
+{ts(f"id_2031")}
 """
 from __future__ import annotations
 
@@ -23,38 +23,38 @@ DEFAULT_TEMPERATURE = 0.4
 _DEBUG_TRUE = {"1", "true", "yes", "on"}
 
 # ============================================================================
-# Thinking {ts("id_2032")}
+# Thinking {ts(f"id_2032")}
 # ============================================================================
 
-# {ts("id_2033")}
+# {ts(f"id_2033")}
 MIN_SIGNATURE_LENGTH = 10
 
 
 def has_valid_thoughtsignature(block: Dict[str, Any]) -> bool:
     """
-    {ts("id_1890")} thinking {ts("id_2034")}
+    {ts(f"id_1890")} thinking {ts('id_2034')}
     
     Args:
-        block: content block {ts("id_2035")}
+        block: content block {ts(f"id_2035")}
         
     Returns:
-        bool: {ts("id_2036")}
+        bool: {ts(f"id_2036")}
     """
     if not isinstance(block, dict):
         return True
     
     block_type = block.get("type")
     if block_type not in ("thinking", "redacted_thinking"):
-        return True  # {ts("id_1648")} thinking {ts("id_2037")}
+        return True  # {ts(f"id_1648")} thinking {ts('id_2037')}
     
     thinking = block.get("thinking", "")
     thoughtsignature = block.get("thoughtSignature")
     
-    # {ts(f"id_2040")} thinking + {ts("id_2039")} thoughtsignature = {ts("id_2038")} (trailing signature case)
+    # {ts(f"id_2040")} thinking + {ts('id_2039')} thoughtsignature = {ts('id_2038')} (trailing signature case)
     if not thinking and thoughtsignature is not None:
         return True
     
-    # {ts(f"id_2042")} + {ts("id_2041")} thoughtsignature = {ts("id_2038")}
+    # {ts(f"id_2042")} + {ts('id_2041')} thoughtsignature = {ts('id_2038')}
     if thoughtsignature and isinstance(thoughtsignature, str) and len(thoughtsignature) >= MIN_SIGNATURE_LENGTH:
         return True
     
@@ -63,13 +63,13 @@ def has_valid_thoughtsignature(block: Dict[str, Any]) -> bool:
 
 def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
     """
-    {ts(f"id_2045")} thinking {ts("id_2046")},{ts("id_2043f")}({ts("id_2044")} cache_control {ts("id_118")})
+    {ts(f"id_2045")} thinking {ts('id_2046')},{ts('id_2043f')}({ts('id_2044')} cache_control {ts('id_118')})
     
     Args:
-        block: content block {ts("id_2035")}
+        block: content block {ts(f"id_2035")}
         
     Returns:
-        {ts("id_2047")} block {ts("id_2035")}
+        {ts(f"id_2047")} block {ts('id_2035')}
     """
     if not isinstance(block, dict):
         return block
@@ -78,7 +78,7 @@ def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
     if block_type not in ("thinking", "redacted_thinking"):
         return block
     
-    # {ts("id_2049")},{ts("id_2048")}
+    # {ts(f"id_2049")},{ts('id_2048')}
     sanitized: Dict[str, Any] = {
         "type": block_type,
         "thinking": block.get("thinking", "")
@@ -93,15 +93,15 @@ def sanitize_thinking_block(block: Dict[str, Any]) -> Dict[str, Any]:
 
 def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
     """
-    {ts("id_2050")} thinking {ts("id_2046")}
+    {ts(f"id_2050")} thinking {ts('id_2046')}
     
     Args:
-        blocks: content blocks {ts("id_2052")} ({ts("id_2051")})
+        blocks: content blocks {ts(f"id_2052")} ({ts('id_2051')})
     """
     if not blocks:
         return
     
-    # {ts("id_2053")}
+    # {ts(f"id_2053")}
     end_index = len(blocks)
     for i in range(len(blocks) - 1, -1, -1):
         block = blocks[i]
@@ -113,9 +113,9 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
             if not has_valid_thoughtsignature(block):
                 end_index = i
             else:
-                break  # {ts(f"id_2054")} thinking {ts("id_2046")},{ts("id_2055")}
+                break  # {ts(f"id_2054")} thinking {ts('id_2046')},{ts('id_2055')}
         else:
-            break  # {ts(f"id_2056")} thinking {ts("id_2046")},{ts("id_2055")}
+            break  # {ts(f"id_2056")} thinking {ts('id_2046')},{ts('id_2055')}
     
     if end_index < len(blocks):
         removed = len(blocks) - end_index
@@ -125,15 +125,15 @@ def remove_trailing_unsigned_thinking(blocks: List[Dict[str, Any]]) -> None:
 
 def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
     """
-    {ts(f"id_2057")} thinking {ts("id_2059")} thinking {ts("id_2058")} cache_control{ts("id_292")}
+    {ts(f"id_2057")} thinking {ts('id_2059')} thinking {ts('id_2058')} cache_control{ts('id_292')}
 
     Args:
-        messages: Anthropic messages {ts("id_2052")} ({ts("id_2051")})
+        messages: Anthropic messages {ts(f"id_2052")} ({ts('id_2051')})
     """
     total_filtered = 0
 
     for msg in messages:
-        # {ts(f"id_2060")} assistant {ts("id_15")} model {ts("id_2061")}
+        # {ts(f"id_2060")} assistant {ts('id_15')} model {ts('id_2061')}
         role = msg.get("role", "")
         if role not in ("assistant", "model"):
             continue
@@ -155,13 +155,13 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
                 new_blocks.append(block)
                 continue
 
-            # {ts(f"id_930")} thinking {ts("id_2062")} cache_control {ts("id_2063")}
-            # {ts("id_1890")} thinking {ts("id_2064")}
+            # {ts(f"id_930")} thinking {ts('id_2062')} cache_control {ts('id_2063')}
+            # {ts(f"id_1890")} thinking {ts('id_2064')}
             if has_valid_thoughtsignature(block):
-                # {ts("id_2065")}
+                # {ts(f"id_2065")}
                 new_blocks.append(sanitize_thinking_block(block))
             else:
-                # {ts("id_2066")} text {ts("id_2046")}
+                # {ts(f"id_2066")} text {ts('id_2046')}
                 thinking_text = block.get("thinking", "")
                 if thinking_text and str(thinking_text).strip():
                     log.info(
@@ -176,7 +176,7 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
         filtered_count = original_len - len(new_blocks)
         total_filtered += filtered_count
 
-        # {ts("id_2068")},{ts("id_2067")}
+        # {ts(f"id_2068")},{ts('id_2067')}
         if not new_blocks:
             msg["content"] = [{"type": "text", "text": ""}]
 
@@ -185,22 +185,22 @@ def filter_invalid_thinking_blocks(messages: List[Dict[str, Any]]) -> None:
 
 
 # ============================================================================
-# {ts("id_2069")}
+# {ts(f"id_2069")}
 # ============================================================================
 
 
 def _anthropic_debug_enabled() -> bool:
-    f"""{ts("id_2070")} Anthropic {ts("id_2071")}"""
+    f"""{ts('id_2070')} Anthropic {ts('id_2071')}"""
     return str(os.getenv("ANTHROPIC_DEBUG", "true")).strip().lower() in _DEBUG_TRUE
 
 
 def _is_non_whitespace_text(value: Any) -> bool:
     """
-    {ts(f"id_2072")}"{ts("id_2074")}"{ts("id_2073")}
+    {ts(f"id_2072")}"{ts('id_2074')}"{ts('id_2073')}
 
-    {ts(f"id_2077")}Antigravity/Claude {ts("id_2076")} text {ts("id_2075")}
-    - text {ts("id_2078")}
-    - text {ts(f"id_2079")}/{ts("id_2081")}/{ts("id_2080")}
+    {ts(f"id_2077")}Antigravity/Claude {ts('id_2076')} text {ts('id_2075')}
+    - text {ts(f"id_2078")}
+    - text {ts(f"id_2079")}/{ts('id_2081')}/{ts('id_2080')}
     """
     if value is None:
         return False
@@ -212,10 +212,10 @@ def _is_non_whitespace_text(value: Any) -> bool:
 
 def _remove_nulls_for_tool_input(value: Any) -> Any:
     """
-    {ts(f"id_2082")} dict/list {ts("id_2085")} null/None {ts("id_2084")}/{ts("id_2083")}
+    {ts(f"id_2082")} dict/list {ts('id_2085')} null/None {ts('id_2084')}/{ts('id_2083')}
 
-    {ts(f"id_2087")}Roo/Kilo {ts("id_429")} Anthropic native tool {ts("id_2086f")} tool_use.input {ts("id_2088")} null{ts("id_2089")}
-    {ts(f"id_2091")} null {ts("id_2090")}"{ts(f"id_429")} null {ts("id_2092")}"{ts("id_2093")}
+    {ts(f"id_2087")}Roo/Kilo {ts('id_429')} Anthropic native tool {ts('id_2086f')} tool_use.input {ts('id_2088')} null{ts('id_2089')}
+    {ts(f"id_2091")} null {ts('id_2090')}"{ts(f"id_429")} null {ts('id_2092')}"{ts('id_2093')}
     """
     if isinstance(value, dict):
         cleaned: Dict[str, Any] = {}
@@ -236,17 +236,17 @@ def _remove_nulls_for_tool_input(value: Any) -> Any:
     return value
 
 # ============================================================================
-# 2. JSON Schema {ts("id_2045")}
+# 2. JSON Schema {ts(f"id_2045")}
 # ============================================================================
 
 def clean_json_schema(schema: Any) -> Any:
     """
-    {ts(f"id_2045")} JSON Schema{ts("id_2094")} description{ts("id_672")}
+    {ts(f"id_2045")} JSON Schema{ts('id_2094')} description{ts('id_672')}
     """
     if not isinstance(schema, dict):
         return schema
 
-    # {ts("id_2095")}
+    # {ts(f"id_2095")}
     unsupported_keys = {
         "$schema", "$id", "$ref", "$defs", "definitions", "title",
         "example", "examples", "readOnly", "writeOnly", "default",
@@ -304,7 +304,7 @@ def clean_json_schema(schema: Any) -> Any:
     if validations and "description" not in cleaned:
         cleaned["description"] = f"Validation: {', '.join(validations)}"
 
-    # {ts(f"id_2098")} properties {ts("id_2097")} type{ts("id_2096")} object
+    # {ts(f"id_2098")} properties {ts('id_2097')} type{ts('id_2096')} object
     if "properties" in cleaned and "type" not in cleaned:
         cleaned["type"] = "object"
 
@@ -312,12 +312,12 @@ def clean_json_schema(schema: Any) -> Any:
 
 
 # ============================================================================
-# 4. Tools {ts("id_2099")}
+# 4. Tools {ts(f"id_2099")}
 # ============================================================================
 
 def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
     """
-    {ts(f"id_101")} Anthropic tools[] {ts("id_2100")} tools{ts("id_1748")}functionDeclarations{ts("id_2101")}
+    {ts(f"id_101")} Anthropic tools[] {ts('id_2100')} tools{ts('id_1748')}functionDeclarations{ts('id_2101')}
     """
     if not anthropic_tools:
         return None
@@ -345,11 +345,11 @@ def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[L
 
 
 # ============================================================================
-# 5. Messages {ts("id_2099")}
+# 5. Messages {ts(f"id_2099")}
 # ============================================================================
 
 def _extract_tool_result_output(content: Any) -> str:
-    f"""{ts("id_1731")} tool_result.content {ts("id_2102")}"""
+    f"""{ts('id_1731')} tool_result.content {ts('id_2102')}"""
     if isinstance(content, list):
         if not content:
             return ""
@@ -368,16 +368,16 @@ def convert_messages_to_contents(
     include_thinking: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    {ts(f"id_101")} Anthropic messages[] {ts("id_2100")} contents[]{ts("id_1748")}role: user/model, parts: []{ts("id_2093")}
+    {ts(f"id_101")} Anthropic messages[] {ts('id_2100')} contents[]{ts('id_1748')}role: user/model, parts: []{ts('id_2093')}
 
     Args:
-        messages: Anthropic {ts("id_2103")}
-        include_thinking: {ts("id_2104")} thinking {ts("id_2046")}
+        messages: Anthropic {ts(f"id_2103")}
+        include_thinking: {ts(f"id_2104")} thinking {ts('id_2046')}
     """
     contents: List[Dict[str, Any]] = []
 
-    # {ts("id_2105")} tool_use_id -> (name, thoughtsignature) {ts("id_2106")}
-    # {ts("id_2107")} ID{ts("id_2108")}
+    # {ts(f"id_2105")} tool_use_id -> (name, thoughtsignature) {ts('id_2106')}
+    # {ts(f"id_2107")} ID{ts('id_2108')}
     tool_use_info: Dict[str, tuple[str, Optional[str]]] = {}
     for msg in messages:
         raw_content = msg.get("content", "")
@@ -387,19 +387,19 @@ def convert_messages_to_contents(
                     encoded_tool_id = item.get("id")
                     tool_name = item.get("name")
                     if encoded_tool_id and tool_name:
-                        # {ts("id_2109")}ID{ts("id_2110")}
+                        # {ts(f"id_2109")}ID{ts('id_2110')}
                         original_id, thoughtsignature = decode_tool_id_and_signature(encoded_tool_id)
-                        # {ts("id_2111")}ID -> (name, thoughtsignature)
+                        # {ts(f"id_2111")}ID -> (name, thoughtsignature)
                         tool_use_info[str(encoded_tool_id)] = (tool_name, thoughtsignature)
 
     for msg in messages:
         role = msg.get("role", "user")
         
-        # system {ts("id_2113")} merge_system_messages {ts("id_2112")}
+        # system {ts(f"id_2113")} merge_system_messages {ts('id_2112')}
         if role == "system":
             continue
         
-        # {ts(f"id_56")} 'assistant' {ts("id_15")} 'model' {ts("id_2114")}Google history usage{ts("id_292")}
+        # {ts(f"id_56")} 'assistant' {ts('id_15')} 'model' {ts('id_2114')}Google history usage{ts('id_292')}
         gemini_role = "model" if role in ("assistant", "model") else "user"
         raw_content = msg.get("content", "")
 
@@ -428,7 +428,7 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # {ts("id_2098")} thoughtsignature {ts("id_2115")}
+                    # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
                     thoughtsignature = item.get("thoughtSignature")
                     if thoughtsignature:
                         part["thoughtSignature"] = thoughtsignature
@@ -447,7 +447,7 @@ def convert_messages_to_contents(
                         "thought": True,
                     }
                     
-                    # {ts("id_2098")} thoughtsignature {ts("id_2115")}
+                    # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
                     thoughtsignature = item.get("thoughtSignature")
                     if thoughtsignature:
                         part_dict["thoughtSignature"] = thoughtsignature
@@ -474,13 +474,13 @@ def convert_messages_to_contents(
 
                     fc_part: Dict[str, Any] = {
                         "functionCall": {
-                            f"id": original_id,  # {ts("id_2117")}ID{ts("id_2116")}
+                            f"id": original_id,  # {ts('id_2117')}ID{ts('id_2116')}
                             "name": item.get("name"),
                             "args": item.get("input", {}) or {},
                         }
                     }
 
-                    # {ts("id_2118")} Gemini API {ts("id_2119")}
+                    # {ts(f"id_2118")} Gemini API {ts('id_2119')}
                     if thoughtsignature:
                         fc_part["thoughtSignature"] = thoughtsignature
                     else:
@@ -491,23 +491,23 @@ def convert_messages_to_contents(
                     output = _extract_tool_result_output(item.get("content"))
                     encoded_tool_use_id = item.get("tool_use_id") or ""
                     
-                    # {ts(f"id_2109")}ID{ts("id_1748")}functionResponse{ts("id_2120")}
+                    # {ts(f"id_2109")}ID{ts('id_1748')}functionResponse{ts('id_2120')}
                     original_tool_use_id, _ = decode_tool_id_and_signature(encoded_tool_use_id)
 
-                    # {ts(f"id_1731")} tool_result {ts("id_712")} name{ts("id_2121")}
+                    # {ts(f"id_1731")} tool_result {ts('id_712')} name{ts('id_2121')}
                     func_name = item.get("name")
                     if not func_name and encoded_tool_use_id:
-                        # {ts("id_2123")}ID{ts("id_2122")}
+                        # {ts(f"id_2123")}ID{ts('id_2122')}
                         tool_info = tool_use_info.get(str(encoded_tool_use_id))
                         if tool_info:
-                            func_name = tool_info[0]  # {ts("id_712")} name
+                            func_name = tool_info[0]  # {ts(f"id_712")} name
                     if not func_name:
                         func_name = "unknown_function"
                     
                     parts.append(
                         {
                             "functionResponse": {
-                                f"id": original_tool_use_id,  # {ts("id_2124")}ID{ts("id_2125")}functionCall
+                                f"id": original_tool_use_id,  # {ts('id_2124')}ID{ts('id_2125')}functionCall
                                 "name": func_name,
                                 "response": {"output": output},
                             }
@@ -529,7 +529,7 @@ def convert_messages_to_contents(
 
 def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    {ts("id_2126")} tool_use/tool_result {ts("id_2127")}
+    {ts(f"id_2126")} tool_use/tool_result {ts('id_2127')}
     """
     tool_results: Dict[str, Dict[str, Any]] = {}
 
@@ -573,21 +573,21 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 # ============================================================================
-# 7. Tool Choice {ts("id_2099")}
+# 7. Tool Choice {ts(f"id_2099")}
 # ============================================================================
 
 def convert_tool_choice_to_tool_config(tool_choice: Any) -> Optional[Dict[str, Any]]:
     """
-    {ts("id_101")} Anthropic tool_choice {ts("id_188")} Gemini toolConfig
+    {ts(f"id_101")} Anthropic tool_choice {ts('id_188')} Gemini toolConfig
 
     Args:
-        tool_choice: Anthropic {ts("id_2128")} tool_choice
-            - {"type": "auto"}: {ts("id_2129")}
-            - {"type": "any"}: {ts("id_2130")}
-            - {"type": "tool", "name": "tool_name"}: {ts("id_2131")}
+        tool_choice: Anthropic {ts(f"id_2128")} tool_choice
+            - {f"type": "auto"}: {ts('id_2129')}
+            - {f"type": "any"}: {ts('id_2130')}
+            - {f"type": "tool", "name": "tool_name"}: {ts('id_2131')}
 
     Returns:
-        Gemini {ts("id_2128")} toolConfig{ts("id_2132")} None
+        Gemini {ts(f"id_2128")} toolConfig{ts('id_2132')} None
     """
     if not tool_choice:
         return None
@@ -609,20 +609,20 @@ def convert_tool_choice_to_tool_config(tool_choice: Any) -> Optional[Dict[str, A
                     }
                 }
     
-    # {ts("id_2133")} tool_choice{ts("id_2134")} None
+    # {ts(f"id_2133")} tool_choice{ts('id_2134')} None
     return None
 
 
 # ============================================================================
-# 8. Generation Config {ts("id_1475")}
+# 8. Generation Config {ts(f"id_1475")}
 # ============================================================================
 
 def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    {ts(f"id_2136")} Anthropic Messages {ts("id_2135")} generationConfig{ts("id_672")}
+    {ts(f"id_2136")} Anthropic Messages {ts('id_2135')} generationConfig{ts('id_672')}
 
     Returns:
-        generation_config: {ts("id_2137")}
+        generation_config: {ts(f"id_2137")}
     """
     config: Dict[str, Any] = {
         "topP": 1,
@@ -651,32 +651,32 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if max_tokens is not None:
         config["maxOutputTokens"] = max_tokens
 
-    # {ts("id_590")} extended thinking {ts("id_226")} (plan mode)
+    # {ts(f"id_590")} extended thinking {ts('id_226')} (plan mode)
     thinking = payload.get("thinking")
     is_plan_mode = False
     if thinking and isinstance(thinking, dict):
         thinking_type = thinking.get("type")
         budget_tokens = thinking.get("budget_tokens")
         
-        # {ts("id_2138")} extended thinking{ts("id_2139")} thinkingConfig
+        # {ts(f"id_2138")} extended thinking{ts('id_2139')} thinkingConfig
         if thinking_type == "enabled":
             is_plan_mode = True
             thinking_config: Dict[str, Any] = {}
             
-            # {ts("id_2140")}
+            # {ts(f"id_2140")}
             if budget_tokens is not None:
                 thinking_config["thinkingBudget"] = budget_tokens
             else:
-                # {ts("id_2141")}
+                # {ts(f"id_2141")}
                 thinking_config["thinkingBudget"] = 48000
             
-            # {ts("id_2142")}
+            # {ts(f"id_2142")}
             thinking_config["includeThoughts"] = True
             
             config["thinkingConfig"] = thinking_config
             log.info(f"[ANTHROPIC2GEMINI] Extended thinking enabled with budget: {thinking_config['thinkingBudget']}")
         elif thinking_type == "disabled":
-            # {ts("id_2143")}
+            # {ts(f"id_2143")}
             config["thinkingConfig"] = {
                 "includeThoughts": False
             }
@@ -686,88 +686,88 @@ def build_generation_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(stop_sequences, list) and stop_sequences:
         config["stopSequences"] = config["stopSequences"] + [str(s) for s in stop_sequences]
     elif is_plan_mode:
-        # Plan mode {ts("id_2145")} stop sequences{ts("id_2144")}
-        # {ts("id_2147")} stop sequences {ts("id_2146")}
+        # Plan mode {ts(f"id_2145")} stop sequences{ts('id_2144')}
+        # {ts(f"id_2147")} stop sequences {ts('id_2146')}
         config["stopSequences"] = []
         log.info("[ANTHROPIC2GEMINI] Plan mode: cleared default stop sequences to prevent premature stopping")
     
-    # {ts(f"id_2150")} plan mode {ts("id_2149")} stop_sequences{ts("id_2148")}
-    # ({ts("id_2152")} config {ts("id_2151")})
+    # {ts(f"id_2150")} plan mode {ts('id_2149')} stop_sequences{ts('id_2148')}
+    # ({ts(f"id_2152")} config {ts('id_2151')})
 
     return config
 
 
 # ============================================================================
-# 8. {ts("id_2153")}
+# 8. {ts(f"id_2153")}
 # ============================================================================
 
 async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    {ts(f"id_101")} Anthropic {ts("id_2154")} Gemini {ts("id_2155")}
+    {ts(f"id_101")} Anthropic {ts('id_2154')} Gemini {ts('id_2155')}
 
-    {ts(f"id_2158")}: {ts("id_2156")} normalize_gemini_request {ts("id_2157")}
-    ({ts(f"id_716")} thinking config {ts("id_2160")}search tools{ts("id_2159")})
+    {ts(f"id_2158")}: {ts('id_2156')} normalize_gemini_request {ts('id_2157')}
+    ({ts(f"id_716")} thinking config {ts('id_2160')}search tools{ts('id_2159')})
 
     Args:
-        payload: Anthropic {ts("id_2161")}
+        payload: Anthropic {ts(f"id_2161")}
 
     Returns:
-        Gemini {ts("id_2162")}:
-        - contents: {ts("id_2163")}
-        - generationConfig: {ts("id_2164")}
-        - systemInstruction: {ts("id_2165")} ({ts("id_2098")})
-        - tools: {ts("id_2166")} ({ts("id_2098")})
-        - toolConfig: {ts("id_2167")} ({ts("id_2098")} tool_choice)
+        Gemini {ts(f"id_2162")}:
+        - contents: {ts(f"id_2163")}
+        - generationConfig: {ts(f"id_2164")}
+        - systemInstruction: {ts(f"id_2165")} ({ts('id_2098')})
+        - tools: {ts(f"id_2166")} ({ts('id_2098')})
+        - toolConfig: {ts(f"id_2167")} ({ts('id_2098')} tool_choice)
     """
-    # {ts("id_2169")}system{ts("id_2168")}
+    # {ts(f"id_2169")}system{ts('id_2168')}
     payload = await merge_system_messages(payload)
 
-    # {ts("id_2170")}
+    # {ts(f"id_2170")}
     messages = payload.get("messages") or []
     if not isinstance(messages, list):
         messages = []
     
-    # [CRITICAL FIX] {ts("id_2171")} Thinking {ts("id_2172")}
-    # {ts("id_2173")} thinking {ts("id_2046")}
+    # [CRITICAL FIX] {ts(f"id_2171")} Thinking {ts('id_2172')}
+    # {ts(f"id_2173")} thinking {ts('id_2046')}
     filter_invalid_thinking_blocks(messages)
 
-    # {ts("id_2174")}
+    # {ts(f"id_2174")}
     generation_config = build_generation_config(payload)
 
-    # {ts("id_2175")}thinking{ts("id_2176")}
+    # {ts(f"id_2175")}thinking{ts('id_2176')}
     contents = convert_messages_to_contents(messages, include_thinking=True)
     
-    # [CRITICAL FIX] {ts("id_2177")} thinking {ts("id_2046")}
-    # {ts("id_2178")}
+    # [CRITICAL FIX] {ts(f"id_2177")} thinking {ts('id_2046')}
+    # {ts(f"id_2178")}
     for content in contents:
         role = content.get("role", "")
-        if role == f"model":  # {ts("id_2060")} model/assistant {ts("id_2061")}
+        if role == f"model":  # {ts('id_2060')} model/assistant {ts('id_2061')}
             parts = content.get("parts", [])
             if isinstance(parts, list):
                 remove_trailing_unsigned_thinking(parts)
     
     contents = reorganize_tool_messages(contents)
 
-    # {ts("id_2179")}
+    # {ts(f"id_2179")}
     tools = convert_tools(payload.get("tools"))
     
-    # {ts("id_2099")} tool_choice
+    # {ts(f"id_2099")} tool_choice
     tool_config = convert_tool_choice_to_tool_config(payload.get("tool_choice"))
 
-    # {ts("id_2180")}
+    # {ts(f"id_2180")}
     gemini_request = {
         "contents": contents,
         "generationConfig": generation_config,
     }
     
-    # {ts(f"id_2183")} merge_system_messages {ts("id_2181")} systemInstruction{ts("id_2182")}
+    # {ts(f"id_2183")} merge_system_messages {ts('id_2181')} systemInstruction{ts('id_2182')}
     if "systemInstruction" in payload:
         gemini_request["systemInstruction"] = payload["systemInstruction"]
     
     if tools:
         gemini_request["tools"] = tools
     
-    # {ts(f"id_848")} toolConfig{ts("id_2184")} tool_choice{ts("id_292")}
+    # {ts(f"id_848")} toolConfig{ts('id_2184')} tool_choice{ts('id_292')}
     if tool_config:
         gemini_request["toolConfig"] = tool_config
 
@@ -780,40 +780,40 @@ def gemini_to_anthropic_response(
     status_code: int = 200
 ) -> Dict[str, Any]:
     """
-    {ts(f"id_101")} Gemini {ts("id_2185")} Anthropic {ts("id_2186")}
+    {ts(f"id_101")} Gemini {ts('id_2185')} Anthropic {ts('id_2186')}
 
-    {ts(f"id_2158")}: {ts("id_2188")} 200 {ts("id_2187")}
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2187')}
 
     Args:
-        gemini_response: Gemini {ts("id_2189")}
-        model: {ts("id_1737")}
-        status_code: HTTP {ts("id_1461")} ({ts("id_7")} 200)
+        gemini_response: Gemini {ts(f"id_2189")}
+        model: {ts(f"id_1737")}
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Returns:
-        Anthropic {ts("id_2190")} ({ts("id_2191")} 2xx)
+        Anthropic {ts(f"id_2190")} ({ts('id_2191')} 2xx)
     """
-    # {ts("id_1648")} 2xx {ts("id_2192")}
+    # {ts(f"id_1648")} 2xx {ts('id_2192')}
     if not (200 <= status_code < 300):
         return gemini_response
 
-    # {ts(f"id_590")} GeminiCLI {ts("id_61")} response {ts("id_2193")}
+    # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
     if "response" in gemini_response:
         response_data = gemini_response["response"]
     else:
         response_data = gemini_response
 
-    # {ts("id_2194")}
+    # {ts(f"id_2194")}
     candidate = response_data.get("candidates", [{}])[0] or {}
     parts = candidate.get("content", {}).get("parts", []) or []
 
-    # {ts("id_712")} usage metadata
+    # {ts(f"id_712")} usage metadata
     usage_metadata = {}
     if "usageMetadata" in response_data:
         usage_metadata = response_data["usageMetadata"]
     elif "usageMetadata" in candidate:
         usage_metadata = candidate["usageMetadata"]
 
-    # {ts("id_2195")}
+    # {ts(f"id_2195")}
     content = []
     has_tool_use = False
 
@@ -821,7 +821,7 @@ def gemini_to_anthropic_response(
         if not isinstance(part, dict):
             continue
 
-        # {ts("id_590")} thinking {ts("id_2046")}
+        # {ts(f"id_590")} thinking {ts('id_2046')}
         if part.get("thought") is True:
             thinking_text = part.get("text", "")
             if thinking_text is None:
@@ -829,7 +829,7 @@ def gemini_to_anthropic_response(
             
             block: Dict[str, Any] = {"type": "thinking", "thinking": str(thinking_text)}
             
-            # {ts("id_2098")} thoughtsignature {ts("id_2115")}
+            # {ts(f"id_2098")} thoughtsignature {ts('id_2115')}
             thoughtsignature = part.get("thoughtSignature")
             if thoughtsignature:
                 block["thoughtSignature"] = thoughtsignature
@@ -837,19 +837,19 @@ def gemini_to_anthropic_response(
             content.append(block)
             continue
 
-        # {ts("id_2196")}
+        # {ts(f"id_2196")}
         if "text" in part:
             content.append({"type": "text", "text": part.get("text", "")})
             continue
 
-        # {ts("id_2197")}
+        # {ts(f"id_2197")}
         if "functionCall" in part:
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
             thoughtsignature = part.get("thoughtSignature")
             
-            # {ts("id_2199")}ID{ts("id_2198")}
+            # {ts(f"id_2199")}ID{ts('id_2198')}
             encoded_id = encode_tool_id_with_signature(original_id, thoughtsignature)
             content.append(
                 {
@@ -861,7 +861,7 @@ def gemini_to_anthropic_response(
             )
             continue
 
-        # {ts("id_2200")}
+        # {ts(f"id_2200")}
         if "inlineData" in part:
             inline = part.get("inlineData", {}) or {}
             content.append(
@@ -876,24 +876,24 @@ def gemini_to_anthropic_response(
             )
             continue
 
-    # {ts("id_2201")}
+    # {ts(f"id_2201")}
     finish_reason = candidate.get("finishReason")
     
-    # {ts("id_2203")}STOP{ts("id_2202")} tool_use
-    # {ts(f"id_2206")} SAFETY{ts("id_189")}MAX_TOKENS {ts("id_2204")} tool_use {ts("id_2205")}
+    # {ts(f"id_2203")}STOP{ts('id_2202')} tool_use
+    # {ts(f"id_2206")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_use {ts('id_2205')}
     if has_tool_use and finish_reason == "STOP":
         stop_reason = "tool_use"
     elif finish_reason == "MAX_TOKENS":
         stop_reason = "max_tokens"
     else:
-        # {ts(f"id_2207")}SAFETY{ts("id_189")}RECITATION {ts("id_2208")} end_turn
+        # {ts(f"id_2207")}SAFETY{ts('id_189')}RECITATION {ts('id_2208')} end_turn
         stop_reason = "end_turn"
 
-    # {ts("id_2210")} token {ts("id_2209")}
+    # {ts(f"id_2210")} token {ts('id_2209')}
     input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
     output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
 
-    # {ts("id_1475")} Anthropic {ts("id_1516")}
+    # {ts(f"id_1475")} Anthropic {ts('id_1516')}
     message_id = f"msg_{uuid.uuid4().hex}"
 
     return {
@@ -917,25 +917,25 @@ async def gemini_stream_to_anthropic_stream(
     status_code: int = 200
 ) -> AsyncIterator[bytes]:
     """
-    {ts(f"id_101")} Gemini {ts("id_2211")} Anthropic SSE {ts("id_2212")}
+    {ts(f"id_101")} Gemini {ts('id_2211')} Anthropic SSE {ts('id_2212')}
 
-    {ts(f"id_2158")}: {ts("id_2188")} 200 {ts("id_2187")}
+    {ts(f"id_2158")}: {ts('id_2188')} 200 {ts('id_2187')}
 
     Args:
-        gemini_stream: Gemini {ts("id_2213")} (bytes {ts("id_2214")})
-        model: {ts("id_1737")}
-        status_code: HTTP {ts("id_1461")} ({ts("id_7")} 200)
+        gemini_stream: Gemini {ts(f"id_2213")} (bytes {ts('id_2214')})
+        model: {ts(f"id_1737")}
+        status_code: HTTP {ts(f"id_1461")} ({ts('id_7')} 200)
 
     Yields:
-        Anthropic SSE {ts("id_2215")} (bytes)
+        Anthropic SSE {ts(f"id_2215")} (bytes)
     """
-    # {ts("id_1648")} 2xx {ts("id_2216")}
+    # {ts(f"id_1648")} 2xx {ts('id_2216')}
     if not (200 <= status_code < 300):
         async for chunk in gemini_stream:
             yield chunk
         return
 
-    # {ts("id_2217")}
+    # {ts(f"id_2217")}
     message_id = f"msg_{uuid.uuid4().hex}"
     message_start_sent = False
     current_block_type: Optional[str] = None
@@ -947,12 +947,12 @@ async def gemini_stream_to_anthropic_stream(
     finish_reason: Optional[str] = None
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
-        f"""{ts("id_2218")} SSE {ts("id_2219")}"""
+        f"""{ts('id_2218')} SSE {ts('id_2219')}"""
         payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
 
     def _close_block() -> Optional[bytes]:
-        f"""{ts("id_2220")}"""
+        f"""{ts('id_2220')}"""
         nonlocal current_block_type
         if current_block_type is None:
             return None
@@ -963,13 +963,13 @@ async def gemini_stream_to_anthropic_stream(
         current_block_type = None
         return event
 
-    # {ts("id_2221")}
+    # {ts(f"id_2221")}
     try:
         async for chunk in gemini_stream:
-            # {ts("id_2222")}chunk
+            # {ts(f"id_2222")}chunk
             log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
 
-            # {ts("id_2224")} Gemini {ts("id_2223")}
+            # {ts(f"id_2224")} Gemini {ts('id_2223')}
             if not chunk or not chunk.startswith(b"data: "):
                 log.debug(f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)")
                 continue
@@ -988,7 +988,7 @@ async def gemini_stream_to_anthropic_stream(
                 log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
                 continue
 
-            # {ts(f"id_590")} GeminiCLI {ts("id_61")} response {ts("id_2193")}
+            # {ts(f"id_590")} GeminiCLI {ts('id_61')} response {ts('id_2193')}
             if "response" in data:
                 response = data["response"]
             else:
@@ -997,7 +997,7 @@ async def gemini_stream_to_anthropic_stream(
             candidate = (response.get("candidates", []) or [{}])[0] or {}
             parts = (candidate.get("content", {}) or {}).get("parts", []) or []
 
-            # {ts("id_689")} usage metadata
+            # {ts(f"id_689")} usage metadata
             if "usageMetadata" in response:
                 usage = response["usageMetadata"]
                 if isinstance(usage, dict):
@@ -1006,7 +1006,7 @@ async def gemini_stream_to_anthropic_stream(
                     if "candidatesTokenCount" in usage:
                         output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
 
-            # {ts("id_2226")} message_start{ts("id_2225")}
+            # {ts(f"id_2226")} message_start{ts('id_2225')}
             if not message_start_sent:
                 message_start_sent = True
                 yield _sse_event(
@@ -1026,17 +1026,17 @@ async def gemini_stream_to_anthropic_stream(
                     },
                 )
 
-            # {ts("id_2227")} parts
+            # {ts(f"id_2227")} parts
             for part in parts:
                 if not isinstance(part, dict):
                     continue
 
-                # {ts("id_590")} thinking {ts("id_2046")}
+                # {ts(f"id_590")} thinking {ts('id_2046')}
                 if part.get("thought") is True:
                     thinking_text = part.get("text", "")
                     thoughtsignature = part.get("thoughtSignature")
                     
-                    # {ts("id_2228")} thinking {ts("id_2046")}
+                    # {ts(f"id_2228")} thinking {ts('id_2046')}
                     if current_block_type != "thinking":
                         close_evt = _close_block()
                         if close_evt:
@@ -1058,7 +1058,7 @@ async def gemini_stream_to_anthropic_stream(
                             },
                         )
                     elif thoughtsignature and thoughtsignature != current_thinking_signature:
-                        # {ts("id_2229")} thinking {ts("id_2046")}
+                        # {ts(f"id_2229")} thinking {ts('id_2046')}
                         close_evt = _close_block()
                         if close_evt:
                             yield close_evt
@@ -1080,7 +1080,7 @@ async def gemini_stream_to_anthropic_stream(
                             },
                         )
 
-                    # {ts("id_2226")} thinking {ts("id_2230")}
+                    # {ts(f"id_2226")} thinking {ts('id_2230')}
                     if thinking_text:
                         yield _sse_event(
                             "content_block_delta",
@@ -1092,7 +1092,7 @@ async def gemini_stream_to_anthropic_stream(
                         )
                     continue
 
-                # {ts("id_2196")}
+                # {ts(f"id_2196")}
                 if "text" in part:
                     text = part.get("text", "")
                     if isinstance(text, str) and not text.strip():
@@ -1126,7 +1126,7 @@ async def gemini_stream_to_anthropic_stream(
                         )
                     continue
 
-                # {ts("id_2197")}
+                # {ts(f"id_2197")}
                 if "functionCall" in part:
                     close_evt = _close_block()
                     if close_evt:
@@ -1142,12 +1142,12 @@ async def gemini_stream_to_anthropic_stream(
 
                     if _anthropic_debug_enabled():
                         log.info(
-                            ff"[ANTHROPIC][tool_use] {ts("id_2197")}: name={tool_name}, "
+                            f"[ANTHROPIC][tool_use] {ts('id_2197')}: name={tool_name}, "
                             f"id={tool_id}, has_signature={thoughtsignature is not None}"
                         )
 
                     current_block_index += 1
-                    # {ts("id_2232")} current_block_type{ts("id_2231")}
+                    # {ts(f"id_2232")} current_block_type{ts('id_2231')}
 
                     yield _sse_event(
                         "content_block_start",
@@ -1177,42 +1177,42 @@ async def gemini_stream_to_anthropic_stream(
                         "content_block_stop",
                         {"type": "content_block_stop", "index": current_block_index},
                     )
-                    # {ts("id_2233")}current_block_type {ts("id_2234")} None
+                    # {ts(f"id_2233")}current_block_type {ts('id_2234')} None
                     
                     if _anthropic_debug_enabled():
-                        log.info(ff"[ANTHROPIC][tool_use] {ts("id_2235")}: index={current_block_index}")
+                        log.info(f"[ANTHROPIC][tool_use] {ts('id_2235')}: index={current_block_index}")
                     
                     continue
 
-            # {ts("id_2236")}
+            # {ts(f"id_2236")}
             if candidate.get("finishReason"):
                 finish_reason = candidate.get("finishReason")
                 break
 
-        # {ts("id_2237")}
+        # {ts(f"id_2237")}
         close_evt = _close_block()
         if close_evt:
             yield close_evt
 
-        # {ts("id_2201")}
-        # {ts("id_2203")}STOP{ts("id_2202")} tool_use
-        # {ts(f"id_2206")} SAFETY{ts("id_189")}MAX_TOKENS {ts("id_2204")} tool_use {ts("id_2205")}
+        # {ts(f"id_2201")}
+        # {ts(f"id_2203")}STOP{ts('id_2202')} tool_use
+        # {ts(f"id_2206")} SAFETY{ts('id_189')}MAX_TOKENS {ts('id_2204')} tool_use {ts('id_2205')}
         if has_tool_use and finish_reason == "STOP":
             stop_reason = "tool_use"
         elif finish_reason == "MAX_TOKENS":
             stop_reason = "max_tokens"
         else:
-            # {ts(f"id_2207")}SAFETY{ts("id_189")}RECITATION {ts("id_2208")} end_turn
+            # {ts(f"id_2207")}SAFETY{ts('id_189')}RECITATION {ts('id_2208')} end_turn
             stop_reason = "end_turn"
 
         if _anthropic_debug_enabled():
             log.info(
-                ff"[ANTHROPIC][stream_end] {ts("id_2238")}: stop_reason={stop_reason}, "
+                f"[ANTHROPIC][stream_end] {ts('id_2238')}: stop_reason={stop_reason}, "
                 f"has_tool_use={has_tool_use}, finish_reason={finish_reason}, "
                 f"input_tokens={input_tokens}, output_tokens={output_tokens}"
             )
 
-        # {ts("id_2226")} message_delta {ts("id_15")} message_stop
+        # {ts(f"id_2226")} message_delta {ts('id_15')} message_stop
         yield _sse_event(
             "message_delta",
             {
@@ -1227,8 +1227,8 @@ async def gemini_stream_to_anthropic_stream(
         yield _sse_event("message_stop", {"type": "message_stop"})
 
     except Exception as e:
-        log.error(ff"[ANTHROPIC] {ts("id_2239")}: {e}")
-        # {ts("id_2240")}
+        log.error(f"[ANTHROPIC] {ts('id_2239')}: {e}")
+        # {ts(f"id_2240")}
         if not message_start_sent:
             yield _sse_event(
                 "message_start",

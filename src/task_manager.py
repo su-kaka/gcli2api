@@ -1,7 +1,7 @@
 from src.i18n import ts
 """
 Global task lifecycle management module
-{ts("id_3607")}
+{ts(f"id_3607")}
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from log import log
 
 
 class TaskManager:
-    f"""{ts("id_3608")} - {ts("id_3609")}"""
+    f"""{ts('id_3608')} - {ts('id_3609')}"""
 
     _instance = None
     _lock = asyncio.Lock()
@@ -28,13 +28,13 @@ class TaskManager:
             return
 
         self._tasks: Set[asyncio.Task] = set()
-        self._resources: Set[Any] = set()  # {ts("id_3610")}
+        self._resources: Set[Any] = set()  # {ts(f"id_3610")}
         self._shutdown_event = asyncio.Event()
         self._initialized = True
         log.debug("TaskManager initialized")
 
     def register_task(self, task: asyncio.Task, description: str = None) -> asyncio.Task:
-        f"""{ts("id_3611")}"""
+        f"""{ts('id_3611')}"""
         self._tasks.add(task)
         task.add_done_callback(lambda t: self._tasks.discard(t))
 
@@ -45,25 +45,25 @@ class TaskManager:
         return task
 
     def create_task(self, coro, *, name: str = None) -> asyncio.Task:
-        f"""{ts("id_3612")}"""
+        f"""{ts('id_3612')}"""
         task = asyncio.create_task(coro, name=name)
         return self.register_task(task, name)
 
     def register_resource(self, resource: Any) -> Any:
-        f"""{ts("id_3613")}HTTP{ts("id_3614")}"""
-        # {ts("id_3615")}
+        f"""{ts('id_3613')}HTTP{ts('id_3614')}"""
+        # {ts(f"id_3615")}
         self._resources.add(weakref.ref(resource))
         log.debug(f"Registered resource: {type(resource).__name__}")
         return resource
 
     async def shutdown(self, timeout: float = 30.0):
-        f"""{ts("id_3616")}"""
+        f"""{ts('id_3616')}"""
         log.info("TaskManager shutdown initiated")
 
-        # {ts("id_3617")}
+        # {ts(f"id_3617")}
         self._shutdown_event.set()
 
-        # {ts("id_3618")}
+        # {ts(f"id_3618")}
         cancelled_count = 0
         for task in list(self._tasks):
             if not task.done():
@@ -73,7 +73,7 @@ class TaskManager:
         if cancelled_count > 0:
             log.info(f"Cancelled {cancelled_count} pending tasks")
 
-        # {ts("id_3619")}
+        # {ts(f"id_3619")}
         if self._tasks:
             try:
                 await asyncio.wait_for(
@@ -82,7 +82,7 @@ class TaskManager:
             except asyncio.TimeoutError:
                 log.warning(f"Some tasks did not complete within {timeout}s timeout")
 
-        # {ts("id_2942")} - {ts("id_3620")}
+        # {ts(f"id_2942")} - {ts('id_3620')}
         cleaned_resources = 0
         failed_resources = 0
         for resource_ref in list(self._resources):
@@ -100,7 +100,7 @@ class TaskManager:
                 except Exception as e:
                     log.warning(f"Failed to close resource {type(resource).__name__}: {e}")
                     failed_resources += 1
-            # {ts("id_3621")}
+            # {ts(f"id_3621")}
 
         if cleaned_resources > 0:
             log.info(f"Cleaned up {cleaned_resources} resources")
@@ -113,11 +113,11 @@ class TaskManager:
 
     @property
     def is_shutdown(self) -> bool:
-        f"""{ts("id_3622")}"""
+        f"""{ts('id_3622')}"""
         return self._shutdown_event.is_set()
 
     def get_stats(self) -> Dict[str, int]:
-        f"""{ts("id_3623")}"""
+        f"""{ts('id_3623')}"""
         return {
             "active_tasks": len(self._tasks),
             "registered_resources": len(self._resources),
@@ -125,20 +125,20 @@ class TaskManager:
         }
 
 
-# {ts("id_3624")}
+# {ts(f"id_3624")}
 task_manager = TaskManager()
 
 
 def create_managed_task(coro, *, name: str = None) -> asyncio.Task:
-    f"""{ts("id_3625")}"""
+    f"""{ts('id_3625')}"""
     return task_manager.create_task(coro, name=name)
 
 
 def register_resource(resource: Any) -> Any:
-    f"""{ts("id_3626")}"""
+    f"""{ts('id_3626')}"""
     return task_manager.register_resource(resource)
 
 
 async def shutdown_all_tasks(timeout: float = 30.0):
-    f"""{ts("id_3627")}"""
+    f"""{ts('id_3627')}"""
     await task_manager.shutdown(timeout)

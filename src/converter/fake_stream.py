@@ -6,15 +6,15 @@ from log import log
 from src.converter.openai2gemini import _convert_usage_metadata
 
 def safe_get_nested(obj: Any, *keys: str, default: Any = None) -> Any:
-    """{ts("id_2412")}
+    f"""{ts('id_2412')}
     
     Args:
-        obj: {ts("id_2413")}
-        *keys: {ts("id_2414")}
-        default: {ts("id_110")}
+        obj: {ts(f"id_2413")}
+        *keys: {ts(f"id_2414")}
+        default: {ts(f"id_110")}
     
     Returns:
-        {ts("id_2415")}
+        {ts(f"id_2415")}
     """
     for key in keys:
         if not isinstance(obj, dict):
@@ -25,17 +25,17 @@ def safe_get_nested(obj: Any, *keys: str, default: Any = None) -> Any:
     return obj
 
 def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
-    f"""{ts("id_2416")}({ts("id_2417")})
+    f"""{ts('id_2416')}({ts('id_2417')})
 
     Args:
-        response_data: Gemini API {ts("id_2418")}
+        response_data: Gemini API {ts('id_2418')}
 
     Returns:
-        (content, reasoning_content, finish_reason, images): {ts("id_2419")}
+        (content, reasoning_content, finish_reason, images): {ts('id_2419')}
     """
     import json
 
-    # {ts(f"id_590")}GeminiCLI{ts("id_61")}response{ts("id_2193")}
+    # {ts(f"id_590")}GeminiCLI{ts('id_61')}response{ts('id_2193')}
     if "response" in response_data and "candidates" not in response_data:
         log.debug(f"[FAKE_STREAM] Unwrapping response field")
         response_data = response_data["response"]
@@ -56,17 +56,17 @@ def parse_response_for_fake_stream(response_data: Dict[str, Any]) -> tuple:
 
 def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]]:
     """
-    {ts("id_1731")} Gemini {ts("id_2420")}
+    {ts(f"id_1731")} Gemini {ts('id_2420')}
     
     Args:
-        response: Gemini API {ts("id_2421")}
+        response: Gemini API {ts(f"id_2421")}
     
     Returns:
-        (content, reasoning_content, usage) {ts("id_1605")}
+        (content, reasoning_content, usage) {ts(f"id_1605")}
     """
     from src.converter.utils import extract_content_and_reasoning
     
-    # {ts("id_2422")}
+    # {ts(f"id_2422")}
     if hasattr(response, "body"):
         body_str = (
             response.body.decode()
@@ -85,55 +85,55 @@ def extract_fake_stream_content(response: Any) -> Tuple[str, str, Dict[str, int]
     try:
         response_data = json.loads(body_str)
 
-        # GeminiCLI {ts("id_2423")} {"response": {...}, "traceId": "..."}
-        # {ts("id_2424")} response {ts("id_2018")}
+        # GeminiCLI {ts(f"id_2423")} {"response": {...}, "traceId": "..."}
+        # {ts(f"id_2424")} response {ts('id_2018')}
         if "response" in response_data:
             gemini_response = response_data["response"]
         else:
             gemini_response = response_data
 
-        # {ts("id_1731")}Gemini{ts("id_2425")}
+        # {ts(f"id_1731")}Gemini{ts('id_2425')}
         content = ""
         reasoning_content = ""
         images = []
         if "candidates" in gemini_response and gemini_response["candidates"]:
-            # Gemini{ts("id_2427")} - {ts("id_2426")}
+            # Gemini{ts(f"id_2427")} - {ts('id_2426')}
             candidate = gemini_response["candidates"][0]
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
                 content, reasoning_content, images = extract_content_and_reasoning(parts)
         elif "choices" in gemini_response and gemini_response["choices"]:
-            # OpenAI{ts("id_2427")}
+            # OpenAI{ts(f"id_2427")}
             content = gemini_response["choices"][0].get("message", {}).get("content", "")
 
-        # {ts("id_2428")}
+        # {ts(f"id_2428")}
         if not content and reasoning_content:
             log.warning("Fake stream response contains only thinking content")
-            content = f"[{ts("id_2429")}]"
+            content = f"[{ts('id_2429')}]"
         
-        # {ts("id_2430")}
+        # {ts(f"id_2430")}
         if not content:
             log.warning(f"No content found in response: {gemini_response}")
-            content = f"[{ts("id_2431")}]"
+            content = f"[{ts('id_2431')}]"
 
-        # {ts(f"id_2099")}usageMetadata{ts("id_2432")}OpenAI{ts("id_57")}
+        # {ts(f"id_2099")}usageMetadata{ts('id_2432')}OpenAI{ts('id_57')}
         usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
         
         return content, reasoning_content, usage
 
     except json.JSONDecodeError:
-        # {ts("id_2150")}JSON{ts("id_2433")}
+        # {ts(f"id_2150")}JSON{ts('id_2433')}
         return body_str, "", None
 
 def _build_candidate(parts: List[Dict[str, Any]], finish_reason: str = "STOP") -> Dict[str, Any]:
-    """{ts("id_2434")}
+    f"""{ts('id_2434')}
     
     Args:
-        parts: parts {ts("id_2052")}
-        finish_reason: {ts("id_2435")}
+        parts: parts {ts(f"id_2052")}
+        finish_reason: {ts(f"id_2435")}
     
     Returns:
-        {ts("id_2436")}
+        {ts(f"id_2436")}
     """
     return {
         "candidates": [{
@@ -145,10 +145,10 @@ def _build_candidate(parts: List[Dict[str, Any]], finish_reason: str = "STOP") -
 
 def create_openai_heartbeat_chunk() -> Dict[str, Any]:
     """
-    {ts("id_1029")} OpenAI {ts("id_2437")}
+    {ts(f"id_1029")} OpenAI {ts('id_2437')}
     
     Returns:
-        {ts("id_2438")}
+        {ts(f"id_2438")}
     """
     return {
         "choices": [
@@ -161,17 +161,17 @@ def create_openai_heartbeat_chunk() -> Dict[str, Any]:
     }
 
 def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    """{ts("id_2439")}
+    f"""{ts('id_2439')}
 
     Args:
-        content: {ts("id_2440")}
-        reasoning_content: {ts("id_2441")}
-        finish_reason: {ts("id_2435")}
-        images: {ts("id_2442")}
-        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
+        content: {ts(f"id_2440")}
+        reasoning_content: {ts(f"id_2441")}
+        finish_reason: {ts(f"id_2435")}
+        images: {ts(f"id_2442")}
+        chunk_size: {ts(f"id_1449")}chunk{ts('id_244350')}{ts('id_292')}
 
     Returns:
-        {ts("id_2444")}
+        {ts(f"id_2444")}
     """
     if images is None:
         images = []
@@ -179,26 +179,26 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
     log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
 
-    # {ts("id_2445")},{ts("id_2446")}
+    # {ts(f"id_2445")},{ts('id_2446')}
     if not content:
-        default_text = f"[{ts("id_2448")},{ts("id_2447f")}]" if reasoning_content else "[{ts("id_2450")},{ts("id_2449")}]"
+        default_text = f"[{ts('id_2448')},{ts('id_2447f')}]" if reasoning_content else f"[{ts('id_2450')},{ts('id_2449')}]"
         return [_build_candidate([{"text": default_text}], finish_reason)]
 
-    # {ts("id_2451")}
+    # {ts(f"id_2451")}
     first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         is_last_chunk = (i + chunk_size >= len(content)) and not reasoning_content
         chunk_finish_reason = finish_reason if is_last_chunk else None
 
-        # {ts(f"id_2453")}chunk{ts("id_2452")}parts{ts("id_692")}
+        # {ts(f"id_2453")}chunk{ts('id_2452')}parts{ts('id_692')}
         parts = []
         if first_chunk and images:
-            # {ts(f"id_429")}Gemini{ts("id_2454")}image_url{ts("id_2455")}inlineData{ts("id_57")}
+            # {ts(f"id_429")}Gemini{ts('id_2454')}image_url{ts('id_2455')}inlineData{ts('id_57')}
             for img in images:
                 if img.get("type") == "image_url":
                     url = img.get("image_url", {}).get("url", "")
-                    # {ts("id_2224")} data URL: data:{mime_type};base64,{data}
+                    # {ts(f"id_2224")} data URL: data:{mime_type};base64,{data}
                     if url.startswith("data:"):
                         parts_of_url = url.split(";base64,")
                         if len(parts_of_url) == 2:
@@ -217,7 +217,7 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
         log.debug(f"[build_gemini_fake_stream_chunks] Generated chunk: {chunk_data}")
         chunks.append(chunk_data)
 
-    # {ts("id_2456")}
+    # {ts(f"id_2456")}
     if reasoning_content:
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
@@ -230,10 +230,10 @@ def build_gemini_fake_stream_chunks(content: str, reasoning_content: str, finish
 
 
 def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
-    f"""{ts("id_1029")} Gemini {ts("id_2457")}
+    f"""{ts('id_1029')} Gemini {ts('id_2457')}
 
     Returns:
-        {ts("id_2458")}
+        {ts('id_2458')}
     """
     chunk = _build_candidate([{"text": ""}])
     chunk["candidates"][0]["finishReason"] = None
@@ -241,18 +241,18 @@ def create_gemini_heartbeat_chunk() -> Dict[str, Any]:
 
 
 def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    f"""{ts("id_1475")} OpenAI {ts("id_2459")}
+    f"""{ts('id_1475')} OpenAI {ts('id_2459')}
 
     Args:
-        content: {ts("id_2440")}
-        reasoning_content: {ts("id_2441")}
-        finish_reason: {ts("id_2460")} "STOP", "MAX_TOKENS"{ts("id_292")}
-        model: {ts("id_1737")}
-        images: {ts("id_2442")}
-        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
+        content: {ts('id_2440')}
+        reasoning_content: {ts('id_2441')}
+        finish_reason: {ts('id_2460')} "STOP", "MAX_TOKENS"{ts('id_292')}
+        model: {ts('id_1737')}
+        images: {ts('id_2442')}
+        chunk_size: {ts(f"id_1449")}chunk{ts('id_244350')}{ts('id_292')}
 
     Returns:
-        OpenAI {ts("id_2461")}
+        OpenAI {ts('id_2461')}
     """
     import time
     import uuid
@@ -265,7 +265,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
     response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
-    # {ts(f"id_2462")} Gemini finish_reason {ts("id_2030")} OpenAI {ts("id_57")}
+    # {ts(f"id_2462")} Gemini finish_reason {ts('id_2030')} OpenAI {ts('id_57')}
     openai_finish_reason = None
     if finish_reason == "STOP":
         openai_finish_reason = "stop"
@@ -274,9 +274,9 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
     elif finish_reason in ["SAFETY", "RECITATION"]:
         openai_finish_reason = "content_filter"
 
-    # {ts("id_2463")}
+    # {ts(f"id_2463")}
     if not content:
-        default_text = f"[{ts("id_2429")}]" if reasoning_content else f"[{ts("id_2431")}]"
+        default_text = f"[{ts('id_2429')}]" if reasoning_content else f"[{ts('id_2431')}]"
         return [{
             "id": response_id,
             "object": "chat.completion.chunk",
@@ -289,7 +289,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
             }]
         }]
 
-    # {ts("id_2451")}
+    # {ts(f"id_2451")}
     first_chunk = True
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
@@ -298,7 +298,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
 
         delta_content = {}
 
-        # {ts(f"id_2453")}chunk{ts("id_2464")}content{ts("id_2465")}
+        # {ts(f"id_2453")}chunk{ts('id_2464')}content{ts('id_2465')}
         if first_chunk and images:
             delta_content["content"] = images + [{"type": "text", "text": chunk_text}]
             first_chunk = False
@@ -319,7 +319,7 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
         log.debug(f"[build_openai_fake_stream_chunks] Generated chunk: {chunk_data}")
         chunks.append(chunk_data)
 
-    # {ts("id_2466")} reasoning_content {ts("id_1608")}
+    # {ts(f"id_2466")} reasoning_content {ts('id_1608')}
     if reasoning_content:
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
@@ -344,10 +344,10 @@ def build_openai_fake_stream_chunks(content: str, reasoning_content: str, finish
 
 def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
     """
-    {ts("id_1029")} Anthropic {ts("id_2437")}
+    {ts(f"id_1029")} Anthropic {ts('id_2437')}
 
     Returns:
-        {ts("id_2438")}
+        {ts(f"id_2438")}
     """
     return {
         "type": "ping"
@@ -355,18 +355,18 @@ def create_anthropic_heartbeat_chunk() -> Dict[str, Any]:
 
 
 def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, finish_reason: str, model: str, images: List[Dict[str, Any]] = None, chunk_size: int = 50) -> List[Dict[str, Any]]:
-    f"""{ts("id_1475")} Anthropic {ts("id_2459")}
+    f"""{ts('id_1475')} Anthropic {ts('id_2459')}
 
     Args:
-        content: {ts("id_2440")}
-        reasoning_content: {ts("id_2467")}thinking content{ts("id_292")}
-        finish_reason: {ts("id_2460")} "STOP", "MAX_TOKENS"{ts("id_292")}
-        model: {ts("id_1737")}
-        images: {ts("id_2442")}
-        chunk_size: {ts(f"id_1449")}chunk{ts("id_244350")}{ts("id_292")}
+        content: {ts('id_2440')}
+        reasoning_content: {ts('id_2467')}thinking content{ts('id_292')}
+        finish_reason: {ts('id_2460')} "STOP", "MAX_TOKENS"{ts('id_292')}
+        model: {ts('id_1737')}
+        images: {ts('id_2442')}
+        chunk_size: {ts(f"id_1449")}chunk{ts('id_244350')}{ts('id_292')}
 
     Returns:
-        Anthropic SSE {ts("id_2461")}
+        Anthropic SSE {ts('id_2461')}
     """
     import uuid
 
@@ -377,14 +377,14 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
     chunks = []
     message_id = f"msg_{uuid.uuid4().hex}"
 
-    # {ts(f"id_2462")} Gemini finish_reason {ts("id_2030")} Anthropic {ts("id_57")}
+    # {ts(f"id_2462")} Gemini finish_reason {ts('id_2030')} Anthropic {ts('id_57')}
     anthropic_stop_reason = "end_turn"
     if finish_reason == "MAX_TOKENS":
         anthropic_stop_reason = "max_tokens"
     elif finish_reason in ["SAFETY", "RECITATION"]:
         anthropic_stop_reason = "end_turn"
 
-    # 1. {ts("id_2226")} message_start {ts("id_2219")}
+    # 1. {ts(f"id_2226")} message_start {ts('id_2219')}
     chunks.append({
         "type": "message_start",
         "message": {
@@ -399,9 +399,9 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         }
     })
 
-    # {ts("id_2463")}
+    # {ts(f"id_2463")}
     if not content:
-        default_text = f"[{ts("id_2429")}]" if reasoning_content else f"[{ts("id_2431")}]"
+        default_text = f"[{ts('id_2429')}]" if reasoning_content else f"[{ts('id_2431')}]"
 
         # content_block_start
         chunks.append({
@@ -439,7 +439,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
     block_index = 0
 
-    # 2. {ts("id_2468")} thinking {ts("id_2046")}
+    # 2. {ts(f"id_2468")} thinking {ts('id_2046')}
     if reasoning_content:
         # thinking content_block_start
         chunks.append({
@@ -448,7 +448,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
             "content_block": {"type": "thinking", "thinking": ""}
         })
 
-        # {ts("id_2469")}
+        # {ts(f"id_2469")}
         for i in range(0, len(reasoning_content), chunk_size):
             chunk_text = reasoning_content[i:i + chunk_size]
             chunks.append({
@@ -465,12 +465,12 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
         block_index += 1
 
-    # 3. {ts("id_2470")}
+    # 3. {ts(f"id_2470")}
     if images:
         for img in images:
             if img.get("type") == "image_url":
                 url = img.get("image_url", {}).get("url", "")
-                # {ts("id_2224")} data URL: data:{mime_type};base64,{data}
+                # {ts(f"id_2224")} data URL: data:{mime_type};base64,{data}
                 if url.startswith("data:"):
                     parts_of_url = url.split(";base64,")
                     if len(parts_of_url) == 2:
@@ -499,7 +499,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
 
                         block_index += 1
 
-    # 4. {ts("id_2471")}text {ts("id_2472")}
+    # 4. {ts(f"id_2471")}text {ts('id_2472')}
     # text content_block_start
     chunks.append({
         "type": "content_block_start",
@@ -507,7 +507,7 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         "content_block": {"type": "text", "text": ""}
     })
 
-    # {ts("id_2451")}
+    # {ts(f"id_2451")}
     for i in range(0, len(content), chunk_size):
         chunk_text = content[i:i + chunk_size]
         chunks.append({
@@ -522,14 +522,14 @@ def build_anthropic_fake_stream_chunks(content: str, reasoning_content: str, fin
         "index": block_index
     })
 
-    # 5. {ts("id_2226")} message_delta
+    # 5. {ts(f"id_2226")} message_delta
     chunks.append({
         "type": "message_delta",
         "delta": {"stop_reason": anthropic_stop_reason, "stop_sequence": None},
         "usage": {"output_tokens": len(content) + len(reasoning_content)}
     })
 
-    # 6. {ts("id_2226")} message_stop
+    # 6. {ts(f"id_2226")} message_stop
     chunks.append({
         "type": "message_stop"
     })

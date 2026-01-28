@@ -16,7 +16,7 @@ GEMINICLI_USER_AGENT = "GeminiCLI/0.1.5 (Windows; AMD64)"
 
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
 
-# OAuth Configuration - {ts("id_3636")}
+# OAuth Configuration - {ts(f"id_3636")}
 CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 CLIENT_SECRET = "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"
 SCOPES = [
@@ -36,10 +36,10 @@ ANTIGRAVITY_SCOPES = [
     'https://www.googleapis.com/auth/experimentsandconfigs'
 ]
 
-# {ts("id_2474")} Token URL{ts("id_3637")}
+# {ts(f"id_2474")} Token URL{ts('id_3637')}
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-# {ts("id_3638")}
+# {ts(f"id_3638")}
 CALLBACK_HOST = "localhost"
 
 # ====================== Model Configuration ======================
@@ -71,18 +71,18 @@ BASE_MODELS = [
 
 def is_fake_streaming_model(model_name: str) -> bool:
     """Check if model name indicates fake streaming should be used."""
-    return model_name.startswith(f"{ts("id_121")}/")
+    return model_name.startswith(f"{ts('id_121')}/")
 
 
 def is_anti_truncation_model(model_name: str) -> bool:
     """Check if model name indicates anti-truncation should be used."""
-    return model_name.startswith(f"{ts("id_80")}/")
+    return model_name.startswith(f"{ts('id_80')}/")
 
 
 def get_base_model_from_feature_model(model_name: str) -> str:
     """Get base model name from feature model name."""
     # Remove feature prefixes
-    for prefix in [f"{ts("id_121")}/", f"{ts("id_80")}/"]:
+    for prefix in [f"{ts('id_121')}/", f"{ts('id_80')}/"]:
         if model_name.startswith(prefix):
             return model_name[len(prefix) :]
     return model_name
@@ -101,49 +101,49 @@ def get_available_models(router_type: str = "openai") -> List[str]:
     models = []
 
     for base_model in BASE_MODELS:
-        # {ts("id_117")}
+        # {ts(f"id_117")}
         models.append(base_model)
 
-        # {ts("id_3337")} ({ts("id_3338")})
-        models.append(ff"{ts("id_121")}/{base_model}")
+        # {ts(f"id_3337")} ({ts('id_3338')})
+        models.append(f"{ts('id_121')}/{base_model}")
 
-        # {ts("id_3340")} ({ts("id_3339")})
-        models.append(ff"{ts("id_80")}/{base_model}")
+        # {ts(f"id_3340")} ({ts('id_3339')})
+        models.append(f"{ts('id_80')}/{base_model}")
 
-        # {ts("id_3639")}
+        # {ts(f"id_3639")}
         thinking_suffixes = []
 
-        # Gemini 2.5 {ts("id_2497")}: {ts("id_3640")}
+        # Gemini 2.5 {ts(f"id_2497")}: {ts('id_3640')}
         if "gemini-2.5" in base_model:
             thinking_suffixes = ["-max", "-high", "-medium", "-low", "-minimal"]
-        # Gemini 3 {ts("id_2497")}: {ts("id_3641")}
+        # Gemini 3 {ts(f"id_2497")}: {ts('id_3641')}
         elif "gemini-3" in base_model:
             if "flash" in base_model:
-                # 3-flash-preview: {ts("id_56")} high/medium/low/minimal
+                # 3-flash-preview: {ts(f"id_56")} high/medium/low/minimal
                 thinking_suffixes = ["-high", "-medium", "-low", "-minimal"]
             elif "pro" in base_model:
-                # 3-pro-preview: {ts("id_56")} high/low
+                # 3-pro-preview: {ts(f"id_56")} high/low
                 thinking_suffixes = ["-high", "-low"]
 
         search_suffix = "-search"
 
-        # 1. {ts("id_3642")} thinking {ts("id_360")}
+        # 1. {ts(f"id_3642")} thinking {ts('id_360')}
         for thinking_suffix in thinking_suffixes:
             models.append(f"{base_model}{thinking_suffix}")
-            models.append(ff"{ts("id_121")}/{base_model}{thinking_suffix}")
-            models.append(ff"{ts("id_80")}/{base_model}{thinking_suffix}")
+            models.append(f"{ts('id_121')}/{base_model}{thinking_suffix}")
+            models.append(f"{ts('id_80')}/{base_model}{thinking_suffix}")
 
-        # 2. {ts("id_3642")} search {ts("id_360")}
+        # 2. {ts(f"id_3642")} search {ts('id_360')}
         models.append(f"{base_model}{search_suffix}")
-        models.append(ff"{ts("id_121")}/{base_model}{search_suffix}")
-        models.append(ff"{ts("id_80")}/{base_model}{search_suffix}")
+        models.append(f"{ts('id_121')}/{base_model}{search_suffix}")
+        models.append(f"{ts('id_80')}/{base_model}{search_suffix}")
 
-        # 3. thinking + search {ts("id_3643")}
+        # 3. thinking + search {ts(f"id_3643")}
         for thinking_suffix in thinking_suffixes:
             combined_suffix = f"{thinking_suffix}{search_suffix}"
             models.append(f"{base_model}{combined_suffix}")
-            models.append(ff"{ts("id_121")}/{base_model}{combined_suffix}")
-            models.append(ff"{ts("id_80")}/{base_model}{combined_suffix}")
+            models.append(f"{ts('id_121')}/{base_model}{combined_suffix}")
+            models.append(f"{ts('id_80')}/{base_model}{combined_suffix}")
 
     return models
 
@@ -161,76 +161,76 @@ async def authenticate_flexible(
     key: Optional[str] = Query(None)
 ) -> str:
     """
-    {ts("id_3644")}
+    {ts(f"id_3644")}
 
-    {ts(f"id_3645")} FastAPI {ts("id_61")} Depends {ts("id_3646")}
+    {ts(f"id_3645")} FastAPI {ts('id_61')} Depends {ts('id_3646')}
 
-    {ts("id_3647")}:
-        - URL {ts("id_226")}: key
-        - HTTP {ts("id_561")}: Authorization (Bearer token)
-        - HTTP {ts("id_561")}: x-api-key
-        - HTTP {ts("id_561")}: access_token
-        - HTTP {ts("id_561")}: x-goog-api-key
-        - HTTP {ts("id_561")}: x-anthropic-auth-token
-        - HTTP {ts("id_561")}: anthropic-auth-token
+    {ts(f"id_3647")}:
+        - URL {ts(f"id_226")}: key
+        - HTTP {ts(f"id_561")}: Authorization (Bearer token)
+        - HTTP {ts(f"id_561")}: x-api-key
+        - HTTP {ts(f"id_561")}: access_token
+        - HTTP {ts(f"id_561")}: x-goog-api-key
+        - HTTP {ts(f"id_561")}: x-anthropic-auth-token
+        - HTTP {ts(f"id_561")}: anthropic-auth-token
 
     Args:
-        request: FastAPI Request {ts("id_1509")}
-        authorization: Authorization {ts("id_3648")}
-        x_api_key: x-api-key {ts("id_3648")}
-        access_token: access_token {ts("id_3648")}
-        x_goog_api_key: x-goog-api-key {ts("id_3648")}
-        x_anthropic_auth_token: x-anthropic-auth-token {ts("id_3648")}
-        anthropic_auth_token: anthropic-auth-token {ts("id_3648")}
-        key: URL {ts("id_226")} key{ts("id_3649")}
+        request: FastAPI Request {ts(f"id_1509")}
+        authorization: Authorization {ts(f"id_3648")}
+        x_api_key: x-api-key {ts(f"id_3648")}
+        access_token: access_token {ts(f"id_3648")}
+        x_goog_api_key: x-goog-api-key {ts(f"id_3648")}
+        x_anthropic_auth_token: x-anthropic-auth-token {ts(f"id_3648")}
+        anthropic_auth_token: anthropic-auth-token {ts(f"id_3648")}
+        key: URL {ts(f"id_226")} key{ts('id_3649')}
 
     Returns:
-        {ts("id_3650")}token
+        {ts(f"id_3650")}token
 
     Raises:
-        HTTPException: {ts("id_3651")}
+        HTTPException: {ts(f"id_3651")}
 
-    {ts("id_545")}:
+    {ts(f"id_545")}:
         @router.post("/endpoint")
         async def endpoint(token: str = Depends(authenticate_flexible)):
-            # token {ts("id_3652")}
+            # token {ts(f"id_3652")}
             pass
     """
     password = await get_api_password()
     token = None
     auth_method = None
 
-    # 1. {ts(f"id_3654")} URL {ts("id_226")} key {ts("id_3655")}Google {ts("id_3653")}
+    # 1. {ts(f"id_3654")} URL {ts('id_226')} key {ts('id_3655')}Google {ts('id_3653')}
     if key:
         token = key
         auth_method = "URL parameter 'key'"
 
-    # 2. {ts(f"id_3654")} x-goog-api-key {ts("id_3657")}Google API {ts("id_3656")}
+    # 2. {ts(f"id_3654")} x-goog-api-key {ts('id_3657')}Google API {ts('id_3656')}
     elif x_goog_api_key:
         token = x_goog_api_key
         auth_method = "x-goog-api-key header"
 
-    # 3. {ts(f"id_3654")} x-anthropic-auth-token {ts("id_3657")}Anthropic {ts("id_3656")}
+    # 3. {ts(f"id_3654")} x-anthropic-auth-token {ts('id_3657')}Anthropic {ts('id_3656')}
     elif x_anthropic_auth_token:
         token = x_anthropic_auth_token
         auth_method = "x-anthropic-auth-token header"
 
-    # 4. {ts(f"id_3654")} anthropic-auth-token {ts("id_3657")}Anthropic {ts("id_3658")}
+    # 4. {ts(f"id_3654")} anthropic-auth-token {ts('id_3657')}Anthropic {ts('id_3658')}
     elif anthropic_auth_token:
         token = anthropic_auth_token
         auth_method = "anthropic-auth-token header"
 
-    # 5. {ts("id_3654")} x-api-key {ts("id_3659")}
+    # 5. {ts(f"id_3654")} x-api-key {ts('id_3659')}
     elif x_api_key:
         token = x_api_key
         auth_method = "x-api-key header"
 
-    # 6. {ts("id_3654")} access_token {ts("id_3659")}
+    # 6. {ts(f"id_3654")} access_token {ts('id_3659')}
     elif access_token:
         token = access_token
         auth_method = "access_token header"
 
-    # 7. {ts("id_3654")} Authorization {ts("id_3659")}
+    # 7. {ts(f"id_3654")} Authorization {ts('id_3659')}
     elif authorization:
         if not authorization.startswith("Bearer "):
             raise HTTPException(
@@ -238,10 +238,10 @@ async def authenticate_flexible(
                 detail="Invalid authentication scheme. Use 'Bearer <token>'",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        token = authorization[7:]  # {ts("id_2044")} "Bearer " {ts("id_365")}
+        token = authorization[7:]  # {ts(f"id_2044")} "Bearer " {ts('id_365')}
         auth_method = "Authorization Bearer header"
 
-    # {ts("id_3660")}
+    # {ts(f"id_3660")}
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -249,19 +249,19 @@ async def authenticate_flexible(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # {ts("id_3661")} token
+    # {ts(f"id_3661")} token
     if token != password:
         log.debug(f"Authentication failed using {auth_method}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"{ts("id_3662")}"
+            detail=f"{ts('id_3662')}"
         )
     
     log.debug(f"Authentication successful using {auth_method}")
     return token
 
 
-# {ts("id_3663")}
+# {ts(f"id_3663")}
 authenticate_bearer = authenticate_flexible
 authenticate_gemini_flexible = authenticate_flexible
 
@@ -270,21 +270,21 @@ authenticate_gemini_flexible = authenticate_flexible
 
 async def verify_panel_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """
-    {ts("id_3664")}
+    {ts(f"id_3664")}
 
-    {ts("id_3666")}Bearer token{ts("id_3665")}
+    {ts(f"id_3666")}Bearer token{ts('id_3665')}
 
     Args:
-        credentials: HTTPAuthorizationCredentials {ts("id_3667")}
+        credentials: HTTPAuthorizationCredentials {ts(f"id_3667")}
 
     Returns:
-        {ts("id_3650")}token
+        {ts(f"id_3650")}token
 
     Raises:
-        HTTPException: {ts("id_3668401")}{ts("id_3669")}
+        HTTPException: {ts(f"id_3668401")}{ts('id_3669')}
     """
 
     password = await get_panel_password()
     if credentials.credentials != password:
-        raise HTTPException(status_code=401, detail=f"{ts("id_3662")}")
+        raise HTTPException(status_code=401, detail=f"{ts('id_3662')}")
     return credentials.credentials

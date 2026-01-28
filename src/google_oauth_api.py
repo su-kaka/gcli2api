@@ -1,6 +1,6 @@
 from src.i18n import ts
 """
-Google OAuth2 {ts("id_3074")}
+Google OAuth2 {ts(f"id_3074")}
 """
 
 import time
@@ -23,13 +23,13 @@ from src.httpx_client import get_async, post_async
 
 
 class TokenError(Exception):
-    f"""Token{ts("id_3075")}"""
+    f"""Token{ts('id_3075')}"""
 
     pass
 
 
 class Credentials:
-    f"""{ts("id_3076")}"""
+    f"""{ts('id_3076')}"""
 
     def __init__(
         self,
@@ -47,34 +47,34 @@ class Credentials:
         self.expires_at = expires_at
         self.project_id = project_id
 
-        # {ts("id_3077")}
+        # {ts(f"id_3077")}
         self.oauth_base_url = None
         self.token_endpoint = None
 
     def is_expired(self) -> bool:
-        f"""{ts("id_1890")}token{ts("id_3078")}"""
+        f"""{ts('id_1890')}token{ts('id_3078')}"""
         if not self.expires_at:
             return True
 
-        # {ts("id_30803")}{ts("id_3079")}
+        # {ts(f"id_30803")}{ts('id_3079')}
         buffer = timedelta(minutes=3)
         return (self.expires_at - buffer) <= datetime.now(timezone.utc)
 
     async def refresh_if_needed(self) -> bool:
-        f"""{ts("id_3081")}token"""
+        f"""{ts('id_3081')}token"""
         if not self.is_expired():
             return False
 
         if not self.refresh_token:
-            raise TokenError(f"{ts("id_3082")}")
+            raise TokenError(f"{ts('id_3082')}")
 
         await self.refresh()
         return True
 
     async def refresh(self):
-        f"""{ts("id_3083")}"""
+        f"""{ts('id_3083')}"""
         if not self.refresh_token:
-            raise TokenError(f"{ts("id_3084")}")
+            raise TokenError(f"{ts('id_3084')}")
 
         data = {
             "client_id": self.client_id,
@@ -101,24 +101,24 @@ class Credentials:
                 current_utc = datetime.now(timezone.utc)
                 self.expires_at = current_utc + timedelta(seconds=expires_in)
                 log.debug(
-                    ff"Token{ts("id_1827")}: {ts("id_392f")}UTC{ts("id_3012")}={current_utc.isoformat()}, "
-                    ff"{ts("id_3085")}={expires_in}{ts("id_72")}, "
-                    ff"{ts("id_1855")}={self.expires_at.isoformat()}"
+                    f"Token{ts('id_1827')}: {ts('id_392f')}UTC{ts('id_3012')}={current_utc.isoformat()}, "
+                    f"{ts('id_3085')}={expires_in}{ts('id_72')}, "
+                    f"{ts('id_1855')}={self.expires_at.isoformat()}"
                 )
 
             if "refresh_token" in token_data:
                 self.refresh_token = token_data["refresh_token"]
 
-            log.debug(ff"Token{ts("id_3086")}: {self.expires_at}")
+            log.debug(f"Token{ts('id_3086')}: {self.expires_at}")
 
         except Exception as e:
             error_msg = str(e)
             status_code = None
             if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
                 status_code = e.response.status_code
-                error_msg = ff"Token{ts("id_3032")} (HTTP {status_code}): {error_msg}"
+                error_msg = f"Token{ts('id_3032')} (HTTP {status_code}): {error_msg}"
             else:
-                error_msg = ff"Token{ts("id_3032")}: {error_msg}"
+                error_msg = f"Token{ts('id_3032')}: {error_msg}"
 
             log.error(error_msg)
             token_error = TokenError(error_msg)
@@ -127,8 +127,8 @@ class Credentials:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Credentials":
-        f"""{ts("id_3087")}"""
-        # {ts("id_3088")}
+        f"""{ts('id_3087')}"""
+        # {ts(f"id_3088")}
         expires_at = None
         if "expiry" in data and data["expiry"]:
             try:
@@ -141,7 +141,7 @@ class Credentials:
                     else:
                         expires_at = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc)
             except ValueError:
-                log.warning(ff"{ts("id_3089")}: {expiry_str}")
+                log.warning(f"{ts('id_3089')}: {expiry_str}")
 
         return cls(
             access_token=data.get("token") or data.get("access_token", ""),
@@ -153,7 +153,7 @@ class Credentials:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        f"""{ts("id_3090")}"""
+        f"""{ts('id_3090')}"""
         result = {
             "access_token": self.access_token,
             "refresh_token": self.refresh_token,
@@ -169,7 +169,7 @@ class Credentials:
 
 
 class Flow:
-    f"""OAuth{ts("id_3091")}"""
+    f"""OAuth{ts('id_3091')}"""
 
     def __init__(
         self, client_id: str, client_secret: str, scopes: List[str], redirect_uri: str = None
@@ -179,7 +179,7 @@ class Flow:
         self.scopes = scopes
         self.redirect_uri = redirect_uri
 
-        # {ts("id_3077")}
+        # {ts(f"id_3077")}
         self.oauth_base_url = None
         self.token_endpoint = None
         self.auth_endpoint = "https://accounts.google.com/o/oauth2/auth"
@@ -187,7 +187,7 @@ class Flow:
         self.credentials: Optional[Credentials] = None
 
     def get_auth_url(self, state: str = None, **kwargs) -> str:
-        f"""{ts("id_3092")}URL"""
+        f"""{ts('id_3092')}URL"""
         params = {
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
@@ -205,7 +205,7 @@ class Flow:
         return f"{self.auth_endpoint}?{urlencode(params)}"
 
     async def exchange_code(self, code: str) -> Credentials:
-        f"""{ts("id_3093")}token"""
+        f"""{ts('id_3093')}token"""
         data = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
@@ -224,13 +224,13 @@ class Flow:
 
             token_data = response.json()
 
-            # {ts("id_3094")}
+            # {ts(f"id_3094")}
             expires_at = None
             if "expires_in" in token_data:
                 expires_in = int(token_data["expires_in"])
                 expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
-            # {ts("id_3095")}
+            # {ts(f"id_3095")}
             self.credentials = Credentials(
                 access_token=token_data["access_token"],
                 refresh_token=token_data.get("refresh_token"),
@@ -242,13 +242,13 @@ class Flow:
             return self.credentials
 
         except Exception as e:
-            error_msg = ff"{ts("id_712")}token{ts("id_979")}: {str(e)}"
+            error_msg = f"{ts('id_712')}token{ts('id_979')}: {str(e)}"
             log.error(error_msg)
             raise TokenError(error_msg)
 
 
 class ServiceAccount:
-    f"""Service Account{ts("id_1587")}"""
+    f"""Service Account{ts('id_1587')}"""
 
     def __init__(
         self, email: str, private_key: str, project_id: str = None, scopes: List[str] = None
@@ -258,7 +258,7 @@ class ServiceAccount:
         self.project_id = project_id
         self.scopes = scopes or []
 
-        # {ts("id_3077")}
+        # {ts(f"id_3077")}
         self.oauth_base_url = None
         self.token_endpoint = None
 
@@ -266,7 +266,7 @@ class ServiceAccount:
         self.expires_at: Optional[datetime] = None
 
     def is_expired(self) -> bool:
-        f"""{ts("id_1890")}token{ts("id_3078")}"""
+        f"""{ts('id_1890')}token{ts('id_3078')}"""
         if not self.expires_at:
             return True
 
@@ -274,7 +274,7 @@ class ServiceAccount:
         return (self.expires_at - buffer) <= datetime.now(timezone.utc)
 
     def create_jwt(self) -> str:
-        f"""{ts("id_1029")}JWT{ts("id_3096")}"""
+        f"""{ts('id_1029')}JWT{ts('id_3096')}"""
         now = int(time.time())
 
         payload = {
@@ -288,7 +288,7 @@ class ServiceAccount:
         return jwt.encode(payload, self.private_key, algorithm="RS256")
 
     async def get_access_token(self) -> str:
-        f"""{ts("id_3097")}"""
+        f"""{ts('id_3097')}"""
         if not self.is_expired() and self.access_token:
             return self.access_token
 
@@ -314,13 +314,13 @@ class ServiceAccount:
             return self.access_token
 
         except Exception as e:
-            error_msg = ff"Service Account{ts("id_712")}token{ts("id_979")}: {str(e)}"
+            error_msg = f"Service Account{ts('id_712')}token{ts('id_979')}: {str(e)}"
             log.error(error_msg)
             raise TokenError(error_msg)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], scopes: List[str] = None) -> "ServiceAccount":
-        f"""{ts("id_3098")}Service Account{ts("id_100")}"""
+        f"""{ts('id_3098')}Service Account{ts('id_100')}"""
         return cls(
             email=data["client_email"],
             private_key=data["private_key"],
@@ -329,9 +329,9 @@ class ServiceAccount:
         )
 
 
-# {ts("id_780")}
+# {ts(f"id_780")}
 async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
-    f"""{ts("id_3099")}"""
+    f"""{ts('id_3099')}"""
     await credentials.refresh_if_needed()
 
     try:
@@ -343,54 +343,54 @@ async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        log.error(ff"{ts("id_3100")}: {e}")
+        log.error(f"{ts('id_3100')}: {e}")
         return None
 
 
 async def get_user_email(credentials: Credentials) -> Optional[str]:
-    f"""{ts("id_3101")}"""
+    f"""{ts('id_3101')}"""
     try:
-        # {ts("id_3102")}
+        # {ts(f"id_3102")}
         await credentials.refresh_if_needed()
 
-        # {ts("id_1095")}Google userinfo API{ts("id_2986")}
+        # {ts(f"id_1095")}Google userinfo API{ts('id_2986')}
         user_info = await get_user_info(credentials)
         if user_info:
             email = user_info.get("email")
             if email:
-                log.info(ff"{ts("id_3103")}: {email}")
+                log.info(f"{ts('id_3103')}: {email}")
                 return email
             else:
-                log.warning(ff"userinfo{ts("id_3104")}: {user_info}")
+                log.warning(f"userinfo{ts('id_3104')}: {user_info}")
                 return None
         else:
-            log.warning(f"{ts("id_3100")}")
+            log.warning(f"{ts('id_3100')}")
             return None
 
     except Exception as e:
-        log.error(ff"{ts("id_3105")}: {e}")
+        log.error(f"{ts('id_3105')}: {e}")
         return None
 
 
 async def fetch_user_email_from_file(cred_data: Dict[str, Any]) -> Optional[str]:
-    f"""{ts("id_3106")}"""
+    f"""{ts('id_3106')}"""
     try:
-        # {ts("id_3107")}
+        # {ts(f"id_3107")}
         credentials = Credentials.from_dict(cred_data)
         if not credentials or not credentials.access_token:
-            log.warning(f"{ts("id_3108")}")
+            log.warning(f"{ts('id_3108')}")
             return None
 
-        # {ts("id_2986")}
+        # {ts(f"id_2986")}
         return await get_user_email(credentials)
 
     except Exception as e:
-        log.error(ff"{ts("id_3109")}: {e}")
+        log.error(f"{ts('id_3109')}: {e}")
         return None
 
 
 async def validate_token(token: str) -> Optional[Dict[str, Any]]:
-    f"""{ts("id_3110")}"""
+    f"""{ts('id_3110')}"""
     try:
         oauth_base_url = await get_oauth_proxy_url()
         tokeninfo_url = f"{oauth_base_url.rstrip('/')}/tokeninfo?access_token={token}"
@@ -399,14 +399,14 @@ async def validate_token(token: str) -> Optional[Dict[str, Any]]:
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        log.error(ff"{ts("id_3111")}: {e}")
+        log.error(f"{ts('id_3111')}: {e}")
         return None
 
 
 async def enable_required_apis(credentials: Credentials, project_id: str) -> bool:
-    f"""{ts("id_420")}API{ts("id_1151")}"""
+    f"""{ts('id_420')}API{ts('id_1151')}"""
     try:
-        # {ts("id_3102")}
+        # {ts(f"id_3102")}
         if credentials.is_expired() and credentials.refresh_token:
             await credentials.refresh()
 
@@ -416,16 +416,16 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
             "User-Agent": "geminicli-oauth/1.0",
         }
 
-        # {ts("id_3112")}
+        # {ts(f"id_3112")}
         required_services = [
             "geminicloudassist.googleapis.com",  # Gemini Cloud Assist API
             "cloudaicompanion.googleapis.com",  # Gemini for Google Cloud API
         ]
 
         for service in required_services:
-            log.info(ff"{ts("id_3113")}: {service}")
+            log.info(f"{ts('id_3113')}: {service}")
 
-            # {ts("id_3114")}
+            # {ts(f"id_3114")}
             service_usage_base_url = await get_service_usage_api_url()
             check_url = (
                 f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
@@ -435,43 +435,43 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
                 if check_response.status_code == 200:
                     service_data = check_response.json()
                     if service_data.get("state") == "ENABLED":
-                        log.info(ff"{ts("id_1151")} {service} {ts("id_790")}")
+                        log.info(f"{ts('id_1151')} {service} {ts('id_790')}")
                         continue
             except Exception as e:
-                log.debug(ff"{ts("id_3115")}: {e}")
+                log.debug(f"{ts('id_3115')}: {e}")
 
-            # {ts("id_3116")}
+            # {ts(f"id_3116")}
             enable_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}:enable"
             try:
                 enable_response = await post_async(enable_url, headers=headers, json={})
 
                 if enable_response.status_code in [200, 201]:
-                    log.info(ff"✅ {ts("id_3117")}: {service}")
+                    log.info(f"✅ {ts('id_3117')}: {service}")
                 elif enable_response.status_code == 400:
                     error_data = enable_response.json()
                     if "already enabled" in error_data.get("error", {}).get("message", "").lower():
-                        log.info(ff"✅ {ts("id_1151")} {service} {ts("id_3118")}")
+                        log.info(f"✅ {ts('id_1151')} {service} {ts('id_3118')}")
                     else:
-                        log.warning(ff"⚠️ {ts("id_3116")} {service} {ts("id_3119")}: {error_data}")
+                        log.warning(f"⚠️ {ts('id_3116')} {service} {ts('id_3119')}: {error_data}")
                 else:
                     log.warning(
-                        ff"⚠️ {ts("id_3116")} {service} {ts("id_979")}: {enable_response.status_code} - {enable_response.text}"
+                        f"⚠️ {ts('id_3116')} {service} {ts('id_979')}: {enable_response.status_code} - {enable_response.text}"
                     )
 
             except Exception as e:
-                log.warning(ff"⚠️ {ts("id_3116")} {service} {ts("id_3120")}: {e}")
+                log.warning(f"⚠️ {ts('id_3116')} {service} {ts('id_3120')}: {e}")
 
         return True
 
     except Exception as e:
-        log.error(ff"{ts("id_126")}API{ts("id_3121")}: {e}")
+        log.error(f"{ts('id_126')}API{ts('id_3121')}: {e}")
         return False
 
 
 async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
-    f"""{ts("id_3122")}Google Cloud{ts("id_3123")}"""
+    f"""{ts('id_3122')}Google Cloud{ts('id_3123')}"""
     try:
-        # {ts("id_3102")}
+        # {ts(f"id_3102")}
         if credentials.is_expired() and credentials.refresh_token:
             await credentials.refresh()
 
@@ -480,54 +480,54 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             "User-Agent": "geminicli-oauth/1.0",
         }
 
-        # {ts("id_463")}Resource Manager API{ts("id_3124")}
+        # {ts(f"id_463")}Resource Manager API{ts('id_3124')}
         resource_manager_base_url = await get_resource_manager_api_url()
         url = f"{resource_manager_base_url.rstrip('/')}/v1/projects"
-        log.info(ff"{ts("id_3125")}API: {url}")
+        log.info(f"{ts('id_3125')}API: {url}")
         response = await get_async(url, headers=headers)
 
-        log.info(ff"API{ts("id_3126")}: {response.status_code}")
+        log.info(f"API{ts('id_3126')}: {response.status_code}")
         if response.status_code != 200:
-            log.error(ff"API{ts("id_1463")}: {response.text}")
+            log.error(f"API{ts('id_1463')}: {response.text}")
 
         if response.status_code == 200:
             data = response.json()
             projects = data.get("projects", [])
-            # {ts("id_3127")}
+            # {ts(f"id_3127")}
             active_projects = [
                 project for project in projects if project.get("lifecycleState") == "ACTIVE"
             ]
-            log.info(ff"{ts("id_3129")} {len(active_projects)} {ts("id_3128")}")
+            log.info(f"{ts('id_3129')} {len(active_projects)} {ts('id_3128')}")
             return active_projects
         else:
-            log.warning(ff"{ts("id_3130")}: {response.status_code} - {response.text}")
+            log.warning(f"{ts('id_3130')}: {response.status_code} - {response.text}")
             return []
 
     except Exception as e:
-        log.error(ff"{ts("id_3131")}: {e}")
+        log.error(f"{ts('id_3131')}: {e}")
         return []
 
 
 async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str]:
-    f"""{ts("id_3132")}"""
+    f"""{ts('id_3132')}"""
     if not projects:
         return None
 
-    # {ts(f"id_31351")}{ts("id_3133")}ID{ts("id_906")}"default"{ts("id_3134")}
+    # {ts(f"id_31351")}{ts('id_3133')}ID{ts('id_906')}"default"{ts('id_3134')}
     for project in projects:
         display_name = project.get("displayName", "").lower()
         # Google API returns projectId in camelCase
         project_id = project.get("projectId", "")
         if "default" in display_name or "default" in project_id.lower():
-            log.info(ff"{ts("id_3136")}: {project_id} ({project.get('displayName', project_id)})")
+            log.info(f"{ts('id_3136')}: {project_id} ({project.get('displayName', project_id)})")
             return project_id
 
-    # {ts("id_31352")}{ts("id_3137")}
+    # {ts(f"id_31352")}{ts('id_3137')}
     first_project = projects[0]
     # Google API returns projectId in camelCase
     project_id = first_project.get("projectId", "")
     log.info(
-        ff"{ts("id_3138")}: {project_id} ({first_project.get('displayName', project_id)})"
+        f"{ts('id_3138')}: {project_id} ({first_project.get('displayName', project_id)})"
     )
     return project_id
 
@@ -538,7 +538,7 @@ async def fetch_project_id(
     api_base_url: str
 ) -> Optional[str]:
     """
-    {ts(f"id_1731")} API {ts("id_712")} project_id{ts("id_3140")} loadCodeAssist {ts("id_3139")} onboardUser
+    {ts(f"id_1731")} API {ts('id_712')} project_id{ts('id_3140')} loadCodeAssist {ts('id_3139')} onboardUser
 
     Args:
         access_token: Google OAuth access token
@@ -546,7 +546,7 @@ async def fetch_project_id(
         api_base_url: API base URL (e.g., antigravity or code assist endpoint)
 
     Returns:
-        project_id {ts("id_3141")} None
+        project_id {ts(f"id_3141")} None
     """
     headers = {
         'User-Agent': user_agent,
@@ -555,7 +555,7 @@ async def fetch_project_id(
         'Accept-Encoding': 'gzip'
     }
 
-    # {ts("id_452")} 1: {ts("id_1764")} loadCodeAssist
+    # {ts(f"id_452")} 1: {ts('id_1764')} loadCodeAssist
     try:
         project_id = await _try_load_code_assist(api_base_url, headers)
         if project_id:
@@ -567,7 +567,7 @@ async def fetch_project_id(
         log.warning(f"[fetch_project_id] loadCodeAssist failed: {type(e).__name__}: {e}")
         log.warning("[fetch_project_id] Falling back to onboardUser")
 
-    # {ts("id_452")} 2: {ts("id_3142")} onboardUser
+    # {ts(f"id_452")} 2: {ts('id_3142')} onboardUser
     try:
         project_id = await _try_onboard_user(api_base_url, headers)
         if project_id:
@@ -588,10 +588,10 @@ async def _try_load_code_assist(
     headers: dict
 ) -> Optional[str]:
     """
-    {ts("id_1853")} loadCodeAssist {ts("id_712")} project_id
+    {ts(f"id_1853")} loadCodeAssist {ts('id_712')} project_id
 
     Returns:
-        project_id {ts("id_413")} None
+        project_id {ts(f"id_413")} None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
@@ -621,12 +621,12 @@ async def _try_load_code_assist(
         data = response.json()
         log.debug(f"[loadCodeAssist] Response JSON keys: {list(data.keys())}")
 
-        # {ts("id_2392")} currentTier{ts("id_3143")}
+        # {ts(f"id_2392")} currentTier{ts('id_3143')}
         current_tier = data.get("currentTier")
         if current_tier:
             log.info("[loadCodeAssist] User is already activated")
 
-            # {ts("id_3144")} project_id
+            # {ts(f"id_3144")} project_id
             project_id = data.get("cloudaicompanionProject")
             if project_id:
                 log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}")
@@ -648,14 +648,14 @@ async def _try_onboard_user(
     headers: dict
 ) -> Optional[str]:
     """
-    {ts(f"id_1853")} onboardUser {ts("id_712")} project_id{ts("id_3145")}
+    {ts(f"id_1853")} onboardUser {ts('id_712')} project_id{ts('id_3145')}
 
     Returns:
-        project_id {ts("id_413")} None
+        project_id {ts(f"id_413")} None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:onboardUser"
 
-    # {ts("id_3146")} tier {ts("id_184")}
+    # {ts(f"id_3146")} tier {ts('id_184')}
     tier_id = await _get_onboard_tier(api_base_url, headers)
     if not tier_id:
         log.error("[onboardUser] Failed to determine user tier")
@@ -663,8 +663,8 @@ async def _try_onboard_user(
 
     log.info(f"[onboardUser] User tier: {tier_id}")
 
-    # {ts("id_3147")} onboardUser {ts("id_2282")}
-    # {ts("id_1288")}FREE tier {ts("id_3148")} cloudaicompanionProject
+    # {ts(f"id_3147")} onboardUser {ts('id_2282')}
+    # {ts(f"id_1288")}FREE tier {ts('id_3148')} cloudaicompanionProject
     request_body = {
         "tierId": tier_id,
         "metadata": {
@@ -677,8 +677,8 @@ async def _try_onboard_user(
     log.debug(f"[onboardUser] Request URL: {request_url}")
     log.debug(f"[onboardUser] Request body: {request_body}")
 
-    # onboardUser {ts("id_3149")}
-    # {ts(f"id_1900")} 10 {ts("id_31515")} {ts("id_2950")} * 2 {ts("id_3150")}
+    # onboardUser {ts(f"id_3149")}
+    # {ts(f"id_1900")} 10 {ts('id_31515')} {ts('id_2950')} * 2 {ts('id_3150')}
     max_attempts = 5
     attempt = 0
 
@@ -699,11 +699,11 @@ async def _try_onboard_user(
             data = response.json()
             log.debug(f"[onboardUser] Response data: {data}")
 
-            # {ts("id_3152")}
+            # {ts(f"id_3152")}
             if data.get("done"):
                 log.info("[onboardUser] Operation completed")
 
-                # {ts("id_3153")} project_id
+                # {ts(f"id_3153")} project_id
                 response_data = data.get("response", {})
                 project_obj = response_data.get("cloudaicompanionProject", {})
 
@@ -737,10 +737,10 @@ async def _get_onboard_tier(
     headers: dict
 ) -> Optional[str]:
     """
-    {ts("id_1731")} loadCodeAssist {ts("id_3154")} tier
+    {ts(f"id_1731")} loadCodeAssist {ts('id_3154')} tier
 
     Returns:
-        tier_id ({ts("id_716")} "FREE", "STANDARD", "LEGACY") {ts("id_413")} None
+        tier_id ({ts(f"id_716")} "FREE", "STANDARD", "LEGACY") {ts('id_413')} None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
@@ -764,7 +764,7 @@ async def _get_onboard_tier(
         data = response.json()
         log.debug(f"[_get_onboard_tier] Response data: {data}")
 
-        # {ts("id_3155")} tier
+        # {ts(f"id_3155")} tier
         allowed_tiers = data.get("allowedTiers", [])
         for tier in allowed_tiers:
             if tier.get("isDefault"):
@@ -772,7 +772,7 @@ async def _get_onboard_tier(
                 log.info(f"[_get_onboard_tier] Found default tier: {tier_id}")
                 return tier_id
 
-        # {ts(f"id_3156")} tier{ts("id_3158")} LEGACY {ts("id_3157")}
+        # {ts(f"id_3156")} tier{ts('id_3158')} LEGACY {ts('id_3157')}
         log.warning("[_get_onboard_tier] No default tier found, using LEGACY")
         return "LEGACY"
     else:

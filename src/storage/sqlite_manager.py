@@ -1,6 +1,6 @@
 from src.i18n import ts
 """
-SQLite {ts("id_3386")}
+SQLite {ts(f"id_3386")}
 """
 
 import asyncio
@@ -15,9 +15,9 @@ from log import log
 
 
 class SQLiteManager:
-    f"""SQLite {ts("id_3387")}"""
+    f"""SQLite {ts('id_3387')}"""
 
-    # {ts("id_3388")}
+    # {ts(f"id_3388")}
     STATE_FIELDS = {
         "error_codes",
         "disabled",
@@ -26,7 +26,7 @@ class SQLiteManager:
         "model_cooldowns",
     }
 
-    # {ts("id_3521")}
+    # {ts(f"id_3521")}
     REQUIRED_COLUMNS = {
         "credentials": [
             ("disabled", "INTEGER DEFAULT 0"),
@@ -58,12 +58,12 @@ class SQLiteManager:
         self._initialized = False
         self._lock = asyncio.Lock()
 
-        # {ts("id_3395")} - {ts("id_3394")}
+        # {ts(f"id_3395")} - {ts('id_3394')}
         self._config_cache: Dict[str, Any] = {}
         self._config_loaded = False
 
     async def initialize(self) -> None:
-        f"""{ts("id_1111")} SQLite {ts("id_88")}"""
+        f"""{ts('id_1111')} SQLite {ts('id_88')}"""
         if self._initialized:
             return
 
@@ -72,28 +72,28 @@ class SQLiteManager:
                 return
 
             try:
-                # {ts("id_3522")}
+                # {ts(f"id_3522")}
                 self._credentials_dir = os.getenv("CREDENTIALS_DIR", "./creds")
                 self._db_path = os.path.join(self._credentials_dir, "credentials.db")
 
-                # {ts("id_3523")}
+                # {ts(f"id_3523")}
                 os.makedirs(self._credentials_dir, exist_ok=True)
 
-                # {ts("id_3524")}
+                # {ts(f"id_3524")}
                 async with aiosqlite.connect(self._db_path) as db:
-                    # {ts("id_126")} WAL {ts("id_3525")}
+                    # {ts(f"id_126")} WAL {ts('id_3525')}
                     await db.execute("PRAGMA journal_mode=WAL")
                     await db.execute("PRAGMA foreign_keys=ON")
 
-                    # {ts("id_3526")}
+                    # {ts(f"id_3526")}
                     await self._ensure_schema_compatibility(db)
 
-                    # {ts("id_3527")}
+                    # {ts(f"id_3527")}
                     await self._create_tables(db)
 
                     await db.commit()
 
-                # {ts("id_3398")}
+                # {ts(f"id_3398")}
                 await self._load_config_cache()
 
                 self._initialized = True
@@ -105,12 +105,12 @@ class SQLiteManager:
 
     async def _ensure_schema_compatibility(self, db: aiosqlite.Connection) -> None:
         """
-        {ts("id_3528")}
+        {ts(f"id_3528")}
         """
         try:
-            # {ts("id_3529")}
+            # {ts(f"id_3529")}
             for table_name, columns in self.REQUIRED_COLUMNS.items():
-                # {ts("id_3530")}
+                # {ts(f"id_3530")}
                 async with db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                     (table_name,)
@@ -119,11 +119,11 @@ class SQLiteManager:
                         log.debug(f"Table {table_name} does not exist, will be created")
                         continue
 
-                # {ts("id_3531")}
+                # {ts(f"id_3531")}
                 async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
                     existing_columns = {row[1] for row in await cursor.fetchall()}
 
-                # {ts("id_3532")}
+                # {ts(f"id_3532")}
                 added_count = 0
                 for col_name, col_def in columns:
                     if col_name not in existing_columns:
@@ -139,63 +139,63 @@ class SQLiteManager:
 
         except Exception as e:
             log.error(f"Error ensuring schema compatibility: {e}")
-            # {ts("id_3533")}
+            # {ts(f"id_3533")}
 
     async def _create_tables(self, db: aiosqlite.Connection):
-        f"""{ts("id_3534")}"""
-        # {ts("id_3535")}
+        f"""{ts('id_3534')}"""
+        # {ts(f"id_3535")}
         await db.execute("""
             CREATE TABLE IF NOT EXISTS credentials (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT UNIQUE NOT NULL,
                 credential_data TEXT NOT NULL,
 
-                -- {ts("id_3536")}
+                -- {ts(f"id_3536")}
                 disabled INTEGER DEFAULT 0,
                 error_codes TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
 
-                -- {ts("id_3537")} CD {ts("id_56")} (JSON: {model_key: cooldown_timestamp})
+                -- {ts(f"id_3537")} CD {ts('id_56')} (JSON: {model_key: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
 
-                -- {ts("id_3538")}
+                -- {ts(f"id_3538")}
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
 
-                -- {ts("id_3539")}
+                -- {ts(f"id_3539")}
                 created_at REAL DEFAULT (unixepoch()),
                 updated_at REAL DEFAULT (unixepoch())
             )
         """)
 
-        # Antigravity {ts("id_3540")}
+        # Antigravity {ts(f"id_3540")}
         await db.execute("""
             CREATE TABLE IF NOT EXISTS antigravity_credentials (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT UNIQUE NOT NULL,
                 credential_data TEXT NOT NULL,
 
-                -- {ts("id_3536")}
+                -- {ts(f"id_3536")}
                 disabled INTEGER DEFAULT 0,
                 error_codes TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
 
-                -- {ts("id_3537")} CD {ts("id_56")} (JSON: {model_name: cooldown_timestamp})
+                -- {ts(f"id_3537")} CD {ts('id_56')} (JSON: {model_name: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
 
-                -- {ts("id_3538")}
+                -- {ts(f"id_3538")}
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
 
-                -- {ts("id_3539")}
+                -- {ts(f"id_3539")}
                 created_at REAL DEFAULT (unixepoch()),
                 updated_at REAL DEFAULT (unixepoch())
             )
         """)
 
-        # {ts("id_3397")} - {ts("id_3541")}
+        # {ts(f"id_3397")} - {ts('id_3541')}
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_disabled
             ON credentials(disabled)
@@ -205,7 +205,7 @@ class SQLiteManager:
             ON credentials(rotation_order)
         """)
 
-        # {ts("id_3397")} - Antigravity {ts("id_3535")}
+        # {ts(f"id_3397")} - Antigravity {ts('id_3535')}
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_ag_disabled
             ON antigravity_credentials(disabled)
@@ -215,7 +215,7 @@ class SQLiteManager:
             ON antigravity_credentials(rotation_order)
         """)
 
-        # {ts("id_3542")}
+        # {ts(f"id_3542")}
         await db.execute("""
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -227,7 +227,7 @@ class SQLiteManager:
         log.debug("SQLite tables and indexes created")
 
     async def _load_config_cache(self):
-        f"""{ts("id_3403")}"""
+        f"""{ts('id_3403')}"""
         if self._config_loaded:
             return
 
@@ -250,17 +250,17 @@ class SQLiteManager:
             self._config_cache = {}
 
     async def close(self) -> None:
-        f"""{ts("id_3543")}"""
+        f"""{ts('id_3543')}"""
         self._initialized = False
         log.debug("SQLite storage closed")
 
     def _ensure_initialized(self):
-        f"""{ts("id_2978")}"""
+        f"""{ts('id_2978')}"""
         if not self._initialized:
             raise RuntimeError("SQLite manager not initialized")
 
     def _get_table_name(self, mode: str) -> str:
-        f"""{ts("id_2136")} mode {ts("id_3544")}"""
+        f"""{ts('id_2136')} mode {ts('id_3544')}"""
         if mode == "antigravity":
             return "antigravity_credentials"
         elif mode == "geminicli":
@@ -268,24 +268,24 @@ class SQLiteManager:
         else:
             raise ValueError(f"Invalid mode: {mode}. Must be 'geminicli' or 'antigravity'")
 
-    # ============ SQL {ts("id_3405")} ============
+    # ============ SQL {ts(f"id_3405")} ============
 
     async def get_next_available_credential(
         self, mode: str = "geminicli", model_key: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
-        {ts("id_3406")}
-        - {ts("id_3407")}
-        - {ts("id_2996")} model_key{ts("id_3408")}
-        - {ts("id_3409")}
+        {ts(f"id_3406")}
+        - {ts(f"id_3407")}
+        - {ts(f"id_2996")} model_key{ts('id_3408')}
+        - {ts(f"id_3409")}
 
         Args:
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
-            model_key: {ts(f"id_3410")}antigravity {ts("id_3411")}gcli {ts("id_3412")} pro/flash{ts("id_292")}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
+            model_key: {ts(f"id_3410")}antigravity {ts('id_3411')}gcli {ts('id_3412')} pro/flash{ts('id_292')}
 
         Note:
-            - {ts(f"id_2608")} antigravity: model_key {ts("id_3413")} "gemini-2.0-flash-exp"{ts("id_292")}
-            - {ts(f"id_2608")} gcli: model_key {ts("id_150")} "prof" {ts("id_413")} "flash"
+            - {ts(f"id_2608")} antigravity: model_key {ts('id_3413')} "gemini-2.0-flash-exp"{ts('id_292')}
+            - {ts(f"id_2608")} gcli: model_key {ts('id_150')} "prof" {ts('id_413')} "flash"
         """
         self._ensure_initialized()
 
@@ -294,7 +294,7 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                # {ts("id_3545")}
+                # {ts(f"id_3545")}
                 async with db.execute(f"""
                     SELECT filename, credential_data, model_cooldowns
                     FROM {table_name}
@@ -303,7 +303,7 @@ class SQLiteManager:
                 """) as cursor:
                     rows = await cursor.fetchall()
 
-                    # {ts("id_3547")} model_key{ts("id_3546")}
+                    # {ts(f"id_3547")} model_key{ts('id_3546')}
                     if not model_key:
                         if rows:
                             filename, credential_json, _ = rows[0]
@@ -311,14 +311,14 @@ class SQLiteManager:
                             return filename, credential_data
                         return None
 
-                    # {ts("id_2996")} model_key{ts("id_3548")}
+                    # {ts(f"id_2996")} model_key{ts('id_3548')}
                     for filename, credential_json, model_cooldowns_json in rows:
                         model_cooldowns = json.loads(model_cooldowns_json or '{}')
 
-                        # {ts("id_3549")}
+                        # {ts(f"id_3549")}
                         model_cooldown = model_cooldowns.get(model_key)
                         if model_cooldown is None or current_time >= model_cooldown:
-                            # {ts("id_3550")}
+                            # {ts(f"id_3550")}
                             credential_data = json.loads(credential_json)
                             return filename, credential_data
 
@@ -330,9 +330,9 @@ class SQLiteManager:
 
     async def get_available_credentials_list(self) -> List[str]:
         """
-        {ts("id_3430")}
-        - {ts("id_3407")}
-        - {ts("id_3431")}
+        {ts(f"id_3430")}
+        - {ts(f"id_3407")}
+        - {ts(f"id_3431")}
         """
         self._ensure_initialized()
 
@@ -351,16 +351,16 @@ class SQLiteManager:
             log.error(f"Error getting available credentials list: {e}")
             return []
 
-    # ============ StorageBackend {ts("id_3432")} ============
+    # ============ StorageBackend {ts(f"id_3432")} ============
 
     async def store_credential(self, filename: str, credential_data: Dict[str, Any], mode: str = "geminicli") -> bool:
-        f"""{ts("id_3433")}"""
+        f"""{ts('id_3433')}"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3551")}
+                # {ts(f"id_3551")}
                 async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email,
                            rotation_order, call_count
@@ -369,7 +369,7 @@ class SQLiteManager:
                     existing = await cursor.fetchone()
 
                 if existing:
-                    # {ts("id_3552")}
+                    # {ts(f"id_3552")}
                     await db.execute(f"""
                         UPDATE {table_name}
                         SET credential_data = ?,
@@ -377,7 +377,7 @@ class SQLiteManager:
                         WHERE filename = ?
                     """, (json.dumps(credential_data), filename))
                 else:
-                    # {ts("id_3553")}
+                    # {ts(f"id_3553")}
                     async with db.execute(f"""
                         SELECT COALESCE(MAX(rotation_order), -1) + 1 FROM {table_name}
                     """) as cursor:
@@ -399,13 +399,13 @@ class SQLiteManager:
             return False
 
     async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
-        f"""{ts("id_3443")}basename{ts("id_3444")}"""
+        f"""{ts('id_3443')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3470")}
+                # {ts(f"id_3470")}
                 async with db.execute(f"""
                     SELECT credential_data FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
@@ -413,13 +413,13 @@ class SQLiteManager:
                     if row:
                         return json.loads(row[0])
 
-                # {ts("id_3447")}basename{ts("id_3446")}
+                # {ts(f"id_3447")}basename{ts('id_3446')}
                 async with db.execute(f"""
                     SELECT credential_data FROM {table_name}
                     WHERE filename LIKE '%' || ? OR filename = ?
                 """, (filename, filename)) as cursor:
                     rows = await cursor.fetchall()
-                    # {ts("id_3554")}basename{ts("id_3555")}
+                    # {ts(f"id_3554")}basename{ts('id_3555')}
                     for row in rows:
                         return json.loads(row[0])
 
@@ -430,7 +430,7 @@ class SQLiteManager:
             return None
 
     async def list_credentials(self, mode: str = "geminicli") -> List[str]:
-        f"""{ts("id_3556")}"""
+        f"""{ts('id_3556')}"""
         self._ensure_initialized()
 
         try:
@@ -447,19 +447,19 @@ class SQLiteManager:
             return []
 
     async def delete_credential(self, filename: str, mode: str = "geminicli") -> bool:
-        f"""{ts("id_3452")}basename{ts("id_3444")}"""
+        f"""{ts('id_3452')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3453")}
+                # {ts(f"id_3453")}
                 result = await db.execute(f"""
                     DELETE FROM {table_name} WHERE filename = ?
                 """, (filename,))
                 deleted_count = result.rowcount
 
-                # {ts("id_3454")}basename{ts("id_3455")}
+                # {ts(f"id_3454")}basename{ts('id_3455')}
                 if deleted_count == 0:
                     result = await db.execute(f"""
                         DELETE FROM {table_name} WHERE filename LIKE '%' || ?
@@ -480,14 +480,14 @@ class SQLiteManager:
             return False
 
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli") -> bool:
-        f"""{ts("id_3465")}basename{ts("id_3444")}"""
+        f"""{ts('id_3465')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
-            log.debug(ff"[DB] update_credential_state {ts("id_588")}: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
+            log.debug(f"[DB] update_credential_state {ts('id_588')}: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
             
-            # {ts("id_3557")} SQL
+            # {ts(f"id_3557")} SQL
             set_clauses = []
             values = []
 
@@ -504,47 +504,47 @@ class SQLiteManager:
                         values.append(value)
 
             if not set_clauses:
-                log.info(ff"[DB] {ts("id_3558")}")
+                log.info(f"[DB] {ts('id_3558')}")
                 return True
 
             set_clauses.append("updated_at = unixepoch()")
             values.append(filename)
 
-            log.debug(ff"[DB] SQL{ts("id_226")}: set_clauses={set_clauses}, values={values}")
+            log.debug(f"[DB] SQL{ts('id_226')}: set_clauses={set_clauses}, values={values}")
 
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3467")}
+                # {ts(f"id_3467")}
                 sql_exact = f"""
                     UPDATE {table_name}
                     SET {', '.join(set_clauses)}
                     WHERE filename = ?
                 """
-                log.debug(ff"[DB] {ts("id_3559")}SQL: {sql_exact}")
-                log.debug(ff"[DB] SQL{ts("id_3560")}: {values}")
+                log.debug(f"[DB] {ts('id_3559')}SQL: {sql_exact}")
+                log.debug(f"[DB] SQL{ts('id_3560')}: {values}")
                 
                 result = await db.execute(sql_exact, values)
                 updated_count = result.rowcount
-                log.debug(ff"[DB] {ts("id_3561")} rowcount={updated_count}")
+                log.debug(f"[DB] {ts('id_3561')} rowcount={updated_count}")
 
-                # {ts("id_3468")}basename{ts("id_3455")}
+                # {ts(f"id_3468")}basename{ts('id_3455')}
                 if updated_count == 0:
                     sql_basename = f"""
                         UPDATE {table_name}
                         SET {', '.join(set_clauses)}
                         WHERE filename LIKE '%' || ?
                     """
-                    log.debug(ff"[DB] {ts("id_3562")}basename{ts("id_3455")}SQL: {sql_basename}")
+                    log.debug(f"[DB] {ts('id_3562')}basename{ts('id_3455')}SQL: {sql_basename}")
                     result = await db.execute(sql_basename, values)
                     updated_count = result.rowcount
-                    log.info(ff"[DB] basename{ts("id_3455")} rowcount={updated_count}")
+                    log.info(f"[DB] basename{ts('id_3455')} rowcount={updated_count}")
 
-                # {ts("id_3563")}
-                log.debug(ff"[DB] {ts("id_1452")}commit{ts("id_1451")}={updated_count}")
+                # {ts(f"id_3563")}
+                log.debug(f"[DB] {ts('id_1452')}commit{ts('id_1451')}={updated_count}")
                 await db.commit()
-                log.debug(ff"[DB] commit{ts("id_405")}")
+                log.debug(f"[DB] commit{ts('id_405')}")
                 
                 success = updated_count > 0
-                log.debug(ff"[DB] update_credential_state {ts("id_1453")}: success={success}, updated_count={updated_count}")
+                log.debug(f"[DB] update_credential_state {ts('id_1453')}: success={success}, updated_count={updated_count}")
                 return success
 
         except Exception as e:
@@ -552,13 +552,13 @@ class SQLiteManager:
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        f"""{ts("id_3469")}basename{ts("id_3444")}"""
+        f"""{ts('id_3469')}basename{ts('id_3444')}"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3470")}
+                # {ts(f"id_3470")}
                 async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email, model_cooldowns
                     FROM {table_name} WHERE filename = ?
@@ -576,7 +576,7 @@ class SQLiteManager:
                             "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
-                # {ts("id_3473")}basename{ts("id_3455")}
+                # {ts(f"id_3473")}basename{ts('id_3455')}
                 async with db.execute(f"""
                     SELECT disabled, error_codes, last_success, user_email, model_cooldowns
                     FROM {table_name} WHERE filename LIKE '%' || ?
@@ -594,7 +594,7 @@ class SQLiteManager:
                             "model_cooldowns": json.loads(model_cooldowns_json),
                         }
 
-                # {ts("id_3474")}
+                # {ts(f"id_3474")}
                 return {
                     "disabled": False,
                     "error_codes": [],
@@ -608,7 +608,7 @@ class SQLiteManager:
             return {}
 
     async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
-        f"""{ts("id_3475")}"""
+        f"""{ts('id_3475')}"""
         self._ensure_initialized()
 
         try:
@@ -630,7 +630,7 @@ class SQLiteManager:
                         model_cooldowns_json = row[5] or '{}'
                         model_cooldowns = json.loads(model_cooldowns_json)
 
-                        # {ts("id_3477")}CD
+                        # {ts(f"id_3477")}CD
                         if model_cooldowns:
                             model_cooldowns = {
                                 k: v for k, v in model_cooldowns.items()
@@ -661,27 +661,27 @@ class SQLiteManager:
         cooldown_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        {ts("id_3478")}- {ts("id_3479")}
+        {ts(f"id_3478")}- {ts('id_3479')}
 
         Args:
-            offset: {ts("id_34800")}{ts("id_292")}
-            limit: {ts("id_3481")}None{ts("id_3482")}
-            status_filter: {ts(f"id_3483")}all={ts("id_1238")}, enabled={ts("id_724")}, disabled={ts("id_3484")}
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
-            error_code_filter: {ts(f"id_3486")}"400"{ts("id_413")}"403"{ts("id_3485")}
-            cooldown_filter: {ts(f"id_3487")}"in_cooldown"={ts("id_3489")}, "no_cooldown"={ts("id_3488")}
+            offset: {ts(f"id_34800")}{ts('id_292')}
+            limit: {ts(f"id_3481")}None{ts('id_3482')}
+            status_filter: {ts(f"id_3483")}all={ts('id_1238')}, enabled={ts('id_724')}, disabled={ts('id_3484')}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
+            error_code_filter: {ts(f"id_3486")}"400"{ts('id_413')}"403"{ts('id_3485')}
+            cooldown_filter: {ts(f"id_3487")}"in_cooldown"={ts('id_3489')}, "no_cooldown"={ts('id_3488')}
 
         Returns:
-            {ts(f"id_906")} items{ts("id_3490")}total{ts("id_3491f")}offset{ts("id_189")}limit {ts("id_2782")}
+            {ts(f"id_906")} items{ts('id_3490')}total{ts('id_3491f')}offset{ts('id_189')}limit {ts('id_2782')}
         """
         self._ensure_initialized()
 
         try:
-            # {ts("id_2136")} mode {ts("id_3564")}
+            # {ts(f"id_2136")} mode {ts('id_3564')}
             table_name = self._get_table_name(mode)
 
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3565")}
+                # {ts(f"id_3565")}
                 global_stats = {"total": 0, "normal": 0, "disabled": 0}
                 async with db.execute(f"""
                     SELECT disabled, COUNT(*) FROM {table_name} GROUP BY disabled
@@ -694,7 +694,7 @@ class SQLiteManager:
                         else:
                             global_stats["normal"] = count
 
-                # {ts("id_1475")}WHERE{ts("id_3566")}
+                # {ts(f"id_1475")}WHERE{ts('id_3566')}
                 where_clauses = []
                 count_params = []
 
@@ -712,12 +712,12 @@ class SQLiteManager:
                     except ValueError:
                         filter_int = None
 
-                # {ts("id_1475")}WHERE{ts("id_3566")}
+                # {ts(f"id_1475")}WHERE{ts('id_3566')}
                 where_clause = ""
                 if where_clauses:
                     where_clause = "WHERE " + " AND ".join(where_clauses)
 
-                # {ts("id_3567")}Python{ts("id_3498")}
+                # {ts(f"id_3567")}Python{ts('id_3498')}
                 all_query = f"""
                     SELECT filename, disabled, error_codes, last_success,
                            user_email, rotation_order, model_cooldowns
@@ -738,7 +738,7 @@ class SQLiteManager:
                         model_cooldowns_json = row[6] or '{}'
                         model_cooldowns = json.loads(model_cooldowns_json)
 
-                        # {ts("id_3477")}CD
+                        # {ts(f"id_3477")}CD
                         active_cooldowns = {}
                         if model_cooldowns:
                             active_cooldowns = {
@@ -773,20 +773,20 @@ class SQLiteManager:
                             "model_cooldowns": active_cooldowns,
                         }
 
-                        # {ts("id_3499")}
+                        # {ts(f"id_3499")}
                         if cooldown_filter == "in_cooldown":
-                            # {ts("id_3500")}
+                            # {ts(f"id_3500")}
                             if active_cooldowns:
                                 all_summaries.append(summary)
                         elif cooldown_filter == "no_cooldown":
-                            # {ts("id_3501")}
+                            # {ts(f"id_3501")}
                             if not active_cooldowns:
                                 all_summaries.append(summary)
                         else:
-                            # {ts("id_3502")}
+                            # {ts(f"id_3502")}
                             all_summaries.append(summary)
 
-                    # {ts("id_3503")}
+                    # {ts(f"id_3503")}
                     total_count = len(all_summaries)
                     if limit is not None:
                         summaries = all_summaries[offset:offset + limit]
@@ -813,23 +813,23 @@ class SQLiteManager:
 
     async def get_duplicate_credentials_by_email(self, mode: str = "geminicli") -> Dict[str, Any]:
         """
-        {ts("id_3456")}
-        {ts("id_3457")}
+        {ts(f"id_3456")}
+        {ts(f"id_3457")}
 
         Args:
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
 
         Returns:
-            {ts(f"id_906")} email_groups{ts("id_3460")}duplicate_count{ts("id_3459")}no_email_count{ts("id_3458")}
+            {ts(f"id_906")} email_groups{ts('id_3460')}duplicate_count{ts('id_3459')}no_email_count{ts('id_3458')}
         """
         self._ensure_initialized()
 
         try:
-            # {ts("id_2136")} mode {ts("id_3564")}
+            # {ts(f"id_2136")} mode {ts('id_3564')}
             table_name = self._get_table_name(mode)
 
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3568")}
+                # {ts(f"id_3568")}
                 query = f"""
                     SELECT filename, user_email
                     FROM {table_name}
@@ -839,7 +839,7 @@ class SQLiteManager:
                 async with db.execute(query) as cursor:
                     rows = await cursor.fetchall()
 
-                    # {ts("id_3462")}
+                    # {ts(f"id_3462")}
                     email_to_files = {}
                     no_email_files = []
 
@@ -851,13 +851,13 @@ class SQLiteManager:
                         else:
                             no_email_files.append(filename)
 
-                    # {ts("id_3463")}
+                    # {ts(f"id_3463")}
                     duplicate_groups = []
                     total_duplicate_count = 0
 
                     for email, files in email_to_files.items():
                         if len(files) > 1:
-                            # {ts("id_3464")}
+                            # {ts(f"id_3464")}
                             duplicate_groups.append({
                                 "email": email,
                                 "kept_file": files[0],
@@ -888,10 +888,10 @@ class SQLiteManager:
                 "total_count": 0,
             }
 
-    # ============ {ts("id_3504")}============
+    # ============ {ts(f"id_3504")}============
 
     async def set_config(self, key: str, value: Any) -> bool:
-        f"""{ts("id_3505")} + {ts("id_3506")}"""
+        f"""{ts('id_3505')} + {ts('id_3506')}"""
         self._ensure_initialized()
 
         try:
@@ -905,7 +905,7 @@ class SQLiteManager:
                 """, (key, json.dumps(value)))
                 await db.commit()
 
-            # {ts("id_3507")}
+            # {ts(f"id_3507")}
             self._config_cache[key] = value
             return True
 
@@ -914,24 +914,24 @@ class SQLiteManager:
             return False
 
     async def reload_config_cache(self):
-        f"""{ts("id_3508")}"""
+        f"""{ts('id_3508')}"""
         self._ensure_initialized()
         self._config_loaded = False
         await self._load_config_cache()
         log.info("Config cache reloaded from database")
 
     async def get_config(self, key: str, default: Any = None) -> Any:
-        f"""{ts("id_3509")}"""
+        f"""{ts('id_3509')}"""
         self._ensure_initialized()
         return self._config_cache.get(key, default)
 
     async def get_all_config(self) -> Dict[str, Any]:
-        f"""{ts("id_3510")}"""
+        f"""{ts('id_3510')}"""
         self._ensure_initialized()
         return self._config_cache.copy()
 
     async def delete_config(self, key: str) -> bool:
-        f"""{ts("id_3511")}"""
+        f"""{ts('id_3511')}"""
         self._ensure_initialized()
 
         try:
@@ -939,7 +939,7 @@ class SQLiteManager:
                 await db.execute("DELETE FROM config WHERE key = ?", (key,))
                 await db.commit()
 
-            # {ts("id_3512")}
+            # {ts(f"id_3512")}
             self._config_cache.pop(key, None)
             return True
 
@@ -947,7 +947,7 @@ class SQLiteManager:
             log.error(f"Error deleting config {key}: {e}")
             return False
 
-    # ============ {ts("id_3513")} ============
+    # ============ {ts(f"id_3513")} ============
 
     async def set_model_cooldown(
         self,
@@ -957,23 +957,23 @@ class SQLiteManager:
         mode: str = "geminicli"
     ) -> bool:
         """
-        {ts("id_3514")}
+        {ts(f"id_3514")}
 
         Args:
-            filename: {ts("id_3515")}
-            model_key: {ts(f"id_3516")}antigravity {ts("id_3411")}gcli {ts("id_3412")} pro/flash{ts("id_292")}
-            cooldown_until: {ts("id_2991")}None {ts("id_3517")}
-            mode: {ts(f"id_1808")} ("geminicli" {ts("id_413")} "antigravity")
+            filename: {ts(f"id_3515")}
+            model_key: {ts(f"id_3516")}antigravity {ts('id_3411')}gcli {ts('id_3412')} pro/flash{ts('id_292')}
+            cooldown_until: {ts(f"id_2991")}None {ts('id_3517')}
+            mode: {ts(f"id_1808")} ("geminicli" {ts('id_413')} "antigravity")
 
         Returns:
-            {ts("id_2989")}
+            {ts(f"id_2989")}
         """
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # {ts("id_3569")} model_cooldowns
+                # {ts(f"id_3569")} model_cooldowns
                 async with db.execute(f"""
                     SELECT model_cooldowns FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
@@ -985,13 +985,13 @@ class SQLiteManager:
 
                     model_cooldowns = json.loads(row[0] or '{}')
 
-                    # {ts("id_3570")}
+                    # {ts(f"id_3570")}
                     if cooldown_until is None:
                         model_cooldowns.pop(model_key, None)
                     else:
                         model_cooldowns[model_key] = cooldown_until
 
-                    # {ts("id_3571")}
+                    # {ts(f"id_3571")}
                     await db.execute(f"""
                         UPDATE {table_name}
                         SET model_cooldowns = ?,

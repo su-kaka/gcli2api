@@ -1,7 +1,7 @@
 from src.i18n import ts
 """
-Web{ts(f"id_3672")} - {ts("id_3671")}HTTP{ts("id_3670")}
-{ts("id_3673")}web.py{ts("id_3674")}
+Web{ts(f"id_3672")} - {ts('id_3671')}HTTP{ts('id_3670')}
+{ts(f"id_3673")}web.py{ts('id_3674')}
 """
 
 import asyncio
@@ -53,44 +53,44 @@ from src.api.antigravity import fetch_quota_info
 from src.google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
 
-# {ts("id_3675")}
+# {ts(f"id_3675")}
 router = APIRouter()
 
-# {ts("id_3676")}
-# {ts("id_3677")} web.py {ts("id_3678")}
+# {ts(f"id_3676")}
+# {ts(f"id_3677")} web.py {ts('id_3678')}
 
-# WebSocket{ts("id_3679")}
+# WebSocket{ts(f"id_3679")}
 
 
 class ConnectionManager:
-    def __init__(self, max_connections: int = 3):  # {ts("id_3680")}
-        # {ts("id_3681")}
+    def __init__(self, max_connections: int = 3):  # {ts(f"id_3680")}
+        # {ts(f"id_3681")}
         self.active_connections: deque = deque(maxlen=max_connections)
         self.max_connections = max_connections
         self._last_cleanup = 0
-        self._cleanup_interval = 120  # 120{ts("id_3682")}
+        self._cleanup_interval = 120  # 120{ts(f"id_3682")}
 
     async def connect(self, websocket: WebSocket):
-        # {ts("id_3683")}
+        # {ts(f"id_3683")}
         self._auto_cleanup()
 
-        # {ts("id_3684")}
+        # {ts(f"id_3684")}
         if len(self.active_connections) >= self.max_connections:
             await websocket.close(code=1008, reason="Too many connections")
             return False
 
         await websocket.accept()
         self.active_connections.append(websocket)
-        log.debug(ff"WebSocket{ts("id_3685")}: {len(self.active_connections)}")
+        log.debug(f"WebSocket{ts('id_3685')}: {len(self.active_connections)}")
         return True
 
     def disconnect(self, websocket: WebSocket):
-        # {ts("id_3686")}
+        # {ts(f"id_3686")}
         try:
             self.active_connections.remove(websocket)
         except ValueError:
-            pass  # {ts("id_3687")}
-        log.debug(ff"WebSocket{ts("id_3688")}: {len(self.active_connections)}")
+            pass  # {ts(f"id_3687")}
+        log.debug(f"WebSocket{ts('id_3688')}: {len(self.active_connections)}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         try:
@@ -99,7 +99,7 @@ class ConnectionManager:
             self.disconnect(websocket)
 
     async def broadcast(self, message: str):
-        # {ts("id_3689")}
+        # {ts(f"id_3689")}
         dead_connections = []
         for conn in self.active_connections:
             try:
@@ -107,21 +107,21 @@ class ConnectionManager:
             except Exception:
                 dead_connections.append(conn)
 
-        # {ts("id_3690")}
+        # {ts(f"id_3690")}
         for dead_conn in dead_connections:
             self.disconnect(dead_conn)
 
     def _auto_cleanup(self):
-        f"""{ts("id_3683")}"""
+        f"""{ts('id_3683')}"""
         current_time = time.time()
         if current_time - self._last_cleanup > self._cleanup_interval:
             self.cleanup_dead_connections()
             self._last_cleanup = current_time
 
     def cleanup_dead_connections(self):
-        f"""{ts("id_3691")}"""
+        f"""{ts('id_3691')}"""
         original_count = len(self.active_connections)
-        # {ts("id_3692")}
+        # {ts(f"id_3692")}
         alive_connections = deque(
             [
                 conn
@@ -135,14 +135,14 @@ class ConnectionManager:
         self.active_connections = alive_connections
         cleaned = original_count - len(self.active_connections)
         if cleaned > 0:
-            log.debug(ff"{ts("id_1993")} {cleaned} {ts("id_3693")}: {len(self.active_connections)}")
+            log.debug(f"{ts('id_1993')} {cleaned} {ts('id_3693')}: {len(self.active_connections)}")
 
 
 manager = ConnectionManager()
 
 
 def is_mobile_user_agent(user_agent: str) -> bool:
-    f"""{ts("id_3694")}"""
+    f"""{ts('id_3694')}"""
     if not user_agent:
         return False
 
@@ -176,7 +176,7 @@ def is_mobile_user_agent(user_agent: str) -> bool:
 
 @router.get("/", response_class=HTMLResponse)
 async def serve_control_panel(request: Request):
-    f"""{ts("id_3695")}"""
+    f"""{ts('id_3695')}"""
     try:
         user_agent = request.headers.get("user-agent", "")
         is_mobile = is_mobile_user_agent(user_agent)
@@ -200,36 +200,36 @@ async def serve_control_panel(request: Request):
         return HTMLResponse(content=html_content)
 
     except Exception as e:
-        log.error(ff"{ts("id_3696")}: {e}")
-        raise HTTPException(status_code=500, detail=f"{ts("id_3697")}")
+        log.error(f"{ts('id_3696')}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_3697')}")
 
 
 @router.post("/auth/login")
 async def login(request: LoginRequest):
-    f"""{ts("id_3698")}token{ts("id_292")}"""
+    f"""{ts('id_3698')}token{ts('id_292')}"""
     try:
         if await verify_password(request.password):
-            # {ts("id_3699")}token{ts("id_3700")}
-            return JSONResponse(content={f"token": request.password, "message": "{ts("id_821")}"})
+            # {ts(f"id_3699")}token{ts('id_3700')}
+            return JSONResponse(content={f"token": request.password, "message": "{ts('id_821')}"})
         else:
-            raise HTTPException(status_code=401, detail=f"{ts("id_3662")}")
+            raise HTTPException(status_code=401, detail=f"{ts('id_3662')}")
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_823")}: {e}")
+        log.error(f"{ts('id_823')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/auth/start")
 async def start_auth(request: AuthStartRequest, token: str = Depends(verify_panel_token)):
-    f"""{ts("id_3701")}ID"""
+    f"""{ts('id_3701')}ID"""
     try:
-        # {ts("id_3702")}ID{ts("id_3703")}
+        # {ts(f"id_3702")}ID{ts('id_3703')}
         project_id = request.project_id
         if not project_id:
-            log.info(f"{ts("id_3705")}ID{ts("id_3704")}...")
+            log.info(f"{ts('id_3705')}ID{ts('id_3704')}...")
 
-        # {ts("id_3706")}
+        # {ts(f"id_3706")}
         user_session = token if token else None
         result = await create_auth_url(
             project_id, user_session, mode=request.mode
@@ -250,44 +250,44 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_pane
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3707")}: {e}")
+        log.error(f"{ts('id_3707')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/auth/callback")
 async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verify_panel_token)):
-    f"""{ts("id_3708")}ID"""
+    f"""{ts('id_3708')}ID"""
     try:
-        # {ts("id_884")}ID{ts("id_3709")}
+        # {ts(f"id_884")}ID{ts('id_3709')}
         project_id = request.project_id
 
-        # {ts("id_3706")}
+        # {ts(f"id_3706")}
         user_session = token if token else None
-        # {ts("id_1906")}OAuth{ts("id_3710")}
+        # {ts(f"id_1906")}OAuth{ts('id_3710')}
         result = await asyncio_complete_auth_flow(
             project_id, user_session, mode=request.mode
         )
 
         if result["success"]:
-            # {ts("id_3711")}
+            # {ts(f"id_3711")}
             return JSONResponse(
                 content={
                     "credentials": result["credentials"],
                     "file_path": result["file_path"],
-                    f"message": "{ts("id_1869")}",
+                    f"message": "{ts('id_1869')}",
                     "auto_detected_project": result.get("auto_detected_project", False),
                 }
             )
         else:
-            # {ts("id_3713")}ID{ts("id_3712")}
+            # {ts(f"id_3713")}ID{ts('id_3712')}
             if result.get("requires_manual_project_id"):
-                # {ts("id_463")}JSON{ts("id_1516")}
+                # {ts(f"id_463")}JSON{ts('id_1516')}
                 return JSONResponse(
                     status_code=400,
                     content={"error": result["error"], "requires_manual_project_id": True},
                 )
             elif result.get("requires_project_selection"):
-                # {ts("id_3714")}
+                # {ts(f"id_3714")}
                 return JSONResponse(
                     status_code=400,
                     content={
@@ -302,35 +302,35 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3715")}: {e}")
+        log.error(f"{ts('id_3715')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/auth/callback-url")
 async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depends(verify_panel_token)):
-    f"""{ts("id_592")}URL{ts("id_591")}"""
+    f"""{ts('id_592')}URL{ts('id_591')}"""
     try:
-        # {ts("id_3661")}URL{ts("id_57")}
+        # {ts(f"id_3661")}URL{ts('id_57')}
         if not request.callback_url or not request.callback_url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail=f"{ts("id_3716")}URL")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3716')}URL")
 
-        # {ts("id_592")}URL{ts("id_1932")}
+        # {ts(f"id_592")}URL{ts('id_1932')}
         result = await complete_auth_flow_from_callback_url(
             request.callback_url, request.project_id, mode=request.mode
         )
 
         if result["success"]:
-            # {ts("id_3711")}
+            # {ts(f"id_3711")}
             return JSONResponse(
                 content={
                     "credentials": result["credentials"],
                     "file_path": result["file_path"],
-                    f"message": "{ts("id_592")}URL{ts("id_1869")}",
+                    f"message": "{ts('id_592')}URL{ts('id_1869')}",
                     "auto_detected_project": result.get("auto_detected_project", False),
                 }
             )
         else:
-            # {ts("id_3717")}
+            # {ts(f"id_3717")}
             if result.get("requires_manual_project_id"):
                 return JSONResponse(
                     status_code=400,
@@ -351,56 +351,56 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_592")}URL{ts("id_3718")}: {e}")
+        log.error(f"{ts('id_592')}URL{ts('id_3718')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/auth/status/{project_id}")
 async def check_auth_status(project_id: str, token: str = Depends(verify_panel_token)):
-    f"""{ts("id_593")}"""
+    f"""{ts('id_593')}"""
     try:
         if not project_id:
-            raise HTTPException(status_code=400, detail=f"Project ID {ts("id_3719")}")
+            raise HTTPException(status_code=400, detail=f"Project ID {ts('id_3719')}")
 
         status = get_auth_status(project_id)
         return JSONResponse(content=status)
 
     except Exception as e:
-        log.error(ff"{ts("id_3720")}: {e}")
+        log.error(f"{ts('id_3720')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
-# {ts("id_780")} (Helper Functions)
+# {ts(f"id_780")} (Helper Functions)
 # =============================================================================
 
 
 def validate_mode(mode: str = "geminicli") -> str:
     """
-    {ts("id_3661")} mode {ts("id_226")}
+    {ts(f"id_3661")} mode {ts('id_226')}
 
     Args:
-        mode: {ts(f"id_3721")} ("geminicli" {ts("id_413")} "antigravity")
+        mode: {ts(f"id_3721")} ("geminicli" {ts('id_413')} "antigravity")
 
     Returns:
-        str: {ts("id_3722")} mode {ts("id_2850")}
+        str: {ts(f"id_3722")} mode {ts('id_2850')}
 
     Raises:
-        HTTPException: {ts("id_2183")} mode {ts("id_3723")}
+        HTTPException: {ts(f"id_2183")} mode {ts('id_3723')}
     """
     if mode not in ["geminicli", "antigravity"]:
         raise HTTPException(
             status_code=400,
-            detail=ff"{ts("id_3725")} mode {ts("id_226f")}: {mode}{ts("id_3724")} 'geminicli' {ts("id_413")} 'antigravity'"
+            detail=f"{ts('id_3725')} mode {ts('id_226f')}: {mode}{ts('id_3724')} 'geminicli' {ts('id_413')} 'antigravity'"
         )
     return mode
 
 
 def get_env_locked_keys() -> set:
-    f"""{ts("id_3726")}"""
+    f"""{ts('id_3726')}"""
     env_locked_keys = set()
 
-    # {ts("id_463")} config.py {ts("id_3727")}
+    # {ts(f"id_463")} config.py {ts('id_3727')}
     for env_key, config_key in config.ENV_MAPPINGS.items():
         if os.getenv(env_key):
             env_locked_keys.add(config_key)
@@ -409,82 +409,82 @@ def get_env_locked_keys() -> set:
 
 
 async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
-    f"""{ts("id_1731")}ZIP{ts("id_3728f")}JSON{ts("id_112")}"""
+    f"""{ts('id_1731')}ZIP{ts('id_3728f')}JSON{ts('id_112')}"""
     try:
-        # {ts("id_3730")}ZIP{ts("id_3729")}
+        # {ts(f"id_3730")}ZIP{ts('id_3729')}
         zip_content = await zip_file.read()
 
-        # {ts("id_3732")}ZIP{ts("id_3731")}
+        # {ts(f"id_3732")}ZIP{ts('id_3731')}
 
         files_data = []
 
         with zipfile.ZipFile(io.BytesIO(zip_content), "r") as zip_ref:
-            # {ts("id_712")}ZIP{ts("id_3733")}
+            # {ts(f"id_712")}ZIP{ts('id_3733')}
             file_list = zip_ref.namelist()
             json_files = [
                 f for f in file_list if f.endswith(".json") and not f.startswith("__MACOSX/")
             ]
 
             if not json_files:
-                raise HTTPException(status_code=400, detail=f"ZIP{ts("id_3734")}JSON{ts("id_112")}")
+                raise HTTPException(status_code=400, detail=f"ZIP{ts('id_3734')}JSON{ts('id_112')}")
 
-            log.info(ff"{ts("id_1731")}ZIP{ts("id_112f")} {zip_file.filename} {ts("id_3735")} {len(json_files)} {ts("id_723f")}JSON{ts("id_112")}")
+            log.info(f"{ts('id_1731')}ZIP{ts('id_112f')} {zip_file.filename} {ts('id_3735')} {len(json_files)} {ts('id_723f')}JSON{ts('id_112')}")
 
             for json_filename in json_files:
                 try:
-                    # {ts("id_3730")}JSON{ts("id_3729")}
+                    # {ts(f"id_3730")}JSON{ts('id_3729')}
                     with zip_ref.open(json_filename) as json_file:
                         content = json_file.read()
 
                         try:
                             content_str = content.decode("utf-8")
                         except UnicodeDecodeError:
-                            log.warning(ff"{ts("id_3736")}: {json_filename}")
+                            log.warning(f"{ts('id_3736')}: {json_filename}")
                             continue
 
-                        # {ts("id_3737")}
+                        # {ts(f"id_3737")}
                         filename = os.path.basename(json_filename)
                         files_data.append({"filename": filename, "content": content_str})
 
                 except Exception as e:
-                    log.warning(ff"{ts("id_590")}ZIP{ts("id_3738f")} {json_filename} {ts("id_3739")}: {e}")
+                    log.warning(f"{ts('id_590')}ZIP{ts('id_3738f')} {json_filename} {ts('id_3739')}: {e}")
                     continue
 
-        log.info(ff"{ts("id_1915")}ZIP{ts("id_3728f")} {len(files_data)} {ts("id_3740")}JSON{ts("id_112")}")
+        log.info(f"{ts('id_1915')}ZIP{ts('id_3728f')} {len(files_data)} {ts('id_3740')}JSON{ts('id_112')}")
         return files_data
 
     except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail=f"{ts("id_3725")}ZIP{ts("id_3741")}")
+        raise HTTPException(status_code=400, detail=f"{ts('id_3725')}ZIP{ts('id_3741')}")
     except Exception as e:
-        log.error(ff"{ts("id_590")}ZIP{ts("id_3742")}: {e}")
-        raise HTTPException(status_code=500, detail=ff"{ts("id_590")}ZIP{ts("id_3742")}: {str(e)}")
+        log.error(f"{ts('id_590')}ZIP{ts('id_3742')}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_590')}ZIP{ts('id_3742')}: {str(e)}")
 
 
 async def upload_credentials_common(
     files: List[UploadFile], mode: str = "geminicli"
 ) -> JSONResponse:
-    f"""{ts("id_3743")}"""
+    f"""{ts('id_3743')}"""
     mode = validate_mode(mode)
 
     if not files:
-        raise HTTPException(status_code=400, detail=f"{ts("id_769")}")
+        raise HTTPException(status_code=400, detail=f"{ts('id_769')}")
 
-    # {ts("id_3744")}
+    # {ts(f"id_3744")}
     if len(files) > 100:
         raise HTTPException(
-            status_code=400, detail=ff"{ts("id_3745100")}{ts("id_3746f")}{len(files)}{ts("id_723")}"
+            status_code=400, detail=f"{ts('id_3745100')}{ts('id_3746f')}{len(files)}{ts('id_723')}"
         )
 
     files_data = []
     for file in files:
-        # {ts("id_3747")}JSON{ts("id_15")}ZIP
+        # {ts(f"id_3747")}JSON{ts('id_15')}ZIP
         if file.filename.endswith(".zip"):
             zip_files_data = await extract_json_files_from_zip(file)
             files_data.extend(zip_files_data)
-            log.info(ff"{ts("id_1731")}ZIP{ts("id_112f")} {file.filename} {ts("id_3748")} {len(zip_files_data)} {ts("id_723f")}JSON{ts("id_112")}")
+            log.info(f"{ts('id_1731')}ZIP{ts('id_112f')} {file.filename} {ts('id_3748')} {len(zip_files_data)} {ts('id_723f')}JSON{ts('id_112')}")
 
         elif file.filename.endswith(".json"):
-            # {ts(f"id_3750")}JSON{ts("id_112")} - {ts("id_3749")}
+            # {ts(f"id_3750")}JSON{ts('id_112')} - {ts('id_3749')}
             content_chunks = []
             while True:
                 chunk = await file.read(8192)
@@ -497,13 +497,13 @@ async def upload_credentials_common(
                 content_str = content.decode("utf-8")
             except UnicodeDecodeError:
                 raise HTTPException(
-                    status_code=400, detail=ff"{ts("id_112")} {file.filename} {ts("id_3751")}"
+                    status_code=400, detail=f"{ts('id_112')} {file.filename} {ts('id_3751')}"
                 )
 
             files_data.append({"filename": file.filename, "content": content_str})
         else:
             raise HTTPException(
-                status_code=400, detail=ff"{ts("id_112")} {file.filename} {ts("id_767f")}JSON{ts("id_15")}ZIP{ts("id_112")}"
+                status_code=400, detail=f"{ts('id_112')} {file.filename} {ts('id_767f')}JSON{ts('id_15')}ZIP{ts('id_112')}"
             )
 
     
@@ -518,34 +518,34 @@ async def upload_credentials_common(
         async def process_single_file(file_data):
             try:
                 filename = file_data["filename"]
-                # {ts("id_3752")}basename{ts("id_3753")}
+                # {ts(f"id_3752")}basename{ts('id_3753')}
                 filename = os.path.basename(filename)
                 content_str = file_data["content"]
                 credential_data = json.loads(content_str)
 
-                # {ts("id_3754")}
+                # {ts(f"id_3754")}
                 if mode == "antigravity":
                     await credential_manager.add_antigravity_credential(filename, credential_data)
                 else:
                     await credential_manager.add_credential(filename, credential_data)
 
-                log.debug(ff"{ts("id_772")} {mode} {ts("id_721")}: {filename}")
-                return {f"filename": filename, "status": "success", "message": "{ts("id_3755")}"}
+                log.debug(f"{ts('id_772')} {mode} {ts('id_721')}: {filename}")
+                return {f"filename": filename, "status": "success", "message": "{ts('id_3755')}"}
 
             except json.JSONDecodeError as e:
                 return {
                     "filename": file_data["filename"],
                     "status": "error",
-                    f"message": f"JSON{ts("id_2019")}: {str(e)}",
+                    f"message": f"JSON{ts('id_2019')}: {str(e)}",
                 }
             except Exception as e:
                 return {
                     "filename": file_data["filename"],
                     "status": "error",
-                    f"message": f"{ts("id_3756")}: {str(e)}",
+                    f"message": f"{ts('id_3756')}: {str(e)}",
                 }
 
-        log.info(ff"{ts("id_3757")} {len(batch_files)} {ts("id_723f")} {mode} {ts("id_112")}...")
+        log.info(f"{ts('id_3757')} {len(batch_files)} {ts('id_723f')} {mode} {ts('id_112')}...")
         concurrent_tasks = [process_single_file(file_data) for file_data in batch_files]
         batch_results = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
 
@@ -557,7 +557,7 @@ async def upload_credentials_common(
                     {
                         "filename": "unknown",
                         "status": "error",
-                        f"message": f"{ts("id_3758")}: {str(result)}",
+                        f"message": f"{ts('id_3758')}: {str(result)}",
                     }
                 )
             else:
@@ -571,8 +571,8 @@ async def upload_credentials_common(
         batch_num = (i // batch_size) + 1
         total_batches = (len(files_data) + batch_size - 1) // batch_size
         log.info(
-            ff"{ts("id_3759")} {batch_num}/{total_batches} {ts("id_405f")}: {ts("id_984")} "
-            ff"{batch_uploaded_count}/{len(batch_files)} {ts("id_723")} {mode} {ts("id_112")}"
+            f"{ts('id_3759')} {batch_num}/{total_batches} {ts('id_405f')}: {ts('id_984')} "
+            f"{batch_uploaded_count}/{len(batch_files)} {ts('id_723')} {mode} {ts('id_112')}"
         )
 
     if total_success > 0:
@@ -581,28 +581,28 @@ async def upload_credentials_common(
                 "uploaded_count": total_success,
                 "total_count": len(files_data),
                 "results": all_results,
-                f"message": f"{ts("id_3760")}: {ts("id_984f")} {total_success}/{len(files_data)} {ts("id_723")} {mode} {ts("id_112")}",
+                f"message": f"{ts('id_3760')}: {ts('id_984f')} {total_success}/{len(files_data)} {ts('id_723')} {mode} {ts('id_112')}",
             }
         )
     else:
-        raise HTTPException(status_code=400, detail=ff"{ts("id_2389")} {mode} {ts("id_3761")}")
+        raise HTTPException(status_code=400, detail=f"{ts('id_2389')} {mode} {ts('id_3761')}")
 
 
 async def get_creds_status_common(
     offset: int, limit: int, status_filter: str, mode: str = "geminicli",
     error_code_filter: str = None, cooldown_filter: str = None
 ) -> JSONResponse:
-    f"""{ts("id_3762")}"""
+    f"""{ts('id_3762')}"""
     mode = validate_mode(mode)
-    # {ts("id_3763")}
+    # {ts(f"id_3763")}
     if offset < 0:
-        raise HTTPException(status_code=400, detail=f"offset {ts("id_3764")} 0")
+        raise HTTPException(status_code=400, detail=f"offset {ts('id_3764')} 0")
     if limit not in [20, 50, 100, 200, 500, 1000]:
-        raise HTTPException(status_code=400, detail=f"limit {ts("id_3765")} 20{ts("id_18950f")}{ts("id_189100")}{ts("id_189200f")}{ts("id_18950")}0 {ts("id_413")} 1000")
+        raise HTTPException(status_code=400, detail=f"limit {ts('id_3765')} 20{ts('id_18950f')}{ts('id_189100')}{ts('id_189200f')}{ts('id_18950')}0 {ts('id_413')} 1000")
     if status_filter not in ["all", "enabled", "disabled"]:
-        raise HTTPException(status_code=400, detail=f"status_filter {ts("id_3765")} all{ts("id_189f")}enabled {ts("id_413")} disabled")
+        raise HTTPException(status_code=400, detail=f"status_filter {ts('id_3765')} all{ts('id_189f')}enabled {ts('id_413')} disabled")
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
-        raise HTTPException(status_code=400, detail=f"cooldown_filter {ts("id_3765")} all{ts("id_189f")}in_cooldown {ts("id_413")} no_cooldown")
+        raise HTTPException(status_code=400, detail=f"cooldown_filter {ts('id_3765')} all{ts('id_189f')}in_cooldown {ts('id_413')} no_cooldown")
 
     
 
@@ -610,7 +610,7 @@ async def get_creds_status_common(
     backend_info = await storage_adapter.get_backend_info()
     backend_type = backend_info.get("backend_type", "unknown")
 
-    # {ts("id_3766")}
+    # {ts(f"id_3766")}
     if hasattr(storage_adapter._backend, 'get_credentials_summary'):
         result = await storage_adapter._backend.get_credentials_summary(
             offset=offset,
@@ -644,11 +644,11 @@ async def get_creds_status_common(
             "stats": result.get("stats", {"total": 0, "normal": 0, "disabled": 0}),
         })
 
-    # {ts("id_3767")}MongoDB/{ts("id_3768")}
+    # {ts(f"id_3767")}MongoDB/{ts('id_3768')}
     all_credentials = await storage_adapter.list_credentials(mode=mode)
     all_states = await storage_adapter.get_all_credential_states(mode=mode)
 
-    # {ts("id_745")}
+    # {ts(f"id_745")}
     filtered_credentials = []
     for filename in all_credentials:
         file_status = all_states.get(filename, {"disabled": False})
@@ -695,7 +695,7 @@ async def get_creds_status_common(
 
 
 async def download_all_creds_common(mode: str = "geminicli") -> Response:
-    f"""{ts("id_3769")}"""
+    f"""{ts('id_3769')}"""
     mode = validate_mode(mode)
     zip_filename = "antigravity_credentials.zip" if mode == "antigravity" else "credentials.zip"
 
@@ -703,9 +703,9 @@ async def download_all_creds_common(mode: str = "geminicli") -> Response:
     credential_filenames = await storage_adapter.list_credentials(mode=mode)
 
     if not credential_filenames:
-        raise HTTPException(status_code=404, detail=ff"{ts("id_3770")} {mode} {ts("id_721")}")
+        raise HTTPException(status_code=404, detail=f"{ts('id_3770')} {mode} {ts('id_721')}")
 
-    log.info(ff"{ts("id_3771")} {len(credential_filenames)} {ts("id_723f")} {mode} {ts("id_721")}...")
+    log.info(f"{ts('id_3771')} {len(credential_filenames)} {ts('id_723f')} {mode} {ts('id_721')}...")
 
     zip_buffer = io.BytesIO()
 
@@ -720,13 +720,13 @@ async def download_all_creds_common(mode: str = "geminicli") -> Response:
                     success_count += 1
 
                     if idx % 10 == 0:
-                        log.debug(ff"{ts("id_3772")}: {idx}/{len(credential_filenames)}")
+                        log.debug(f"{ts('id_3772')}: {idx}/{len(credential_filenames)}")
 
             except Exception as e:
-                log.warning(ff"{ts("id_590")} {mode} {ts("id_721f")} {filename} {ts("id_3739")}: {e}")
+                log.warning(f"{ts('id_590')} {mode} {ts('id_721f')} {filename} {ts('id_3739')}: {e}")
                 continue
 
-    log.info(ff"{ts("id_3773")}: {ts("id_984f")} {success_count}/{len(credential_filenames)} {ts("id_762")}")
+    log.info(f"{ts('id_3773')}: {ts('id_984f')} {success_count}/{len(credential_filenames)} {ts('id_762')}")
 
     zip_buffer.seek(0)
     return Response(
@@ -737,17 +737,17 @@ async def download_all_creds_common(mode: str = "geminicli") -> Response:
 
 
 async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSONResponse:
-    f"""{ts("id_3774")}"""
+    f"""{ts('id_3774')}"""
     mode = validate_mode(mode)
 
     filename_only = os.path.basename(filename)
     if not filename_only.endswith(".json"):
-        raise HTTPException(status_code=404, detail=f"{ts("id_3775")}")
+        raise HTTPException(status_code=404, detail=f"{ts('id_3775')}")
 
     storage_adapter = await get_storage_adapter()
     credential_data = await storage_adapter.get_credential(filename_only, mode=mode)
     if not credential_data:
-        raise HTTPException(status_code=404, detail=f"{ts("id_3776")}")
+        raise HTTPException(status_code=404, detail=f"{ts('id_3776')}")
 
     email = await credential_manager.get_or_fetch_user_email(filename_only, mode=mode)
 
@@ -756,7 +756,7 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
             content={
                 "filename": filename_only,
                 "user_email": email,
-                f"message": "{ts("id_3777")}",
+                f"message": "{ts('id_3777')}",
             }
         )
     else:
@@ -764,35 +764,35 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
             content={
                 "filename": filename_only,
                 "user_email": None,
-                f"message": "{ts("id_3778")}",
+                f"message": "{ts('id_3778')}",
             },
             status_code=400,
         )
 
 
 async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONResponse:
-    f"""{ts("id_3779")} - {ts("id_3780")}
+    f"""{ts('id_3779')} - {ts('id_3780')}
     
-    {ts("id_3782")} get_all_credential_states {ts("id_3781")}
+    {ts('id_3782')} get_all_credential_states {ts('id_3781')}
     """
     mode = validate_mode(mode)
 
     storage_adapter = await get_storage_adapter()
     
-    # {ts("id_3783")}
+    # {ts(f"id_3783")}
     all_states = await storage_adapter.get_all_credential_states(mode=mode)
 
     results = []
     success_count = 0
     skipped_count = 0
 
-    # {ts("id_3784")}
+    # {ts(f"id_3784")}
     for filename, state in all_states.items():
         try:
             cached_email = state.get("user_email")
 
             if cached_email:
-                # {ts("id_3785")}
+                # {ts(f"id_3785")}
                 skipped_count += 1
                 results.append({
                     "filename": os.path.basename(filename),
@@ -802,7 +802,7 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
                 })
                 continue
 
-            # {ts("id_3786")}
+            # {ts(f"id_3786")}
             email = await credential_manager.get_or_fetch_user_email(filename, mode=mode)
             if email:
                 success_count += 1
@@ -816,7 +816,7 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
                     "filename": os.path.basename(filename),
                     "user_email": None,
                     "success": False,
-                    f"error": "{ts("id_3787")}",
+                    f"error": "{ts('id_3787')}",
                 })
         except Exception as e:
             results.append({
@@ -833,13 +833,13 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
             "total_count": total_count,
             "skipped_count": skipped_count,
             "results": results,
-            f"message": f"{ts("id_3790")} {success_count}/{total_count} {ts("id_3788f")} {skipped_count} {ts("id_3789")}",
+            f"message": f"{ts('id_3790')} {success_count}/{total_count} {ts('id_3788f')} {skipped_count} {ts('id_3789')}",
         }
     )
 
 
 async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JSONResponse:
-    f"""{ts("id_3792")} - {ts("id_3791")}"""
+    f"""{ts('id_3792')} - {ts('id_3791')}"""
     mode = validate_mode(mode)
     storage_adapter = await get_storage_adapter()
 
@@ -862,11 +862,11 @@ async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JS
                     "no_email_count": len(no_email_files),
                     "duplicate_groups": [],
                     "delete_errors": [],
-                    f"message": "{ts("id_3793")}",
+                    f"message": "{ts('id_3793')}",
                 }
             )
 
-        # {ts("id_3794")}
+        # {ts(f"id_3794")}
         deleted_count = 0
         delete_errors = []
         result_duplicate_groups = []
@@ -883,12 +883,12 @@ async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JS
                     if success:
                         deleted_count += 1
                         deleted_files_in_group.append(os.path.basename(filename))
-                        log.info(ff"{ts("id_3795")}: {filename} ({ts("id_1013")}: {email}) (mode={mode})")
+                        log.info(f"{ts('id_3795')}: {filename} ({ts('id_1013')}: {email}) (mode={mode})")
                     else:
-                        delete_errors.append(ff"{os.path.basename(filename)}: {ts("id_3796")}")
+                        delete_errors.append(f"{os.path.basename(filename)}: {ts('id_3796')}")
                 except Exception as e:
                     delete_errors.append(f"{os.path.basename(filename)}: {str(e)}")
-                    log.error(ff"{ts("id_3795")} {filename} {ts("id_3739")}: {e}")
+                    log.error(f"{ts('id_3795')} {filename} {ts('id_3739')}: {e}")
 
             result_duplicate_groups.append({
                 "email": email,
@@ -908,25 +908,25 @@ async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JS
                 "no_email_count": len(no_email_files),
                 "duplicate_groups": result_duplicate_groups,
                 "delete_errors": delete_errors,
-                f"message": f"{ts("id_1007")} {deleted_count} {ts("id_1006f")} {kept_count} {ts("id_1009")}{duplicate_info.get('unique_email_count', 0)} {ts("id_1008")}",
+                f"message": f"{ts('id_1007')} {deleted_count} {ts('id_1006f')} {kept_count} {ts('id_1009')}{duplicate_info.get('unique_email_count', 0)} {ts('id_1008')}",
             }
         )
 
     except Exception as e:
-        log.error(ff"{ts("id_3797")}: {e}")
+        log.error(f"{ts('id_3797')}: {e}")
         return JSONResponse(
             status_code=500,
             content={
                 "deleted_count": 0,
                 "kept_count": 0,
                 "total_count": 0,
-                f"message": f"{ts("id_3798")}: {str(e)}",
+                f"message": f"{ts('id_3798')}: {str(e)}",
             }
         )
 
 
 # =============================================================================
-# {ts("id_3799")} (Route Handlers)
+# {ts(f"id_3799")} (Route Handlers)
 # =============================================================================
 
 
@@ -936,14 +936,14 @@ async def upload_credentials(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3800")}"""
+    f"""{ts('id_3800')}"""
     try:
         mode = validate_mode(mode)
         return await upload_credentials_common(files, mode=mode)
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3801")}: {e}")
+        log.error(f"{ts('id_3801')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -958,18 +958,18 @@ async def get_creds_status(
     mode: str = "geminicli"
 ):
     """
-    {ts("id_3802")}
+    {ts(f"id_3802")}
 
     Args:
-        offset: {ts("id_34800")}{ts("id_292")}
-        limit: {ts(f"id_380350")}{ts("id_380420")}, 50, 100, 200, 500, 1000{ts("id_292")}
-        status_filter: {ts(f"id_3483")}all={ts("id_1238")}, enabled={ts("id_724")}, disabled={ts("id_3484")}
-        error_code_filter: {ts(f"id_3806")}all={ts("id_1238")}, {ts("id_3805")}"400", "403"{ts("id_292")}
-        cooldown_filter: {ts(f"id_3487")}all={ts("id_1238")}, in_cooldown={ts("id_3489")}, no_cooldown={ts("id_3488")}
-        mode: {ts(f"id_3807")}geminicli {ts("id_413")} antigravity{ts("id_292")}
+        offset: {ts(f"id_34800")}{ts('id_292')}
+        limit: {ts(f"id_380350")}{ts('id_380420')}, 50, 100, 200, 500, 1000{ts('id_292')}
+        status_filter: {ts(f"id_3483")}all={ts('id_1238')}, enabled={ts('id_724')}, disabled={ts('id_3484')}
+        error_code_filter: {ts(f"id_3806")}all={ts('id_1238')}, {ts('id_3805')}"400", "403"{ts('id_292')}
+        cooldown_filter: {ts(f"id_3487")}all={ts('id_1238')}, in_cooldown={ts('id_3489')}, no_cooldown={ts('id_3488')}
+        mode: {ts(f"id_3807")}geminicli {ts('id_413')} antigravity{ts('id_292')}
 
     Returns:
-        {ts("id_3808")}
+        {ts(f"id_3808")}
     """
     try:
         mode = validate_mode(mode)
@@ -981,7 +981,7 @@ async def get_creds_status(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3809")}: {e}")
+        log.error(f"{ts('id_3809')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -992,14 +992,14 @@ async def get_cred_detail(
     mode: str = "geminicli"
 ):
     """
-    {ts("id_3810")}
-    {ts("id_3812")}/{ts("id_3811")}
+    {ts(f"id_3810")}
+    {ts(f"id_3812")}/{ts('id_3811')}
     """
     try:
         mode = validate_mode(mode)
-        # {ts("id_3813")}
+        # {ts(f"id_3813")}
         if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail=f"{ts("id_3775")}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3775')}")
 
         
 
@@ -1007,12 +1007,12 @@ async def get_cred_detail(
         backend_info = await storage_adapter.get_backend_info()
         backend_type = backend_info.get("backend_type", "unknown")
 
-        # {ts("id_3583")}
+        # {ts(f"id_3583")}
         credential_data = await storage_adapter.get_credential(filename, mode=mode)
         if not credential_data:
-            raise HTTPException(status_code=404, detail=f"{ts("id_3814")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3814')}")
 
-        # {ts("id_3815")}
+        # {ts(f"id_3815")}
         file_status = await storage_adapter.get_credential_state(filename, mode=mode)
         if not file_status:
             file_status = {
@@ -1042,7 +1042,7 @@ async def get_cred_detail(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3816")} {filename}: {e}")
+        log.error(f"{ts('id_3816')} {filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1052,7 +1052,7 @@ async def creds_action(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3817")}/{ts("id_300f")}/{ts("id_601")}"""
+    f"""{ts('id_3817')}/{ts('id_300f')}/{ts('id_601')}"""
     try:
         mode = validate_mode(mode)
 
@@ -1063,67 +1063,67 @@ async def creds_action(
 
         log.info(f"Performing action '{action}' on file: {filename} (mode={mode})")
 
-        # {ts("id_3813")}
+        # {ts(f"id_3813")}
         if not filename.endswith(".json"):
-            log.error(ff"{ts("id_3775")}: {filename}{ts("id_3818f")}.json{ts("id_3819")}")
-            raise HTTPException(status_code=400, detail=ff"{ts("id_3775")}: {filename}")
+            log.error(f"{ts('id_3775')}: {filename}{ts('id_3818f')}.json{ts('id_3819')}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3775')}: {filename}")
 
-        # {ts("id_3820")}
+        # {ts(f"id_3820")}
         storage_adapter = await get_storage_adapter()
 
-        # {ts("id_3821")}
-        # {ts("id_3822")}
+        # {ts(f"id_3821")}
+        # {ts(f"id_3822")}
         if action != "delete":
-            # {ts("id_3823")}
+            # {ts(f"id_3823")}
             credential_data = await storage_adapter.get_credential(filename, mode=mode)
             if not credential_data:
-                log.error(ff"{ts("id_3824")}: {filename} (mode={mode})")
-                raise HTTPException(status_code=404, detail=f"{ts("id_3776")}")
+                log.error(f"{ts('id_3824')}: {filename} (mode={mode})")
+                raise HTTPException(status_code=404, detail=f"{ts('id_3776')}")
 
         if action == "enable":
-            log.info(ff"Web{ts("id_2282")}: {ts("id_3825")} {filename} (mode={mode})")
+            log.info(f"Web{ts('id_2282')}: {ts('id_3825')} {filename} (mode={mode})")
             result = await credential_manager.set_cred_disabled(filename, False, mode=mode)
-            log.info(ff"[WebRoute] set_cred_disabled {ts("id_3826")}: {result}")
+            log.info(f"[WebRoute] set_cred_disabled {ts('id_3826')}: {result}")
             if result:
-                log.info(ff"Web{ts("id_2282")}: {ts("id_112f")} {filename} {ts("id_3827")} (mode={mode})")
-                return JSONResponse(content={f"message": f"{ts("id_3828")} {os.path.basename(filename)}"})
+                log.info(f"Web{ts('id_2282')}: {ts('id_112f')} {filename} {ts('id_3827')} (mode={mode})")
+                return JSONResponse(content={f"message": f"{ts('id_3828')} {os.path.basename(filename)}"})
             else:
-                log.error(ff"Web{ts("id_2282")}: {ts("id_112f")} {filename} {ts("id_3829")} (mode={mode})")
-                raise HTTPException(status_code=500, detail=f"{ts("id_3830")}")
+                log.error(f"Web{ts('id_2282')}: {ts('id_112f')} {filename} {ts('id_3829')} (mode={mode})")
+                raise HTTPException(status_code=500, detail=f"{ts('id_3830')}")
 
         elif action == "disable":
-            log.info(ff"Web{ts("id_2282")}: {ts("id_3831")} {filename} (mode={mode})")
+            log.info(f"Web{ts('id_2282')}: {ts('id_3831')} {filename} (mode={mode})")
             result = await credential_manager.set_cred_disabled(filename, True, mode=mode)
-            log.info(ff"[WebRoute] set_cred_disabled {ts("id_3826")}: {result}")
+            log.info(f"[WebRoute] set_cred_disabled {ts('id_3826')}: {result}")
             if result:
-                log.info(ff"Web{ts("id_2282")}: {ts("id_112f")} {filename} {ts("id_3832")} (mode={mode})")
-                return JSONResponse(content={f"message": f"{ts("id_3833")} {os.path.basename(filename)}"})
+                log.info(f"Web{ts('id_2282')}: {ts('id_112f')} {filename} {ts('id_3832')} (mode={mode})")
+                return JSONResponse(content={f"message": f"{ts('id_3833')} {os.path.basename(filename)}"})
             else:
-                log.error(ff"Web{ts("id_2282")}: {ts("id_112f")} {filename} {ts("id_3834")} (mode={mode})")
-                raise HTTPException(status_code=500, detail=f"{ts("id_3835")}")
+                log.error(f"Web{ts('id_2282')}: {ts('id_112f')} {filename} {ts('id_3834')} (mode={mode})")
+                raise HTTPException(status_code=500, detail=f"{ts('id_3835')}")
 
         elif action == "delete":
             try:
-                # {ts(f"id_463")} CredentialManager {ts("id_3836")}/{ts("id_3837")}
+                # {ts(f"id_463")} CredentialManager {ts('id_3836')}/{ts('id_3837')}
                 success = await credential_manager.remove_credential(filename, mode=mode)
                 if success:
-                    log.info(ff"{ts("id_3838")}: {filename} (mode={mode})")
+                    log.info(f"{ts('id_3838')}: {filename} (mode={mode})")
                     return JSONResponse(
-                        content={f"message": f"{ts("id_3839")} {os.path.basename(filename)}"}
+                        content={f"message": f"{ts('id_3839')} {os.path.basename(filename)}"}
                     )
                 else:
-                    raise HTTPException(status_code=500, detail=f"{ts("id_3840")}")
+                    raise HTTPException(status_code=500, detail=f"{ts('id_3840')}")
             except Exception as e:
-                log.error(ff"{ts("id_299")} {filename} {ts("id_3739")}: {e}")
-                raise HTTPException(status_code=500, detail=ff"{ts("id_3841")}: {str(e)}")
+                log.error(f"{ts('id_299')} {filename} {ts('id_3739')}: {e}")
+                raise HTTPException(status_code=500, detail=f"{ts('id_3841')}: {str(e)}")
 
         else:
-            raise HTTPException(status_code=400, detail=f"{ts("id_3842")}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3842')}")
 
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3843")}: {e}")
+        log.error(f"{ts('id_3843')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1133,7 +1133,7 @@ async def creds_batch_action(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3844")}/{ts("id_300f")}/{ts("id_601")}"""
+    f"""{ts('id_3844')}/{ts('id_300f')}/{ts('id_601')}"""
     try:
         mode = validate_mode(mode)
 
@@ -1141,9 +1141,9 @@ async def creds_batch_action(
         filenames = request.filenames
 
         if not filenames:
-            raise HTTPException(status_code=400, detail=f"{ts("id_3845")}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3845')}")
 
-        log.info(ff"{ts("id_3847")} {len(filenames)} {ts("id_3846")} '{action}'")
+        log.info(f"{ts('id_3847')} {len(filenames)} {ts('id_3846')} '{action}'")
 
         success_count = 0
         errors = []
@@ -1152,20 +1152,20 @@ async def creds_batch_action(
 
         for filename in filenames:
             try:
-                # {ts("id_3848")}
+                # {ts(f"id_3848")}
                 if not filename.endswith(".json"):
-                    errors.append(ff"{filename}: {ts("id_3849")}")
+                    errors.append(f"{filename}: {ts('id_3849')}")
                     continue
 
-                # {ts("id_3850")}
-                # {ts("id_3851")}
+                # {ts(f"id_3850")}
+                # {ts(f"id_3851")}
                 if action != "delete":
                     credential_data = await storage_adapter.get_credential(filename, mode=mode)
                     if not credential_data:
-                        errors.append(ff"{filename}: {ts("id_3814")}")
+                        errors.append(f"{filename}: {ts('id_3814')}")
                         continue
 
-                # {ts("id_3852")}
+                # {ts(f"id_3852")}
                 if action == "enable":
                     await credential_manager.set_cred_disabled(filename, False, mode=mode)
                     success_count += 1
@@ -1179,26 +1179,26 @@ async def creds_batch_action(
                         delete_success = await credential_manager.remove_credential(filename, mode=mode)
                         if delete_success:
                             success_count += 1
-                            log.info(ff"{ts("id_3853")}: {filename}")
+                            log.info(f"{ts('id_3853')}: {filename}")
                         else:
-                            errors.append(ff"{filename}: {ts("id_3796")}")
+                            errors.append(f"{filename}: {ts('id_3796')}")
                             continue
                     except Exception as e:
-                        errors.append(ff"{filename}: {ts("id_3841")} - {str(e)}")
+                        errors.append(f"{filename}: {ts('id_3841')} - {str(e)}")
                         continue
                 else:
-                    errors.append(ff"{filename}: {ts("id_3842")}")
+                    errors.append(f"{filename}: {ts('id_3842')}")
                     continue
 
             except Exception as e:
-                log.error(ff"{ts("id_590")} {filename} {ts("id_3739")}: {e}")
-                errors.append(ff"{filename}: {ts("id_3756")} - {str(e)}")
+                log.error(f"{ts('id_590')} {filename} {ts('id_3739')}: {e}")
+                errors.append(f"{filename}: {ts('id_3756')} - {str(e)}")
                 continue
 
-        # {ts("id_3854")}
-        result_message = ff"{ts("id_761")} {success_count}/{len(filenames)} {ts("id_762")}"
+        # {ts(f"id_3854")}
+        result_message = f"{ts('id_761')} {success_count}/{len(filenames)} {ts('id_762')}"
         if errors:
-            result_message += f"\n{ts("id_3855")}:\n" + "\n".join(errors)
+            result_message += f"\n{ts('id_3855')}:\n" + "\n".join(errors)
 
         response_data = {
             "success_count": success_count,
@@ -1212,7 +1212,7 @@ async def creds_batch_action(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3856")}: {e}")
+        log.error(f"{ts('id_3856')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1222,22 +1222,22 @@ async def download_cred_file(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_603")}"""
+    f"""{ts('id_603')}"""
     try:
         mode = validate_mode(mode)
-        # {ts("id_3848")}
+        # {ts(f"id_3848")}
         if not filename.endswith(".json"):
-            raise HTTPException(status_code=404, detail=f"{ts("id_3775")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3775')}")
 
-        # {ts("id_3820")}
+        # {ts(f"id_3820")}
         storage_adapter = await get_storage_adapter()
 
-        # {ts("id_3857")}
+        # {ts(f"id_3857")}
         credential_data = await storage_adapter.get_credential(filename, mode=mode)
         if not credential_data:
-            raise HTTPException(status_code=404, detail=f"{ts("id_3858")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3858')}")
 
-        # {ts("id_188")}JSON{ts("id_2850")}
+        # {ts(f"id_188")}JSON{ts('id_2850')}
         content = json.dumps(credential_data, ensure_ascii=False, indent=2)
 
         from fastapi.responses import Response
@@ -1251,7 +1251,7 @@ async def download_cred_file(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3859")}: {e}")
+        log.error(f"{ts('id_3859')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1261,14 +1261,14 @@ async def fetch_user_email(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3860")}"""
+    f"""{ts('id_3860')}"""
     try:
         mode = validate_mode(mode)
         return await fetch_user_email_common(filename, mode=mode)
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3105")}: {e}")
+        log.error(f"{ts('id_3105')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1277,12 +1277,12 @@ async def refresh_all_user_emails(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3861")}"""
+    f"""{ts('id_3861')}"""
     try:
         mode = validate_mode(mode)
         return await refresh_all_user_emails_common(mode=mode)
     except Exception as e:
-        log.error(ff"{ts("id_3862")}: {e}")
+        log.error(f"{ts('id_3862')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1291,12 +1291,12 @@ async def deduplicate_credentials_by_email(
     token: str = Depends(verify_panel_token),
     mode: str = "geminicli"
 ):
-    f"""{ts("id_3863")} - {ts("id_3791")}"""
+    f"""{ts('id_3863')} - {ts('id_3791')}"""
     try:
         mode = validate_mode(mode)
         return await deduplicate_credentials_by_email_common(mode=mode)
     except Exception as e:
-        log.error(ff"{ts("id_3864")}: {e}")
+        log.error(f"{ts('id_3864')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1306,8 +1306,8 @@ async def download_all_creds(
     mode: str = "geminicli"
 ):
     """
-    {ts("id_3865")}
-    {ts("id_3866")}
+    {ts(f"id_3865")}
+    {ts(f"id_3866")}
     """
     try:
         mode = validate_mode(mode)
@@ -1315,67 +1315,67 @@ async def download_all_creds(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_926")}: {e}")
+        log.error(f"{ts('id_926')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/config/get")
 async def get_config(token: str = Depends(verify_panel_token)):
-    f"""{ts("id_611")}"""
+    f"""{ts('id_611')}"""
     try:
         
 
-        # {ts("id_3867")}TOML{ts("id_3868")}
+        # {ts(f"id_3867")}TOML{ts('id_3868')}
         current_config = {}
 
-        # {ts("id_137")}
+        # {ts(f"id_137")}
         current_config["code_assist_endpoint"] = await config.get_code_assist_endpoint()
         current_config["credentials_dir"] = await config.get_credentials_dir()
         current_config["proxy"] = await config.get_proxy_config() or ""
 
-        # {ts("id_3869")}
+        # {ts(f"id_3869")}
         current_config["oauth_proxy_url"] = await config.get_oauth_proxy_url()
         current_config["googleapis_proxy_url"] = await config.get_googleapis_proxy_url()
         current_config["resource_manager_api_url"] = await config.get_resource_manager_api_url()
         current_config["service_usage_api_url"] = await config.get_service_usage_api_url()
         current_config["antigravity_api_url"] = await config.get_antigravity_api_url()
 
-        # {ts("id_1273")}
+        # {ts(f"id_1273")}
         current_config["auto_ban_enabled"] = await config.get_auto_ban_enabled()
         current_config["auto_ban_error_codes"] = await config.get_auto_ban_error_codes()
 
-        # 429{ts("id_1278")}
+        # 429{ts(f"id_1278")}
         current_config["retry_429_max_retries"] = await config.get_retry_429_max_retries()
         current_config["retry_429_enabled"] = await config.get_retry_429_enabled()
         current_config["retry_429_interval"] = await config.get_retry_429_interval()
 
-        # {ts("id_1305")}
+        # {ts(f"id_1305")}
         current_config["anti_truncation_max_attempts"] = await config.get_anti_truncation_max_attempts()
 
-        # {ts("id_531")}
+        # {ts(f"id_531")}
         current_config["compatibility_mode_enabled"] = await config.get_compatibility_mode_enabled()
 
-        # {ts("id_3870")}
+        # {ts(f"id_3870")}
         current_config["return_thoughts_to_frontend"] = await config.get_return_thoughts_to_frontend()
 
-        # Antigravity{ts("id_3871")}
+        # Antigravity{ts(f"id_3871")}
         current_config["antigravity_stream2nostream"] = await config.get_antigravity_stream2nostream()
 
-        # {ts("id_4")}
+        # {ts(f"id_4")}
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
         current_config["api_password"] = await config.get_api_password()
         current_config["panel_password"] = await config.get_panel_password()
         current_config["password"] = await config.get_server_password()
 
-        # {ts("id_3872")}
+        # {ts(f"id_3872")}
         storage_adapter = await get_storage_adapter()
         storage_config = await storage_adapter.get_all_config()
 
-        # {ts("id_3873")}
+        # {ts(f"id_3873")}
         env_locked_keys = get_env_locked_keys()
 
-        # {ts("id_3874")}
+        # {ts(f"id_3874")}
         for key, value in storage_config.items():
             if key not in env_locked_keys:
                 current_config[key] = value
@@ -1383,40 +1383,40 @@ async def get_config(token: str = Depends(verify_panel_token)):
         return JSONResponse(content={"config": current_config, "env_locked": list(env_locked_keys)})
 
     except Exception as e:
-        log.error(ff"{ts("id_3875")}: {e}")
+        log.error(f"{ts('id_3875')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/config/save")
 async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_panel_token)):
-    f"""{ts("id_612")}"""
+    f"""{ts('id_612')}"""
     try:
         
         new_config = request.config
 
-        log.debug(ff"{ts("id_3876")}: {list(new_config.keys())}")
-        log.debug(ff"{ts("id_3877")}password{ts("id_3185")}: {new_config.get('password', 'NOT_FOUND')}")
+        log.debug(f"{ts('id_3876')}: {list(new_config.keys())}")
+        log.debug(f"{ts('id_3877')}password{ts('id_3185')}: {new_config.get('password', 'NOT_FOUND')}")
 
-        # {ts("id_3878")}
+        # {ts(f"id_3878")}
         if "retry_429_max_retries" in new_config:
             if (
                 not isinstance(new_config["retry_429_max_retries"], int)
                 or new_config["retry_429_max_retries"] < 0
             ):
-                raise HTTPException(status_code=400, detail=f"{ts("id_3881429")}{ts("id_38790f")}{ts("id_3880")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3881429')}{ts('id_38790f')}{ts('id_3880')}")
 
         if "retry_429_enabled" in new_config:
             if not isinstance(new_config["retry_429_enabled"], bool):
-                raise HTTPException(status_code=400, detail=f"429{ts("id_3882")}")
+                raise HTTPException(status_code=400, detail=f"429{ts('id_3882')}")
 
-        # {ts("id_3883")}
+        # {ts(f"id_3883")}
         if "retry_429_interval" in new_config:
             try:
                 interval = float(new_config["retry_429_interval"])
                 if interval < 0.01 or interval > 10:
-                    raise HTTPException(status_code=400, detail=f"429{ts("id_38840")}.01-10{ts("id_3885")}")
+                    raise HTTPException(status_code=400, detail=f"429{ts('id_38840')}.01-10{ts('id_3885')}")
             except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail=f"429{ts("id_3886")}")
+                raise HTTPException(status_code=400, detail=f"429{ts('id_3886')}")
 
         if "anti_truncation_max_attempts" in new_config:
             if (
@@ -1425,25 +1425,25 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                 or new_config["anti_truncation_max_attempts"] > 10
             ):
                 raise HTTPException(
-                    status_code=400, detail=f"{ts("id_38871")}-10{ts("id_3888")}"
+                    status_code=400, detail=f"{ts('id_38871')}-10{ts('id_3888')}"
                 )
 
         if "compatibility_mode_enabled" in new_config:
             if not isinstance(new_config["compatibility_mode_enabled"], bool):
-                raise HTTPException(status_code=400, detail=f"{ts("id_3889")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3889')}")
 
         if "return_thoughts_to_frontend" in new_config:
             if not isinstance(new_config["return_thoughts_to_frontend"], bool):
-                raise HTTPException(status_code=400, detail=f"{ts("id_3890")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3890')}")
 
         if "antigravity_stream2nostream" in new_config:
             if not isinstance(new_config["antigravity_stream2nostream"], bool):
-                raise HTTPException(status_code=400, detail=f"Antigravity{ts("id_3891")}")
+                raise HTTPException(status_code=400, detail=f"Antigravity{ts('id_3891')}")
 
-        # {ts("id_3892")}
+        # {ts(f"id_3892")}
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
-                raise HTTPException(status_code=400, detail=f"{ts("id_3893")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3893')}")
 
         if "port" in new_config:
             if (
@@ -1451,45 +1451,45 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                 or new_config["port"] < 1
                 or new_config["port"] > 65535
             ):
-                raise HTTPException(status_code=400, detail=f"{ts("id_38941")}-65535{ts("id_3888")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_38941')}-65535{ts('id_3888')}")
 
         if "api_password" in new_config:
             if not isinstance(new_config["api_password"], str):
-                raise HTTPException(status_code=400, detail=f"API{ts("id_3895")}")
+                raise HTTPException(status_code=400, detail=f"API{ts('id_3895')}")
 
         if "panel_password" in new_config:
             if not isinstance(new_config["panel_password"], str):
-                raise HTTPException(status_code=400, detail=f"{ts("id_3896")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3896')}")
 
         if "password" in new_config:
             if not isinstance(new_config["password"], str):
-                raise HTTPException(status_code=400, detail=f"{ts("id_3895")}")
+                raise HTTPException(status_code=400, detail=f"{ts('id_3895')}")
 
-        # {ts("id_3873")}
+        # {ts(f"id_3873")}
         env_locked_keys = get_env_locked_keys()
 
-        # {ts("id_3897")}
+        # {ts(f"id_3897")}
         storage_adapter = await get_storage_adapter()
         for key, value in new_config.items():
             if key not in env_locked_keys:
                 await storage_adapter.set_config(key, value)
                 if key in ("password", "api_password", "panel_password"):
-                    log.debug(ff"{ts("id_32")}{key}{ts("id_3898")}: {value}")
+                    log.debug(f"{ts('id_32')}{key}{ts('id_3898')}: {value}")
 
-        # {ts("id_3899")}
+        # {ts(f"id_3899")}
         await config.reload_config()
 
-        # {ts("id_3900")}
+        # {ts(f"id_3900")}
         test_api_password = await config.get_api_password()
         test_panel_password = await config.get_panel_password()
         test_password = await config.get_server_password()
-        log.debug(ff"{ts("id_3901")}API{ts("id_133")}: {test_api_password}")
-        log.debug(ff"{ts("id_3902")}: {test_panel_password}")
-        log.debug(ff"{ts("id_3903")}: {test_password}")
+        log.debug(f"{ts('id_3901')}API{ts('id_133')}: {test_api_password}")
+        log.debug(f"{ts('id_3902')}: {test_panel_password}")
+        log.debug(f"{ts('id_3903')}: {test_password}")
 
-        # {ts("id_3904")}
+        # {ts(f"id_3904")}
         response_data = {
-            f"message": "{ts("id_1059")}",
+            f"message": "{ts('id_1059')}",
             "saved_config": {k: v for k, v in new_config.items() if k not in env_locked_keys},
         }
 
@@ -1498,69 +1498,69 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_1062")}: {e}")
+        log.error(f"{ts('id_1062')}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
-# {ts("id_1145")}WebSocket (Real-time Logs WebSocket)
+# {ts(f"id_1145")}WebSocket (Real-time Logs WebSocket)
 # =============================================================================
 
 
 @router.post("/logs/clear")
 async def clear_logs(token: str = Depends(verify_panel_token)):
-    f"""{ts("id_3905")}"""
+    f"""{ts('id_3905')}"""
     try:
-        # {ts("id_3906")}
+        # {ts(f"id_3906")}
         log_file_path = os.getenv("LOG_FILE", "log.txt")
 
-        # {ts("id_3907")}
+        # {ts(f"id_3907")}
         if os.path.exists(log_file_path):
             try:
-                # {ts("id_3908")}UTF-8{ts("id_3909")}
+                # {ts(f"id_3908")}UTF-8{ts('id_3909')}
                 with open(log_file_path, "w", encoding="utf-8", newline="") as f:
                     f.write("")
-                    f.flush()  # {ts("id_3910")}
-                log.info(ff"{ts("id_3911")}: {log_file_path}")
+                    f.flush()  # {ts(f"id_3910")}
+                log.info(f"{ts('id_3911')}: {log_file_path}")
 
-                # {ts("id_3913")}WebSocket{ts("id_3912")}
-                await manager.broadcast(f"--- {ts("id_3911")} ---")
+                # {ts(f"id_3913")}WebSocket{ts('id_3912')}
+                await manager.broadcast(f"--- {ts('id_3911')} ---")
 
                 return JSONResponse(
-                    content={f"message": f"{ts("id_3911")}: {os.path.basename(log_file_path)}"}
+                    content={f"message": f"{ts('id_3911')}: {os.path.basename(log_file_path)}"}
                 )
             except Exception as e:
-                log.error(ff"{ts("id_3914")}: {e}")
-                raise HTTPException(status_code=500, detail=ff"{ts("id_3914")}: {str(e)}")
+                log.error(f"{ts('id_3914')}: {e}")
+                raise HTTPException(status_code=500, detail=f"{ts('id_3914')}: {str(e)}")
         else:
-            return JSONResponse(content={f"message": "{ts("id_3915")}"})
+            return JSONResponse(content={f"message": "{ts('id_3915')}"})
 
     except Exception as e:
-        log.error(ff"{ts("id_3914")}: {e}")
-        raise HTTPException(status_code=500, detail=ff"{ts("id_3914")}: {str(e)}")
+        log.error(f"{ts('id_3914')}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_3914')}: {str(e)}")
 
 
 @router.get("/logs/download")
 async def download_logs(token: str = Depends(verify_panel_token)):
-    f"""{ts("id_615")}"""
+    f"""{ts('id_615')}"""
     try:
-        # {ts("id_3906")}
+        # {ts(f"id_3906")}
         log_file_path = os.getenv("LOG_FILE", "log.txt")
 
-        # {ts("id_3907")}
+        # {ts(f"id_3907")}
         if not os.path.exists(log_file_path):
-            raise HTTPException(status_code=404, detail=f"{ts("id_3915")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3915')}")
 
-        # {ts("id_3916")}
+        # {ts(f"id_3916")}
         file_size = os.path.getsize(log_file_path)
         if file_size == 0:
-            raise HTTPException(status_code=404, detail=f"{ts("id_3917")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3917')}")
 
-        # {ts("id_3918")}
+        # {ts(f"id_3918")}
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"gcli2api_logs_{timestamp}.txt"
 
-        log.info(ff"{ts("id_615")}: {log_file_path}")
+        log.info(f"{ts('id_615')}: {log_file_path}")
 
         return FileResponse(
             path=log_file_path,
@@ -1572,60 +1572,60 @@ async def download_logs(token: str = Depends(verify_panel_token)):
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3919")}: {e}")
-        raise HTTPException(status_code=500, detail=ff"{ts("id_3919")}: {str(e)}")
+        log.error(f"{ts('id_3919')}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_3919')}: {str(e)}")
 
 
 @router.websocket("/logs/stream")
 async def websocket_logs(websocket: WebSocket):
-    f"""WebSocket{ts("id_3920")}"""
-    # WebSocket {ts("id_251")}: {ts("id_3921")} token
+    f"""WebSocket{ts('id_3920')}"""
+    # WebSocket {ts(f"id_251")}: {ts('id_3921')} token
     token = websocket.query_params.get("token")
 
     if not token:
         await websocket.close(code=403, reason="Missing authentication token")
-        log.warning(f"WebSocket{ts("id_3922")}: {ts("id_3923")}token")
+        log.warning(f"WebSocket{ts('id_3922')}: {ts('id_3923')}token")
         return
 
-    # {ts("id_3661")} token
+    # {ts(f"id_3661")} token
     try:
         panel_password = await config.get_panel_password()
         if token != panel_password:
             await websocket.close(code=403, reason="Invalid authentication token")
-            log.warning(f"WebSocket{ts("id_3922")}: token{ts("id_3924")}")
+            log.warning(f"WebSocket{ts('id_3922')}: token{ts('id_3924')}")
             return
     except Exception as e:
         await websocket.close(code=1011, reason="Authentication error")
-        log.error(ff"WebSocket{ts("id_3925")}: {e}")
+        log.error(f"WebSocket{ts('id_3925')}: {e}")
         return
 
-    # {ts("id_3926")}
+    # {ts(f"id_3926")}
     if not await manager.connect(websocket):
         return
 
     try:
-        # {ts("id_3906")}
+        # {ts(f"id_3906")}
         log_file_path = os.getenv("LOG_FILE", "log.txt")
 
-        # {ts("id_392750")}{ts("id_3928")}
+        # {ts(f"id_392750")}{ts('id_3928')}
         if os.path.exists(log_file_path):
             try:
                 with open(log_file_path, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                    # {ts("id_393050")}{ts("id_3929")}
+                    # {ts(f"id_393050")}{ts('id_3929')}
                     for line in lines[-50:]:
                         if line.strip():
                             await websocket.send_text(line.strip())
             except Exception as e:
                 await websocket.send_text(f"Error reading log file: {e}")
 
-        # {ts("id_3931")}
+        # {ts(f"id_3931")}
         last_size = os.path.getsize(log_file_path) if os.path.exists(log_file_path) else 0
-        max_read_size = 8192  # {ts("id_39338")}KB{ts("id_3932")}
-        check_interval = 2  # {ts(f"id_3934")}CPU{ts("id_15")}I/O{ts("id_3935")}
+        max_read_size = 8192  # {ts(f"id_39338")}KB{ts('id_3932')}
+        check_interval = 2  # {ts(f"id_3934")}CPU{ts('id_15')}I/O{ts('id_3935')}
 
-        # {ts("id_3936")}
-        # {ts("id_3937")}receive_text() {ts("id_3938")}
+        # {ts(f"id_3936")}
+        # {ts(f"id_3937")}receive_text() {ts('id_3938')}
         async def listen_for_disconnect():
             try:
                 while True:
@@ -1637,22 +1637,22 @@ async def websocket_logs(websocket: WebSocket):
 
         try:
             while websocket.client_state == WebSocketState.CONNECTED:
-                # {ts("id_463")} asyncio.wait {ts("id_3939")}
-                # timeout=check_interval {ts("id_3940")} asyncio.sleep
+                # {ts(f"id_463")} asyncio.wait {ts('id_3939')}
+                # timeout=check_interval {ts(f"id_3940")} asyncio.sleep
                 done, pending = await asyncio.wait(
                     [listener_task],
                     timeout=check_interval,
                     return_when=asyncio.FIRST_COMPLETED
                 )
 
-                # {ts("id_3941")}
+                # {ts(f"id_3941")}
                 if listener_task in done:
                     break
 
                 if os.path.exists(log_file_path):
                     current_size = os.path.getsize(log_file_path)
                     if current_size > last_size:
-                        # {ts("id_3942")}
+                        # {ts(f"id_3942")}
                         read_size = min(current_size - last_size, max_read_size)
 
                         try:
@@ -1660,46 +1660,46 @@ async def websocket_logs(websocket: WebSocket):
                                 f.seek(last_size)
                                 new_content = f.read(read_size)
 
-                                # {ts("id_3943")}
+                                # {ts(f"id_3943")}
                                 if not new_content:
                                     last_size = current_size
                                     continue
 
-                                # {ts("id_3944")}
+                                # {ts(f"id_3944")}
                                 lines = new_content.splitlines(keepends=True)
                                 if lines:
-                                    # {ts("id_3945")}
+                                    # {ts(f"id_3945")}
                                     if not lines[-1].endswith("\n") and len(lines) > 1:
-                                        # {ts("id_3946")}
+                                        # {ts(f"id_3946")}
                                         for line in lines[:-1]:
                                             if line.strip():
                                                 await websocket.send_text(line.rstrip())
-                                        # {ts("id_3947")}
+                                        # {ts(f"id_3947")}
                                         last_size += len(new_content.encode("utf-8")) - len(
                                             lines[-1].encode("utf-8")
                                         )
                                     else:
-                                        # {ts("id_3948")}
+                                        # {ts(f"id_3948")}
                                         for line in lines:
                                             if line.strip():
                                                 await websocket.send_text(line.rstrip())
                                         last_size += len(new_content.encode("utf-8"))
                         except UnicodeDecodeError as e:
-                            # {ts("id_3949")}
-                            log.warning(ff"WebSocket{ts("id_3950")}: {e}, {ts("id_3951")}")
+                            # {ts(f"id_3949")}
+                            log.warning(f"WebSocket{ts('id_3950')}: {e}, {ts('id_3951')}")
                             last_size = current_size
                         except Exception as e:
                             await websocket.send_text(f"Error reading new content: {e}")
-                            # {ts("id_3952")}
+                            # {ts(f"id_3952")}
                             last_size = current_size
 
-                    # {ts("id_3953")}
+                    # {ts(f"id_3953")}
                     elif current_size < last_size:
                         last_size = 0
-                        await websocket.send_text(f"--- {ts("id_3954")} ---")
+                        await websocket.send_text(f"--- {ts('id_3954')} ---")
 
         finally:
-            # {ts("id_3955")}
+            # {ts(f"id_3955")}
             if not listener_task.done():
                 listener_task.cancel()
                 try:
@@ -1716,34 +1716,34 @@ async def websocket_logs(websocket: WebSocket):
 
 
 async def verify_credential_project_common(filename: str, mode: str = "geminicli") -> JSONResponse:
-    f"""{ts("id_3956")}project id{ts("id_3957")}"""
+    f"""{ts('id_3956')}project id{ts('id_3957')}"""
     mode = validate_mode(mode)
 
-    # {ts("id_3813")}
+    # {ts(f"id_3813")}
     if not filename.endswith(".json"):
-        raise HTTPException(status_code=400, detail=f"{ts("id_3775")}")
+        raise HTTPException(status_code=400, detail=f"{ts('id_3775')}")
 
 
     storage_adapter = await get_storage_adapter()
 
-    # {ts("id_3583")}
+    # {ts(f"id_3583")}
     credential_data = await storage_adapter.get_credential(filename, mode=mode)
     if not credential_data:
-        raise HTTPException(status_code=404, detail=f"{ts("id_3814")}")
+        raise HTTPException(status_code=404, detail=f"{ts('id_3814')}")
 
-    # {ts("id_3095")}
+    # {ts(f"id_3095")}
     credentials = Credentials.from_dict(credential_data)
 
-    # {ts("id_683")}token{ts("id_3958")}
+    # {ts(f"id_683")}token{ts('id_3958')}
     token_refreshed = await credentials.refresh_if_needed()
 
-    # {ts("id_2183")}token{ts("id_2984")}
+    # {ts(f"id_2183")}token{ts('id_2984')}
     if token_refreshed:
-        log.info(ff"Token{ts("id_2985")}: {filename} (mode={mode})")
+        log.info(f"Token{ts('id_2985')}: {filename} (mode={mode})")
         credential_data = credentials.to_dict()
         await storage_adapter.store_credential(filename, credential_data, mode=mode)
 
-    # {ts("id_712")}API{ts("id_3959")}User-Agent
+    # {ts(f"id_712")}API{ts('id_3959')}User-Agent
     if mode == "antigravity":
         api_base_url = await get_antigravity_api_url()
         user_agent = ANTIGRAVITY_USER_AGENT
@@ -1751,7 +1751,7 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
         api_base_url = await get_code_assist_endpoint()
         user_agent = GEMINICLI_USER_AGENT
 
-    # {ts("id_804")}project id
+    # {ts(f"id_804")}project id
     project_id = await fetch_project_id(
         access_token=credentials.access_token,
         user_agent=user_agent,
@@ -1759,23 +1759,23 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
     )
 
     if project_id:
-        # {ts("id_3960")}project_id
+        # {ts(f"id_3960")}project_id
         credential_data["project_id"] = project_id
         await storage_adapter.store_credential(filename, credential_data, mode=mode)
 
-        # {ts("id_3961")}
+        # {ts(f"id_3961")}
         await storage_adapter.update_credential_state(filename, {
             "disabled": False,
             "error_codes": []
         }, mode=mode)
 
-        log.info(ff"{ts("id_805")} {mode} {ts("id_3963f")}: {filename} - Project ID: {project_id} - {ts("id_3962")}")
+        log.info(f"{ts('id_805')} {mode} {ts('id_3963f')}: {filename} - Project ID: {project_id} - {ts('id_3962')}")
 
         return JSONResponse(content={
             "success": True,
             "filename": filename,
             "project_id": project_id,
-            f"message": "{ts("id_947")}Project ID{ts("id_3964403f")}{ts("id_3965")}"
+            f"message": "{ts('id_947')}Project ID{ts('id_3964403f')}{ts('id_3965')}"
         })
     else:
         return JSONResponse(
@@ -1783,7 +1783,7 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
             content={
                 "success": False,
                 "filename": filename,
-                f"message": "{ts("id_3967")}Project ID{ts("id_3966")}"
+                f"message": "{ts('id_3967')}Project ID{ts('id_3966')}"
             }
         )
 
@@ -1795,8 +1795,8 @@ async def verify_credential_project(
     mode: str = "geminicli"
 ):
     """
-    {ts("id_3968")}project id{ts("id_3969")}project id
-    {ts("id_3970403")}{ts("id_3971")}
+    {ts(f"id_3968")}project id{ts('id_3969')}project id
+    {ts(f"id_3970403")}{ts('id_3971')}
     """
     try:
         mode = validate_mode(mode)
@@ -1804,8 +1804,8 @@ async def verify_credential_project(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_608")}Project ID{ts("id_979")} {filename}: {e}")
-        raise HTTPException(status_code=500, detail=ff"{ts("id_950")}: {str(e)}")
+        log.error(f"{ts('id_608')}Project ID{ts('id_979')} {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_950')}: {str(e)}")
 
 
 @router.get("/creds/quota/{filename}")
@@ -1815,43 +1815,43 @@ async def get_credential_quota(
     mode: str = "antigravity"
 ):
     """
-    {ts("id_3972")} antigravity {ts("id_543")}
+    {ts(f"id_3972")} antigravity {ts('id_543')}
     """
     try:
         mode = validate_mode(mode)
-        # {ts("id_3813")}
+        # {ts(f"id_3813")}
         if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail=f"{ts("id_3775")}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_3775')}")
 
         
         storage_adapter = await get_storage_adapter()
 
-        # {ts("id_3583")}
+        # {ts(f"id_3583")}
         credential_data = await storage_adapter.get_credential(filename, mode=mode)
         if not credential_data:
-            raise HTTPException(status_code=404, detail=f"{ts("id_3814")}")
+            raise HTTPException(status_code=404, detail=f"{ts('id_3814')}")
 
-        # {ts(f"id_463")} Credentials {ts("id_3973")} token {ts("id_1827")}
+        # {ts(f"id_463")} Credentials {ts('id_3973')} token {ts('id_1827')}
         from .google_oauth_api import Credentials
 
         creds = Credentials.from_dict(credential_data)
 
-        # {ts("id_2983")} token{ts("id_2982")}
+        # {ts(f"id_2983")} token{ts('id_2982')}
         await creds.refresh_if_needed()
 
-        # {ts("id_2183")} token {ts("id_2984")}
+        # {ts(f"id_2183")} token {ts('id_2984')}
         updated_data = creds.to_dict()
         if updated_data != credential_data:
-            log.info(ff"Token{ts("id_2985")}: {filename}")
+            log.info(f"Token{ts('id_2985')}: {filename}")
             await storage_adapter.store_credential(filename, updated_data, mode=mode)
             credential_data = updated_data
 
-        # {ts("id_3097")}
+        # {ts(f"id_3097")}
         access_token = credential_data.get("access_token") or credential_data.get("token")
         if not access_token:
-            raise HTTPException(status_code=400, detail=f"{ts("id_1494")}")
+            raise HTTPException(status_code=400, detail=f"{ts('id_1494')}")
 
-        # {ts("id_3974")}
+        # {ts(f"id_3974")}
         quota_info = await fetch_quota_info(access_token)
 
         if quota_info.get("success"):
@@ -1866,33 +1866,33 @@ async def get_credential_quota(
                 content={
                     "success": False,
                     "filename": filename,
-                    f"error": quota_info.get("error", "{ts("id_727")}")
+                    f"error": quota_info.get("error", "{ts('id_727')}")
                 }
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        log.error(ff"{ts("id_3975")} {filename}: {e}")
-        raise HTTPException(status_code=500, detail=ff"{ts("id_3976")}: {str(e)}")
+        log.error(f"{ts('id_3975')} {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"{ts('id_3976')}: {str(e)}")
 
 
 @router.get("/version/info")
 async def get_version_info(check_update: bool = False):
     """
-    {ts(f"id_3977")} - {ts("id_1731")}version.txt{ts("id_3730")}
-    {ts(f"id_3980")} check_update: {ts("id_3979")}GitHub{ts("id_3978")}
+    {ts(f"id_3977")} - {ts('id_1731')}version.txt{ts('id_3730')}
+    {ts(f"id_3980")} check_update: {ts('id_3979')}GitHub{ts('id_3978')}
     """
     try:
-        # {ts("id_3981")}
+        # {ts(f"id_3981")}
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         version_file = os.path.join(project_root, "version.txt")
 
-        # {ts("id_3730")}version.txt
+        # {ts(f"id_3730")}version.txt
         if not os.path.exists(version_file):
             return JSONResponse({
                 "success": False,
-                f"error": "version.txt{ts("id_3858")}"
+                f"error": "version.txt{ts('id_3858')}"
             })
 
         version_data = {}
@@ -1903,11 +1903,11 @@ async def get_version_info(check_update: bool = False):
                     key, value = line.split('=', 1)
                     version_data[key] = value
 
-        # {ts("id_2015")}
+        # {ts(f"id_2015")}
         if 'short_hash' not in version_data:
             return JSONResponse({
                 "success": False,
-                f"error": "version.txt{ts("id_2019")}"
+                f"error": "version.txt{ts('id_2019')}"
             })
 
         response_data = {
@@ -1918,19 +1918,19 @@ async def get_version_info(check_update: bool = False):
             "date": version_data.get('date', '')
         }
 
-        # {ts("id_3982")}
+        # {ts(f"id_3982")}
         if check_update:
             try:
                 from src.httpx_client import get_async
 
-                # {ts(f"id_3983")}GitHub{ts("id_3984")}version.txt{ts("id_112")}
+                # {ts(f"id_3983")}GitHub{ts('id_3984')}version.txt{ts('id_112')}
                 github_version_url = "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/version.txt"
 
-                # {ts("id_3985")}httpx{ts("id_1597")}
+                # {ts(f"id_3985")}httpx{ts('id_1597')}
                 resp = await get_async(github_version_url, timeout=10.0)
 
                 if resp.status_code == 200:
-                    # {ts("id_3986")}version.txt
+                    # {ts(f"id_3986")}version.txt
                     remote_version_data = {}
                     for line in resp.text.strip().split('\n'):
                         line = line.strip()
@@ -1951,19 +1951,19 @@ async def get_version_info(check_update: bool = False):
                     response_data['latest_message'] = remote_version_data.get('message', '')
                     response_data['latest_date'] = remote_version_data.get('date', '')
                 else:
-                    # GitHub{ts("id_3987")}
+                    # GitHub{ts(f"id_3987")}
                     response_data['check_update'] = False
-                    response_data['update_error'] = ff"GitHub{ts("id_1595")}: {resp.status_code}"
+                    response_data['update_error'] = f"GitHub{ts('id_1595')}: {resp.status_code}"
 
             except Exception as e:
-                log.debug(ff"{ts("id_1096")}: {e}")
+                log.debug(f"{ts('id_1096')}: {e}")
                 response_data['check_update'] = False
                 response_data['update_error'] = str(e)
 
         return JSONResponse(response_data)
 
     except Exception as e:
-        log.error(ff"{ts("id_1090")}: {e}")
+        log.error(f"{ts('id_1090')}: {e}")
         return JSONResponse({
             "success": False,
             "error": str(e)
