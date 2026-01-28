@@ -161,7 +161,7 @@ async def chat_completions(
         response_task = create_managed_task(get_response(), name="openai_fake_stream_request")
 
         try:
-            # {ts("id_18263")}{ts("id_3231")}
+            # {ts("id_1826")}3{ts("id_3231")}
             while not response_task.done():
                 await asyncio.sleep(3.0)
                 if not response_task.done():

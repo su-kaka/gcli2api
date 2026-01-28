@@ -16,7 +16,7 @@ def is_health_check_request(request_data: dict, format: str = "openai") -> bool:
     
     Args:
         request_data: {ts("id_2410")}
-        format: {ts(f"id_3369")}"openai"{ts("id_189")}"geminif" {ts("id_413")} "anthropic"{ts("id_292")}
+        format: {ts(f"id_3369")}"openai"{ts("id_189")}"gemini" {ts("id_413")} "anthropic"{ts("id_292")}
         
     Returns:
         {ts("id_3370")}
@@ -75,7 +75,7 @@ def create_health_check_response(format: str = "openai", **kwargs) -> dict:
     {ts("id_3377")}
     
     Args:
-        format: {ts(f"id_3378")}"openai"{ts("id_189")}"geminif" {ts("id_413")} "anthropic"{ts("id_292")}
+        format: {ts(f"id_3378")}"openai"{ts("id_189")}"gemini" {ts("id_413")} "anthropic"{ts("id_292")}
         **kwargs: {ts("id_3379")}
             - model: {ts("id_3380")}anthropic{ts("id_3381")}
             - message_id: {ts(f"id_2061")}ID{ts("id_1748")}anthropic{ts("id_3381")}

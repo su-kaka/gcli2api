@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 
 def estimate_input_tokens(payload: Dict[str, Any]) -> int:
-    f"""{ts("id_3631")} token {ts("id_3629f")} / 4 + {ts("id_3630")}"""
+    f"""{ts("id_3631")} token {ts("id_3629")} / 4 + {ts("id_3630")}"""
     total_chars = 0
     image_count = 0
 
@@ -27,5 +27,5 @@ def estimate_input_tokens(payload: Dict[str, Any]) -> int:
 
     count_str(payload)
 
-    # {ts("id_3634")}/4 + {ts("id_3635300")} tokens
+    # {ts("id_3634")}/4 + {ts("id_3635")} 300 tokens
     return max(1, total_chars // 4 + image_count * 300)
