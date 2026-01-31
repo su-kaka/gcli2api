@@ -615,6 +615,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
+        <button class="cred-btn" style="background-color: #9c27b0;" onclick="test${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="测试凭证是否可用">消息测试</button>
         <button class="cred-btn" style="background-color: #e91e63;" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ErrorDetails('${pathId}')" title="查看该凭证的详细报错信息">查看报错</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
@@ -1556,6 +1557,74 @@ async function verifyAntigravityProjectId(filename) {
     }
 }
 
+async function testCredential(filename) {
+    try {
+        // 显示加载状态
+        showStatus('🧪 正在测试凭证，请稍候...', 'info');
+
+        const response = await fetch(`./creds/test/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        if (response.status === 200) {
+            // 凭证可用
+            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: 凭证可用 (200)`;
+            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
+            alert(`✅ 测试成功！\n\n文件: ${filename}\n状态: 凭证可用 (200)`);
+            await AppState.creds.refresh();
+        } else if (response.status === 429) {
+            // 限流但有效
+            const warnMsg = `⚠️ 测试完成\n文件: ${filename}\n状态: 凭证被限流但有效 (429)`;
+            showStatus(warnMsg.replace(/\n/g, '<br>'), 'warning');
+            alert(`⚠️ 测试完成\n\n文件: ${filename}\n状态: 凭证被限流但有效 (429)`);
+        } else {
+            // 其他错误
+            const errorMsg = `❌ 测试失败\n文件: ${filename}\n错误码: ${response.status}`;
+            showStatus(errorMsg.replace(/\n/g, '<br>'), 'error');
+            alert(`❌ 测试失败\n\n文件: ${filename}\n错误码: ${response.status}`);
+        }
+    } catch (error) {
+        const errorMsg = `测试失败: ${error.message}`;
+        showStatus(`❌ ${errorMsg}`, 'error');
+        alert(`❌ ${errorMsg}`);
+    }
+}
+
+async function testAntigravityCredential(filename) {
+    try {
+        // 显示加载状态
+        showStatus('🧪 正在测试Antigravity凭证，请稍候...', 'info');
+
+        const response = await fetch(`./creds/test/${encodeURIComponent(filename)}?mode=antigravity`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        if (response.status === 200) {
+            // 凭证可用
+            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: Antigravity凭证可用 (200)`;
+            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
+            alert(`✅ 测试成功！\n\n文件: ${filename}\n状态: Antigravity凭证可用 (200)`);
+            await AppState.antigravityCreds.refresh();
+        } else if (response.status === 429) {
+            // 限流但有效
+            const warnMsg = `⚠️ 测试完成\n文件: ${filename}\n状态: Antigravity凭证被限流但有效 (429)`;
+            showStatus(warnMsg.replace(/\n/g, '<br>'), 'warning');
+            alert(`⚠️ 测试完成\n\n文件: ${filename}\n状态: Antigravity凭证被限流但有效 (429)`);
+        } else {
+            // 其他错误
+            const errorMsg = `❌ 测试失败\n文件: ${filename}\n错误码: ${response.status}`;
+            showStatus(errorMsg.replace(/\n/g, '<br>'), 'error');
+            alert(`❌ 测试失败\n\n文件: ${filename}\n错误码: ${response.status}`);
+        }
+    } catch (error) {
+        const errorMsg = `测试失败: ${error.message}`;
+        showStatus(`❌ ${errorMsg}`, 'error');
+        alert(`❌ ${errorMsg}`);
+    }
+}
+
 async function toggleAntigravityQuotaDetails(pathId) {
     const quotaDetails = document.getElementById('quota-' + pathId);
     if (!quotaDetails) return;
@@ -1572,10 +1641,9 @@ async function toggleAntigravityQuotaDetails(pathId) {
 
         const contentDiv = quotaDetails.querySelector('.cred-quota-content');
         const filename = contentDiv.getAttribute('data-filename');
-        const loaded = contentDiv.getAttribute('data-loaded');
 
-        // 如果还没加载过，则加载数据
-        if (loaded === 'false' && filename) {
+        // 每次展开都重新加载数据
+        if (filename) {
             contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">📊 正在加载额度信息...</div>';
 
             try {
@@ -1647,7 +1715,6 @@ async function toggleAntigravityQuotaDetails(pathId) {
                         contentDiv.innerHTML = quotaHTML;
                     }
 
-                    contentDiv.setAttribute('data-loaded', 'true');
                     showStatus('✅ 成功加载额度信息', 'success');
                 } else {
                     // 失败时显示错误
@@ -1696,10 +1763,9 @@ async function toggleErrorDetailsCommon(pathId, manager) {
     if (isShowing) {
         const contentDiv = errorDetails.querySelector('.cred-content');
         const filename = contentDiv.getAttribute('data-filename');
-        const loaded = contentDiv.getAttribute('data-loaded');
 
-        // 如果还没加载过，则加载数据
-        if (loaded === 'false' && filename) {
+        // 每次展开都重新加载数据
+        if (filename) {
             contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">⏳ 正在加载报错信息...</div>';
 
             try {
@@ -1753,7 +1819,6 @@ async function toggleErrorDetailsCommon(pathId, manager) {
                         contentDiv.innerHTML = errorHTML;
                     }
 
-                    contentDiv.setAttribute('data-loaded', 'true');
                     showStatus('✅ 成功加载报错信息', 'success');
                 } else {
                     // 失败时显示错误
