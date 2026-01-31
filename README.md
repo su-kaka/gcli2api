@@ -363,11 +363,11 @@ ghcr.io/su-kaka/gcli2api:latest
 - 下半部分：Antigravity 凭证批量上传（绿色主题）
 - 各自独立的凭证管理标签页
 
-## 💾 数据存储模式
+### 💾 数据存储模式
 
 ### 🌟 存储后端支持
 
-gcli2api 支持两种存储后端：**本地 SQLite（默认）** 和 **MongoDB（云端分布式存储）**
+gcli2api 支持三种存储后端：**本地 SQLite（默认）**、**MongoDB（云端分布式存储）** 和 **MySQL（关系型数据库）**
 
 ### 📁 本地 SQLite 存储（默认）
 
@@ -473,7 +473,103 @@ export MONGODB_URI="mongodb://host1:27017,host2:27017,host3:27017/gcli2api?repli
 export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryPreferred"
 ```
 
-## 🏗️ 技术架构
+### 🐬 MySQL 关系型存储模式
+
+**企业级关系数据库方案**
+
+当需要企业级数据库支持、事务处理或与现有MySQL基础设施集成时，可以启用MySQL存储模式。
+
+### ⚙️ 启用 MySQL 模式
+
+**步骤 1: 配置 MySQL 连接**
+```bash
+# 使用标准 DSN 格式
+export MYSQL_DSN="mysql://username:password@hostname:port/database"
+
+# 示例：本地 MySQL
+export MYSQL_DSN="mysql://root:mypassword@localhost:3306/gcli2api"
+
+# 示例：云数据库
+export MYSQL_DSN="mysql://user:pass@mysql.example.com:3306/gcli2api"
+
+# 简化示例（使用默认值）
+export MYSQL_DSN="mysql://root@localhost/gcli2api"
+```
+
+**DSN 格式说明**
+- `mysql://`: 协议标识
+- `username:password`: 数据库用户名和密码
+- `hostname:port`: 数据库主机和端口
+- `database`: 数据库名称
+
+**步骤 2: 创建数据库**
+```sql
+CREATE DATABASE gcli2api CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**步骤 3: 启动应用**
+```bash
+# 应用会自动检测 MySQL DSN 配置并使用 MySQL 存储
+python web.py
+```
+
+**Docker 环境使用 MySQL**
+```bash
+# 单机 MySQL 部署
+docker run -d --name gcli2api \
+  -e MYSQL_DSN="mysql://root:mypassword@mysql:3306/gcli2api" \
+  -e API_PASSWORD=your_password \
+  --network your_network \
+  ghcr.io/su-kaka/gcli2api:latest
+
+# 使用云 MySQL 服务
+docker run -d --name gcli2api \
+  -e MYSQL_DSN="mysql://user:pass@mysql.cloudprovider.com:3306/gcli2api" \
+  -e API_PASSWORD=your_password \
+  -p 7861:7861 \
+  ghcr.io/su-kaka/gcli2api:latest
+```
+
+**Docker Compose 示例（MySQL + gcli2api）**
+```yaml
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: gcli2api-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: password123
+      MYSQL_DATABASE: gcli2api
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  gcli2api:
+    image: ghcr.io/su-kaka/gcli2api:latest
+    container_name: gcli2api
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    environment:
+      - MYSQL_DSN=mysql://root:password123@mysql:3306/gcli2api
+      - API_PASSWORD=your_api_password
+      - PORT=7861
+    ports:
+      - "7861:7861"
+
+volumes:
+  mysql_data:
+```
+
+
+
+
+---
+
+## ️ 技术架构
 
 ### 核心模块说明
 
@@ -565,27 +661,29 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `LOG_FILE`: 日志文件路径（默认：gcli2api.log）
 
 **存储配置**
-
-**SQLite 配置（默认）**
-- 无需配置，自动使用本地 SQLite 数据库
-- 数据库文件自动创建在项目目录
-
-**MongoDB 配置（可选云端存储）**
-- `MONGODB_URI`: MongoDB 连接字符串（设置后启用 MongoDB 模式）
-- `MONGODB_DATABASE`: MongoDB 数据库名称（默认：gcli2api）
+- `MYSQL_DSN`: MySQL 连接字符串（启用 MySQL 存储模式）
+- `MONGODB_URI`: MongoDB 连接字符串（启用 MongoDB 存储模式）
+- 默认使用 SQLite 存储（无需配置）
 
 **Docker 使用示例**
 ```bash
-# 使用通用密码
+# 使用通用密码和默认存储
 docker run -d --name gcli2api \
   -e PASSWORD=mypassword \
   -e PORT=7861 \
   ghcr.io/su-kaka/gcli2api:latest
 
-# 使用分离密码
+# 使用 MySQL 存储
 docker run -d --name gcli2api \
-  -e API_PASSWORD=my_api_password \
-  -e PANEL_PASSWORD=my_panel_password \
+  -e MYSQL_DSN="mysql://root:mypassword@mysql:3306/gcli2api" \
+  -e PASSWORD=mypassword \
+  -e PORT=7861 \
+  ghcr.io/su-kaka/gcli2api:latest
+
+# 使用 MongoDB 存储
+docker run -d --name gcli2api \
+  -e MONGODB_URI="mongodb://admin:password@mongodb:27017/gcli2api" \
+  -e PASSWORD=mypassword \
   -e PORT=7861 \
   ghcr.io/su-kaka/gcli2api:latest
 ```
