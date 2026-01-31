@@ -1,4 +1,4 @@
-full_hash=f137fd5ca2ff25aeb75f351cf53ab8c4683d078d
-short_hash=f137fd5
-message=feat: 新增会员等级显示功能
-date=2026-01-31 23:05:11 +0800
+full_hash=2b7c8a5d53b53191d1ada2734bac9326888e43a3
+short_hash=2b7c8a5
+message=fix: MongoDB凭证选择改为等级内随机
+date=2026-01-31 23:17:41 +0800
