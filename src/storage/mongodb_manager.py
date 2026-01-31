@@ -228,13 +228,32 @@ class MongoDBManager:
                     {"$match": {"is_available": True}},
                 ])
 
-            # 第五步: 按等级优先级排序，然后随机
+            # 第五步: 按等级分组，每组内随机抽取
+            # 先按等级排序，获取最高优先级的等级值
             pipeline.append({"$sort": {"tier_priority": 1}})
 
-            # 第六步: 取第一个（最高优先级）
-            pipeline.append({"$limit": 1})
+            # 第六步: 分组获取最高优先级值
+            pipeline.append({
+                "$group": {
+                    "_id": None,
+                    "min_priority": {"$first": "$tier_priority"},
+                    "all_docs": {"$push": "$$ROOT"}
+                }
+            })
 
-            # 第七步: 只投影需要的字段
+            # 第七步: 展开并筛选出最高优先级的凭证
+            pipeline.append({"$unwind": "$all_docs"})
+            pipeline.append({
+                "$match": {
+                    "$expr": {"$eq": ["$all_docs.tier_priority", "$min_priority"]}
+                }
+            })
+            pipeline.append({"$replaceRoot": {"newRoot": "$all_docs"}})
+
+            # 第八步: 从同等级凭证中随机取一个
+            pipeline.append({"$sample": {"size": 1}})
+
+            # 第九步: 只投影需要的字段
             pipeline.append({
                 "$project": {
                     "filename": 1,
