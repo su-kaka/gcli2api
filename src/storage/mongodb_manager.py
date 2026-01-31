@@ -180,6 +180,30 @@ class MongoDBManager:
             pipeline = [
                 # 第一步: 筛选未禁用的凭证
                 {"$match": {"disabled": False}},
+                # 第二步: 添加等级优先级字段（ULTRA=1, PRO=2, FREE=3, NULL=4）
+                {
+                    "$addFields": {
+                        "tier_priority": {
+                            "$switch": {
+                                "branches": [
+                                    {
+                                        "case": {"$regexMatch": {"input": {"$toUpper": {"$ifNull": ["$subscription_tier", ""]}}, "regex": "ULTRA"}},
+                                        "then": 1
+                                    },
+                                    {
+                                        "case": {"$regexMatch": {"input": {"$toUpper": {"$ifNull": ["$subscription_tier", ""]}}, "regex": "PRO"}},
+                                        "then": 2
+                                    },
+                                    {
+                                        "case": {"$ne": [{"$ifNull": ["$subscription_tier", None]}, None]},
+                                        "then": 3
+                                    }
+                                ],
+                                "default": 4
+                            }
+                        }
+                    }
+                },
             ]
 
             # 如果提供了 model_key，添加冷却检查
@@ -187,7 +211,7 @@ class MongoDBManager:
                 # 转义模型键中的点号
                 escaped_model_key = self._escape_model_key(model_key)
                 pipeline.extend([
-                    # 第二步: 添加冷却状态字段
+                    # 第三步: 添加冷却状态字段
                     {
                         "$addFields": {
                             "is_available": {
@@ -200,14 +224,17 @@ class MongoDBManager:
                             }
                         }
                     },
-                    # 第三步: 只保留可用的凭证
+                    # 第四步: 只保留可用的凭证
                     {"$match": {"is_available": True}},
                 ])
 
-            # 第四步: 随机抽取一个
-            pipeline.append({"$sample": {"size": 1}})
+            # 第五步: 按等级优先级排序，然后随机
+            pipeline.append({"$sort": {"tier_priority": 1}})
 
-            # 第五步: 只投影需要的字段
+            # 第六步: 取第一个（最高优先级）
+            pipeline.append({"$limit": 1})
+
+            # 第七步: 只投影需要的字段
             pipeline.append({
                 "$project": {
                     "filename": 1,
@@ -719,6 +746,7 @@ class MongoDBManager:
                     global_stats["normal"] = count
 
             # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
+            # 按会员等级排序：ULTRA > PRO > FREE > NULL
             cursor = collection.find(
                 query,
                 projection={
@@ -729,6 +757,7 @@ class MongoDBManager:
                     "user_email": 1,
                     "rotation_order": 1,
                     "model_cooldowns": 1,
+                    "subscription_tier": 1,
                     "_id": 0
                 }
             ).sort("rotation_order", 1)
@@ -755,6 +784,7 @@ class MongoDBManager:
                     "user_email": doc.get("user_email"),
                     "rotation_order": doc.get("rotation_order", 0),
                     "model_cooldowns": active_cooldowns,
+                    "subscription_tier": doc.get("subscription_tier"),
                 }
 
                 # 应用冷却筛选

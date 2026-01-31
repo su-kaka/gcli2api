@@ -371,6 +371,58 @@ async def get_user_email(credentials: Credentials) -> Optional[str]:
         return None
 
 
+# Cloud Code API 基础 URL
+CLOUD_CODE_BASE_URL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+
+
+async def get_subscription_tier(credentials: Credentials) -> Optional[str]:
+    """
+    获取用户的会员等级（FREE/PRO/ULTRA）
+
+    调用 Google Cloud Code API 的 loadCodeAssist 接口获取订阅信息
+    """
+    try:
+        # 确保凭证有效
+        await credentials.refresh_if_needed()
+
+        headers = {
+            "Authorization": f"Bearer {credentials.access_token}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {"metadata": {"ideType": "ANTIGRAVITY"}}
+
+        url = f"{CLOUD_CODE_BASE_URL}/v1internal:loadCodeAssist"
+
+        response = await post_async(url, headers=headers, json=payload)
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # 优先使用 paidTier，其次使用 currentTier
+            paid_tier = data.get("paidTier", {})
+            current_tier = data.get("currentTier", {})
+
+            tier_id = paid_tier.get("id") or current_tier.get("id")
+
+            if tier_id:
+                log.info(f"成功获取会员等级: {tier_id}")
+                return tier_id
+            else:
+                log.warning("响应中没有等级信息，默认为 FREE")
+                return "FREE"
+        elif response.status_code == 403:
+            log.warning("获取会员等级失败: 403 Forbidden")
+            return None
+        else:
+            log.warning(f"获取会员等级失败: HTTP {response.status_code}")
+            return None
+
+    except Exception as e:
+        log.error(f"获取会员等级失败: {e}")
+        return None
+
+
 async def fetch_user_email_from_file(cred_data: Dict[str, Any]) -> Optional[str]:
     """从凭证数据获取用户邮箱地址（支持统一存储）"""
     try:

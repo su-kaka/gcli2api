@@ -259,6 +259,7 @@ async def get_creds_status_common(
                 "last_success": summary["last_success"],
                 "backend_type": backend_type,
                 "model_cooldowns": summary.get("model_cooldowns", {}),
+                "subscription_tier": summary.get("subscription_tier"),
             }
 
             creds_list.append(cred_info)
@@ -365,7 +366,7 @@ async def download_all_creds_common(mode: str = "geminicli") -> Response:
 
 
 async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSONResponse:
-    """获取指定凭证文件用户邮箱的通用函数"""
+    """获取指定凭证文件用户邮箱的通用函数（同时获取会员等级）"""
     mode = validate_mode(mode)
 
     filename_only = os.path.basename(filename)
@@ -379,11 +380,16 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
 
     email = await credential_manager.get_or_fetch_user_email(filename_only, mode=mode)
 
+    # 获取更新后的状态（包含等级信息）
+    state = await storage_adapter.get_credential_state(filename_only, mode=mode)
+    subscription_tier = state.get("subscription_tier") if state else None
+
     if email:
         return JSONResponse(
             content={
                 "filename": filename_only,
                 "user_email": email,
+                "subscription_tier": subscription_tier,
                 "message": "成功获取用户邮箱",
             }
         )
@@ -392,6 +398,7 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
             content={
                 "filename": filename_only,
                 "user_email": None,
+                "subscription_tier": None,
                 "message": "无法获取用户邮箱，可能凭证已过期或权限不足",
             },
             status_code=400,

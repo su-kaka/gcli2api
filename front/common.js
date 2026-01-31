@@ -120,6 +120,7 @@ function createCredsManager(type) {
                                 last_success: item.last_success,
                             },
                             user_email: item.user_email,
+                            subscription_tier: item.subscription_tier,
                             model_cooldowns: item.model_cooldowns || {}
                         };
                     });
@@ -620,9 +621,23 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
 
-    // 邮箱信息
+    // 生成会员等级徽章（渐变药丸风格）
+    function getTierBadge(tier) {
+        if (!tier) return '';
+        const tierLower = tier.toLowerCase();
+        if (tierLower.includes('ultra')) {
+            return '<span class="tier-badge tier-ultra">Ultra</span>';
+        } else if (tierLower.includes('pro')) {
+            return '<span class="tier-badge tier-pro">Pro</span>';
+        } else {
+            return '<span class="tier-badge tier-free">Free</span>';
+        }
+    }
+
+    // 邮箱信息（带等级徽章）
+    const tierBadge = getTierBadge(credInfo.subscription_tier);
     const emailInfo = credInfo.user_email
-        ? `<div class="cred-email" style="font-size: 12px; color: #666; margin-top: 2px;">${credInfo.user_email}</div>`
+        ? `<div class="cred-email" style="font-size: 12px; color: #666; margin-top: 2px;">${credInfo.user_email}${tierBadge}</div>`
         : '<div class="cred-email" style="font-size: 12px; color: #999; margin-top: 2px; font-style: italic;">未获取邮箱</div>';
 
     const checkboxClass = manager.getElementId('file-checkbox');
@@ -1425,8 +1440,21 @@ function clearAntigravityFiles() { AppState.antigravityUploadFiles.clearFiles();
 function uploadAntigravityFiles() { AppState.antigravityUploadFiles.upload(); }
 
 // 邮箱相关
-// 辅助函数：根据文件名更新卡片中的邮箱显示
-function updateEmailDisplay(filename, email, managerType = 'normal') {
+// 生成会员等级徽章的全局函数
+function generateTierBadge(tier) {
+    if (!tier) return '';
+    const tierLower = tier.toLowerCase();
+    if (tierLower.includes('ultra')) {
+        return '<span class="tier-badge tier-ultra">[ULTRA]</span>';
+    } else if (tierLower.includes('pro')) {
+        return '<span class="tier-badge tier-pro">[PRO]</span>';
+    } else {
+        return '<span class="tier-badge tier-free">[FREE]</span>';
+    }
+}
+
+// 辅助函数：根据文件名更新卡片中的邮箱显示（支持等级徽章）
+function updateEmailDisplay(filename, email, managerType = 'normal', tier = null) {
     // 查找对应的凭证卡片
     const containerId = managerType === 'antigravity' ? 'antigravityCredsList' : 'credsList';
     const container = document.getElementById(containerId);
@@ -1443,7 +1471,8 @@ function updateEmailDisplay(filename, email, managerType = 'normal') {
     // 找到邮箱显示元素
     const emailDiv = card.querySelector('.cred-email');
     if (emailDiv) {
-        emailDiv.textContent = email;
+        const tierBadge = generateTierBadge(tier);
+        emailDiv.innerHTML = email + tierBadge;
         emailDiv.style.color = '#666';
         emailDiv.style.fontStyle = 'normal';
         return true;
@@ -1453,16 +1482,17 @@ function updateEmailDisplay(filename, email, managerType = 'normal') {
 
 async function fetchUserEmail(filename) {
     try {
-        showStatus('正在获取用户邮箱...', 'info');
+        showStatus('正在获取用户邮箱和会员等级...', 'info');
         const response = await fetch(`./creds/fetch-email/${encodeURIComponent(filename)}`, {
             method: 'POST',
             headers: getAuthHeaders()
         });
         const data = await response.json();
         if (response.ok && data.user_email) {
-            showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
-            // 直接更新卡片中的邮箱显示，不刷新整个列表
-            updateEmailDisplay(filename, data.user_email, 'normal');
+            const tierInfo = data.subscription_tier ? ` [${data.subscription_tier}]` : '';
+            showStatus(`成功获取邮箱: ${data.user_email}${tierInfo}`, 'success');
+            // 直接更新卡片中的邮箱显示（包含等级徽章），不刷新整个列表
+            updateEmailDisplay(filename, data.user_email, 'normal', data.subscription_tier);
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }
@@ -1473,16 +1503,17 @@ async function fetchUserEmail(filename) {
 
 async function fetchAntigravityUserEmail(filename) {
     try {
-        showStatus('正在获取用户邮箱...', 'info');
+        showStatus('正在获取用户邮箱和会员等级...', 'info');
         const response = await fetch(`./creds/fetch-email/${encodeURIComponent(filename)}?mode=antigravity`, {
             method: 'POST',
             headers: getAuthHeaders()
         });
         const data = await response.json();
         if (response.ok && data.user_email) {
-            showStatus(`成功获取邮箱: ${data.user_email}`, 'success');
-            // 直接更新卡片中的邮箱显示，不刷新整个列表
-            updateEmailDisplay(filename, data.user_email, 'antigravity');
+            const tierInfo = data.subscription_tier ? ` [${data.subscription_tier}]` : '';
+            showStatus(`成功获取邮箱: ${data.user_email}${tierInfo}`, 'success');
+            // 直接更新卡片中的邮箱显示（包含等级徽章），不刷新整个列表
+            updateEmailDisplay(filename, data.user_email, 'antigravity', data.subscription_tier);
         } else {
             showStatus(data.message || '无法获取用户邮箱', 'error');
         }

@@ -24,6 +24,7 @@ class SQLiteManager:
         "last_success",
         "user_email",
         "model_cooldowns",
+        "subscription_tier",
     }
 
     # 所有必需的列定义（用于自动校验和修复）
@@ -38,7 +39,8 @@ class SQLiteManager:
             ("rotation_order", "INTEGER DEFAULT 0"),
             ("call_count", "INTEGER DEFAULT 0"),
             ("created_at", "REAL DEFAULT (unixepoch())"),
-            ("updated_at", "REAL DEFAULT (unixepoch())")
+            ("updated_at", "REAL DEFAULT (unixepoch())"),
+            ("subscription_tier", "TEXT")
         ],
         "antigravity_credentials": [
             ("disabled", "INTEGER DEFAULT 0"),
@@ -50,7 +52,8 @@ class SQLiteManager:
             ("rotation_order", "INTEGER DEFAULT 0"),
             ("call_count", "INTEGER DEFAULT 0"),
             ("created_at", "REAL DEFAULT (unixepoch())"),
-            ("updated_at", "REAL DEFAULT (unixepoch())")
+            ("updated_at", "REAL DEFAULT (unixepoch())"),
+            ("subscription_tier", "TEXT")
         ]
     }
 
@@ -276,10 +279,10 @@ class SQLiteManager:
         self, mode: str = "geminicli", model_key: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
-        随机获取一个可用凭证（负载均衡）
+        获取一个可用凭证（优先高等级）
         - 未禁用
         - 如果提供了 model_key，还会检查模型级冷却
-        - 随机选择
+        - 按会员等级排序：ULTRA > PRO > FREE > 无等级
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
@@ -296,25 +299,33 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                # 获取所有候选凭证（未禁用）
+                # 获取所有候选凭证（未禁用），按等级排序：ULTRA > PRO > FREE > NULL
+                # 使用 CASE 表达式为等级分配优先级数值
                 async with db.execute(f"""
-                    SELECT filename, credential_data, model_cooldowns
+                    SELECT filename, credential_data, model_cooldowns, subscription_tier
                     FROM {table_name}
                     WHERE disabled = 0
-                    ORDER BY RANDOM()
+                    ORDER BY
+                        CASE
+                            WHEN UPPER(subscription_tier) LIKE '%ULTRA%' THEN 1
+                            WHEN UPPER(subscription_tier) LIKE '%PRO%' THEN 2
+                            WHEN subscription_tier IS NOT NULL THEN 3
+                            ELSE 4
+                        END,
+                        RANDOM()
                 """) as cursor:
                     rows = await cursor.fetchall()
 
                     # 如果没有提供 model_key，使用第一个可用凭证
                     if not model_key:
                         if rows:
-                            filename, credential_json, _ = rows[0]
+                            filename, credential_json, _, _ = rows[0]
                             credential_data = json.loads(credential_json)
                             return filename, credential_data
                         return None
 
                     # 如果提供了 model_key，检查模型级冷却
-                    for filename, credential_json, model_cooldowns_json in rows:
+                    for filename, credential_json, model_cooldowns_json, _ in rows:
                         model_cooldowns = json.loads(model_cooldowns_json or '{}')
 
                         # 检查该模型是否在冷却中
@@ -718,12 +729,20 @@ class SQLiteManager:
                     where_clause = "WHERE " + " AND ".join(where_clauses)
 
                 # 先获取所有数据（用于冷却筛选，因为需要在Python中判断）
+                # 按会员等级排序：ULTRA > PRO > FREE > NULL
                 all_query = f"""
                     SELECT filename, disabled, error_codes, last_success,
-                           user_email, rotation_order, model_cooldowns
+                           user_email, rotation_order, model_cooldowns, subscription_tier
                     FROM {table_name}
                     {where_clause}
-                    ORDER BY rotation_order
+                    ORDER BY
+                        CASE
+                            WHEN UPPER(subscription_tier) LIKE '%ULTRA%' THEN 1
+                            WHEN UPPER(subscription_tier) LIKE '%PRO%' THEN 2
+                            WHEN subscription_tier IS NOT NULL THEN 3
+                            ELSE 4
+                        END,
+                        rotation_order
                 """
 
                 async with db.execute(all_query, count_params) as cursor:
@@ -736,6 +755,7 @@ class SQLiteManager:
                         filename = row[0]
                         error_codes_json = row[2] or '[]'
                         model_cooldowns_json = row[6] or '{}'
+                        subscription_tier = row[7]
                         model_cooldowns = json.loads(model_cooldowns_json)
 
                         # 自动过滤掉已过期的模型CD
@@ -771,6 +791,7 @@ class SQLiteManager:
                             "user_email": row[4],
                             "rotation_order": row[5],
                             "model_cooldowns": active_cooldowns,
+                            "subscription_tier": subscription_tier,
                         }
 
                         # 应用冷却筛选
