@@ -1204,42 +1204,40 @@ async def test_credential(
         # 根据模式构造测试请求
         from src.httpx_client import post_async
 
+        # 获取 project_id
+        project_id = credential_data.get("project_id", "")
+        if not project_id:
+            raise HTTPException(status_code=400, detail="凭证中没有项目ID")
+
+        # 根据模式选择 API 端点和请求头（统一使用 gemini-2.5-flash 进行测试）
+        test_model = "gemini-2.5-flash"
+
         if mode == "antigravity":
-            # 测试 Antigravity API - 使用 fetchAvailableModels
             api_base_url = await get_antigravity_api_url()
             from src.api.antigravity import build_antigravity_headers
-
-            response = await post_async(
-                url=f"{api_base_url}/v1internal:fetchAvailableModels",
-                json={},
-                headers=build_antigravity_headers(access_token),
-                timeout=30.0
-            )
+            headers = build_antigravity_headers(access_token, test_model)
         else:
-            # 测试 GeminiCli API - 使用最小的 generateContent 请求
             api_base_url = await get_code_assist_endpoint()
-            project_id = credential_data.get("project_id", "")
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "User-Agent": GEMINICLI_USER_AGENT,
+            }
 
-            if not project_id:
-                raise HTTPException(status_code=400, detail="凭证中没有项目ID")
-
-            response = await post_async(
-                url=f"{api_base_url}/v1internal:generateContent",
-                json={
-                    "model": "gemini-2.5-flash",  # 使用一个常见的模型进行测试
-                    "project": project_id,
-                    "request": {
-                        "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
-                        "generationConfig": {"maxOutputTokens": 1}
-                    }
-                },
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                    "User-Agent": GEMINICLI_USER_AGENT,
-                },
-                timeout=30.0
-            )
+        # 两种模式都使用相同的 generateContent 请求结构
+        response = await post_async(
+            url=f"{api_base_url}/v1internal:generateContent",
+            json={
+                "model": test_model,
+                "project": project_id,
+                "request": {
+                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                    "generationConfig": {"maxOutputTokens": 1}
+                }
+            },
+            headers=headers,
+            timeout=30.0
+        )
 
         # 返回实际的状态码
         status_code = response.status_code
@@ -1254,24 +1252,16 @@ async def test_credential(
                 }, mode=mode)
         else:
             log.warning(f"凭证测试失败: {filename} (mode={mode}, status={status_code})")
-            # 测试失败时保存错误码和错误消息
+            # 测试失败时保存错误码和错误消息（覆盖模式，只保存最新的一个错误）
             try:
                 error_text = response.text if hasattr(response, 'text') else ""
 
                 # 打印详细错误内容到日志
                 log.error(f"凭证测试错误详情 - 文件: {filename}, 模式: {mode}, 状态码: {status_code}, 错误内容: {error_text}")
 
-                # 获取当前状态
-                current_state = await storage_adapter.get_credential_state(filename, mode=mode) or {}
-                error_codes = current_state.get("error_codes", [])
-                error_messages = current_state.get("error_messages", {})
-
-                # 更新错误码列表（避免重复）
-                if status_code not in error_codes:
-                    error_codes.append(status_code)
-
-                # 保存错误消息
-                error_messages[str(status_code)] = error_text if error_text else f"HTTP {status_code}"
+                # 使用覆盖模式保存错误（与 credential_manager 保持一致）
+                error_codes = [status_code]
+                error_messages = {str(status_code): error_text if error_text else f"HTTP {status_code}"}
 
                 # 更新状态
                 await storage_adapter.update_credential_state(filename, {
