@@ -99,18 +99,7 @@ class StorageAdapter:
                     self._backend = MySQLManager()
                     await self._backend.initialize()
                     
-                    # 安全显示DSN（隐藏密码）
-                    safe_dsn = mysql_dsn
-                    if "@" in mysql_dsn:
-                        parts = mysql_dsn.split("@")
-                        if ":" in parts[0] and "//" in parts[0]:
-                            protocol_part = parts[0].split("//")[0] + "//"
-                            credentials_part = parts[0].split("//")[1]
-                            if ":" in credentials_part:
-                                user_part = credentials_part.split(":")[0]
-                                safe_dsn = f"{protocol_part}{user_part}:****@{parts[1]}"
-                    
-                    log.info(f"Using MySQL storage backend (DSN: {safe_dsn})")
+                    log.info(f"Using MySQL storage backend")
                     
                 except Exception as e:
                     log.error(f"Failed to initialize MySQL backend: {e}")
