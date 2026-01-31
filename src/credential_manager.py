@@ -302,14 +302,10 @@ class CredentialManager:
                 # 记录错误码和错误信息（覆盖模式）
                 error_codes = [error_code]
 
-                # 保存错误信息
-                error_messages = []
+                # 保存错误信息（使用字典覆盖模式，与 panel/creds.py 保持一致）
+                error_messages = {}
                 if error_message:
-                    error_messages = [{
-                        "code": error_code,
-                        "message": error_message,
-                        "timestamp": time.time()
-                    }]
+                    error_messages[str(error_code)] = error_message
 
                 state_updates["error_codes"] = error_codes
                 state_updates["error_messages"] = error_messages

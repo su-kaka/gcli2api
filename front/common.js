@@ -1778,7 +1778,7 @@ async function toggleErrorDetailsCommon(pathId, manager) {
 
                 if (response.ok) {
                     const errorCodes = data.error_codes || [];
-                    const errorMessagesArray = data.error_messages || [];
+                    const errorMessages = data.error_messages || {};
 
                     if (errorCodes.length === 0) {
                         contentDiv.innerHTML = `
@@ -1791,13 +1791,15 @@ async function toggleErrorDetailsCommon(pathId, manager) {
                     } else {
                         let errorHTML = '';
 
-                        // 遍历所有错误消息
-                        errorMessagesArray.forEach((msgObj) => {
+                        // 遍历所有错误码，从 errorMessages 对象中获取对应消息
+                        errorCodes.forEach((errorCode) => {
+                            const messageStr = errorMessages[errorCode] || '无详细信息';
+
                             // 提取核心错误消息
-                            let displayMsg = msgObj.message;
+                            let displayMsg = messageStr;
                             try {
                                 // 尝试解析 JSON 格式的 message
-                                const parsedMsg = JSON.parse(msgObj.message);
+                                const parsedMsg = JSON.parse(messageStr);
                                 if (parsedMsg.error && parsedMsg.error.message) {
                                     // 只显示 error.message 中的核心错误信息
                                     displayMsg = parsedMsg.error.message;
@@ -1810,8 +1812,11 @@ async function toggleErrorDetailsCommon(pathId, manager) {
                             const highlightedMsg = highlightHttpLinks(escapeHtml(displayMsg));
 
                             errorHTML += `
-                                <div style="padding: 12px; margin-bottom: 10px; line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word;">
-                                    ${highlightedMsg}
+                                <div style="padding: 12px; margin-bottom: 10px; border-left: 3px solid #dc3545; background-color: #f8f9fa;">
+                                    <div style="font-weight: bold; color: #dc3545; margin-bottom: 8px;">错误码: ${errorCode}</div>
+                                    <div style="line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word;">
+                                        ${highlightedMsg}
+                                    </div>
                                 </div>
                             `;
                         });
