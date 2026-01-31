@@ -1798,6 +1798,50 @@ async def verify_credential_project(
         raise HTTPException(status_code=500, detail=f"检验失败: {str(e)}")
 
 
+@router.get("/creds/errors/{filename}")
+async def get_credential_errors(
+    filename: str,
+    token: str = Depends(verify_panel_token),
+    mode: str = "geminicli"
+):
+    """
+    获取指定凭证的错误信息（包含 error_codes 和 error_messages）
+
+    Args:
+        filename: 凭证文件名
+        mode: 凭证模式（geminicli 或 antigravity）
+
+    Returns:
+        包含 error_codes 和 error_messages 的 JSON 响应
+    """
+    try:
+        mode = validate_mode(mode)
+
+        # 验证文件名
+        if not filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="无效的文件名")
+
+        storage_adapter = await get_storage_adapter()
+
+        # 检查后端是否支持 get_credential_errors 方法
+        if not hasattr(storage_adapter._backend, 'get_credential_errors'):
+            raise HTTPException(
+                status_code=501,
+                detail="当前存储后端不支持获取错误信息"
+            )
+
+        # 获取错误信息
+        error_info = await storage_adapter._backend.get_credential_errors(filename, mode=mode)
+
+        return JSONResponse(content=error_info)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"获取凭证错误信息失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/creds/quota/{filename}")
 async def get_credential_quota(
     filename: str,

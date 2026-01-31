@@ -145,7 +145,7 @@ class CredentialManager:
                 log.warning(f"Failed to update credential state: {credential_name} (mode={mode})")
             return success
         except Exception as e:
-            log.error(f"Error updating credential state {credential_name}: {e}", exc_info=True)
+            log.error(f"Error updating credential state {credential_name}: {e}")
             return False
 
     async def set_cred_disabled(self, credential_name: str, disabled: bool, mode: str = "geminicli"):
@@ -266,7 +266,8 @@ class CredentialManager:
         error_code: Optional[int] = None,
         cooldown_until: Optional[float] = None,
         mode: str = "geminicli",
-        model_key: Optional[str] = None
+        model_key: Optional[str] = None,
+        error_message: Optional[str] = None
     ):
         """
         记录API调用结果
@@ -278,6 +279,7 @@ class CredentialManager:
             cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
             mode: 凭证模式 ("geminicli" 或 "antigravity")
             model_key: 模型键（用于设置模型级冷却）
+            error_message: 错误信息（如果失败）
         """
         await self._ensure_initialized()
         try:
@@ -285,8 +287,9 @@ class CredentialManager:
 
             if success:
                 state_updates["last_success"] = time.time()
-                # 清除错误码
+                # 清除错误码和错误信息
                 state_updates["error_codes"] = []
+                state_updates["error_messages"] = []
 
                 # 如果提供了 model_key，清除该模型的冷却
                 if model_key:
@@ -296,17 +299,20 @@ class CredentialManager:
                         )
 
             elif error_code:
-                # 记录错误码
-                current_state = await self._storage_adapter.get_credential_state(credential_name, mode=mode)
-                error_codes = current_state.get("error_codes", [])
+                # 记录错误码和错误信息（覆盖模式）
+                error_codes = [error_code]
 
-                if error_code not in error_codes:
-                    error_codes.append(error_code)
-                    # 限制错误码列表长度
-                    if len(error_codes) > 10:
-                        error_codes = error_codes[-10:]
+                # 保存错误信息
+                error_messages = []
+                if error_message:
+                    error_messages = [{
+                        "code": error_code,
+                        "message": error_message,
+                        "timestamp": time.time()
+                    }]
 
                 state_updates["error_codes"] = error_codes
+                state_updates["error_messages"] = error_messages
 
                 # 如果提供了冷却时间和模型键，设置模型级冷却
                 if cooldown_until is not None and model_key:

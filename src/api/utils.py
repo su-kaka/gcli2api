@@ -169,11 +169,12 @@ async def record_api_call_error(
     status_code: int,
     cooldown_until: Optional[float] = None,
     mode: str = "geminicli",
-    model_key: Optional[str] = None
+    model_key: Optional[str] = None,
+    error_message: Optional[str] = None
 ) -> None:
     """
     记录API调用错误
-    
+
     Args:
         credential_manager: 凭证管理器实例
         credential_name: 凭证名称
@@ -181,6 +182,7 @@ async def record_api_call_error(
         cooldown_until: 冷却截止时间（Unix时间戳）
         mode: 模式（geminicli 或 antigravity）
         model_key: 模型键（用于模型级CD）
+        error_message: 错误信息（可选）
     """
     if credential_manager and credential_name:
         await credential_manager.record_api_call_result(
@@ -189,7 +191,8 @@ async def record_api_call_error(
             status_code,
             cooldown_until=cooldown_until,
             mode=mode,
-            model_key=model_key
+            model_key=model_key,
+            error_message=error_message
         )
 
 

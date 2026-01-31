@@ -615,6 +615,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
+        <button class="cred-btn" style="background-color: #e91e63;" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ErrorDetails('${pathId}')" title="查看该凭证的详细报错信息">查看报错</button>
         <button class="cred-btn delete" data-filename="${filename}" data-action="delete">删除</button>
     `;
 
@@ -639,6 +640,9 @@ function createCredCard(credInfo, manager) {
         <div class="cred-actions">${actionButtons}</div>
         <div class="cred-details" id="details-${pathId}">
             <div class="cred-content" data-filename="${filename}" data-loaded="false">点击"查看内容"按钮加载文件详情...</div>
+        </div>
+        <div class="cred-details" id="errors-${pathId}">
+            <div class="cred-content" data-filename="${filename}" data-loaded="false" style="background-color: #fff3cd; border-color: #ffc107;">点击"查看报错"按钮加载报错信息...</div>
         </div>
         ${managerType === 'antigravity' ? `
         <div class="cred-quota-details" id="quota-${pathId}" style="display: none;">
@@ -1669,6 +1673,128 @@ async function toggleAntigravityQuotaDetails(pathId) {
             }
         }
     }
+}
+
+// =====================================================================
+// 查看报错详情
+// =====================================================================
+async function toggleErrorDetails(pathId) {
+    await toggleErrorDetailsCommon(pathId, AppState.creds);
+}
+
+async function toggleAntigravityErrorDetails(pathId) {
+    await toggleErrorDetailsCommon(pathId, AppState.antigravityCreds);
+}
+
+async function toggleErrorDetailsCommon(pathId, manager) {
+    const errorDetails = document.getElementById('errors-' + pathId);
+    if (!errorDetails) return;
+
+    // 切换显示状态
+    const isShowing = errorDetails.classList.toggle('show');
+
+    if (isShowing) {
+        const contentDiv = errorDetails.querySelector('.cred-content');
+        const filename = contentDiv.getAttribute('data-filename');
+        const loaded = contentDiv.getAttribute('data-loaded');
+
+        // 如果还没加载过，则加载数据
+        if (loaded === 'false' && filename) {
+            contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">⏳ 正在加载报错信息...</div>';
+
+            try {
+                const modeParam = manager.type === 'antigravity' ? 'mode=antigravity' : 'mode=geminicli';
+                const response = await fetch(`./creds/errors/${encodeURIComponent(filename)}?${modeParam}`, {
+                    method: 'GET',
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    const errorCodes = data.error_codes || [];
+                    const errorMessagesArray = data.error_messages || [];
+
+                    if (errorCodes.length === 0) {
+                        contentDiv.innerHTML = `
+                            <div style="text-align: center; padding: 20px; color: #28a745;">
+                                <div style="font-size: 48px; margin-bottom: 10px;">✅</div>
+                                <div style="font-weight: bold;">无报错记录</div>
+                                <div style="font-size: 12px; color: #666; margin-top: 8px;">该凭证运行正常</div>
+                            </div>
+                        `;
+                    } else {
+                        let errorHTML = '';
+
+                        // 遍历所有错误消息
+                        errorMessagesArray.forEach((msgObj) => {
+                            // 提取核心错误消息
+                            let displayMsg = msgObj.message;
+                            try {
+                                // 尝试解析 JSON 格式的 message
+                                const parsedMsg = JSON.parse(msgObj.message);
+                                if (parsedMsg.error && parsedMsg.error.message) {
+                                    // 只显示 error.message 中的核心错误信息
+                                    displayMsg = parsedMsg.error.message;
+                                }
+                            } catch (e) {
+                                // 如果不是 JSON 格式，直接使用原始消息
+                            }
+
+                            // 对消息中的HTTP链接进行高亮处理
+                            const highlightedMsg = highlightHttpLinks(escapeHtml(displayMsg));
+
+                            errorHTML += `
+                                <div style="padding: 12px; margin-bottom: 10px; line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word;">
+                                    ${highlightedMsg}
+                                </div>
+                            `;
+                        });
+
+                        contentDiv.innerHTML = errorHTML;
+                    }
+
+                    contentDiv.setAttribute('data-loaded', 'true');
+                    showStatus('✅ 成功加载报错信息', 'success');
+                } else {
+                    // 失败时显示错误
+                    const errorMsg = data.detail || data.error || '获取报错信息失败';
+                    contentDiv.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #dc3545;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                            <div style="font-weight: bold;">加载失败</div>
+                            <div style="font-size: 12px; margin-top: 8px;">${errorMsg}</div>
+                        </div>
+                    `;
+                    showStatus(`❌ 获取报错信息失败: ${errorMsg}`, 'error');
+                }
+            } catch (error) {
+                contentDiv.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #dc3545;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                        <div style="font-weight: bold;">网络错误</div>
+                        <div style="font-size: 12px; margin-top: 8px;">${error.message}</div>
+                    </div>
+                `;
+                showStatus(`❌ 获取报错信息失败: ${error.message}`, 'error');
+            }
+        }
+    }
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 高亮HTTP链接函数
+function highlightHttpLinks(text) {
+    // 匹配 http:// 或 https:// 开头的URL
+    const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
+    return text.replace(urlRegex, function(url) {
+        return `<a href="${url}" target="_blank" style="color: #007bff; text-decoration: underline; word-break: break-all;" title="点击打开: ${url}">${url}</a>`;
+    });
 }
 
 async function batchVerifyProjectIds() {

@@ -18,6 +18,7 @@ class MongoDBManager:
     # 状态字段常量
     STATE_FIELDS = {
         "error_codes",
+        "error_messages",
         "disabled",
         "last_success",
         "user_email",
@@ -297,6 +298,7 @@ class MongoDBManager:
                         "credential_data": credential_data,
                         "disabled": False,
                         "error_codes": [],
+                        "error_messages": [],
                         "last_success": current_ts,
                         "user_email": None,
                         "model_cooldowns": {},
@@ -535,7 +537,7 @@ class MongoDBManager:
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        """获取凭证状态，支持basename匹配以兼容旧数据"""
+        """获取凭证状态，支持basename匹配以兼容旧数据（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
@@ -600,14 +602,14 @@ class MongoDBManager:
             return {}
 
     async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
-        """获取所有凭证状态"""
+        """获取所有凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 使用投影只获取需要的字段
+            # 使用投影只获取需要的字段（不包含error_messages）
             cursor = collection.find(
                 {},
                 projection={
@@ -847,6 +849,66 @@ class MongoDBManager:
         except Exception as e:
             log.error(f"Error deleting config {key}: {e}")
             return False
+
+    async def get_credential_errors(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
+        """
+        专门获取凭证的错误信息（包含 error_codes 和 error_messages）
+
+        Args:
+            filename: 凭证文件名
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
+
+        Returns:
+            包含 error_codes 和 error_messages 的字典
+        """
+        self._ensure_initialized()
+
+        try:
+            collection_name = self._get_collection_name(mode)
+            collection = self._db[collection_name]
+
+            # 首先尝试精确匹配
+            doc = await collection.find_one(
+                {"filename": filename},
+                {"error_codes": 1, "error_messages": 1, "_id": 0}
+            )
+
+            if doc:
+                return {
+                    "filename": filename,
+                    "error_codes": doc.get("error_codes", []),
+                    "error_messages": doc.get("error_messages", []),
+                }
+
+            # 如果精确匹配失败，尝试basename匹配
+            regex_pattern = re.escape(filename)
+            doc = await collection.find_one(
+                {"filename": {"$regex": f".*{regex_pattern}$"}},
+                {"filename": 1, "error_codes": 1, "error_messages": 1, "_id": 0}
+            )
+
+            if doc:
+                return {
+                    "filename": doc.get("filename", filename),
+                    "error_codes": doc.get("error_codes", []),
+                    "error_messages": doc.get("error_messages", []),
+                }
+
+            # 凭证不存在，返回空错误信息
+            return {
+                "filename": filename,
+                "error_codes": [],
+                "error_messages": [],
+            }
+
+        except Exception as e:
+            log.error(f"Error getting credential errors {filename}: {e}")
+            return {
+                "filename": filename,
+                "error_codes": [],
+                "error_messages": [],
+                "error": str(e)
+            }
 
     # ============ 模型级冷却管理 ============
 

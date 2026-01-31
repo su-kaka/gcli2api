@@ -209,7 +209,8 @@ async def stream_request(
 
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            cooldown_until, mode="antigravity", model_key=model_name
+                            cooldown_until, mode="antigravity", model_key=model_name,
+                            error_message=error_body
                         )
 
                         # 检查是否应该重试
@@ -232,7 +233,8 @@ async def stream_request(
                         log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            None, mode="antigravity", model_key=model_name
+                            None, mode="antigravity", model_key=model_name,
+                            error_message=error_body
                         )
                         yield chunk
                         return
@@ -263,7 +265,8 @@ async def stream_request(
                 log.warning(f"[ANTIGRAVITY STREAM] 收到空回复，无任何内容，凭证: {current_file}")
                 await record_api_call_error(
                     credential_manager, current_file, 200,
-                    None, mode="antigravity", model_key=model_name
+                    None, mode="antigravity", model_key=model_name,
+                    error_message="Empty response from API"
                 )
                 
                 if attempt < max_retries:
@@ -448,7 +451,8 @@ async def non_stream_request(
                     # 记录错误
                     await record_api_call_error(
                         credential_manager, current_file, 200,
-                        None, mode="antigravity", model_key=model_name
+                        None, mode="antigravity", model_key=model_name,
+                        error_message="Empty response from API"
                     )
                     
                     if attempt < max_retries:
@@ -509,7 +513,8 @@ async def non_stream_request(
 
                     await record_api_call_error(
                         credential_manager, current_file, status_code,
-                        cooldown_until, mode="antigravity", model_key=model_name
+                        cooldown_until, mode="antigravity", model_key=model_name,
+                        error_message=error_text
                     )
 
                     # 检查是否应该重试
@@ -530,7 +535,8 @@ async def non_stream_request(
                     log.error(f"[ANTIGRAVITY] 非流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
                     await record_api_call_error(
                         credential_manager, current_file, status_code,
-                        None, mode="antigravity", model_key=model_name
+                        None, mode="antigravity", model_key=model_name,
+                        error_message=error_text
                     )
                     return last_error_response
             

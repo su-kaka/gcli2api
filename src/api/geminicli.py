@@ -219,7 +219,8 @@ async def stream_request(
 
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            cooldown_until, mode="geminicli", model_key=model_group
+                            cooldown_until, mode="geminicli", model_key=model_group,
+                            error_message=error_body
                         )
 
                         # 检查是否应该重试
@@ -242,7 +243,8 @@ async def stream_request(
                         log.error(f"[GEMINICLI STREAM] 流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            None, mode="geminicli", model_key=model_group
+                            None, mode="geminicli", model_key=model_group,
+                            error_message=error_body
                         )
                         yield chunk
                         return
@@ -444,65 +446,9 @@ async def non_stream_request(
             except Exception:
                 pass
 
-            # 如果错误码在禁用码当中，禁用该凭证
-            if status_code in DISABLE_ERROR_CODES:
-                log.error(f"非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
-
-                # 并行预热下一个凭证,不阻塞当前处理
-                if next_cred_task is None and attempt < max_retries:
-                    next_cred_task = asyncio.create_task(
-                        credential_manager.get_valid_credential(
-                            mode="geminicli", model_key=model_group
-                        )
-                    )
-
-                # 记录错误并禁用凭证
-                await record_api_call_error(
-                    credential_manager, current_file, status_code,
-                    None, mode="geminicli", model_key=model_group
-                )
-                # 尝试切换到新凭证并重试
-                if attempt < max_retries:
-                    log.info(f"[NON-STREAM] 切换凭证并重试 (attempt {attempt + 2}/{max_retries + 1})...")
-
-                    # 使用预热的凭证任务,避免等待
-                    if next_cred_task is not None:
-                        try:
-                            cred_result = await next_cred_task
-                            next_cred_task = None  # 重置任务
-
-                            if cred_result:
-                                current_file, credential_data = cred_result
-                                # 使用快速更新方式
-                                token = credential_data.get("token") or credential_data.get("access_token", "")
-                                project_id = credential_data.get("project_id", "")
-                                if token and project_id:
-                                    auth_headers["Authorization"] = f"Bearer {token}"
-                                    final_payload["project"] = project_id
-                                    await asyncio.sleep(retry_interval)
-                                    continue  # 重试
-                        except Exception as e:
-                            log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
-                            next_cred_task = None
-
-                    # 如果预热的凭证不可用,则同步获取
-                    await asyncio.sleep(retry_interval)
-
-                    if not await refresh_credential_fast():
-                        log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
-                        return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
-                            status_code=500,
-                            media_type="application/json"
-                        )
-                    continue  # 重试
-                else:
-                    # 达到最大重试次数
-                    log.error(f"[NON-STREAM] 达到最大重试次数，返回原始错误")
-                    return last_error_response
-            else:
-                # 错误码不在禁用码当中（如429等），做好记录后进行重试
-                log.warning(f"非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
+            # 统一处理所有需要重试的错误码（429、503、禁用码）
+            if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
+                log.warning(f"[NON-STREAM] 非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
 
                 # 并行预热下一个凭证,不阻塞当前处理
                 if next_cred_task is None and attempt < max_retries:
@@ -514,7 +460,7 @@ async def non_stream_request(
 
                 # 记录错误
                 cooldown_until = None
-                if status_code == 429 or status_code == 503 and error_text:
+                if (status_code == 429 or status_code == 503) and error_text:
                     # 使用已缓存的error_text解析冷却时间
                     try:
                         cooldown_until = await parse_and_log_cooldown(error_text, mode="geminicli")
@@ -523,10 +469,11 @@ async def non_stream_request(
 
                 await record_api_call_error(
                     credential_manager, current_file, status_code,
-                    cooldown_until, mode="geminicli", model_key=model_group
+                    cooldown_until, mode="geminicli", model_key=model_group,
+                    error_message=error_text
                 )
 
-                # 检查是否应该重试
+                # 检查是否应该重试（会自动处理禁用逻辑）
                 should_retry = await handle_error_with_retry(
                     credential_manager, status_code, current_file,
                     retry_config["retry_enabled"], attempt, max_retries, retry_interval,
@@ -572,6 +519,15 @@ async def non_stream_request(
                     # 不重试，直接返回原始错误
                     log.error(f"[NON-STREAM] 达到最大重试次数或不应重试，返回原始错误")
                     return last_error_response
+            else:
+                # 错误码不在重试范围内，直接返回
+                log.error(f"[NON-STREAM] 非流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
+                await record_api_call_error(
+                    credential_manager, current_file, status_code,
+                    None, mode="geminicli", model_key=model_group,
+                    error_message=error_text
+                )
+                return last_error_response
 
         except Exception as e:
             log.error(f"非流式请求异常: {e}, 凭证: {current_file}")

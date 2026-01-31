@@ -19,6 +19,7 @@ class SQLiteManager:
     # 状态字段常量
     STATE_FIELDS = {
         "error_codes",
+        "error_messages",
         "disabled",
         "last_success",
         "user_email",
@@ -30,6 +31,7 @@ class SQLiteManager:
         "credentials": [
             ("disabled", "INTEGER DEFAULT 0"),
             ("error_codes", "TEXT DEFAULT '[]'"),
+            ("error_messages", "TEXT DEFAULT '[]'"),
             ("last_success", "REAL"),
             ("user_email", "TEXT"),
             ("model_cooldowns", "TEXT DEFAULT '{}'"),
@@ -41,6 +43,7 @@ class SQLiteManager:
         "antigravity_credentials": [
             ("disabled", "INTEGER DEFAULT 0"),
             ("error_codes", "TEXT DEFAULT '[]'"),
+            ("error_messages", "TEXT DEFAULT '[]'"),
             ("last_success", "REAL"),
             ("user_email", "TEXT"),
             ("model_cooldowns", "TEXT DEFAULT '{}'"),
@@ -492,10 +495,8 @@ class SQLiteManager:
 
             for key, value in state_updates.items():
                 if key in self.STATE_FIELDS:
-                    if key == "error_codes":
-                        set_clauses.append(f"{key} = ?")
-                        values.append(json.dumps(value))
-                    elif key == "model_cooldowns":
+                    if key in ("error_codes", "error_messages", "model_cooldowns"):
+                        # JSON 字段需要序列化
                         set_clauses.append(f"{key} = ?")
                         values.append(json.dumps(value))
                     else:
@@ -547,11 +548,11 @@ class SQLiteManager:
                 return success
 
         except Exception as e:
-            log.error(f"[DB] Error updating credential state {filename}: {e}", exc_info=True)
+            log.error(f"[DB] Error updating credential state {filename}: {e}")
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        """获取凭证状态，支持basename匹配以兼容旧数据"""
+        """获取凭证状态，支持basename匹配以兼容旧数据（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
@@ -607,7 +608,7 @@ class SQLiteManager:
             return {}
 
     async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
-        """获取所有凭证状态"""
+        """获取所有凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
@@ -945,6 +946,68 @@ class SQLiteManager:
         except Exception as e:
             log.error(f"Error deleting config {key}: {e}")
             return False
+
+    async def get_credential_errors(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
+        """
+        专门获取凭证的错误信息（包含 error_codes 和 error_messages）
+
+        Args:
+            filename: 凭证文件名
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
+
+        Returns:
+            包含 error_codes 和 error_messages 的字典
+        """
+        self._ensure_initialized()
+
+        try:
+            table_name = self._get_table_name(mode)
+            async with aiosqlite.connect(self._db_path) as db:
+                # 首先尝试精确匹配
+                async with db.execute(f"""
+                    SELECT error_codes, error_messages FROM {table_name} WHERE filename = ?
+                """, (filename,)) as cursor:
+                    row = await cursor.fetchone()
+
+                    if row:
+                        error_codes_json = row[0] or '[]'
+                        error_messages_json = row[1] or '[]'
+                        return {
+                            "filename": filename,
+                            "error_codes": json.loads(error_codes_json),
+                            "error_messages": json.loads(error_messages_json),
+                        }
+
+                # 如果精确匹配失败，尝试basename匹配
+                async with db.execute(f"""
+                    SELECT filename, error_codes, error_messages FROM {table_name} WHERE filename LIKE '%' || ?
+                """, (filename,)) as cursor:
+                    row = await cursor.fetchone()
+
+                    if row:
+                        error_codes_json = row[1] or '[]'
+                        error_messages_json = row[2] or '[]'
+                        return {
+                            "filename": row[0],
+                            "error_codes": json.loads(error_codes_json),
+                            "error_messages": json.loads(error_messages_json),
+                        }
+
+                # 凭证不存在，返回空错误信息
+                return {
+                    "filename": filename,
+                    "error_codes": [],
+                    "error_messages": [],
+                }
+
+        except Exception as e:
+            log.error(f"Error getting credential errors {filename}: {e}")
+            return {
+                "filename": filename,
+                "error_codes": [],
+                "error_messages": [],
+                "error": str(e)
+            }
 
     # ============ 模型级冷却管理 ============
 
