@@ -628,6 +628,7 @@ function createCredCard(credInfo, manager) {
         <button class="cred-btn download" onclick="download${managerType === 'antigravity' ? 'Antigravity' : ''}Cred('${filename}')">下载</button>
         <button class="cred-btn email" onclick="fetch${managerType === 'antigravity' ? 'Antigravity' : ''}UserEmail('${filename}')">查看账号邮箱</button>
         ${managerType === 'antigravity' ? `<button class="cred-btn" style="background-color: #17a2b8;" onclick="toggleAntigravityQuotaDetails('${pathId}')" title="查看该凭证的额度信息">查看额度</button>` : ''}
+        ${managerType !== 'antigravity' ? `<button class="cred-btn" style="background-color: #00bcd4;" onclick="configurePreviewChannel('${filename}')" title="配置Preview通道，启用实验性功能">设置预览</button>` : ''}
         <button class="cred-btn" style="background-color: #ff9800;" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn" style="background-color: #9c27b0;" onclick="test${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="测试凭证是否可用">消息测试</button>
         <button class="cred-btn" style="background-color: #e91e63;" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ErrorDetails('${pathId}')" title="查看该凭证的详细报错信息">查看报错</button>
@@ -1634,6 +1635,50 @@ async function testAntigravityCredential(filename) {
         }
     } catch (error) {
         const errorMsg = `测试失败: ${error.message}`;
+        showStatus(`❌ ${errorMsg}`, 'error');
+        alert(`❌ ${errorMsg}`);
+    }
+}
+
+async function configurePreviewChannel(filename) {
+    try {
+        // 显示加载状态
+        showStatus('🔧 正在配置Preview通道，请稍候...', 'info');
+
+        const response = await fetch(`./creds/configure-preview/${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            // 配置成功
+            const successMsg = `✅ 配置成功！\n文件: ${filename}\n状态: ${data.message}`;
+            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
+            alert(`✅ Preview通道配置成功！\n\n文件: ${filename}\n\n${data.message}\n\nSetting ID: ${data.setting_id || 'N/A'}\nBinding ID: ${data.binding_id || 'N/A'}`);
+
+            // 刷新凭证列表
+            await AppState.creds.refresh();
+        } else {
+            // 配置失败
+            const errorMsg = data.message || '配置失败';
+            const errorDetail = data.error || '';
+            const step = data.step || '';
+
+            let alertMsg = `❌ Preview通道配置失败\n\n文件: ${filename}\n\n${errorMsg}`;
+            if (step) {
+                alertMsg += `\n失败步骤: ${step}`;
+            }
+            if (errorDetail) {
+                alertMsg += `\n\n错误详情: ${errorDetail}`;
+            }
+
+            showStatus(`❌ ${errorMsg}`, 'error');
+            alert(alertMsg);
+        }
+    } catch (error) {
+        const errorMsg = `配置Preview通道失败: ${error.message}`;
         showStatus(`❌ ${errorMsg}`, 'error');
         alert(`❌ ${errorMsg}`);
     }

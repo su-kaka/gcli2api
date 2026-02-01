@@ -1123,6 +1123,186 @@ async def get_credential_quota(
         raise HTTPException(status_code=500, detail=f"获取额度失败: {str(e)}")
 
 
+@router.post("/configure-preview/{filename}")
+async def configure_preview_channel(
+    filename: str,
+    token: str = Depends(verify_panel_token),
+    mode: str = "geminicli"
+):
+    """
+    为 geminicli 凭证配置 preview 通道
+
+    通过调用 Google Cloud API 设置 release_channel 为 EXPERIMENTAL,
+    配置成功后将 preview 属性设置为 true
+
+    Args:
+        filename: 凭证文件名
+        mode: 凭证模式（仅支持 geminicli）
+
+    Returns:
+        配置结果信息
+    """
+    try:
+        mode = validate_mode(mode)
+
+        # 只支持 geminicli 模式
+        if mode != "geminicli":
+            raise HTTPException(
+                status_code=400,
+                detail="配置 preview 通道仅支持 geminicli 模式"
+            )
+
+        # 验证文件名
+        if not filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="无效的文件名")
+
+        storage_adapter = await get_storage_adapter()
+
+        # 获取凭证数据
+        credential_data = await storage_adapter.get_credential(filename, mode=mode)
+        if not credential_data:
+            raise HTTPException(status_code=404, detail="凭证不存在")
+
+        # 创建凭证对象并刷新 token（如果需要）
+        credentials = Credentials.from_dict(credential_data)
+        token_refreshed = await credentials.refresh_if_needed()
+
+        if token_refreshed:
+            log.info(f"Token已自动刷新: {filename}")
+            credential_data = credentials.to_dict()
+            await storage_adapter.store_credential(filename, credential_data, mode=mode)
+
+        # 获取 access_token 和 project_id
+        access_token = credential_data.get("access_token") or credential_data.get("token")
+        project_id = credential_data.get("project_id", "")
+
+        if not access_token:
+            raise HTTPException(status_code=400, detail="凭证中没有访问令牌")
+        if not project_id:
+            raise HTTPException(status_code=400, detail="凭证中没有项目ID")
+
+        # 调用 Google Cloud API 配置 preview 通道
+        # 根据文档，需要两个步骤：
+        # 1. 创建 Release Channel Setting (EXPERIMENTAL)
+        # 2. 创建 Setting Binding (绑定到目标项目)
+        from src.httpx_client import post_async
+        import uuid
+
+        # 生成唯一的 ID
+        setting_id = f"preview-setting-{uuid.uuid4().hex[:8]}"
+        binding_id = f"preview-binding-{uuid.uuid4().hex[:8]}"
+
+        base_url = f"https://cloudaicompanion.googleapis.com/v1/projects/{project_id}/locations/global"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        log.info(f"开始配置 preview 通道: {filename} (project_id={project_id})")
+
+        # 步骤 1: 创建 Release Channel Setting
+        setting_url = f"{base_url}/releaseChannelSettings"
+        setting_response = await post_async(
+            url=setting_url,
+            json={"release_channel": "EXPERIMENTAL"},
+            headers=headers,
+            params={"release_channel_setting_id": setting_id},
+            timeout=30.0
+        )
+
+        setting_status = setting_response.status_code
+
+        if setting_status == 200 or setting_status == 201:
+            log.info(f"步骤 1/2: Release Channel Setting 创建成功 (setting_id={setting_id})")
+        elif setting_status == 409:
+            # Setting 已存在，继续下一步
+            log.info(f"步骤 1/2: Release Channel Setting 已存在")
+        else:
+            # 步骤 1 失败
+            error_text = setting_response.text if hasattr(setting_response, 'text') else ""
+            log.error(f"步骤 1/2 失败: {filename} - Status: {setting_status}, Error: {error_text}")
+
+            return JSONResponse(
+                status_code=setting_status,
+                content={
+                    "success": False,
+                    "filename": filename,
+                    "preview": False,
+                    "message": f"创建 Release Channel Setting 失败: HTTP {setting_status}",
+                    "error": error_text,
+                    "step": "create_setting"
+                }
+            )
+
+        # 步骤 2: 创建 Setting Binding (绑定到当前项目)
+        binding_url = f"{base_url}/releaseChannelSettings/{setting_id}/settingBindings"
+        binding_response = await post_async(
+            url=binding_url,
+            json={
+                "target": f"projects/{project_id}",
+                "product": "GEMINI_CODE_ASSIST"
+            },
+            headers=headers,
+            params={"setting_binding_id": binding_id},
+            timeout=30.0
+        )
+
+        binding_status = binding_response.status_code
+
+        if binding_status == 200 or binding_status == 201:
+            # 配置成功，设置 preview=True
+            await storage_adapter.update_credential_state(filename, {
+                "preview": True
+            }, mode=mode)
+
+            log.info(f"步骤 2/2: Setting Binding 创建成功 - Preview 通道配置完成: {filename}")
+
+            return JSONResponse(content={
+                "success": True,
+                "filename": filename,
+                "preview": True,
+                "message": "Preview 通道配置成功，已将 preview 属性设置为 true",
+                "setting_id": setting_id,
+                "binding_id": binding_id
+            })
+        elif binding_status == 409:
+            # Binding 已存在，说明已经配置过了
+            await storage_adapter.update_credential_state(filename, {
+                "preview": True
+            }, mode=mode)
+
+            log.info(f"步骤 2/2: Setting Binding 已存在 - Preview 通道已配置: {filename}")
+
+            return JSONResponse(content={
+                "success": True,
+                "filename": filename,
+                "preview": True,
+                "message": "Preview 通道配置已存在，已将 preview 属性设置为 true"
+            })
+        else:
+            # 步骤 2 失败
+            error_text = binding_response.text if hasattr(binding_response, 'text') else ""
+            log.error(f"步骤 2/2 失败: {filename} - Status: {binding_status}, Error: {error_text}")
+
+            return JSONResponse(
+                status_code=binding_status,
+                content={
+                    "success": False,
+                    "filename": filename,
+                    "preview": False,
+                    "message": f"创建 Setting Binding 失败: HTTP {binding_status}",
+                    "error": error_text,
+                    "step": "create_binding"
+                }
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"配置 preview 通道失败 {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"配置失败: {str(e)}")
+
+
 @router.post("/test/{filename}")
 async def test_credential(
     filename: str,
