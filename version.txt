@@ -1,4 +1,4 @@
-full_hash=11040791c9c740fb5c6994881d8b9582fb72cc94
-short_hash=1104079
-message=Update mongodb_manager.py
-date=2026-02-01 20:08:54 +0800
+full_hash=8d9163337277498b8ad302d2f9b69e4f952c8987
+short_hash=8d91633
+message=设置preview通道功能
+date=2026-02-01 23:08:36 +0800
