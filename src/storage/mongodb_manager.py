@@ -182,7 +182,7 @@ class MongoDBManager:
         Note:
             - 对于 geminicli 模式:
               - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
-              - 如果模型名不包含 "preview": 优先使用 preview=False 的凭证，没有则使用 preview=True 的凭证
+              - 如果模型名不包含 "preview": 除非没有 preview=False 的凭证，否则只使用 preview=False 的凭证
             - 对于 antigravity: 不检查 preview 状态
             - 使用聚合管道在数据库层面过滤冷却状态，性能更优
         """
@@ -229,21 +229,35 @@ class MongoDBManager:
                     # 模型名包含 preview，只能使用 preview=True 的凭证
                     pipeline.append({"$match": {"preview": True}})
                 else:
-                    # 模型名不包含 preview，优先使用 preview=False 的凭证
-                    # 添加优先级字段
+                    # 模型名不包含 preview
+                    # 使用 $facet 在一次查询中同时检查和获取
                     pipeline.append({
-                        "$addFields": {
-                            "preview_priority": {
-                                "$cond": {
-                                    "if": {"$eq": ["$preview", False]},
-                                    "then": 1,  # preview=False 优先级高
-                                    "else": 2   # preview=True 优先级低
-                                }
-                            }
+                        "$facet": {
+                            "non_preview": [
+                                {"$match": {"preview": False}},
+                                {"$sample": {"size": 1}},
+                                {"$project": {"filename": 1, "credential_data": 1, "_id": 0}}
+                            ],
+                            "preview": [
+                                {"$match": {"preview": True}},
+                                {"$sample": {"size": 1}},
+                                {"$project": {"filename": 1, "credential_data": 1, "_id": 0}}
+                            ]
                         }
                     })
-                    # 按优先级排序
-                    pipeline.append({"$sort": {"preview_priority": 1}})
+
+                    # 执行查询
+                    facet_docs = await collection.aggregate(pipeline).to_list(length=1)
+
+                    if facet_docs:
+                        facet_result = facet_docs[0]
+                        # 优先使用 non_preview，如果没有则使用 preview
+                        if facet_result.get("non_preview"):
+                            return facet_result["non_preview"][0]["filename"], facet_result["non_preview"][0].get("credential_data")
+                        elif facet_result.get("preview"):
+                            return facet_result["preview"][0]["filename"], facet_result["preview"][0].get("credential_data")
+
+                    return None
 
             # 随机抽取一个
             pipeline.append({"$sample": {"size": 1}})

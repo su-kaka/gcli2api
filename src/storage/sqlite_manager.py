@@ -293,7 +293,7 @@ class SQLiteManager:
         Note:
             - 对于 geminicli 模式:
               - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
-              - 如果模型名不包含 "preview": 优先使用 preview=False 的凭证，没有则使用 preview=True 的凭证
+              - 如果模型名不包含 "preview": 除非没有 preview=False 的凭证，否则只使用 preview=False 的凭证
             - 对于 antigravity: 不检查 preview 状态
         """
         self._ensure_initialized()
@@ -354,13 +354,15 @@ class SQLiteManager:
                                 credential_data = json.loads(credential_json)
                                 return filename, credential_data
                         else:
-                            # 非 preview 模型，优先使用 preview=False 的凭证
+                            # 非 preview 模型
+                            # 除非没有 preview=False 的凭证，否则只使用 preview=False 的凭证
                             if non_preview_creds:
+                                # 存在 preview=False 的凭证，只使用它们
                                 filename, credential_json = non_preview_creds[0]
                                 credential_data = json.loads(credential_json)
                                 return filename, credential_data
                             elif preview_creds:
-                                # 没有 preview=False 的凭证，使用 preview=True 的
+                                # 不存在 preview=False 的凭证，使用 preview=True 作为后备
                                 filename, credential_json = preview_creds[0]
                                 credential_data = json.loads(credential_json)
                                 return filename, credential_data
