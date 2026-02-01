@@ -68,6 +68,9 @@ class MongoDBManager:
             # 创建索引
             await self._create_indexes()
 
+            # 为旧凭证添加 preview 字段默认值
+            await self._ensure_preview_field()
+
             # 加载配置到内存
             await self._load_config_cache()
 
@@ -106,6 +109,18 @@ class MongoDBManager:
         await antigravity_credentials_collection.create_index("error_codes")
 
         log.debug("MongoDB indexes created")
+
+    async def _ensure_preview_field(self):
+        """为所有没有 preview 字段的 geminicli 凭证添加默认值 True"""
+        try:
+            result = await self._db["credentials"].update_many(
+                {"preview": {"$exists": False}},
+                {"$set": {"preview": True}}
+            )
+            if result.modified_count > 0:
+                log.info(f"已为 {result.modified_count} 个旧凭证添加 preview=True")
+        except Exception as e:
+            log.error(f"Error ensuring preview field: {e}")
 
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
@@ -220,13 +235,6 @@ class MongoDBManager:
             # 对于 geminicli 模式，根据模型名的 preview 状态筛选凭证
             if mode == "geminicli" and model_name:
                 is_preview_model = "preview" in model_name.lower()
-
-                # 先为所有文档添加 preview 字段默认值（如果不存在）
-                pipeline.append({
-                    "$addFields": {
-                        "preview": {"$ifNull": ["$preview", True]}
-                    }
-                })
 
                 if is_preview_model:
                     # 模型名包含 preview，只能使用 preview=True 的凭证
