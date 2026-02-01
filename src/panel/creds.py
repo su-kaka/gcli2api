@@ -218,7 +218,7 @@ async def upload_credentials_common(
 
 async def get_creds_status_common(
     offset: int, limit: int, status_filter: str, mode: str = "geminicli",
-    error_code_filter: str = None, cooldown_filter: str = None
+    error_code_filter: str = None, cooldown_filter: str = None, preview_filter: str = None
 ) -> JSONResponse:
     """获取凭证文件状态的通用函数"""
     mode = validate_mode(mode)
@@ -231,6 +231,8 @@ async def get_creds_status_common(
         raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
         raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
+    if preview_filter and preview_filter not in ["all", "preview", "no_preview"]:
+        raise HTTPException(status_code=400, detail="preview_filter 只能是 all、preview 或 no_preview")
 
 
 
@@ -238,95 +240,42 @@ async def get_creds_status_common(
     backend_info = await storage_adapter.get_backend_info()
     backend_type = backend_info.get("backend_type", "unknown")
 
-    # 优先使用高性能的分页摘要查询
-    if hasattr(storage_adapter._backend, 'get_credentials_summary'):
-        result = await storage_adapter._backend.get_credentials_summary(
-            offset=offset,
-            limit=limit,
-            status_filter=status_filter,
-            mode=mode,
-            error_code_filter=error_code_filter if error_code_filter and error_code_filter != "all" else None,
-            cooldown_filter=cooldown_filter if cooldown_filter and cooldown_filter != "all" else None
-        )
-
-        creds_list = []
-        for summary in result["items"]:
-            cred_info = {
-                "filename": os.path.basename(summary["filename"]),
-                "user_email": summary["user_email"],
-                "disabled": summary["disabled"],
-                "error_codes": summary["error_codes"],
-                "last_success": summary["last_success"],
-                "backend_type": backend_type,
-                "model_cooldowns": summary.get("model_cooldowns", {}),
-            }
-
-            # 只对 geminicli 模式添加 preview 字段
-            if mode == "geminicli":
-                cred_info["preview"] = summary.get("preview", True)
-
-            creds_list.append(cred_info)
-
-        return JSONResponse(content={
-            "items": creds_list,
-            "total": result["total"],
-            "offset": offset,
-            "limit": limit,
-            "has_more": (offset + limit) < result["total"],
-            "stats": result.get("stats", {"total": 0, "normal": 0, "disabled": 0}),
-        })
-
-    # 回退到传统方式（MongoDB/其他后端）
-    all_credentials = await storage_adapter.list_credentials(mode=mode)
-    all_states = await storage_adapter.get_all_credential_states(mode=mode)
-
-    # 应用状态筛选
-    filtered_credentials = []
-    for filename in all_credentials:
-        file_status = all_states.get(filename, {"disabled": False})
-        is_disabled = file_status.get("disabled", False)
-
-        if status_filter == "all":
-            filtered_credentials.append(filename)
-        elif status_filter == "enabled" and not is_disabled:
-            filtered_credentials.append(filename)
-        elif status_filter == "disabled" and is_disabled:
-            filtered_credentials.append(filename)
-
-    total_count = len(filtered_credentials)
-    paginated_credentials = filtered_credentials[offset:offset + limit]
+    # 使用高性能的分页摘要查询
+    result = await storage_adapter._backend.get_credentials_summary(
+        offset=offset,
+        limit=limit,
+        status_filter=status_filter,
+        mode=mode,
+        error_code_filter=error_code_filter if error_code_filter and error_code_filter != "all" else None,
+        cooldown_filter=cooldown_filter if cooldown_filter and cooldown_filter != "all" else None,
+        preview_filter=preview_filter if preview_filter and preview_filter != "all" else None
+    )
 
     creds_list = []
-    for filename in paginated_credentials:
-        file_status = all_states.get(filename, {
-            "error_codes": [],
-            "disabled": False,
-            "last_success": time.time(),
-            "user_email": None,
-        })
-
+    for summary in result["items"]:
         cred_info = {
-            "filename": os.path.basename(filename),
-            "user_email": file_status.get("user_email"),
-            "disabled": file_status.get("disabled", False),
-            "error_codes": file_status.get("error_codes", []),
-            "last_success": file_status.get("last_success", time.time()),
+            "filename": os.path.basename(summary["filename"]),
+            "user_email": summary["user_email"],
+            "disabled": summary["disabled"],
+            "error_codes": summary["error_codes"],
+            "last_success": summary["last_success"],
             "backend_type": backend_type,
-            "model_cooldowns": file_status.get("model_cooldowns", {}),
+            "model_cooldowns": summary.get("model_cooldowns", {}),
         }
 
         # 只对 geminicli 模式添加 preview 字段
         if mode == "geminicli":
-            cred_info["preview"] = file_status.get("preview", True)
+            cred_info["preview"] = summary.get("preview", True)
 
         creds_list.append(cred_info)
 
     return JSONResponse(content={
         "items": creds_list,
-        "total": total_count,
+        "total": result["total"],
         "offset": offset,
         "limit": limit,
-        "has_more": (offset + limit) < total_count,
+        "has_more": (offset + limit) < result["total"],
+        "stats": result.get("stats", {"total": 0, "normal": 0, "disabled": 0}),
     })
 
 
@@ -670,6 +619,7 @@ async def get_creds_status(
     status_filter: str = "all",
     error_code_filter: str = "all",
     cooldown_filter: str = "all",
+    preview_filter: str = "all",
     mode: str = "geminicli"
 ):
     """
@@ -681,6 +631,7 @@ async def get_creds_status(
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
         error_code_filter: 错误码筛选（all=全部, 或具体错误码如"400", "403"）
         cooldown_filter: 冷却状态筛选（all=全部, in_cooldown=冷却中, no_cooldown=未冷却）
+        preview_filter: Preview筛选（all=全部, preview=支持preview, no_preview=不支持preview，仅geminicli模式有效）
         mode: 凭证模式（geminicli 或 antigravity）
 
     Returns:
@@ -691,7 +642,8 @@ async def get_creds_status(
         return await get_creds_status_common(
             offset, limit, status_filter, mode=mode,
             error_code_filter=error_code_filter,
-            cooldown_filter=cooldown_filter
+            cooldown_filter=cooldown_filter,
+            preview_filter=preview_filter
         )
     except HTTPException:
         raise

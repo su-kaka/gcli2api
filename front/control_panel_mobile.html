@@ -1231,6 +1231,15 @@
                         </select>
                     </div>
 
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="previewFilter">Preview：</label>
+                        <select id="previewFilter" onchange="applyStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="preview">支持</option>
+                            <option value="no_preview">不支持</option>
+                        </select>
+                    </div>
+
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="pageSizeSelect">每页显示：</label>
                         <select id="pageSizeSelect" onchange="changePageSize()">

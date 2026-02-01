@@ -756,7 +756,8 @@ class SQLiteManager:
         status_filter: str = "all",
         mode: str = "geminicli",
         error_code_filter: Optional[str] = None,
-        cooldown_filter: Optional[str] = None
+        cooldown_filter: Optional[str] = None,
+        preview_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -768,6 +769,7 @@ class SQLiteManager:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
             error_code_filter: 错误码筛选（格式如"400"或"403"，筛选包含该错误码的凭证）
             cooldown_filter: 冷却状态筛选（"in_cooldown"=冷却中, "no_cooldown"=未冷却）
+            preview_filter: Preview筛选（"preview"=支持preview, "no_preview"=不支持preview，仅geminicli模式有效）
 
         Returns:
             包含 items（凭证列表）、total（总数）、offset、limit 的字典
@@ -883,6 +885,14 @@ class SQLiteManager:
                         # preview状态只对geminicli模式有效
                         if mode == "geminicli":
                             summary["preview"] = bool(row[7]) if row[7] is not None else True
+
+                        # 应用 preview 筛选（仅对 geminicli 模式）
+                        if mode == "geminicli" and preview_filter:
+                            preview_value = summary.get("preview", True)
+                            if preview_filter == "preview" and not preview_value:
+                                continue  # 跳过不支持 preview 的凭证
+                            elif preview_filter == "no_preview" and preview_value:
+                                continue  # 跳过支持 preview 的凭证
 
                         # 应用冷却筛选
                         if cooldown_filter == "in_cooldown":

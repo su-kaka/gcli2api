@@ -1557,6 +1557,13 @@
                         <option value="no_cooldown">未CD</option>
                     </select>
 
+                    <label for="previewFilter" style="margin-left: 20px;">Preview：</label>
+                    <select id="previewFilter" class="filter-select" onchange="applyStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="preview">支持</option>
+                        <option value="no_preview">不支持</option>
+                    </select>
+
                     <label for="pageSizeSelect" style="margin-left: 20px;">每页显示：</label>
                     <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize()">
                         <option value="20">20</option>

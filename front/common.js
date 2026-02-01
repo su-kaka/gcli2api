@@ -57,6 +57,7 @@ function createCredsManager(type) {
         currentStatusFilter: 'all',
         currentErrorCodeFilter: 'all',
         currentCooldownFilter: 'all',
+        currentPreviewFilter: 'all',
         statsData: { total: 0, normal: 0, disabled: 0 },
 
         // API端点
@@ -102,8 +103,9 @@ function createCredsManager(type) {
                 const offset = (this.currentPage - 1) * this.pageSize;
                 const errorCodeFilter = this.currentErrorCodeFilter || 'all';
                 const cooldownFilter = this.currentCooldownFilter || 'all';
+                const previewFilter = this.currentPreviewFilter || 'all';
                 const response = await fetch(
-                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&${this.getModeParam()}`,
+                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&preview_filter=${previewFilter}&${this.getModeParam()}`,
                     { headers: getAuthHeaders() }
                 );
 
@@ -234,8 +236,10 @@ function createCredsManager(type) {
             this.currentStatusFilter = document.getElementById(this.getElementId('StatusFilter')).value;
             const errorCodeFilterEl = document.getElementById(this.getElementId('ErrorCodeFilter'));
             const cooldownFilterEl = document.getElementById(this.getElementId('CooldownFilter'));
+            const previewFilterEl = document.getElementById(this.getElementId('PreviewFilter'));
             this.currentErrorCodeFilter = errorCodeFilterEl ? errorCodeFilterEl.value : 'all';
             this.currentCooldownFilter = cooldownFilterEl ? cooldownFilterEl.value : 'all';
+            this.currentPreviewFilter = previewFilterEl ? previewFilterEl.value : 'all';
             this.currentPage = 1;
             this.refresh();
         },
