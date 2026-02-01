@@ -1,7 +1,8 @@
 """
-存储适配器，提供统一的接口来处理 SQLite 和 MongoDB 存储。
+存储适配器，提供统一的接口来处理 SQLite、MySQL 和 MongoDB 存储。
 根据配置自动选择存储后端：
 - 默认使用 SQLite（本地文件存储）
+- 如果设置了 MYSQL_DSN 环境变量，则使用 MySQL
 - 如果设置了 MONGODB_URI 环境变量，则使用 MongoDB
 """
 
@@ -86,22 +87,27 @@ class StorageAdapter:
             if self._initialized:
                 return
 
-            # 按优先级检查存储后端：SQLite > MongoDB
+            # 按优先级检查存储后端：MySQL > MongoDB > SQLite
+            mysql_dsn = os.getenv("MYSQL_DSN", "")
             mongodb_uri = os.getenv("MONGODB_URI", "")
 
-            # 优先使用 SQLite（默认启用，无需环境变量）
-            if not mongodb_uri:
+            # 优先使用 MySQL（只检查 MYSQL_DSN）
+            if mysql_dsn:
                 try:
-                    from .storage.sqlite_manager import SQLiteManager
+                    from .storage.mysql_manager import MySQLManager
 
-                    self._backend = SQLiteManager()
+                    self._backend = MySQLManager()
                     await self._backend.initialize()
-                    log.info("Using SQLite storage backend")
+                    
+                    log.info(f"Using MySQL storage backend")
+                    
                 except Exception as e:
-                    log.error(f"Failed to initialize SQLite backend: {e}")
-                    raise RuntimeError("No storage backend available") from e
-            else:
-                # 使用 MongoDB
+                    log.error(f"Failed to initialize MySQL backend: {e}")
+                    # 降级到 MongoDB 或 SQLite
+                    log.info("Falling back to next available storage backend")
+                    
+            # 其次使用 MongoDB
+            elif mongodb_uri:
                 try:
                     from .storage.mongodb_manager import MongoDBManager
 
@@ -110,17 +116,20 @@ class StorageAdapter:
                     log.info("Using MongoDB storage backend")
                 except Exception as e:
                     log.error(f"Failed to initialize MongoDB backend: {e}")
-                    # 尝试降级到 SQLite
+                    # 降级到 SQLite
                     log.info("Falling back to SQLite storage backend")
-                    try:
-                        from .storage.sqlite_manager import SQLiteManager
 
-                        self._backend = SQLiteManager()
-                        await self._backend.initialize()
-                        log.info("Using SQLite storage backend (fallback)")
-                    except Exception as e2:
-                        log.error(f"Failed to initialize SQLite backend: {e2}")
-                        raise RuntimeError("No storage backend available") from e2
+            # 最后使用 SQLite（默认）
+            else:
+                try:
+                    from .storage.sqlite_manager import SQLiteManager
+
+                    self._backend = SQLiteManager()
+                    await self._backend.initialize()
+                    log.info("Using SQLite storage backend (default)")
+                except Exception as e:
+                    log.error(f"Failed to initialize SQLite backend: {e}")
+                    raise RuntimeError("No storage backend available") from e
 
             self._initialized = True
 
@@ -204,7 +213,7 @@ class StorageAdapter:
         self._ensure_initialized()
         if hasattr(self._backend, "export_credential_to_json"):
             return await self._backend.export_credential_to_json(filename, output_path)
-        # MongoDB后端的fallback实现
+        # 通用fallback实现
         credential_data = await self.get_credential(filename)
         if credential_data is None:
             return False
@@ -226,7 +235,7 @@ class StorageAdapter:
         self._ensure_initialized()
         if hasattr(self._backend, "import_credential_from_json"):
             return await self._backend.import_credential_from_json(json_path, filename)
-        # MongoDB后端的fallback实现
+        # 通用fallback实现
         try:
             import aiofiles
 
@@ -249,7 +258,9 @@ class StorageAdapter:
 
         # 检查后端类型
         backend_class_name = self._backend.__class__.__name__
-        if "SQLite" in backend_class_name or "sqlite" in backend_class_name.lower():
+        if "MySQL" in backend_class_name or "mysql" in backend_class_name.lower():
+            return "mysql"
+        elif "SQLite" in backend_class_name or "sqlite" in backend_class_name.lower():
             return "sqlite"
         elif "MongoDB" in backend_class_name or "mongo" in backend_class_name.lower():
             return "mongodb"
@@ -272,7 +283,15 @@ class StorageAdapter:
                 info["database_error"] = str(e)
         else:
             backend_type = self.get_backend_type()
-            if backend_type == "sqlite":
+            if backend_type == "mysql":
+                info.update(
+                    {
+                        "database_name": getattr(self._backend, "_database_name", None),
+                        "host": getattr(self._backend, "_host", None),
+                        "port": getattr(self._backend, "_port", None),
+                    }
+                )
+            elif backend_type == "sqlite":
                 info.update(
                     {
                         "database_path": getattr(self._backend, "_db_path", None),

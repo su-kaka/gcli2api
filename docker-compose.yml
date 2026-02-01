@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   gcli2api:
@@ -32,6 +32,9 @@ services:
       # - MONGODB_URI=${MONGODB_URI}
       # - MONGODB_DATABASE=${MONGODB_DATABASE:-gcli2api}
 
+      # Optional: MySQL configuration (for distributed storage)
+      # - MYSQL_URI=${MONGODB_URI}
+
       # Optional: PostgreSQL configuration (for distributed storage)
       # - POSTGRES_DSN=${POSTGRES_DSN}
 
@@ -40,12 +43,15 @@ services:
     volumes:
       - ./data/creds:/app/creds
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import sys, urllib.request, os; port = os.environ.get(''PORT'', ''7861''); req = urllib.request.Request(f''http://localhost:{port}/v1/models'', headers={''Authorization'': ''Bearer '' + os.environ.get(''PASSWORD'', ''pwd'')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)"',
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
 # Example with Redis for distributed storage
 #  redis:
 #    image: redis:7-alpine
