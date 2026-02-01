@@ -24,6 +24,7 @@ class SQLiteManager:
         "last_success",
         "user_email",
         "model_cooldowns",
+        "preview",
     }
 
     # 所有必需的列定义（用于自动校验和修复）
@@ -35,6 +36,7 @@ class SQLiteManager:
             ("last_success", "REAL"),
             ("user_email", "TEXT"),
             ("model_cooldowns", "TEXT DEFAULT '{}'"),
+            ("preview", "INTEGER DEFAULT 1"),
             ("rotation_order", "INTEGER DEFAULT 0"),
             ("call_count", "INTEGER DEFAULT 0"),
             ("created_at", "REAL DEFAULT (unixepoch())"),
@@ -161,6 +163,9 @@ class SQLiteManager:
                 -- 模型级 CD 支持 (JSON: {model_key: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
 
+                -- preview 状态 (只对 geminicli 有效，默认为 true)
+                preview INTEGER DEFAULT 1,
+
                 -- 轮换相关
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
@@ -273,21 +278,23 @@ class SQLiteManager:
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, mode: str = "geminicli", model_key: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
-        - 如果提供了 model_key，还会检查模型级冷却
+        - 如果提供了 model_name，还会检查模型级冷却和preview状态
         - 随机选择
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_key: 模型键（用于模型级冷却检查，antigravity 用模型名，gcli 用 pro/flash）
+            model_name: 完整模型名（如 "gemini-2.0-flash-exp", "gemini-2.0-flash-thinking-exp-01-21"）
 
         Note:
-            - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
-            - 对于 gcli: model_key 是 "pro" 或 "flash"
+            - 对于 geminicli 模式:
+              - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
+              - 如果模型名不包含 "preview": 优先使用 preview=False 的凭证，没有则使用 preview=True 的凭证
+            - 对于 antigravity: 不检查 preview 状态
         """
         self._ensure_initialized()
 
@@ -296,38 +303,110 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                # 获取所有候选凭证（未禁用）
-                async with db.execute(f"""
-                    SELECT filename, credential_data, model_cooldowns
-                    FROM {table_name}
-                    WHERE disabled = 0
-                    ORDER BY RANDOM()
-                """) as cursor:
-                    rows = await cursor.fetchall()
+                # 确定模型键用于冷却检查
+                model_key = None
+                if model_name:
+                    if mode == "geminicli":
+                        # geminicli 使用 pro/flash 作为冷却键
+                        if "pro" in model_name.lower():
+                            model_key = "pro"
+                        else:
+                            model_key = "flash"
+                    else:
+                        # antigravity 使用完整模型名
+                        model_key = model_name
 
-                    # 如果没有提供 model_key，使用第一个可用凭证
-                    if not model_key:
-                        if rows:
-                            filename, credential_json, _ = rows[0]
-                            credential_data = json.loads(credential_json)
-                            return filename, credential_data
+                # 根据模式构建查询
+                if mode == "geminicli":
+                    # geminicli 模式，需要处理 preview 状态
+                    async with db.execute(f"""
+                        SELECT filename, credential_data, model_cooldowns, preview
+                        FROM {table_name}
+                        WHERE disabled = 0
+                        ORDER BY RANDOM()
+                    """) as cursor:
+                        rows = await cursor.fetchall()
+
+                        if not model_name:
+                            # 没有提供模型名，返回第一个可用凭证
+                            if rows:
+                                filename, credential_json, _, _ = rows[0]
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+                            return None
+
+                        # 检查模型是否为 preview 模型
+                        is_preview_model = "preview" in model_name.lower()
+
+                        # 分别收集 preview=False 和 preview=True 的可用凭证
+                        non_preview_creds = []
+                        preview_creds = []
+
+                        for filename, credential_json, model_cooldowns_json, preview in rows:
+                            model_cooldowns = json.loads(model_cooldowns_json or '{}')
+
+                            # 检查该模型是否在冷却中
+                            model_cooldown = model_cooldowns.get(model_key)
+                            if model_cooldown is None or current_time >= model_cooldown:
+                                # 该模型未冷却或冷却已过期
+                                if preview:
+                                    preview_creds.append((filename, credential_json))
+                                else:
+                                    non_preview_creds.append((filename, credential_json))
+
+                        # 根据模型类型选择凭证
+                        if is_preview_model:
+                            # preview 模型只能使用 preview=True 的凭证
+                            if preview_creds:
+                                filename, credential_json = preview_creds[0]
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+                        else:
+                            # 非 preview 模型，优先使用 preview=False 的凭证
+                            if non_preview_creds:
+                                filename, credential_json = non_preview_creds[0]
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+                            elif preview_creds:
+                                # 没有 preview=False 的凭证，使用 preview=True 的
+                                filename, credential_json = preview_creds[0]
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+
+                        return None
+                else:
+                    # antigravity 模式，不需要处理 preview
+                    async with db.execute(f"""
+                        SELECT filename, credential_data, model_cooldowns
+                        FROM {table_name}
+                        WHERE disabled = 0
+                        ORDER BY RANDOM()
+                    """) as cursor:
+                        rows = await cursor.fetchall()
+
+                        # 如果没有提供 model_name，使用第一个可用凭证
+                        if not model_name:
+                            if rows:
+                                filename, credential_json, _ = rows[0]
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+                            return None
+
+                        # 如果提供了 model_name，检查模型级冷却
+                        for filename, credential_json, model_cooldowns_json in rows:
+                            model_cooldowns = json.loads(model_cooldowns_json or '{}')
+
+                            # 检查该模型是否在冷却中
+                            model_cooldown = model_cooldowns.get(model_key)
+                            if model_cooldown is None or current_time >= model_cooldown:
+                                # 该模型未冷却或冷却已过期
+                                credential_data = json.loads(credential_json)
+                                return filename, credential_data
+
                         return None
 
-                    # 如果提供了 model_key，检查模型级冷却
-                    for filename, credential_json, model_cooldowns_json in rows:
-                        model_cooldowns = json.loads(model_cooldowns_json or '{}')
-
-                        # 检查该模型是否在冷却中
-                        model_cooldown = model_cooldowns.get(model_key)
-                        if model_cooldown is None or current_time >= model_cooldown:
-                            # 该模型未冷却或冷却已过期
-                            credential_data = json.loads(credential_json)
-                            return filename, credential_data
-
-                    return None
-
         except Exception as e:
-            log.error(f"Error getting next available credential (mode={mode}, model_key={model_key}): {e}")
+            log.error(f"Error getting next available credential (mode={mode}, model_name={model_name}): {e}")
             return None
 
     async def get_available_credentials_list(self) -> List[str]:
@@ -401,28 +480,18 @@ class SQLiteManager:
             return False
 
     async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
-        """获取凭证数据，支持basename匹配以兼容旧数据"""
+        """获取凭证数据"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # 首先尝试精确匹配
+                # 精确匹配
                 async with db.execute(f"""
                     SELECT credential_data FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
                     row = await cursor.fetchone()
                     if row:
-                        return json.loads(row[0])
-
-                # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
-                async with db.execute(f"""
-                    SELECT credential_data FROM {table_name}
-                    WHERE filename LIKE '%' || ? OR filename = ?
-                """, (filename, filename)) as cursor:
-                    rows = await cursor.fetchall()
-                    # 优先返回完全匹配的，否则返回basename匹配的第一个
-                    for row in rows:
                         return json.loads(row[0])
 
                 return None
@@ -449,24 +518,17 @@ class SQLiteManager:
             return []
 
     async def delete_credential(self, filename: str, mode: str = "geminicli") -> bool:
-        """删除凭证，支持basename匹配以兼容旧数据"""
+        """删除凭证"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # 首先尝试精确匹配删除
+                # 精确匹配删除
                 result = await db.execute(f"""
                     DELETE FROM {table_name} WHERE filename = ?
                 """, (filename,))
                 deleted_count = result.rowcount
-
-                # 如果精确匹配没有删除任何记录，尝试basename匹配
-                if deleted_count == 0:
-                    result = await db.execute(f"""
-                        DELETE FROM {table_name} WHERE filename LIKE '%' || ?
-                    """, (filename,))
-                    deleted_count = result.rowcount
 
                 await db.commit()
 
@@ -482,13 +544,13 @@ class SQLiteManager:
             return False
 
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli") -> bool:
-        """更新凭证状态，支持basename匹配以兼容旧数据"""
+        """更新凭证状态"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             log.debug(f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
-            
+
             # 构建动态 SQL
             set_clauses = []
             values = []
@@ -513,7 +575,7 @@ class SQLiteManager:
             log.debug(f"[DB] SQL参数: set_clauses={set_clauses}, values={values}")
 
             async with aiosqlite.connect(self._db_path) as db:
-                # 首先尝试精确匹配更新
+                # 精确匹配更新
                 sql_exact = f"""
                     UPDATE {table_name}
                     SET {', '.join(set_clauses)}
@@ -521,28 +583,16 @@ class SQLiteManager:
                 """
                 log.debug(f"[DB] 执行精确匹配SQL: {sql_exact}")
                 log.debug(f"[DB] SQL参数值: {values}")
-                
+
                 result = await db.execute(sql_exact, values)
                 updated_count = result.rowcount
                 log.debug(f"[DB] 精确匹配 rowcount={updated_count}")
-
-                # 如果精确匹配没有更新任何记录，尝试basename匹配
-                if updated_count == 0:
-                    sql_basename = f"""
-                        UPDATE {table_name}
-                        SET {', '.join(set_clauses)}
-                        WHERE filename LIKE '%' || ?
-                    """
-                    log.debug(f"[DB] 精确匹配失败，尝试basename匹配SQL: {sql_basename}")
-                    result = await db.execute(sql_basename, values)
-                    updated_count = result.rowcount
-                    log.info(f"[DB] basename匹配 rowcount={updated_count}")
 
                 # 提交前检查
                 log.debug(f"[DB] 准备commit，总更新行数={updated_count}")
                 await db.commit()
                 log.debug(f"[DB] commit完成")
-                
+
                 success = updated_count > 0
                 log.debug(f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}")
                 return success
@@ -552,56 +602,68 @@ class SQLiteManager:
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        """获取凭证状态，支持basename匹配以兼容旧数据（不包含error_messages）"""
+        """获取凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # 首先尝试精确匹配
-                async with db.execute(f"""
-                    SELECT disabled, error_codes, last_success, user_email, model_cooldowns
-                    FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
-                    row = await cursor.fetchone()
+                # 精确匹配
+                if mode == "geminicli":
+                    async with db.execute(f"""
+                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, preview
+                        FROM {table_name} WHERE filename = ?
+                    """, (filename,)) as cursor:
+                        row = await cursor.fetchone()
 
-                    if row:
-                        error_codes_json = row[1] or '[]'
-                        model_cooldowns_json = row[4] or '{}'
-                        return {
-                            "disabled": bool(row[0]),
-                            "error_codes": json.loads(error_codes_json),
-                            "last_success": row[2] or time.time(),
-                            "user_email": row[3],
-                            "model_cooldowns": json.loads(model_cooldowns_json),
-                        }
+                        if row:
+                            error_codes_json = row[1] or '[]'
+                            model_cooldowns_json = row[4] or '{}'
+                            return {
+                                "disabled": bool(row[0]),
+                                "error_codes": json.loads(error_codes_json),
+                                "last_success": row[2] or time.time(),
+                                "user_email": row[3],
+                                "model_cooldowns": json.loads(model_cooldowns_json),
+                                "preview": bool(row[5]) if row[5] is not None else True,
+                            }
 
-                # 如果精确匹配失败，尝试basename匹配
-                async with db.execute(f"""
-                    SELECT disabled, error_codes, last_success, user_email, model_cooldowns
-                    FROM {table_name} WHERE filename LIKE '%' || ?
-                """, (filename,)) as cursor:
-                    row = await cursor.fetchone()
+                    # 返回默认状态
+                    return {
+                        "disabled": False,
+                        "error_codes": [],
+                        "last_success": time.time(),
+                        "user_email": None,
+                        "model_cooldowns": {},
+                        "preview": True,
+                    }
+                else:
+                    # antigravity 模式
+                    async with db.execute(f"""
+                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns
+                        FROM {table_name} WHERE filename = ?
+                    """, (filename,)) as cursor:
+                        row = await cursor.fetchone()
 
-                    if row:
-                        error_codes_json = row[1] or '[]'
-                        model_cooldowns_json = row[4] or '{}'
-                        return {
-                            "disabled": bool(row[0]),
-                            "error_codes": json.loads(error_codes_json),
-                            "last_success": row[2] or time.time(),
-                            "user_email": row[3],
-                            "model_cooldowns": json.loads(model_cooldowns_json),
-                        }
+                        if row:
+                            error_codes_json = row[1] or '[]'
+                            model_cooldowns_json = row[4] or '{}'
+                            return {
+                                "disabled": bool(row[0]),
+                                "error_codes": json.loads(error_codes_json),
+                                "last_success": row[2] or time.time(),
+                                "user_email": row[3],
+                                "model_cooldowns": json.loads(model_cooldowns_json),
+                            }
 
-                # 返回默认状态
-                return {
-                    "disabled": False,
-                    "error_codes": [],
-                    "last_success": time.time(),
-                    "user_email": None,
-                    "model_cooldowns": {},
-                }
+                    # 返回默认状态
+                    return {
+                        "disabled": False,
+                        "error_codes": [],
+                        "last_success": time.time(),
+                        "user_email": None,
+                        "model_cooldowns": {},
+                    }
 
         except Exception as e:
             log.error(f"Error getting credential state {filename}: {e}")
@@ -614,38 +676,74 @@ class SQLiteManager:
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute(f"""
-                    SELECT filename, disabled, error_codes, last_success,
-                           user_email, model_cooldowns
-                    FROM {table_name}
-                """) as cursor:
-                    rows = await cursor.fetchall()
+                if mode == "geminicli":
+                    async with db.execute(f"""
+                        SELECT filename, disabled, error_codes, last_success,
+                               user_email, model_cooldowns, preview
+                        FROM {table_name}
+                    """) as cursor:
+                        rows = await cursor.fetchall()
 
-                    states = {}
-                    current_time = time.time()
+                        states = {}
+                        current_time = time.time()
 
-                    for row in rows:
-                        filename = row[0]
-                        error_codes_json = row[2] or '[]'
-                        model_cooldowns_json = row[5] or '{}'
-                        model_cooldowns = json.loads(model_cooldowns_json)
+                        for row in rows:
+                            filename = row[0]
+                            error_codes_json = row[2] or '[]'
+                            model_cooldowns_json = row[5] or '{}'
+                            model_cooldowns = json.loads(model_cooldowns_json)
 
-                        # 自动过滤掉已过期的模型CD
-                        if model_cooldowns:
-                            model_cooldowns = {
-                                k: v for k, v in model_cooldowns.items()
-                                if v > current_time
+                            # 自动过滤掉已过期的模型CD
+                            if model_cooldowns:
+                                model_cooldowns = {
+                                    k: v for k, v in model_cooldowns.items()
+                                    if v > current_time
+                                }
+
+                            states[filename] = {
+                                "disabled": bool(row[1]),
+                                "error_codes": json.loads(error_codes_json),
+                                "last_success": row[3] or time.time(),
+                                "user_email": row[4],
+                                "model_cooldowns": model_cooldowns,
+                                "preview": bool(row[6]) if row[6] is not None else True,
                             }
 
-                        states[filename] = {
-                            "disabled": bool(row[1]),
-                            "error_codes": json.loads(error_codes_json),
-                            "last_success": row[3] or time.time(),
-                            "user_email": row[4],
-                            "model_cooldowns": model_cooldowns,
-                        }
+                        return states
+                else:
+                    # antigravity 模式
+                    async with db.execute(f"""
+                        SELECT filename, disabled, error_codes, last_success,
+                               user_email, model_cooldowns
+                        FROM {table_name}
+                    """) as cursor:
+                        rows = await cursor.fetchall()
 
-                    return states
+                        states = {}
+                        current_time = time.time()
+
+                        for row in rows:
+                            filename = row[0]
+                            error_codes_json = row[2] or '[]'
+                            model_cooldowns_json = row[5] or '{}'
+                            model_cooldowns = json.loads(model_cooldowns_json)
+
+                            # 自动过滤掉已过期的模型CD
+                            if model_cooldowns:
+                                model_cooldowns = {
+                                    k: v for k, v in model_cooldowns.items()
+                                    if v > current_time
+                                }
+
+                            states[filename] = {
+                                "disabled": bool(row[1]),
+                                "error_codes": json.loads(error_codes_json),
+                                "last_success": row[3] or time.time(),
+                                "user_email": row[4],
+                                "model_cooldowns": model_cooldowns,
+                            }
+
+                        return states
 
         except Exception as e:
             log.error(f"Error getting all credential states: {e}")
@@ -718,13 +816,22 @@ class SQLiteManager:
                     where_clause = "WHERE " + " AND ".join(where_clauses)
 
                 # 先获取所有数据（用于冷却筛选，因为需要在Python中判断）
-                all_query = f"""
-                    SELECT filename, disabled, error_codes, last_success,
-                           user_email, rotation_order, model_cooldowns
-                    FROM {table_name}
-                    {where_clause}
-                    ORDER BY rotation_order
-                """
+                if mode == "geminicli":
+                    all_query = f"""
+                        SELECT filename, disabled, error_codes, last_success,
+                               user_email, rotation_order, model_cooldowns, preview
+                        FROM {table_name}
+                        {where_clause}
+                        ORDER BY rotation_order
+                    """
+                else:
+                    all_query = f"""
+                        SELECT filename, disabled, error_codes, last_success,
+                               user_email, rotation_order, model_cooldowns
+                        FROM {table_name}
+                        {where_clause}
+                        ORDER BY rotation_order
+                    """
 
                 async with db.execute(all_query, count_params) as cursor:
                     all_rows = await cursor.fetchall()
@@ -772,6 +879,10 @@ class SQLiteManager:
                             "rotation_order": row[5],
                             "model_cooldowns": active_cooldowns,
                         }
+
+                        # preview状态只对geminicli模式有效
+                        if mode == "geminicli":
+                            summary["preview"] = bool(row[7]) if row[7] is not None else True
 
                         # 应用冷却筛选
                         if cooldown_filter == "in_cooldown":
@@ -963,7 +1074,7 @@ class SQLiteManager:
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                # 首先尝试精确匹配
+                # 精确匹配
                 async with db.execute(f"""
                     SELECT error_codes, error_messages FROM {table_name} WHERE filename = ?
                 """, (filename,)) as cursor:
@@ -974,21 +1085,6 @@ class SQLiteManager:
                         error_messages_json = row[1] or '[]'
                         return {
                             "filename": filename,
-                            "error_codes": json.loads(error_codes_json),
-                            "error_messages": json.loads(error_messages_json),
-                        }
-
-                # 如果精确匹配失败，尝试basename匹配
-                async with db.execute(f"""
-                    SELECT filename, error_codes, error_messages FROM {table_name} WHERE filename LIKE '%' || ?
-                """, (filename,)) as cursor:
-                    row = await cursor.fetchone()
-
-                    if row:
-                        error_codes_json = row[1] or '[]'
-                        error_messages_json = row[2] or '[]'
-                        return {
-                            "filename": row[0],
                             "error_codes": json.loads(error_codes_json),
                             "error_messages": json.loads(error_messages_json),
                         }

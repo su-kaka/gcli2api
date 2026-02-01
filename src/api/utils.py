@@ -477,25 +477,3 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
     except Exception:
         return None
-
-def get_model_group(model_name: str) -> str:
-    """
-    获取模型组，用于 GCLI CD 机制。
-
-    Args:
-        model_name: 模型名称
-
-    Returns:
-        "pro" 或 "flash"
-
-    说明:
-        - pro 组: gemini-2.5-pro, gemini-3-pro-preview 共享额度
-        - flash 组: gemini-2.5-flash 单独额度
-    """
-
-    # 判断模型组
-    if "flash" in model_name.lower():
-        return "flash"
-    else:
-        # pro 模型（包括 gemini-2.5-pro 和 gemini-3-pro-preview）
-        return "pro"

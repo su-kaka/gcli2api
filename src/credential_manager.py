@@ -46,18 +46,20 @@ class CredentialManager:
         log.debug("Credential manager closed")
 
     async def get_valid_credential(
-        self, mode: str = "geminicli", model_key: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
-        每次随机选择一个可用的凭证（未禁用、未冷却）
+        每次随机选择一个可用的凭证（未禁用、未冷却、符合preview要求）
         如果刷新失败会自动禁用失效凭证并重试获取下一个可用凭证
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_key: 模型键，用于模型级冷却检查
-                      - antigravity: 模型名称（如 "gemini-2.0-flash-exp"）
-                      - gcli: "pro" 或 "flash"
+            model_name: 完整模型名，用于模型级冷却检查和preview筛选
+                       - geminicli: 完整模型名
+                                   - 包含 "preview" 的模型只能使用 preview=True 的凭证
+                                   - 不包含 "preview" 的模型优先使用 preview=False 的凭证
+                       - antigravity: 完整模型名（如 "gemini-2.0-flash-exp"）
         """
         await self._ensure_initialized()
 
@@ -65,13 +67,13 @@ class CredentialManager:
         max_retries = 3
         for attempt in range(max_retries):
             result = await self._storage_adapter._backend.get_next_available_credential(
-                mode=mode, model_key=model_key
+                mode=mode, model_name=model_name
             )
 
             # 如果没有可用凭证，直接返回None
             if not result:
                 if attempt == 0:
-                    log.warning(f"没有可用凭证 (mode={mode}, model_key={model_key})")
+                    log.warning(f"没有可用凭证 (mode={mode}, model_name={model_name})")
                 return None
 
             filename, credential_data = result
@@ -95,7 +97,7 @@ class CredentialManager:
                 return filename, credential_data
 
         # 重试次数用尽
-        log.error(f"重试{max_retries}次后仍无可用凭证 (mode={mode}, model_key={model_key})")
+        log.error(f"重试{max_retries}次后仍无可用凭证 (mode={mode}, model_name={model_name})")
         return None
 
     async def add_credential(self, credential_name: str, credential_data: Dict[str, Any]):
@@ -178,33 +180,11 @@ class CredentialManager:
     async def get_creds_summary(self) -> List[Dict[str, Any]]:
         """
         获取所有凭证的摘要信息（轻量级，不包含完整凭证数据）
-        优先使用后端的高性能查询
+        使用后端的高性能查询
         """
         await self._ensure_initialized()
         try:
-            # 如果后端支持高性能摘要查询，直接使用
-            if hasattr(self._storage_adapter._backend, 'get_credentials_summary'):
-                return await self._storage_adapter._backend.get_credentials_summary()
-
-            # 否则回退到传统方式
-            all_states = await self._storage_adapter.get_all_credential_states()
-            summaries = []
-
-            import time
-            current_time = time.time()
-
-            for filename, state in all_states.items():
-                summaries.append({
-                    "filename": filename,
-                    "disabled": state.get("disabled", False),
-                    "error_codes": state.get("error_codes", []),
-                    "last_success": state.get("last_success", current_time),
-                    "user_email": state.get("user_email"),
-                    "model_cooldowns": state.get("model_cooldowns", {}),
-                })
-
-            return summaries
-
+            return await self._storage_adapter._backend.get_credentials_summary()
         except Exception as e:
             log.error(f"Error getting credentials summary: {e}")
             return []

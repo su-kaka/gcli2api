@@ -23,6 +23,7 @@ class MongoDBManager:
         "last_success",
         "user_email",
         "model_cooldowns",
+        "preview",
     }
 
     @staticmethod
@@ -152,21 +153,23 @@ class MongoDBManager:
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, mode: str = "geminicli", model_key: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None
     ) -> Optional[tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
-        - 如果提供了 model_key，还会检查模型级冷却
+        - 如果提供了 model_name，还会检查模型级冷却和preview状态
         - 随机选择
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_key: 模型键（用于模型级冷却检查，antigravity 用模型名，gcli 用 pro/flash）
+            model_name: 完整模型名（如 "gemini-2.0-flash-exp", "gemini-2.0-flash-thinking-exp-01-21"）
 
         Note:
-            - 对于 antigravity: model_key 是具体模型名（如 "gemini-2.0-flash-exp"）
-            - 对于 gcli: model_key 是 "pro" 或 "flash"
+            - 对于 geminicli 模式:
+              - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
+              - 如果模型名不包含 "preview": 优先使用 preview=False 的凭证，没有则使用 preview=True 的凭证
+            - 对于 antigravity: 不检查 preview 状态
             - 使用聚合管道在数据库层面过滤冷却状态，性能更优
         """
         self._ensure_initialized()
@@ -182,8 +185,19 @@ class MongoDBManager:
                 {"$match": {"disabled": False}},
             ]
 
-            # 如果提供了 model_key，添加冷却检查
-            if model_key:
+            # 如果提供了 model_name，添加冷却检查
+            if model_name:
+                # 确定模型键用于冷却检查
+                if mode == "geminicli":
+                    # geminicli 使用 pro/flash 作为冷却键
+                    if "pro" in model_name.lower():
+                        model_key = "pro"
+                    else:
+                        model_key = "flash"
+                else:
+                    # antigravity 使用完整模型名
+                    model_key = model_name
+
                 # 转义模型键中的点号
                 escaped_model_key = self._escape_model_key(model_key)
                 pipeline.extend([
@@ -204,10 +218,34 @@ class MongoDBManager:
                     {"$match": {"is_available": True}},
                 ])
 
-            # 第四步: 随机抽取一个
+            # 对于 geminicli 模式，根据模型名的 preview 状态筛选凭证
+            if mode == "geminicli" and model_name:
+                is_preview_model = "preview" in model_name.lower()
+
+                if is_preview_model:
+                    # 模型名包含 preview，只能使用 preview=True 的凭证
+                    pipeline.append({"$match": {"preview": True}})
+                else:
+                    # 模型名不包含 preview，优先使用 preview=False 的凭证
+                    # 添加优先级字段
+                    pipeline.append({
+                        "$addFields": {
+                            "preview_priority": {
+                                "$cond": {
+                                    "if": {"$eq": ["$preview", False]},
+                                    "then": 1,  # preview=False 优先级高
+                                    "else": 2   # preview=True 优先级低
+                                }
+                            }
+                        }
+                    })
+                    # 按优先级排序
+                    pipeline.append({"$sort": {"preview_priority": 1}})
+
+            # 随机抽取一个
             pipeline.append({"$sample": {"size": 1}})
 
-            # 第五步: 只投影需要的字段
+            # 只投影需要的字段
             pipeline.append({
                 "$project": {
                     "filename": 1,
@@ -226,7 +264,7 @@ class MongoDBManager:
             return None
 
         except Exception as e:
-            log.error(f"Error getting next available credential (mode={mode}, model_key={model_key}): {e}")
+            log.error(f"Error getting next available credential (mode={mode}, model_name={model_name}): {e}")
             return None
 
     async def get_available_credentials_list(self, mode: str = "geminicli") -> List[str]:
@@ -293,7 +331,7 @@ class MongoDBManager:
 
                 # 插入新凭证（使用 insert_one，因为我们已经确认不存在）
                 try:
-                    await collection.insert_one({
+                    new_credential = {
                         "filename": filename,
                         "credential_data": credential_data,
                         "disabled": False,
@@ -306,7 +344,12 @@ class MongoDBManager:
                         "call_count": 0,
                         "created_at": current_ts,
                         "updated_at": current_ts,
-                    })
+                    }
+                    # preview状态只对geminicli模式有效，默认为True
+                    if mode == "geminicli":
+                        new_credential["preview"] = True
+
+                    await collection.insert_one(new_credential)
                 except Exception as insert_error:
                     # 处理并发插入导致的重复键错误
                     if "duplicate key" in str(insert_error).lower():
@@ -326,29 +369,18 @@ class MongoDBManager:
             return False
 
     async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
-        """获取凭证数据，支持basename匹配以兼容旧数据"""
+        """获取凭证数据"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 首先尝试精确匹配，只投影需要的字段
+            # 精确匹配，只投影需要的字段
             doc = await collection.find_one(
                 {"filename": filename},
                 {"credential_data": 1, "_id": 0}
             )
-            if doc:
-                return doc.get("credential_data")
-
-            # 如果精确匹配失败，尝试使用basename匹配（处理包含路径的旧数据）
-            # 直接使用 $regex 结尾匹配，移除重复的 $or 条件
-            regex_pattern = re.escape(filename)
-            doc = await collection.find_one(
-                {"filename": {"$regex": f".*{regex_pattern}$"}},
-                {"credential_data": 1, "_id": 0}
-            )
-
             if doc:
                 return doc.get("credential_data")
 
@@ -380,24 +412,16 @@ class MongoDBManager:
             return []
 
     async def delete_credential(self, filename: str, mode: str = "geminicli") -> bool:
-        """删除凭证，支持basename匹配以兼容旧数据"""
+        """删除凭证"""
         self._ensure_initialized()
 
         try:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 首先尝试精确匹配删除
+            # 精确匹配删除
             result = await collection.delete_one({"filename": filename})
             deleted_count = result.deleted_count
-
-            # 如果精确匹配没有删除任何记录，尝试basename匹配
-            if deleted_count == 0:
-                regex_pattern = re.escape(filename)
-                result = await collection.delete_one({
-                    "filename": {"$regex": f".*{regex_pattern}$"}
-                })
-                deleted_count = result.deleted_count
 
             if deleted_count > 0:
                 log.debug(f"Deleted {deleted_count} credential(s): {filename} (mode={mode})")
@@ -498,7 +522,7 @@ class MongoDBManager:
     async def update_credential_state(
         self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli"
     ) -> bool:
-        """更新凭证状态，支持basename匹配以兼容旧数据"""
+        """更新凭证状态"""
         self._ensure_initialized()
 
         try:
@@ -515,20 +539,11 @@ class MongoDBManager:
 
             valid_updates["updated_at"] = time.time()
 
-            # 首先尝试精确匹配更新
+            # 精确匹配更新
             result = await collection.update_one(
                 {"filename": filename}, {"$set": valid_updates}
             )
             updated_count = result.modified_count + result.matched_count
-
-            # 如果精确匹配没有更新任何记录，尝试basename匹配
-            if updated_count == 0:
-                regex_pattern = re.escape(filename)
-                result = await collection.update_one(
-                    {"filename": {"$regex": f".*{regex_pattern}$"}},
-                    {"$set": valid_updates}
-                )
-                updated_count = result.modified_count + result.matched_count
 
             return updated_count > 0
 
@@ -537,7 +552,7 @@ class MongoDBManager:
             return False
 
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
-        """获取凭证状态，支持basename匹配以兼容旧数据（不包含error_messages）"""
+        """获取凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
         try:
@@ -545,7 +560,7 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # 首先尝试精确匹配
+            # 精确匹配
             doc = await collection.find_one({"filename": filename})
 
             if doc:
@@ -557,45 +572,30 @@ class MongoDBManager:
                         if isinstance(v, (int, float)) and v > current_time
                     }
 
-                return {
+                state = {
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
                     "last_success": doc.get("last_success", current_time),
                     "user_email": doc.get("user_email"),
                     "model_cooldowns": model_cooldowns,
                 }
-
-            # 如果精确匹配失败，尝试basename匹配
-            regex_pattern = re.escape(filename)
-            doc = await collection.find_one({
-                "filename": {"$regex": f".*{regex_pattern}$"}
-            })
-
-            if doc:
-                model_cooldowns = doc.get("model_cooldowns", {})
-                # 过滤掉损坏的数据(dict类型)和过期的冷却
-                if model_cooldowns:
-                    model_cooldowns = {
-                        k: v for k, v in model_cooldowns.items()
-                        if isinstance(v, (int, float)) and v > current_time
-                    }
-
-                return {
-                    "disabled": doc.get("disabled", False),
-                    "error_codes": doc.get("error_codes", []),
-                    "last_success": doc.get("last_success", current_time),
-                    "user_email": doc.get("user_email"),
-                    "model_cooldowns": model_cooldowns,
-                }
+                # preview状态只对geminicli模式有效
+                if mode == "geminicli":
+                    state["preview"] = doc.get("preview", True)
+                return state
 
             # 返回默认状态
-            return {
+            default_state = {
                 "disabled": False,
                 "error_codes": [],
                 "last_success": current_time,
                 "user_email": None,
                 "model_cooldowns": {},
             }
+            # preview状态只对geminicli模式有效
+            if mode == "geminicli":
+                default_state["preview"] = True
+            return default_state
 
         except Exception as e:
             log.error(f"Error getting credential state {filename}: {e}")
@@ -610,18 +610,20 @@ class MongoDBManager:
             collection = self._db[collection_name]
 
             # 使用投影只获取需要的字段（不包含error_messages）
-            cursor = collection.find(
-                {},
-                projection={
-                    "filename": 1,
-                    "disabled": 1,
-                    "error_codes": 1,
-                    "last_success": 1,
-                    "user_email": 1,
-                    "model_cooldowns": 1,
-                    "_id": 0
-                }
-            )
+            projection = {
+                "filename": 1,
+                "disabled": 1,
+                "error_codes": 1,
+                "last_success": 1,
+                "user_email": 1,
+                "model_cooldowns": 1,
+                "_id": 0
+            }
+            # preview状态只对geminicli模式有效
+            if mode == "geminicli":
+                projection["preview"] = 1
+
+            cursor = collection.find({}, projection=projection)
 
             states = {}
             current_time = time.time()
@@ -637,13 +639,17 @@ class MongoDBManager:
                         if isinstance(v, (int, float)) and v > current_time
                     }
 
-                states[filename] = {
+                state = {
                     "disabled": doc.get("disabled", False),
                     "error_codes": doc.get("error_codes", []),
                     "last_success": doc.get("last_success", time.time()),
                     "user_email": doc.get("user_email"),
                     "model_cooldowns": model_cooldowns,
                 }
+                # preview状态只对geminicli模式有效
+                if mode == "geminicli":
+                    state["preview"] = doc.get("preview", True)
+                states[filename] = state
 
             return states
 
@@ -719,19 +725,21 @@ class MongoDBManager:
                     global_stats["normal"] = count
 
             # 获取所有匹配的文档（用于冷却筛选，因为需要在Python中判断）
-            cursor = collection.find(
-                query,
-                projection={
-                    "filename": 1,
-                    "disabled": 1,
-                    "error_codes": 1,
-                    "last_success": 1,
-                    "user_email": 1,
-                    "rotation_order": 1,
-                    "model_cooldowns": 1,
-                    "_id": 0
-                }
-            ).sort("rotation_order", 1)
+            projection = {
+                "filename": 1,
+                "disabled": 1,
+                "error_codes": 1,
+                "last_success": 1,
+                "user_email": 1,
+                "rotation_order": 1,
+                "model_cooldowns": 1,
+                "_id": 0
+            }
+            # preview状态只对geminicli模式有效
+            if mode == "geminicli":
+                projection["preview"] = 1
+
+            cursor = collection.find(query, projection=projection).sort("rotation_order", 1)
 
             all_summaries = []
             current_time = time.time()
@@ -756,6 +764,9 @@ class MongoDBManager:
                     "rotation_order": doc.get("rotation_order", 0),
                     "model_cooldowns": active_cooldowns,
                 }
+                # preview状态只对geminicli模式有效
+                if mode == "geminicli":
+                    summary["preview"] = doc.get("preview", True)
 
                 # 应用冷却筛选
                 if cooldown_filter == "in_cooldown":
@@ -867,7 +878,7 @@ class MongoDBManager:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 首先尝试精确匹配
+            # 精确匹配
             doc = await collection.find_one(
                 {"filename": filename},
                 {"error_codes": 1, "error_messages": 1, "_id": 0}
@@ -876,20 +887,6 @@ class MongoDBManager:
             if doc:
                 return {
                     "filename": filename,
-                    "error_codes": doc.get("error_codes", []),
-                    "error_messages": doc.get("error_messages", []),
-                }
-
-            # 如果精确匹配失败，尝试basename匹配
-            regex_pattern = re.escape(filename)
-            doc = await collection.find_one(
-                {"filename": {"$regex": f".*{regex_pattern}$"}},
-                {"filename": 1, "error_codes": 1, "error_messages": 1, "_id": 0}
-            )
-
-            if doc:
-                return {
-                    "filename": doc.get("filename", filename),
                     "error_codes": doc.get("error_codes", []),
                     "error_messages": doc.get("error_messages", []),
                 }

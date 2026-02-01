@@ -120,7 +120,8 @@ function createCredsManager(type) {
                                 last_success: item.last_success,
                             },
                             user_email: item.user_email,
-                            model_cooldowns: item.model_cooldowns || {}
+                            model_cooldowns: item.model_cooldowns || {},
+                            preview: item.preview  // 保存preview字段
                         };
                     });
 
@@ -571,6 +572,15 @@ function createCredCard(credInfo, manager) {
         }
     } else {
         statusBadges += '<span class="status-badge" style="background-color: #28a745; color: white;">无错误</span>';
+    }
+
+    // Preview状态显示 (仅对geminicli模式显示)
+    if (managerType !== 'antigravity' && credInfo.preview !== undefined) {
+        if (credInfo.preview) {
+            statusBadges += '<span class="status-badge" style="background-color: #9c27b0; color: white;" title="该凭证支持Preview模型">🔬 Preview</span>';
+        } else {
+            statusBadges += '<span class="status-badge" style="background-color: #607d8b; color: white;" title="该凭证不支持Preview模型">❌ Preview</span>';
+        }
     }
 
     // 模型级冷却状态
