@@ -1,4 +1,4 @@
-full_hash=54bbf76af95359d2d2cab611d8f63d069c0ab3bb
-short_hash=54bbf76
-message=修正消息测试
-date=2026-01-31 19:16:13 +0800
+full_hash=7c9734a3535eb66f09638d29f0248fdfb135ec0e
+short_hash=7c9734a
+message=增加preview可用性字段
+date=2026-02-01 13:09:13 +0800
