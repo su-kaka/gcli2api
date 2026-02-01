@@ -159,7 +159,7 @@ async def record_api_call_success(
     """
     if credential_manager and credential_name:
         await credential_manager.record_api_call_result(
-            credential_name, True, mode=mode, model_key=model_name
+            credential_name, True, mode=mode, model_name=model_name
         )
 
 
@@ -191,7 +191,7 @@ async def record_api_call_error(
             status_code,
             cooldown_until=cooldown_until,
             mode=mode,
-            model_key=model_name,
+            model_name=model_name,
             error_message=error_message
         )
 

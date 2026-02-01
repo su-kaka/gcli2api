@@ -160,7 +160,7 @@ class SQLiteManager:
                 last_success REAL,
                 user_email TEXT,
 
-                -- 模型级 CD 支持 (JSON: {model_key: cooldown_timestamp})
+                -- 模型级 CD 支持 (JSON: {model_name: cooldown_timestamp})
                 model_cooldowns TEXT DEFAULT '{}',
 
                 -- preview 状态 (只对 geminicli 有效，默认为 true)
@@ -303,18 +303,10 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
-                # 确定模型键用于冷却检查
-                model_key = None
+                # 确定模型名用于冷却检查
                 if model_name:
-                    if mode == "geminicli":
-                        # geminicli 使用 pro/flash 作为冷却键
-                        if "pro" in model_name.lower():
-                            model_key = "pro"
-                        else:
-                            model_key = "flash"
-                    else:
-                        # antigravity 使用完整模型名
-                        model_key = model_name
+                    # 所有模式都使用完整模型名
+                    pass
 
                 # 根据模式构建查询
                 if mode == "geminicli":
@@ -346,7 +338,7 @@ class SQLiteManager:
                             model_cooldowns = json.loads(model_cooldowns_json or '{}')
 
                             # 检查该模型是否在冷却中
-                            model_cooldown = model_cooldowns.get(model_key)
+                            model_cooldown = model_cooldowns.get(model_name)
                             if model_cooldown is None or current_time >= model_cooldown:
                                 # 该模型未冷却或冷却已过期
                                 if preview:
@@ -397,7 +389,7 @@ class SQLiteManager:
                             model_cooldowns = json.loads(model_cooldowns_json or '{}')
 
                             # 检查该模型是否在冷却中
-                            model_cooldown = model_cooldowns.get(model_key)
+                            model_cooldown = model_cooldowns.get(model_name)
                             if model_cooldown is None or current_time >= model_cooldown:
                                 # 该模型未冷却或冷却已过期
                                 credential_data = json.loads(credential_json)
@@ -1120,7 +1112,7 @@ class SQLiteManager:
     async def set_model_cooldown(
         self,
         filename: str,
-        model_key: str,
+        model_name: str,
         cooldown_until: Optional[float],
         mode: str = "geminicli"
     ) -> bool:
@@ -1129,7 +1121,7 @@ class SQLiteManager:
 
         Args:
             filename: 凭证文件名
-            model_key: 模型键（antigravity 用模型名，gcli 用 pro/flash）
+            model_name: 模型名（完整模型名，如 "gemini-2.0-flash-exp"）
             cooldown_until: 冷却截止时间戳（None 表示清除冷却）
             mode: 凭证模式 ("geminicli" 或 "antigravity")
 
@@ -1155,9 +1147,9 @@ class SQLiteManager:
 
                     # 更新或删除指定模型的冷却时间
                     if cooldown_until is None:
-                        model_cooldowns.pop(model_key, None)
+                        model_cooldowns.pop(model_name, None)
                     else:
-                        model_cooldowns[model_key] = cooldown_until
+                        model_cooldowns[model_name] = cooldown_until
 
                     # 写回数据库
                     await db.execute(f"""
@@ -1168,7 +1160,7 @@ class SQLiteManager:
                     """, (json.dumps(model_cooldowns), filename))
                     await db.commit()
 
-                    log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
+                    log.debug(f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}")
                     return True
 
         except Exception as e:

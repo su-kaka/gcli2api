@@ -246,7 +246,7 @@ class CredentialManager:
         error_code: Optional[int] = None,
         cooldown_until: Optional[float] = None,
         mode: str = "geminicli",
-        model_key: Optional[str] = None,
+        model_name: Optional[str] = None,
         error_message: Optional[str] = None
     ):
         """
@@ -258,7 +258,7 @@ class CredentialManager:
             error_code: 错误码（如果失败）
             cooldown_until: 冷却截止时间戳（Unix时间戳，针对429 QUOTA_EXHAUSTED）
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_key: 模型键（用于设置模型级冷却）
+            model_name: 模型名（用于设置模型级冷却）
             error_message: 错误信息（如果失败）
         """
         await self._ensure_initialized()
@@ -271,11 +271,11 @@ class CredentialManager:
                 state_updates["error_codes"] = []
                 state_updates["error_messages"] = []
 
-                # 如果提供了 model_key，清除该模型的冷却
-                if model_key:
+                # 如果提供了 model_name，清除该模型的冷却
+                if model_name:
                     if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
                         await self._storage_adapter._backend.set_model_cooldown(
-                            credential_name, model_key, None, mode=mode
+                            credential_name, model_name, None, mode=mode
                         )
 
             elif error_code:
@@ -290,14 +290,14 @@ class CredentialManager:
                 state_updates["error_codes"] = error_codes
                 state_updates["error_messages"] = error_messages
 
-                # 如果提供了冷却时间和模型键，设置模型级冷却
-                if cooldown_until is not None and model_key:
+                # 如果提供了冷却时间和模型名，设置模型级冷却
+                if cooldown_until is not None and model_name:
                     if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
                         await self._storage_adapter._backend.set_model_cooldown(
-                            credential_name, model_key, cooldown_until, mode=mode
+                            credential_name, model_name, cooldown_until, mode=mode
                         )
                         log.info(
-                            f"设置模型级冷却: {credential_name}, model_key={model_key}, "
+                            f"设置模型级冷却: {credential_name}, model_name={model_name}, "
                             f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
                         )
 

@@ -26,17 +26,17 @@ class MongoDBManager:
     }
 
     @staticmethod
-    def _escape_model_key(model_key: str) -> str:
+    def _escape_model_name(model_name: str) -> str:
         """
-        转义模型键中的点号,避免 MongoDB 将其解释为嵌套结构
+        转义模型名中的点号,避免 MongoDB 将其解释为嵌套结构
 
         Args:
-            model_key: 原始模型键 (如 "gemini-2.5-flash")
+            model_name: 原始模型名 (如 "gemini-2.5-flash")
 
         Returns:
-            转义后的模型键 (如 "gemini-2-5-flash")
+            转义后的模型名 (如 "gemini-2-5-flash")
         """
-        return model_key.replace(".", "-")
+        return model_name.replace(".", "-")
 
     def __init__(self):
         self._client: Optional[AsyncIOMotorClient] = None
@@ -201,29 +201,18 @@ class MongoDBManager:
 
             # 如果提供了 model_name，添加冷却检查
             if model_name:
-                # 确定模型键用于冷却检查
-                if mode == "geminicli":
-                    # geminicli 使用 pro/flash 作为冷却键
-                    if "pro" in model_name.lower():
-                        model_key = "pro"
-                    else:
-                        model_key = "flash"
-                else:
-                    # antigravity 使用完整模型名
-                    model_key = model_name
-
-                # 转义模型键中的点号
-                escaped_model_key = self._escape_model_key(model_key)
+                # 转义模型名中的点号
+                escaped_model_name = self._escape_model_name(model_name)
                 pipeline.extend([
                     # 第二步: 添加冷却状态字段
                     {
                         "$addFields": {
                             "is_available": {
                                 "$or": [
-                                    # model_cooldowns 中没有该 model_key
-                                    {"$not": {"$ifNull": [f"$model_cooldowns.{escaped_model_key}", False]}},
+                                    # model_cooldowns 中没有该 model_name
+                                    {"$not": {"$ifNull": [f"$model_cooldowns.{escaped_model_name}", False]}},
                                     # 或者冷却时间已过期
-                                    {"$lte": [f"$model_cooldowns.{escaped_model_key}", current_time]}
+                                    {"$lte": [f"$model_cooldowns.{escaped_model_name}", current_time]}
                                 ]
                             }
                         }
@@ -936,7 +925,7 @@ class MongoDBManager:
     async def set_model_cooldown(
         self,
         filename: str,
-        model_key: str,
+        model_name: str,
         cooldown_until: Optional[float],
         mode: str = "geminicli"
     ) -> bool:
@@ -945,7 +934,7 @@ class MongoDBManager:
 
         Args:
             filename: 凭证文件名
-            model_key: 模型键（antigravity 用模型名，gcli 用 pro/flash）
+            model_name: 模型名（完整模型名，如 "gemini-2.0-flash-exp"）
             cooldown_until: 冷却截止时间戳（None 表示清除冷却）
             mode: 凭证模式 ("geminicli" 或 "antigravity")
 
@@ -958,8 +947,8 @@ class MongoDBManager:
             collection_name = self._get_collection_name(mode)
             collection = self._db[collection_name]
 
-            # 转义模型键中的点号
-            escaped_model_key = self._escape_model_key(model_key)
+            # 转义模型名中的点号
+            escaped_model_name = self._escape_model_name(model_name)
 
             # 使用原子操作直接更新，避免竞态条件
             if cooldown_until is None:
@@ -967,7 +956,7 @@ class MongoDBManager:
                 result = await collection.update_one(
                     {"filename": filename},
                     {
-                        "$unset": {f"model_cooldowns.{escaped_model_key}": ""},
+                        "$unset": {f"model_cooldowns.{escaped_model_name}": ""},
                         "$set": {"updated_at": time.time()}
                     }
                 )
@@ -977,7 +966,7 @@ class MongoDBManager:
                     {"filename": filename},
                     {
                         "$set": {
-                            f"model_cooldowns.{escaped_model_key}": cooldown_until,
+                            f"model_cooldowns.{escaped_model_name}": cooldown_until,
                             "updated_at": time.time()
                         }
                     }
@@ -987,7 +976,7 @@ class MongoDBManager:
                 log.warning(f"Credential {filename} not found")
                 return False
 
-            log.debug(f"Set model cooldown: {filename}, model_key={model_key}, cooldown_until={cooldown_until}")
+            log.debug(f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}")
             return True
 
         except Exception as e:
