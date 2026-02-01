@@ -221,6 +221,13 @@ class MongoDBManager:
             if mode == "geminicli" and model_name:
                 is_preview_model = "preview" in model_name.lower()
 
+                # 先为所有文档添加 preview 字段默认值（如果不存在）
+                pipeline.append({
+                    "$addFields": {
+                        "preview": {"$ifNull": ["$preview", True]}
+                    }
+                })
+
                 if is_preview_model:
                     # 模型名包含 preview，只能使用 preview=True 的凭证
                     pipeline.append({"$match": {"preview": True}})
