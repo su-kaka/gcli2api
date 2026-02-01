@@ -230,34 +230,27 @@ class MongoDBManager:
                     pipeline.append({"$match": {"preview": True}})
                 else:
                     # 模型名不包含 preview
-                    # 使用 $facet 在一次查询中同时检查和获取
-                    pipeline.append({
-                        "$facet": {
-                            "non_preview": [
-                                {"$match": {"preview": False}},
-                                {"$sample": {"size": 1}},
-                                {"$project": {"filename": 1, "credential_data": 1, "_id": 0}}
-                            ],
-                            "preview": [
-                                {"$match": {"preview": True}},
-                                {"$sample": {"size": 1}},
-                                {"$project": {"filename": 1, "credential_data": 1, "_id": 0}}
-                            ]
+                    # 先尝试 preview=False
+                    pipeline_non_preview = pipeline.copy()
+                    pipeline_non_preview.append({"$match": {"preview": False}})
+                    pipeline_non_preview.append({"$sample": {"size": 1}})
+                    pipeline_non_preview.append({
+                        "$project": {
+                            "filename": 1,
+                            "credential_data": 1,
+                            "_id": 0
                         }
                     })
 
-                    # 执行查询
-                    facet_docs = await collection.aggregate(pipeline).to_list(length=1)
+                    docs = await collection.aggregate(pipeline_non_preview).to_list(length=1)
 
-                    if facet_docs:
-                        facet_result = facet_docs[0]
-                        # 优先使用 non_preview，如果没有则使用 preview
-                        if facet_result.get("non_preview"):
-                            return facet_result["non_preview"][0]["filename"], facet_result["non_preview"][0].get("credential_data")
-                        elif facet_result.get("preview"):
-                            return facet_result["preview"][0]["filename"], facet_result["preview"][0].get("credential_data")
+                    if docs:
+                        # 找到 preview=False 的凭证
+                        doc = docs[0]
+                        return doc["filename"], doc.get("credential_data")
 
-                    return None
+                    # 没有 preview=False 的凭证，使用 preview=True 作为后备
+                    pipeline.append({"$match": {"preview": True}})
 
             # 随机抽取一个
             pipeline.append({"$sample": {"size": 1}})
