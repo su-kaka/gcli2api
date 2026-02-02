@@ -1391,7 +1391,7 @@ async def test_credential(
             timeout=30.0
         )
 
-        # 返回实际的状态码
+        # 返回实际的状态码和详细信息
         status_code = response.status_code
 
         if status_code == 200 or status_code == 429:
@@ -1442,6 +1442,17 @@ async def test_credential(
                             log.warning(f"Preview 模型测试失败: {filename} (status={preview_status})")
                     except Exception as e:
                         log.error(f"Preview 模型测试异常: {filename} - {e}")
+
+            # 返回成功响应
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "success": True,
+                    "status_code": status_code,
+                    "message": "测试成功",
+                    "filename": filename
+                }
+            )
         else:
             log.warning(f"凭证测试失败: {filename} (mode={mode}, status={status_code})")
             # 测试失败时保存错误码和错误消息（覆盖模式，只保存最新的一个错误）
@@ -1465,7 +1476,19 @@ async def test_credential(
             except Exception as e:
                 log.error(f"保存测试错误信息失败: {e}")
 
-        return Response(status_code=status_code)
+        # 返回错误响应，包含完整的错误信息
+        error_text = response.text if hasattr(response, 'text') else ""
+
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "success": False,
+                "status_code": status_code,
+                "message": f"测试失败: HTTP {status_code}",
+                "error": error_text,
+                "filename": filename
+            }
+        )
 
     except HTTPException:
         raise

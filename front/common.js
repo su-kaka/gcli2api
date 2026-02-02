@@ -1582,22 +1582,36 @@ async function testCredential(filename) {
             headers: getAuthHeaders()
         });
 
-        if (response.status === 200) {
+        // 解析JSON响应
+        const data = await response.json();
+
+        if (response.status === 200 || response.status === 429) {
             // 凭证可用
-            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: 凭证可用 (200)`;
+            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: ${data.message || '凭证可用'} (${data.status_code || 200})\n模型: ${data.model || 'N/A'}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
-            alert(`✅ 测试成功！\n\n文件: ${filename}\n状态: 凭证可用 (200)`);
+            alert(successMsg);
             await AppState.creds.refresh();
-        } else if (response.status === 429) {
-            // 限流但有效
-            const warnMsg = `⚠️ 测试完成\n文件: ${filename}\n状态: 凭证被限流但有效 (429)`;
-            showStatus(warnMsg.replace(/\n/g, '<br>'), 'warning');
-            alert(`⚠️ 测试完成\n\n文件: ${filename}\n状态: 凭证被限流但有效 (429)`);
-        } else {
-            // 其他错误
-            const errorMsg = `❌ 测试失败\n文件: ${filename}\n错误码: ${response.status}`;
-            showStatus(errorMsg.replace(/\n/g, '<br>'), 'error');
-            alert(`❌ 测试失败\n\n文件: ${filename}\n错误码: ${response.status}`);
+        }
+        else {
+            // 其他错误 - 显示完整错误信息
+            let errorDetails = `❌ 测试失败\n文件: ${filename}\n`;
+
+            // 如果有完整的错误响应，添加到详情中
+            if (data.error) {
+                try {
+                    // 尝试格式化JSON错误
+                    const errorObj = JSON.parse(data.error);
+                    errorDetails += `\n错误详情:\n${JSON.stringify(errorObj, null, 2)}`;
+                } catch {
+                    // 如果不是JSON，直接显示文本
+                    errorDetails += `\n错误详情:\n${data.error}`;
+                }
+            } else {
+                errorDetails += `错误码: ${data.status_code || response.status}`;
+            }
+
+            showStatus(`❌ 测试失败 - ${data.message || '错误码: ' + (data.status_code || response.status)}`, 'error');
+            alert(errorDetails);
         }
     } catch (error) {
         const errorMsg = `测试失败: ${error.message}`;
@@ -1616,22 +1630,36 @@ async function testAntigravityCredential(filename) {
             headers: getAuthHeaders()
         });
 
-        if (response.status === 200) {
+        // 解析JSON响应
+        const data = await response.json();
+
+        if (response.status === 200 || response.status === 429) {
             // 凭证可用
-            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: Antigravity凭证可用 (200)`;
+            const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: ${data.message || 'Antigravity凭证可用'} (${data.status_code || 200})\n模型: ${data.model || 'N/A'}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
-            alert(`✅ 测试成功！\n\n文件: ${filename}\n状态: Antigravity凭证可用 (200)`);
+            alert(successMsg);
             await AppState.antigravityCreds.refresh();
-        } else if (response.status === 429) {
-            // 限流但有效
-            const warnMsg = `⚠️ 测试完成\n文件: ${filename}\n状态: Antigravity凭证被限流但有效 (429)`;
-            showStatus(warnMsg.replace(/\n/g, '<br>'), 'warning');
-            alert(`⚠️ 测试完成\n\n文件: ${filename}\n状态: Antigravity凭证被限流但有效 (429)`);
-        } else {
-            // 其他错误
-            const errorMsg = `❌ 测试失败\n文件: ${filename}\n错误码: ${response.status}`;
-            showStatus(errorMsg.replace(/\n/g, '<br>'), 'error');
-            alert(`❌ 测试失败\n\n文件: ${filename}\n错误码: ${response.status}`);
+        }
+        else {
+            // 其他错误 - 显示完整错误信息
+            let errorDetails = `❌ 测试失败\n文件: ${filename}\n`;
+
+            // 如果有完整的错误响应，添加到详情中
+            if (data.error) {
+                try {
+                    // 尝试格式化JSON错误
+                    const errorObj = JSON.parse(data.error);
+                    errorDetails += `\n错误详情:\n${JSON.stringify(errorObj, null, 2)}`;
+                } catch {
+                    // 如果不是JSON，直接显示文本
+                    errorDetails += `\n错误详情:\n${data.error}`;
+                }
+            } else {
+                errorDetails += `错误码: ${data.status_code || response.status}`;
+            }
+
+            showStatus(`❌ 测试失败 - ${data.message || '错误码: ' + (data.status_code || response.status)}`, 'error');
+            alert(errorDetails);
         }
     } catch (error) {
         const errorMsg = `测试失败: ${error.message}`;
