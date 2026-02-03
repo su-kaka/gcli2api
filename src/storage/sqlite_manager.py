@@ -432,6 +432,9 @@ class SQLiteManager:
         """存储或更新凭证"""
         self._ensure_initialized()
 
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
+
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
@@ -477,6 +480,9 @@ class SQLiteManager:
         """获取凭证数据"""
         self._ensure_initialized()
 
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
+
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
@@ -515,6 +521,9 @@ class SQLiteManager:
         """删除凭证"""
         self._ensure_initialized()
 
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
+
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
@@ -540,6 +549,9 @@ class SQLiteManager:
     async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli") -> bool:
         """更新凭证状态"""
         self._ensure_initialized()
+
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
 
         try:
             table_name = self._get_table_name(mode)
@@ -598,6 +610,9 @@ class SQLiteManager:
     async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
         """获取凭证状态（不包含error_messages）"""
         self._ensure_initialized()
+
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
 
         try:
             table_name = self._get_table_name(mode)
@@ -1075,6 +1090,9 @@ class SQLiteManager:
         """
         self._ensure_initialized()
 
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
+
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
@@ -1131,6 +1149,9 @@ class SQLiteManager:
             是否成功
         """
         self._ensure_initialized()
+
+        # 统一使用 basename 处理文件名
+        filename = os.path.basename(filename)
 
         try:
             table_name = self._get_table_name(mode)
