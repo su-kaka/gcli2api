@@ -105,9 +105,21 @@ async def generate_content(
     from src.api.antigravity import non_stream_request
     response = await non_stream_request(body=api_request)
 
-    # 直接返回响应（response已经是FastAPI Response对象）
+    # 解包装响应：Antigravity API 可能返回的格式有额外的 response 包装层
+    # 需要提取并返回标准 Gemini 格式
     # 保持 Gemini 原生的 inlineData 格式,不进行 Markdown 转换
-    return response
+    try:
+        if response.status_code == 200:
+            response_data = json.loads(response.body if hasattr(response, 'body') else response.content)
+            # 如果有 response 包装，解包装它
+            if "response" in response_data:
+                unwrapped_data = response_data["response"]
+                return JSONResponse(content=unwrapped_data)
+        # 错误响应或没有 response 字段，直接返回
+        return response
+    except Exception as e:
+        log.warning(f"Failed to unwrap response: {e}, returning original response")
+        return response
 
 @router.post("/antigravity/v1beta/models/{model:path}:streamGenerateContent")
 @router.post("/antigravity/v1/models/{model:path}:streamGenerateContent")
@@ -253,8 +265,9 @@ async def stream_generate_content(
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
         from src.converter.gemini_fix import normalize_gemini_request
-        from src.converter.anti_truncation import apply_anti_truncation_to_stream
-        from src.api.antigravity import non_stream_request
+        from src.converter.anti_truncation import AntiTruncationStreamProcessor
+        from src.converter.anti_truncation import apply_anti_truncation
+        from src.api.antigravity import stream_request
 
         # 先进行基础标准化
         normalized_req = await normalize_gemini_request(normalized_dict.copy(), mode="antigravity")
@@ -267,17 +280,58 @@ async def stream_generate_content(
 
         max_attempts = await get_anti_truncation_max_attempts()
 
-        # 使用 apply_anti_truncation_to_stream 包装请求
-        # 这个函数会自动处理所有的续传逻辑
-        streaming_response = await apply_anti_truncation_to_stream(
-            non_stream_request,
-            api_request,
+        # 首先对payload应用反截断指令
+        anti_truncation_payload = apply_anti_truncation(api_request)
+
+        # 定义流式请求函数（返回 StreamingResponse）
+        async def stream_request_wrapper(payload):
+            # stream_request 返回异步生成器，需要包装成 StreamingResponse
+            stream_gen = stream_request(body=payload, native=False)
+            return StreamingResponse(stream_gen, media_type="text/event-stream")
+
+        # 创建反截断处理器
+        processor = AntiTruncationStreamProcessor(
+            stream_request_wrapper,
+            anti_truncation_payload,
             max_attempts
         )
 
-        # yield StreamingResponse 的内容
-        async for chunk in streaming_response.body_iterator:
-            yield chunk
+        # 迭代 process_stream() 生成器，并展开 response 包装
+        async for chunk in processor.process_stream():
+            if isinstance(chunk, (str, bytes)):
+                chunk_str = chunk.decode('utf-8') if isinstance(chunk, bytes) else chunk
+
+                # 解析并展开 response 包装
+                if chunk_str.startswith("data: "):
+                    json_str = chunk_str[6:].strip()
+
+                    # 跳过 [DONE] 标记
+                    if json_str == "[DONE]":
+                        yield chunk
+                        continue
+
+                    try:
+                        # 解析JSON
+                        data = json.loads(json_str)
+
+                        # 展开 response 包装
+                        if "response" in data and "candidates" not in data:
+                            log.debug(f"[ANTIGRAVITY-ANTI-TRUNCATION] 展开response包装")
+                            unwrapped_data = data["response"]
+                            # 重新构建SSE格式
+                            yield f"data: {json.dumps(unwrapped_data, ensure_ascii=False)}\n\n".encode('utf-8')
+                        else:
+                            # 已经是展开的格式，直接返回
+                            yield chunk
+                    except json.JSONDecodeError:
+                        # JSON解析失败，直接返回原始chunk
+                        yield chunk
+                else:
+                    # 不是SSE格式，直接返回
+                    yield chunk
+            else:
+                # 其他类型，直接返回
+                yield chunk
 
     # ========== 普通流式生成器 ==========
     async def normal_stream_generator():

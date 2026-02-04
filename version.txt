@@ -1,4 +1,4 @@
-full_hash=4309751727f69b3c7878be2156e5e0f7d7d838c5
-short_hash=4309751
-message=避免不必要的重试
-date=2026-01-09 21:28:50 +0800
+full_hash=030ea235f696ba0a2f215d8da8feb632d7c24957
+short_hash=030ea23
+message=修改所有数据库操作，确保始终使用 basename 进行存储和查询
+date=2026-02-03 22:17:12 +0800

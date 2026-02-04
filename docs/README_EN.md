@@ -282,7 +282,7 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 ## ⚠️ Important Notes
 
-- The current OAuth authentication process **only supports localhost access**, meaning authentication must be completed through `http://127.0.0.1:7861/auth` (default port 7861, modifiable via PORT environment variable).
+- The current OAuth authentication process **only supports localhost access**, meaning authentication must be completed through `http://127.0.0.1:7861/` (default port 7861, modifiable via PORT environment variable).
 - **For deployment on cloud servers or other remote environments, please first run the service locally and complete OAuth authentication to obtain the generated json credential files (located in the `./geminicli/creds` directory), then upload these files via the auth panel.**
 - **Please strictly comply with usage restrictions, only for personal learning and non-commercial purposes**
 
@@ -290,7 +290,7 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 
 ## Configuration Instructions
 
-1. Visit `http://127.0.0.1:7861/auth` (default port, modifiable via PORT environment variable)
+1. Visit `http://127.0.0.1:7861/` (default port, modifiable via PORT environment variable)
 2. Complete OAuth authentication flow (default password: `pwd`, modifiable via environment variables)
    - **GCLI Mode**: For obtaining Google Cloud Gemini API credentials
    - **Antigravity Mode**: For obtaining Google Antigravity API credentials

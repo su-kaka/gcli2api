@@ -6,16 +6,16 @@ from pydantic import BaseModel, Field
 # Pydantic v1/v2 兼容性辅助函数
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
     """
-    兼容 Pydantic v1 和 v2 的模型转字典方法
-    - v1: model.dict()
-    - v2: model.model_dump()
+    兼容 Pydantic v1 和 v2 的模型转字典方法，排除 None 值
+    - v1: model.dict(exclude_none=True)
+    - v2: model.model_dump(exclude_none=True)
     """
     if hasattr(model, 'model_dump'):
         # Pydantic v2
-        return model.model_dump()
+        return model.model_dump(exclude_none=True)
     else:
         # Pydantic v1
-        return model.dict()
+        return model.dict(exclude_none=True)
 
 
 # Common Models
@@ -126,7 +126,10 @@ class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
-    thought: Optional[bool] = False
+    thought: Optional[bool] = None  # 改为 None，避免序列化时包含 False
+    
+    class Config:
+        extra = "allow"  # 允许额外字段（如 functionCall, functionResponse）
 
 
 class GeminiContent(BaseModel):

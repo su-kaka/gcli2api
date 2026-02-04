@@ -17,7 +17,7 @@ from config import (
 )
 from log import log
 
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
@@ -34,22 +34,7 @@ from src.api.utils import (
 
 # ==================== 全局凭证管理器 ====================
 
-# 全局凭证管理器实例（单例模式）
-_credential_manager: Optional[CredentialManager] = None
-
-
-async def _get_credential_manager() -> CredentialManager:
-    """
-    获取全局凭证管理器实例
-    
-    Returns:
-        CredentialManager实例
-    """
-    global _credential_manager
-    if not _credential_manager:
-        _credential_manager = CredentialManager()
-        await _credential_manager.initialize()
-    return _credential_manager
+# 使用全局单例 credential_manager，自动初始化
 
 
 # ==================== 辅助函数 ====================
@@ -75,8 +60,13 @@ def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[s
 
     # 根据模型名称判断 request_type
     if model_name:
-        request_type = "image_gen" if "image" in model_name.lower() else "agent"
-        headers['requestType'] = request_type
+        # 先判断是否是图片模型
+        if "image" in model_name.lower():
+            request_type = "image_gen"
+            headers['requestType'] = request_type
+        else:
+            request_type = "agent"
+            headers['requestType'] = request_type
 
     return headers
 
@@ -99,14 +89,11 @@ async def stream_request(
     Yields:
         Response对象（错误时）或 bytes流/str流（成功时）
     """
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
-
     model_name = body.get("model", "")
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_key=model_name
+        mode="antigravity", model_name=model_name
     )
 
     if not cred_result:
@@ -121,6 +108,7 @@ async def stream_request(
 
     current_file, credential_data = cred_result
     access_token = credential_data.get("access_token") or credential_data.get("token")
+    project_id = credential_data.get("project_id", "")
 
     if not access_token:
         log.error(f"[ANTIGRAVITY STREAM] No access token in credential: {current_file}")
@@ -141,6 +129,13 @@ async def stream_request(
     if headers:
         auth_headers.update(headers)
 
+    # 构建包含project的payload
+    final_payload = {
+        "model": body.get("model"),
+        "project": project_id,
+        "request": body.get("request", {}),
+    }
+
     # 3. 调用stream_post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -148,14 +143,34 @@ async def stream_request(
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
+    next_cred_task = None  # 预热的下一个凭证任务
+
+    # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
+    async def refresh_credential_fast():
+        nonlocal current_file, access_token, auth_headers, project_id, final_payload
+        cred_result = await credential_manager.get_valid_credential(
+            mode="antigravity", model_name=model_name
+        )
+        if not cred_result:
+            return None
+        current_file, credential_data = cred_result
+        access_token = credential_data.get("access_token") or credential_data.get("token")
+        project_id = credential_data.get("project_id", "")
+        if not access_token:
+            return None
+        # 只更新token和project_id,不重建整个headers和payload
+        auth_headers["Authorization"] = f"Bearer {access_token}"
+        final_payload["project"] = project_id
+        return True
 
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
+        need_retry = False  # 标记是否需要重试
 
         try:
             async for chunk in stream_post_async(
                 url=target_url,
-                body=body,
+                body=final_payload,
                 native=native,
                 headers=auth_headers
             ):
@@ -164,23 +179,38 @@ async def stream_request(
                     status_code = chunk.status_code
                     last_error_response = chunk  # 记录最后一次错误
 
-                    # 如果错误码是429或者不在禁用码当中，做好记录后进行重试
-                    if status_code == 429 or status_code not in DISABLE_ERROR_CODES:
-                        log.warning(f"[ANTIGRAVITY STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}")
+                    # 缓存错误解析结果,避免重复decode
+                    error_body = None
+                    try:
+                        error_body = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
+                    except Exception:
+                        error_body = ""
+
+                    # 如果错误码是429、503或者在禁用码当中，做好记录后进行重试
+                    if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
+                        log.warning(f"[ANTIGRAVITY STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
+
+                        # 并行预热下一个凭证,不阻塞当前处理
+                        if next_cred_task is None and attempt < max_retries:
+                            next_cred_task = asyncio.create_task(
+                                credential_manager.get_valid_credential(
+                                    mode="antigravity", model_name=model_name
+                                )
+                            )
 
                         # 记录错误
                         cooldown_until = None
-                        if status_code == 429:
-                            # 尝试解析冷却时间
+                        if (status_code == 429 or status_code == 503) and error_body:
+                            # 使用已缓存的error_body解析冷却时间
                             try:
-                                error_body = chunk.body.decode('utf-8') if isinstance(chunk.body, bytes) else str(chunk.body)
                                 cooldown_until = await parse_and_log_cooldown(error_body, mode="antigravity")
                             except Exception:
                                 pass
 
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            cooldown_until, mode="antigravity", model_key=model_name
+                            cooldown_until, mode="antigravity", model_name=model_name,
+                            error_message=error_body
                         )
 
                         # 检查是否应该重试
@@ -191,50 +221,20 @@ async def stream_request(
                         )
 
                         if should_retry and attempt < max_retries:
-                            # 重新获取凭证并重试
-                            log.info(f"[ANTIGRAVITY STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
-                            await asyncio.sleep(retry_interval)
-
-                            # 获取新凭证
-                            cred_result = await credential_manager.get_valid_credential(
-                                mode="antigravity", model_key=model_name
-                            )
-                            if not cred_result:
-                                log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证")
-                                yield Response(
-                                    content=json.dumps({"error": "当前无可用凭证"}),
-                                    status_code=500,
-                                    media_type="application/json"
-                                )
-                                return
-
-                            current_file, credential_data = cred_result
-                            access_token = credential_data.get("access_token") or credential_data.get("token")
-
-                            if not access_token:
-                                log.error(f"[ANTIGRAVITY STREAM] No access token in credential: {current_file}")
-                                yield Response(
-                                    content=json.dumps({"error": "凭证中没有访问令牌"}),
-                                    status_code=500,
-                                    media_type="application/json"
-                                )
-                                return
-
-                            auth_headers = build_antigravity_headers(access_token, model_name)
-                            if headers:
-                                auth_headers.update(headers)
-                            break  # 跳出内层循环，重新请求
+                            need_retry = True
+                            break  # 跳出内层循环，准备重试
                         else:
                             # 不重试，直接返回原始错误
                             log.error(f"[ANTIGRAVITY STREAM] 达到最大重试次数或不应重试，返回原始错误")
                             yield chunk
                             return
                     else:
-                        # 错误码在禁用码当中，直接返回，无需重试
-                        log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
+                        # 错误码不在禁用码当中，直接返回，无需重试
+                        log.error(f"[ANTIGRAVITY STREAM] 流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
-                            None, mode="antigravity", model_key=model_name
+                            None, mode="antigravity", model_name=model_name,
+                            error_message=error_body
                         )
                         yield chunk
                         return
@@ -243,10 +243,10 @@ async def stream_request(
                     # 只在第一个chunk时记录成功
                     if not success_recorded:
                         await record_api_call_success(
-                            credential_manager, current_file, mode="antigravity", model_key=model_name
+                            credential_manager, current_file, mode="antigravity", model_name=model_name
                         )
                         success_recorded = True
-                        log.info(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
+                        log.debug(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
 
                     # 记录原始chunk内容（用于调试）
                     if isinstance(chunk, bytes):
@@ -256,10 +256,65 @@ async def stream_request(
 
                     yield chunk
 
-            # 流式请求成功完成，退出重试循环
+            # 流式请求完成，检查结果
             if success_recorded:
-                log.info(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
-            return
+                log.debug(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
+                return
+            elif not need_retry:
+                # 没有收到任何数据（空回复），需要重试
+                log.warning(f"[ANTIGRAVITY STREAM] 收到空回复，无任何内容，凭证: {current_file}")
+                await record_api_call_error(
+                    credential_manager, current_file, 200,
+                    None, mode="antigravity", model_name=model_name,
+                    error_message="Empty response from API"
+                )
+                
+                if attempt < max_retries:
+                    need_retry = True
+                else:
+                    log.error(f"[ANTIGRAVITY STREAM] 空回复达到最大重试次数")
+                    yield Response(
+                        content=json.dumps({"error": "服务返回空回复"}),
+                        status_code=500,
+                        media_type="application/json"
+                    )
+                    return
+            
+            # 统一处理重试
+            if need_retry:
+                log.info(f"[ANTIGRAVITY STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
+
+                # 使用预热的凭证任务,避免等待
+                if next_cred_task is not None:
+                    try:
+                        cred_result = await next_cred_task
+                        next_cred_task = None  # 重置任务
+
+                        if cred_result:
+                            current_file, credential_data = cred_result
+                            access_token = credential_data.get("access_token") or credential_data.get("token")
+                            project_id = credential_data.get("project_id", "")
+                            if access_token and project_id:
+                                auth_headers["Authorization"] = f"Bearer {access_token}"
+                                final_payload["project"] = project_id
+                                await asyncio.sleep(retry_interval)
+                                continue  # 重试
+                    except Exception as e:
+                        log.warning(f"[ANTIGRAVITY STREAM] 预热凭证任务失败: {e}")
+                        next_cred_task = None
+
+                # 如果预热的凭证不可用,则同步获取
+                await asyncio.sleep(retry_interval)
+
+                if not await refresh_credential_fast():
+                    log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证或令牌")
+                    yield Response(
+                        content=json.dumps({"error": "当前无可用凭证"}),
+                        status_code=500,
+                        media_type="application/json"
+                    )
+                    return
+                continue  # 重试
 
         except Exception as e:
             log.error(f"[ANTIGRAVITY STREAM] 流式请求异常: {e}, 凭证: {current_file}")
@@ -289,7 +344,7 @@ async def non_stream_request(
     """
     # 检查是否启用流式收集模式
     if await get_antigravity_stream2nostream():
-        log.info("[ANTIGRAVITY] 使用流式收集模式实现非流式请求")
+        log.debug("[ANTIGRAVITY] 使用流式收集模式实现非流式请求")
 
         # 调用stream_request获取流
         stream = stream_request(body=body, native=False, headers=headers)
@@ -300,16 +355,13 @@ async def non_stream_request(
         return await collect_streaming_response(stream)
 
     # 否则使用传统非流式模式
-    log.info("[ANTIGRAVITY] 使用传统非流式模式")
-
-    # 获取凭证管理器
-    credential_manager = await _get_credential_manager()
+    log.debug("[ANTIGRAVITY] 使用传统非流式模式")
 
     model_name = body.get("model", "")
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_key=model_name
+        mode="antigravity", model_name=model_name
     )
 
     if not cred_result:
@@ -323,6 +375,7 @@ async def non_stream_request(
 
     current_file, credential_data = cred_result
     access_token = credential_data.get("access_token") or credential_data.get("token")
+    project_id = credential_data.get("project_id", "")
 
     if not access_token:
         log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
@@ -342,6 +395,13 @@ async def non_stream_request(
     if headers:
         auth_headers.update(headers)
 
+    # 构建包含project的payload
+    final_payload = {
+        "model": body.get("model"),
+        "project": project_id,
+        "request": body.get("request", {}),
+    }
+
     # 3. 调用post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -349,12 +409,33 @@ async def non_stream_request(
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
+    next_cred_task = None  # 预热的下一个凭证任务
+
+    # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
+    async def refresh_credential_fast():
+        nonlocal current_file, access_token, auth_headers, project_id, final_payload
+        cred_result = await credential_manager.get_valid_credential(
+            mode="antigravity", model_name=model_name
+        )
+        if not cred_result:
+            return None
+        current_file, credential_data = cred_result
+        access_token = credential_data.get("access_token") or credential_data.get("token")
+        project_id = credential_data.get("project_id", "")
+        if not access_token:
+            return None
+        # 只更新token和project_id,不重建整个headers和payload
+        auth_headers["Authorization"] = f"Bearer {access_token}"
+        final_payload["project"] = project_id
+        return True
 
     for attempt in range(max_retries + 1):
+        need_retry = False  # 标记是否需要重试
+        
         try:
             response = await post_async(
                 url=target_url,
-                json=body,
+                json=final_payload,
                 headers=auth_headers,
                 timeout=300.0
             )
@@ -363,92 +444,136 @@ async def non_stream_request(
 
             # 成功
             if status_code == 200:
-                await record_api_call_success(
-                    credential_manager, current_file, mode="antigravity", model_key=model_name
-                )
-                return Response(
+                # 检查是否为空回复
+                if not response.content or len(response.content) == 0:
+                    log.warning(f"[ANTIGRAVITY] 收到200响应但内容为空，凭证: {current_file}")
+                    
+                    # 记录错误
+                    await record_api_call_error(
+                        credential_manager, current_file, 200,
+                        None, mode="antigravity", model_name=model_name,
+                        error_message="Empty response from API"
+                    )
+                    
+                    if attempt < max_retries:
+                        need_retry = True
+                    else:
+                        log.error(f"[ANTIGRAVITY] 空回复达到最大重试次数")
+                        return Response(
+                            content=json.dumps({"error": "服务返回空回复"}),
+                            status_code=500,
+                            media_type="application/json"
+                        )
+                else:
+                    # 正常响应
+                    await record_api_call_success(
+                        credential_manager, current_file, mode="antigravity", model_name=model_name
+                    )
+                    return Response(
+                        content=response.content,
+                        status_code=200,
+                        headers=dict(response.headers)
+                    )
+
+            # 失败 - 记录最后一次错误
+            if status_code != 200:
+                last_error_response = Response(
                     content=response.content,
-                    status_code=200,
+                    status_code=status_code,
                     headers=dict(response.headers)
                 )
 
-            # 失败 - 记录最后一次错误
-            last_error_response = Response(
-                content=response.content,
-                status_code=status_code,
-                headers=dict(response.headers)
-            )
+                # 判断是否需要重试
+                # 缓存错误文本,避免重复解析
+                error_text = ""
+                try:
+                    error_text = response.text
+                except Exception:
+                    pass
 
-            # 判断是否需要重试
-            if status_code == 429 or status_code not in DISABLE_ERROR_CODES:
-                log.warning(f"[ANTIGRAVITY] 非流式请求失败 (status={status_code}), 凭证: {current_file}")
+                if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
+                    log.warning(f"[ANTIGRAVITY] 非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
 
-                # 记录错误
-                cooldown_until = None
-                if status_code == 429:
-                    # 尝试解析冷却时间
-                    try:
-                        error_text = response.text
-                        cooldown_until = await parse_and_log_cooldown(error_text, mode="antigravity")
-                    except Exception:
-                        pass
+                    # 并行预热下一个凭证,不阻塞当前处理
+                    if next_cred_task is None and attempt < max_retries:
+                        next_cred_task = asyncio.create_task(
+                            credential_manager.get_valid_credential(
+                                mode="antigravity", model_name=model_name
+                            )
+                        )
 
-                await record_api_call_error(
-                    credential_manager, current_file, status_code,
-                    cooldown_until, mode="antigravity", model_key=model_name
-                )
+                    # 记录错误
+                    cooldown_until = None
+                    if status_code == 429 or status_code == 503 and error_text:
+                        # 使用已缓存的error_text解析冷却时间
+                        try:
+                            cooldown_until = await parse_and_log_cooldown(error_text, mode="antigravity")
+                        except Exception:
+                            pass
 
-                # 检查是否应该重试
-                should_retry = await handle_error_with_retry(
-                    credential_manager, status_code, current_file,
-                    retry_config["retry_enabled"], attempt, max_retries, retry_interval,
-                    mode="antigravity"
-                )
-
-                if should_retry and attempt < max_retries:
-                    # 重新获取凭证并重试
-                    log.info(f"[ANTIGRAVITY] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
-                    await asyncio.sleep(retry_interval)
-
-                    # 获取新凭证
-                    cred_result = await credential_manager.get_valid_credential(
-                        mode="antigravity", model_key=model_name
+                    await record_api_call_error(
+                        credential_manager, current_file, status_code,
+                        cooldown_until, mode="antigravity", model_name=model_name,
+                        error_message=error_text
                     )
-                    if not cred_result:
-                        log.error("[ANTIGRAVITY] 重试时无可用凭证")
-                        return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
-                            status_code=500,
-                            media_type="application/json"
-                        )
 
-                    current_file, credential_data = cred_result
-                    access_token = credential_data.get("access_token") or credential_data.get("token")
+                    # 检查是否应该重试
+                    should_retry = await handle_error_with_retry(
+                        credential_manager, status_code, current_file,
+                        retry_config["retry_enabled"], attempt, max_retries, retry_interval,
+                        mode="antigravity"
+                    )
 
-                    if not access_token:
-                        log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
-                        return Response(
-                            content=json.dumps({"error": "凭证中没有访问令牌"}),
-                            status_code=500,
-                            media_type="application/json"
-                        )
-
-                    auth_headers = build_antigravity_headers(access_token, model_name)
-                    if headers:
-                        auth_headers.update(headers)
-                    continue  # 重试
+                    if should_retry and attempt < max_retries:
+                        need_retry = True
+                    else:
+                        # 不重试，直接返回原始错误
+                        log.error(f"[ANTIGRAVITY] 达到最大重试次数或不应重试，返回原始错误")
+                        return last_error_response
                 else:
-                    # 不重试，直接返回原始错误
-                    log.error(f"[ANTIGRAVITY] 达到最大重试次数或不应重试，返回原始错误")
+                    # 错误码不在禁用码当中，直接返回，无需重试
+                    log.error(f"[ANTIGRAVITY] 非流式请求失败，非重试错误码 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
+                    await record_api_call_error(
+                        credential_manager, current_file, status_code,
+                        None, mode="antigravity", model_name=model_name,
+                        error_message=error_text
+                    )
                     return last_error_response
-            else:
-                # 错误码在禁用码当中，直接返回，无需重试
-                log.error(f"[ANTIGRAVITY] 非流式请求失败，禁用错误码 (status={status_code}), 凭证: {current_file}")
-                await record_api_call_error(
-                    credential_manager, current_file, status_code,
-                    None, mode="antigravity", model_key=model_name
-                )
-                return last_error_response
+            
+            # 统一处理重试
+            if need_retry:
+                log.info(f"[ANTIGRAVITY] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
+
+                # 使用预热的凭证任务,避免等待
+                if next_cred_task is not None:
+                    try:
+                        cred_result = await next_cred_task
+                        next_cred_task = None  # 重置任务
+
+                        if cred_result:
+                            current_file, credential_data = cred_result
+                            access_token = credential_data.get("access_token") or credential_data.get("token")
+                            project_id = credential_data.get("project_id", "")
+                            if access_token and project_id:
+                                auth_headers["Authorization"] = f"Bearer {access_token}"
+                                final_payload["project"] = project_id
+                                await asyncio.sleep(retry_interval)
+                                continue  # 重试
+                    except Exception as e:
+                        log.warning(f"[ANTIGRAVITY] 预热凭证任务失败: {e}")
+                        next_cred_task = None
+
+                # 如果预热的凭证不可用,则同步获取
+                await asyncio.sleep(retry_interval)
+
+                if not await refresh_credential_fast():
+                    log.error("[ANTIGRAVITY] 重试时无可用凭证或令牌")
+                    return Response(
+                        content=json.dumps({"error": "当前无可用凭证"}),
+                        status_code=500,
+                        media_type="application/json"
+                    )
+                continue  # 重试
 
         except Exception as e:
             log.error(f"[ANTIGRAVITY] 非流式请求异常: {e}, 凭证: {current_file}")
@@ -479,7 +604,6 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
         返回空列表如果获取失败
     """
     # 获取凭证管理器和可用凭证
-    credential_manager = await _get_credential_manager()
     cred_result = await credential_manager.get_valid_credential(mode="antigravity")
     if not cred_result:
         log.error("[ANTIGRAVITY] No valid credentials available for fetching models")

@@ -18,7 +18,7 @@ from config import (
 )
 from log import log
 
-from .httpx_client import get_async, post_async
+from src.httpx_client import get_async, post_async
 
 
 class TokenError(Exception):

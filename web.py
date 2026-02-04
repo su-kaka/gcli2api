@@ -14,19 +14,19 @@ from config import get_server_host, get_server_port
 from log import log
 
 # Import managers and utilities
-from src.credential_manager import CredentialManager
+from src.credential_manager import credential_manager
 
 # Import all routers
 from src.router.antigravity.openai import router as antigravity_openai_router
 from src.router.antigravity.gemini import router as antigravity_gemini_router
 from src.router.antigravity.anthropic import router as antigravity_anthropic_router
 from src.router.antigravity.model_list import router as antigravity_model_list_router
-from src.router.geminicli.openai import router as openai_router
-from src.router.geminicli.gemini import router as gemini_router
+from src.router.geminicli.openai import router as geminicli_openai_router
+from src.router.geminicli.gemini import router as geminicli_gemini_router
 from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.router.geminicli.model_list import router as geminicli_model_list_router
 from src.task_manager import shutdown_all_tasks
-from src.web_routes import router as web_router
+from src.panel import router as panel_router
 
 # 全局凭证管理器
 global_credential_manager = None
@@ -47,10 +47,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"配置缓存初始化失败: {e}")
 
-    # 初始化全局凭证管理器
+    # 初始化全局凭证管理器（通过单例工厂）
     try:
-        global_credential_manager = CredentialManager()
-        await global_credential_manager.initialize()
+        # credential_manager 会在第一次调用时自动初始化
+        # 这里预先触发初始化以便在启动时检测错误
+        await credential_manager._get_or_create()
         log.info("凭证管理器初始化成功")
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
@@ -100,10 +101,10 @@ app.add_middleware(
 
 # 挂载路由器
 # OpenAI兼容路由 - 处理OpenAI格式请求
-app.include_router(openai_router, prefix="", tags=["OpenAI Compatible API"])
+app.include_router(geminicli_openai_router, prefix="", tags=["Geminicli OpenAI API"])
 
 # Gemini原生路由 - 处理Gemini格式请求
-app.include_router(gemini_router, prefix="", tags=["Gemini Native API"])
+app.include_router(geminicli_gemini_router, prefix="", tags=["Geminicli Gemini API"])
 
 # Geminicli模型列表路由 - 处理Gemini格式的模型列表请求
 app.include_router(geminicli_model_list_router, prefix="", tags=["Geminicli Model List"])
@@ -123,10 +124,10 @@ app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity A
 # Geminicli Anthropic Messages 路由 - Anthropic Messages 格式兼容 (Geminicli)
 app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthropic Messages"])
 
-# Web路由 - 包含认证、凭证管理和控制面板功能
-app.include_router(web_router, prefix="", tags=["Web Interface"])
+# Panel路由 - 包含认证、凭证管理和控制面板功能
+app.include_router(panel_router, prefix="", tags=["Panel Interface"])
 
-# 静态文件路由 - 服务docs目录下的文件（如捐赠图片）
+# 静态文件路由 - 服务docs目录下的文件
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 
 # 静态文件路由 - 服务front目录下的文件（HTML、JS、CSS等）
@@ -137,16 +138,6 @@ app.mount("/front", StaticFiles(directory="front"), name="front")
 @app.head("/keepalive")
 async def keepalive() -> Response:
     return Response(status_code=200)
-
-
-def get_credential_manager():
-    """获取全局凭证管理器实例"""
-    return global_credential_manager
-
-
-# 导出给其他模块使用
-__all__ = ["app", "get_credential_manager"]
-
 
 async def main():
     """异步主启动函数"""

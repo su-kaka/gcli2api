@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCLI2API 控制面板</title>
+    <link rel="stylesheet" href="./front/dark_mode.css">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -1168,10 +1169,13 @@
                         检查更新
                     </button>
                 </div>
-                <button onclick="logout()"
-                    style="padding: 8px 20px; background-color: #dc3545; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
-                    退出登录
-                </button>
+                <div style="display: flex; align-items: center;">
+                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="切换夜间模式">🌙</button>
+                    <button onclick="logout()"
+                        style="padding: 8px 20px; background-color: #dc3545; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        退出登录
+                    </button>
+                </div>
             </div>
 
             <!-- 标签页 -->
@@ -1485,6 +1489,12 @@
                         <strong style="color: #0c5460;">✅ 检验成功可以恢复403错误</strong>，让凭证重新正常工作。<br>
                         建议在遇到403错误时使用此功能。
                     </p>
+                    <strong>💡 设置预览功能说明：</strong>
+                    <p style="margin: 10px 0;">
+                        点击每个凭证的"设置预览"按钮可以配置Preview通道。<br>
+                        <strong style="color: #0c5460;">✅ 设置预览可以解决部分凭证调用preview模型时404的问题</strong>。<br>
+                        建议在调用gemini-3-pro-preview等模型遇到404错误时使用此功能。
+                    </p>
                 </div>
 
                 <!-- 状态统计 -->
@@ -1526,6 +1536,8 @@
                             disabled>批量删除</button>
                         <button class="batch-btn" style="background-color: #ff9800;" id="batchVerifyBtn"
                             onclick="batchVerifyProjectIds()" disabled>批量检验</button>
+                        <button class="batch-btn" style="background-color: #9c27b0;" id="batchPreviewBtn"
+                            onclick="batchConfigurePreview()" disabled>批量设置预览</button>
                         <button class="batch-btn batch-email" onclick="refreshAllEmails()">刷新所有邮箱</button>
                         <button class="batch-btn" style="background-color: #e91e63;"
                             onclick="deduplicateByEmail()">凭证一键去重</button>
@@ -1555,6 +1567,13 @@
                         <option value="all">全部</option>
                         <option value="in_cooldown">CD中</option>
                         <option value="no_cooldown">未CD</option>
+                    </select>
+
+                    <label for="previewFilter" style="margin-left: 20px;">Preview：</label>
+                    <select id="previewFilter" class="filter-select" onchange="applyStatusFilter()">
+                        <option value="all">全部</option>
+                        <option value="preview">支持</option>
+                        <option value="no_preview">不支持</option>
                     </select>
 
                     <label for="pageSizeSelect" style="margin-left: 20px;">每页显示：</label>
@@ -2084,9 +2103,12 @@
         </div>
     </div>
 
-    <!-- 引入公共JavaScript模块 -->
-    <script src="./front/common.js"></script>
+        <!-- 引入公共JavaScript模块 -->
 
-</body>
+        <script src="./front/dark_mode.js"></script>
+
+        <script src="./front/common.js"></script>
+
+    </body>
 
 </html>
