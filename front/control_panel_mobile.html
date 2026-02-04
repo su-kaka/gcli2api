@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>GCLI2API 移动端控制面板</title>
+    <link rel="stylesheet" href="./front/dark_mode.css">
     <style>
         * {
             box-sizing: border-box;
@@ -816,10 +817,13 @@
                         </button>
                     </div>
                 </div>
-                <button onclick="logout()"
-                    style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
-                    退出登录
-                </button>
+                <div style="display: flex; align-items: center;">
+                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="切换夜间模式" style="margin-right: 5px; width: 32px; height: 32px; font-size: 16px;">🌙</button>
+                    <button onclick="logout()"
+                        style="padding: 6px 15px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap;">
+                        退出登录
+                    </button>
+                </div>
             </div>
 
             <!-- 移动端优化的标签页 -->
@@ -1833,6 +1837,7 @@
     </div>
 
     <!-- 引入公共JavaScript模块 -->
+    <script src="./front/dark_mode.js"></script>
     <script src="./front/common.js"></script>
 </body>
 

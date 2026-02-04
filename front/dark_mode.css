@@ -1,0 +1,281 @@
+/* =========================================
+   夜间模式样式 (Dark Mode)
+   ========================================= */
+
+body.dark-mode {
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+body.dark-mode .container {
+    background-color: #1e1e1e;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3,
+body.dark-mode h4,
+body.dark-mode .file-item .file-name,
+body.dark-mode .cred-filename,
+body.dark-mode .modal-title,
+body.dark-mode .card-title {
+    color: #e0e0e0;
+}
+
+/* 标签页样式适配 */
+body.dark-mode .tab {
+    color: #aaa;
+}
+
+body.dark-mode .tab:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+body.dark-mode .tab.active {
+    color: #fff;
+}
+
+body.dark-mode .tab-slider {
+    background: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .tab-slider::after {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+body.dark-mode .tabs {
+    background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(255, 255, 255, 0.05);
+}
+
+/* 通用容器背景适配 */
+body.dark-mode .auth-url,
+body.dark-mode .upload-area,
+body.dark-mode .file-item,
+body.dark-mode .cred-card,
+body.dark-mode .batch-controls,
+body.dark-mode .config-group,
+body.dark-mode .usage-card,
+body.dark-mode .modal-content,
+body.dark-mode .card {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+body.dark-mode .upload-area:hover,
+body.dark-mode .upload-area.dragover {
+    background-color: #383838;
+    border-color: #4285f4;
+}
+
+/* 特殊内联样式覆盖 */
+body.dark-mode .form-group div[style*="background: #f8f9fa"],
+body.dark-mode .form-group div[style*="background: #f8f8f8"],
+body.dark-mode .form-group div[style*="background: #ffffff"],
+body.dark-mode .form-group div[style*="background: #fafafa"] {
+    background-color: #2d2d2d !important;
+    border-color: #444 !important;
+}
+
+/* 文本颜色适配 */
+body.dark-mode label,
+body.dark-mode .config-note,
+body.dark-mode .stat-label,
+body.dark-mode .pagination-info,
+body.dark-mode small,
+body.dark-mode .file-item .file-size,
+body.dark-mode p[style*="color: #666"],
+body.dark-mode span[style*="color: #666"] {
+    color: #aaa !important;
+}
+
+/* 输入框适配 */
+body.dark-mode input[type="text"],
+body.dark-mode input[type="password"],
+body.dark-mode input[type="number"],
+body.dark-mode input[type="url"],
+body.dark-mode select,
+body.dark-mode textarea,
+body.dark-mode .filter-select,
+body.dark-mode .page-size-select,
+body.dark-mode .config-input {
+    background-color: #333;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
+body.dark-mode input:focus,
+body.dark-mode select:focus,
+body.dark-mode textarea:focus {
+    border-color: #4285f4;
+    background-color: #3a3a3a;
+}
+
+body.dark-mode input:disabled {
+    background-color: #444;
+    color: #888;
+}
+
+/* 代码块和凭证内容 */
+body.dark-mode .credentials,
+body.dark-mode .cred-content,
+body.dark-mode pre {
+    background-color: #1a1a1a;
+    border-color: #444;
+    color: #dcdcdc;
+}
+
+/* 统计卡片适配 */
+body.dark-mode .stat-item {
+    background: linear-gradient(45deg, #2d2d2d, #333);
+    border-color: #444;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .stat-number {
+    color: #fff;
+}
+
+/* 按钮适配 */
+body.dark-mode .pagination-btn {
+    background: #333;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
+body.dark-mode .pagination-btn:hover:not(:disabled) {
+    background: #444;
+    border-color: #4285f4;
+}
+
+body.dark-mode .pagination-btn:disabled {
+    background: #2a2a2a;
+    color: #555;
+}
+
+/* 额度信息适配 */
+body.dark-mode .cred-quota-content {
+    background: linear-gradient(to bottom, #2d2d2d, #252525);
+    border-color: #17a2b8;
+}
+
+body.dark-mode .usage-info-item {
+    background-color: #333;
+    border-color: #444;
+}
+
+body.dark-mode .usage-info-value {
+    color: #fff;
+}
+
+/* 模态框适配 */
+body.dark-mode .modal-header {
+    border-bottom-color: #444;
+}
+
+body.dark-mode .modal-close {
+    color: #aaa;
+}
+
+body.dark-mode .modal-close:hover {
+    color: #fff;
+}
+
+/* 状态提示框适配 (Alerts/Toasts) */
+/* 成功 - 绿色 */
+body.dark-mode .status.success {
+    background-color: rgba(40, 167, 69, 0.15);
+    border-color: rgba(40, 167, 69, 0.3);
+    color: #75b798;
+}
+
+/* 信息 - 蓝色 */
+body.dark-mode .status.info,
+body.dark-mode .model-cooldown-details,
+body.dark-mode .config-info[style*="background-color: #e3f2fd"],
+body.dark-mode div[style*="background: #e7f3ff"],
+body.dark-mode div[style*="background-color: #e3f2fd"] {
+    background-color: rgba(23, 162, 184, 0.15) !important;
+    border-color: rgba(23, 162, 184, 0.3) !important;
+    color: #9ec5fe !important;
+}
+
+/* 错误 - 红色 */
+body.dark-mode .status.error,
+body.dark-mode .error-codes,
+body.dark-mode div[style*="background-color: #f8d7da"] {
+    background-color: rgba(220, 53, 69, 0.15);
+    border-color: rgba(220, 53, 69, 0.3);
+    color: #ea868f;
+}
+
+/* 警告 - 黄色 */
+body.dark-mode .status.warning,
+body.dark-mode div[style*="background: #fff3cd"],
+body.dark-mode .config-info[style*="background-color: #fff3cd"],
+body.dark-mode div[style*="background-color: #fff3cd"] {
+    background-color: rgba(255, 193, 7, 0.15) !important;
+    border-color: rgba(255, 193, 7, 0.3) !important;
+    color: #ffda6a !important;
+}
+
+body.dark-mode .form-group div[style*="background: #f8fcff"],
+body.dark-mode .form-group div[style*="background: #e7f3ff"] {
+    background-color: #2a3a4a !important;
+    border-color: #3a4a5a !important;
+}
+
+body.dark-mode code {
+    background-color: #444 !important;
+    color: #e0e0e0;
+}
+
+body.dark-mode .usage-progress-bar {
+    background-color: #444;
+}
+
+/* 禁用状态卡片 */
+body.dark-mode .cred-card.disabled {
+    background-color: #252525;
+    border-color: #333;
+    opacity: 0.6;
+}
+
+/* 暗色模式切换按钮样式 */
+.dark-mode-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    padding: 5px;
+    margin-right: 10px;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s;
+}
+
+.dark-mode-toggle:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+body.dark-mode .dark-mode-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 移动端特定适配 */
+@media (max-width: 768px) {
+    body.dark-mode {
+        background-color: #000;
+    }
+    
+    body.dark-mode .card {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+}

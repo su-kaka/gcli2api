@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCLI2API 控制面板</title>
+    <link rel="stylesheet" href="./front/dark_mode.css">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -1168,10 +1169,13 @@
                         检查更新
                     </button>
                 </div>
-                <button onclick="logout()"
-                    style="padding: 8px 20px; background-color: #dc3545; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
-                    退出登录
-                </button>
+                <div style="display: flex; align-items: center;">
+                    <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="切换夜间模式">🌙</button>
+                    <button onclick="logout()"
+                        style="padding: 8px 20px; background-color: #dc3545; color: white; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;">
+                        退出登录
+                    </button>
+                </div>
             </div>
 
             <!-- 标签页 -->
@@ -2099,9 +2103,12 @@
         </div>
     </div>
 
-    <!-- 引入公共JavaScript模块 -->
-    <script src="./front/common.js"></script>
+        <!-- 引入公共JavaScript模块 -->
 
-</body>
+        <script src="./front/dark_mode.js"></script>
+
+        <script src="./front/common.js"></script>
+
+    </body>
 
 </html>
