@@ -1,4 +1,4 @@
-full_hash=030ea235f696ba0a2f215d8da8feb632d7c24957
-short_hash=030ea23
-message=修改所有数据库操作，确保始终使用 basename 进行存储和查询
-date=2026-02-03 22:17:12 +0800
+full_hash=932829e5423cbc78adc22a84305e91a764ecbd4d
+short_hash=932829e
+message=Update sqlite_manager.py
+date=2026-02-05 12:16:20 +0800
