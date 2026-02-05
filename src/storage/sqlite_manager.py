@@ -95,6 +95,9 @@ class SQLiteManager:
                     # 创建表
                     await self._create_tables(db)
 
+                    # 修复可能包含路径的凭证文件名
+                    await self._repair_credential_filenames(db)
+
                     await db.commit()
 
                 # 加载配置到内存
@@ -232,6 +235,82 @@ class SQLiteManager:
         """)
 
         log.debug("SQLite tables and indexes created")
+
+    async def _repair_credential_filenames(self, db: aiosqlite.Connection):
+        """
+        修复凭证数据库中可能包含路径的文件名，确保所有文件名都是 basename
+        """
+        try:
+            repaired_count = 0
+
+            # 修复 credentials 表
+            async with db.execute("SELECT filename FROM credentials") as cursor:
+                rows = await cursor.fetchall()
+                for (filename,) in rows:
+                    basename = os.path.basename(filename)
+                    if basename != filename:
+                        # 检查是否会产生冲突
+                        async with db.execute(
+                            "SELECT COUNT(*) FROM credentials WHERE filename = ?",
+                            (basename,)
+                        ) as check_cursor:
+                            count = (await check_cursor.fetchone())[0]
+
+                        if count == 0:
+                            # 无冲突，直接更新
+                            await db.execute(
+                                "UPDATE credentials SET filename = ? WHERE filename = ?",
+                                (basename, filename)
+                            )
+                            repaired_count += 1
+                            log.info(f"Repaired credential filename: {filename} -> {basename}")
+                        else:
+                            # 有冲突，删除带路径的旧记录（保留 basename 的记录）
+                            await db.execute(
+                                "DELETE FROM credentials WHERE filename = ?",
+                                (filename,)
+                            )
+                            repaired_count += 1
+                            log.warning(f"Removed duplicate credential with path: {filename} (kept {basename})")
+
+            # 修复 antigravity_credentials 表
+            async with db.execute("SELECT filename FROM antigravity_credentials") as cursor:
+                rows = await cursor.fetchall()
+                for (filename,) in rows:
+                    basename = os.path.basename(filename)
+                    if basename != filename:
+                        # 检查是否会产生冲突
+                        async with db.execute(
+                            "SELECT COUNT(*) FROM antigravity_credentials WHERE filename = ?",
+                            (basename,)
+                        ) as check_cursor:
+                            count = (await check_cursor.fetchone())[0]
+
+                        if count == 0:
+                            # 无冲突，直接更新
+                            await db.execute(
+                                "UPDATE antigravity_credentials SET filename = ? WHERE filename = ?",
+                                (basename, filename)
+                            )
+                            repaired_count += 1
+                            log.info(f"Repaired antigravity credential filename: {filename} -> {basename}")
+                        else:
+                            # 有冲突，删除带路径的旧记录（保留 basename 的记录）
+                            await db.execute(
+                                "DELETE FROM antigravity_credentials WHERE filename = ?",
+                                (filename,)
+                            )
+                            repaired_count += 1
+                            log.warning(f"Removed duplicate antigravity credential with path: {filename} (kept {basename})")
+
+            if repaired_count > 0:
+                log.info(f"Repaired {repaired_count} credential filename(s)")
+            else:
+                log.debug("No credential filenames need repair")
+
+        except Exception as e:
+            log.error(f"Error repairing credential filenames: {e}")
+            # 不抛出异常，允许继续初始化
 
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
