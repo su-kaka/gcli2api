@@ -345,7 +345,16 @@ async def stream_request(
             else:
                 # 所有重试都失败，返回最后一次的错误（如果有）
                 log.error(f"[GEMINICLI STREAM] 所有重试均失败，最后异常: {e}")
-                yield last_error_response
+                if last_error_response:
+                    yield last_error_response
+                else:
+                    # 如果没有记录到错误响应，返回500错误
+                    yield Response(
+                        content=json.dumps({"error": f"流式请求异常: {str(e)}"}),
+                        status_code=500,
+                        media_type="application/json"
+                    )
+                return
 
 
 async def non_stream_request(
