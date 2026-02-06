@@ -1,4 +1,4 @@
-full_hash=1c4e33dc5683a53168fb1be8bfde34d3f15fb2c1
-short_hash=1c4e33d
-message=fix: preserve functionCall parts in stream collector
-date=2026-02-06 16:32:39 +0800
+full_hash=d9ed76a6b30f90d729a1dd8713f4c383bfb94c61
+short_hash=d9ed76a
+message=优化弹窗显示
+date=2026-02-06 19:25:13 +0800
