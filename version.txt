@@ -1,4 +1,4 @@
-full_hash=932829e5423cbc78adc22a84305e91a764ecbd4d
-short_hash=932829e
-message=Update sqlite_manager.py
-date=2026-02-05 12:16:20 +0800
+full_hash=1c4e33dc5683a53168fb1be8bfde34d3f15fb2c1
+short_hash=1c4e33d
+message=fix: preserve functionCall parts in stream collector
+date=2026-02-06 16:32:39 +0800
