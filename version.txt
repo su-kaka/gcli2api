@@ -1,4 +1,4 @@
-full_hash=932829e5423cbc78adc22a84305e91a764ecbd4d
-short_hash=932829e
-message=Update sqlite_manager.py
-date=2026-02-05 12:16:20 +0800
+full_hash=5f984790b7233df765010bfdc40ebb00c50f18fd
+short_hash=5f98479
+message=修复流式响应时的错误回复
+date=2026-02-06 17:20:14 +0800
