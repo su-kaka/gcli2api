@@ -334,17 +334,19 @@ async def normalize_gemini_request(
             # 移除 -thinking 后缀
             model = model.replace("-thinking", "")
 
-            # 4. Claude 模型关键词映射
-            # 使用关键词匹配而不是精确匹配，更灵活地处理各种变体
+            # 4. Claude 模型名称处理
+            # 保留原始版本号，仅确保 -thinking 后缀存在（上面已 strip 掉 -thinking）
             original_model = model
-            if "opus" in model.lower():
+            if "claude" in model.lower():
+                # 模型名已包含 claude 前缀，保留版本号，仅补充 -thinking 后缀
+                if not model.endswith("-thinking"):
+                    model = model + "-thinking"
+            elif "opus" in model.lower():
+                # 仅含 "opus" 关键词的简写，回退到默认版本
                 model = "claude-opus-4-5-thinking"
-            elif "sonnet" in model.lower() or "haiku" in model.lower():
+            elif "sonnet" in model.lower():
                 model = "claude-sonnet-4-5-thinking"
             elif "haiku" in model.lower():
-                model = "gemini-2.5-flash"
-            elif "claude" in model.lower():
-                # Claude 模型兜底：如果包含 claude 但不是 opus/sonnet/haiku
                 model = "claude-sonnet-4-5-thinking"
             
             result["model"] = model
