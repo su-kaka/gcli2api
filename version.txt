@@ -1,4 +1,4 @@
-full_hash=1c292f3ccc0e2757423711c955bedfddf14eaa02
-short_hash=1c292f3
-message=Update gemini_fix.py
-date=2026-02-07 11:52:43 +0800
+full_hash=13af0092a0cd6dc51499850148a9b128f73ff776
+short_hash=13af009
+message=对claude-opus-4-6-thinking模型移除预填充
+date=2026-02-07 12:10:29 +0800
