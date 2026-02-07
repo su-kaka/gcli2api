@@ -670,15 +670,24 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
                         owned_by='google'
                     )
                     model_list.append(model_to_dict(model))
-
-            # 添加额外的 claude-opus-4-5 模型
-            claude_opus_model = Model(
-                id='claude-opus-4-5',
-                object='model',
-                created=current_timestamp,
-                owned_by='google'
-            )
-            model_list.append(model_to_dict(claude_opus_model))
+            if "claude-opus-4-5-thinking" in data.get('models', {}):
+                # 添加 claude-opus-4-5 模型
+                model = Model(
+                    id='claude-opus-4-5',
+                    object='model',
+                    created=current_timestamp,
+                    owned_by='google'
+                )
+                model_list.append(model_to_dict(model))
+            # 添加额外的 claude-opus-4-6 模型
+            if "claude-opus-4-6-thinking" in data.get('models', {}):
+                claude_opus_model = Model(
+                    id='claude-opus-4-6',
+                    object='model',
+                    created=current_timestamp,
+                    owned_by='google'
+                )
+                model_list.append(model_to_dict(claude_opus_model))
 
             log.info(f"[ANTIGRAVITY] Fetched {len(model_list)} available models")
             return model_list
