@@ -532,8 +532,8 @@ function showStatus(message, type = 'info') {
 function linkifyText(text) {
     if (!text) return text;
 
-    // 匹配 http://, https:// 和 www. 开头的链接
-    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/gi;
+    // 匹配 http://, https:// 和 www. 开头的链接，排除常见的标点符号
+    const urlPattern = /(https?:\/\/[^\s"'<>()[\]{}]+)|(www\.[^\s"'<>()[\]{}]+)/gi;
 
     return text.replace(urlPattern, function(url) {
         let href = url;
