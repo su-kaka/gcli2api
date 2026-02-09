@@ -160,6 +160,7 @@ class SQLiteManager:
                 -- 状态字段
                 disabled INTEGER DEFAULT 0,
                 error_codes TEXT DEFAULT '[]',
+                error_messages TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
 
@@ -189,6 +190,7 @@ class SQLiteManager:
                 -- 状态字段
                 disabled INTEGER DEFAULT 0,
                 error_codes TEXT DEFAULT '[]',
+                error_messages TEXT DEFAULT '[]',
                 last_success REAL,
                 user_email TEXT,
 
