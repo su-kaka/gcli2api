@@ -1,4 +1,4 @@
-full_hash=13af0092a0cd6dc51499850148a9b128f73ff776
-short_hash=13af009
-message=对claude-opus-4-6-thinking模型移除预填充
-date=2026-02-07 12:10:29 +0800
+full_hash=d6901222482bb49fc28952a5dbc5c01c16dfb067
+short_hash=d690122
+message=Update antigravity.py
+date=2026-02-07 12:18:06 +0800
