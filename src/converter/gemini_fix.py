@@ -3,6 +3,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 提供对 Gemini API 请求体和响应的标准化处理
 ────────────────────────────────────────────────────────────────
 """
+from math import e
 from typing import Any, Dict, Optional
 
 from log import log
@@ -106,7 +107,11 @@ def get_thinking_settings(model_name: str) -> tuple[Optional[int], Optional[str]
     elif "-maxthinking" in model_name:
         # maxthinking 模式: 最大思考预算
         budget = 24576 if "flash" in base_model else 32768
-        return budget, None
+        if "gemini-3" in base_model:
+            # Gemini 3 系列不支持 thinkingBudget，返回 high 等级
+            return None, "high"
+        else:
+            return budget, None
 
     # ========== 新 CLI 模式: 基于思考预算/等级 ==========
 
