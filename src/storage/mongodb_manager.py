@@ -182,7 +182,8 @@ class MongoDBManager:
         Note:
             - 对于 geminicli 模式:
               - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
-              - 如果模型名不包含 "preview": 除非没有 preview=False 的凭证，否则只使用 preview=False 的凭证
+              - 如果模型名包含 "flash": 直接混用所有可用凭证，不区分 preview 状态
+              - 如果模型名不包含 "preview" 且不包含 "flash": 优先使用 preview=False 的凭证，没有时才使用 preview=True
             - 对于 antigravity: 不检查 preview 状态
             - 使用聚合管道在数据库层面过滤冷却状态，性能更优
         """
@@ -224,12 +225,17 @@ class MongoDBManager:
             # 对于 geminicli 模式，根据模型名的 preview 状态筛选凭证
             if mode == "geminicli" and model_name:
                 is_preview_model = "preview" in model_name.lower()
+                is_flash_model = "flash" in model_name.lower()
 
                 if is_preview_model:
                     # 模型名包含 preview，只能使用 preview=True 的凭证
                     pipeline.append({"$match": {"preview": True}})
+                elif is_flash_model:
+                    # 模型名包含 flash，直接混用所有凭证，不需要优先查找 preview=False
+                    # 不添加任何 preview 相关的筛选条件
+                    pass
                 else:
-                    # 模型名不包含 preview
+                    # 模型名不包含 preview 且不包含 flash
                     # 先尝试 preview=False
                     pipeline_non_preview = pipeline.copy()
                     pipeline_non_preview.append({"$match": {"preview": False}})
