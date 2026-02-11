@@ -1,4 +1,4 @@
-full_hash=7a2eaab430ccf60a8c6fb7c9968fc30c6a5db374
-short_hash=7a2eaab
-message=Update log.py
-date=2026-02-10 17:28:59 +0800
+full_hash=d188bdbde70396c98822dd0a112e0aaa8e712155
+short_hash=d188bdb
+message=详细展示查看报错
+date=2026-02-11 18:05:00 +0800
