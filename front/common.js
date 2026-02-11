@@ -1940,14 +1940,64 @@ async function toggleErrorDetailsCommon(pathId, manager) {
                         errorCodes.forEach((errorCode) => {
                             const messageStr = errorMessages[errorCode] || '无详细信息';
 
-                            // 提取核心错误消息
+                            // 提取核心错误消息和详细信息
                             let displayMsg = messageStr;
+                            let detailsHtml = '';
+
                             try {
                                 // 尝试解析 JSON 格式的 message
                                 const parsedMsg = JSON.parse(messageStr);
-                                if (parsedMsg.error && parsedMsg.error.message) {
-                                    // 只显示 error.message 中的核心错误信息
-                                    displayMsg = parsedMsg.error.message;
+                                if (parsedMsg.error) {
+                                    // 显示核心错误信息
+                                    if (parsedMsg.error.message) {
+                                        displayMsg = parsedMsg.error.message;
+                                    }
+
+                                    // 如果有 details 字段，也显示出来
+                                    if (parsedMsg.error.details && Array.isArray(parsedMsg.error.details)) {
+                                        detailsHtml = '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd;">';
+                                        detailsHtml += '<div style="font-size: 12px; color: #666; margin-bottom: 5px;">详细信息:</div>';
+
+                                        parsedMsg.error.details.forEach((detail, idx) => {
+                                            detailsHtml += '<div style="font-size: 12px; margin-left: 10px; margin-bottom: 5px;">';
+
+                                            // 显示 @type
+                                            if (detail['@type']) {
+                                                const highlightedType = highlightHttpLinks(escapeHtml(detail['@type']));
+                                                detailsHtml += `<div style="color: #007bff;">类型: ${highlightedType}</div>`;
+                                            }
+
+                                            // 显示 reason
+                                            if (detail.reason) {
+                                                detailsHtml += `<div style="color: #dc3545;">原因: ${escapeHtml(detail.reason)}</div>`;
+                                            }
+
+                                            // 显示 metadata（如 quotaResetTimeStamp）
+                                            if (detail.metadata) {
+                                                detailsHtml += '<div style="margin-left: 10px; margin-top: 3px;">';
+                                                for (const [key, value] of Object.entries(detail.metadata)) {
+                                                    const highlightedValue = highlightHttpLinks(escapeHtml(String(value)));
+                                                    detailsHtml += `<div style="font-family: monospace; color: #333;">${escapeHtml(key)}: ${highlightedValue}</div>`;
+                                                }
+                                                detailsHtml += '</div>';
+                                            }
+
+                                            detailsHtml += '</div>';
+                                        });
+
+                                        detailsHtml += '</div>';
+                                    }
+
+                                    // 如果有 status 字段，也显示
+                                    if (parsedMsg.error.status) {
+                                        if (!detailsHtml) {
+                                            detailsHtml = '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd;">';
+                                        }
+                                        detailsHtml += `<div style="font-size: 12px; color: #666;">状态: ${escapeHtml(parsedMsg.error.status)}</div>`;
+                                        if (!parsedMsg.error.details) {
+                                            detailsHtml += '</div>';
+                                        }
+                                    }
                                 }
                             } catch (e) {
                                 // 如果不是 JSON 格式，直接使用原始消息
@@ -1962,6 +2012,7 @@ async function toggleErrorDetailsCommon(pathId, manager) {
                                     <div style="line-height: 1.6; color: #333; white-space: pre-wrap; word-break: break-word;">
                                         ${highlightedMsg}
                                     </div>
+                                    ${detailsHtml}
                                 </div>
                             `;
                         });
