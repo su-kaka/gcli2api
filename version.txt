@@ -1,4 +1,4 @@
-full_hash=d188bdbde70396c98822dd0a112e0aaa8e712155
-short_hash=d188bdb
-message=详细展示查看报错
-date=2026-02-11 18:05:00 +0800
+full_hash=6b3863e77b57013b340ea50dfdae9bbb4a79deb4
+short_hash=6b3863e
+message=修正配置显示
+date=2026-02-11 21:41:29 +0800
