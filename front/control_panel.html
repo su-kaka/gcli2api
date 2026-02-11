@@ -2031,27 +2031,27 @@
                         </div>
 
                         <div class="config-group">
-                            <h4>429重试配置</h4>
+                            <h4>重试配置</h4>
 
                             <div class="form-group">
                                 <label>
                                     <input type="checkbox" id="retry429Enabled" class="config-checkbox" />
-                                    启用429重试
+                                    启用错误重试
                                 </label>
-                                <small class="config-note">遇到429错误时自动重试</small>
+                                <small class="config-note">遇到错误时自动重试</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="retry429MaxRetries">429重试次数:</label>
+                                <label for="retry429MaxRetries">错误重试次数:</label>
                                 <input type="number" id="retry429MaxRetries" class="config-input" min="1" max="50" />
-                                <small class="config-note">遇到429错误时的最大重试次数</small>
+                                <small class="config-note">遇到错误时的最大重试次数</small>
                             </div>
 
                             <div class="form-group">
-                                <label for="retry429Interval">429重试间隔(秒):</label>
+                                <label for="retry429Interval">错误重试间隔(秒):</label>
                                 <input type="number" id="retry429Interval" class="config-input" min="0.01" max="10"
                                     step="0.01" />
-                                <small class="config-note">遇到429错误时每两次重试间的等待时间</small>
+                                <small class="config-note">遇到错误时每两次重试间的等待时间</small>
                             </div>
                         </div>
 
@@ -2134,7 +2134,7 @@
                                     <strong>🔥 热更新配置（立即生效）：</strong>
                                     <ul style="margin: 8px 0; padding-left: 20px; color: #212529;">
                                         <li><strong>网络配置：</strong>代理设置、端点配置、HTTP超时时间、最大连接数</li>
-                                        <li><strong>API配置：</strong>凭证轮换次数、429重试设置、自动封禁配置</li>
+                                        <li><strong>API配置：</strong>凭证轮换次数、错误重试设置、自动封禁配置</li>
                                         <li><strong>密码配置：</strong>API密码、控制面板密码、通用密码</li>
                                         <li><strong>功能配置：</strong>抗截断最大重试次数</li>
                                     </ul>
