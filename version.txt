@@ -1,4 +1,4 @@
-full_hash=dab48edd90b2ad6272b97775e29c94e197375dd0
-short_hash=dab48ed
-message=避免'Response' object is not subscriptable错误
-date=2026-02-17 22:08:37 +0800
+full_hash=9e80acf7d8fce927f0c94e5a2e0b8a80476e5d77
+short_hash=9e80acf
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-02-17 22:22:35 +0800
