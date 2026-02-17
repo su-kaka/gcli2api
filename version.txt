@@ -1,4 +1,4 @@
-full_hash=6b3863e77b57013b340ea50dfdae9bbb4a79deb4
-short_hash=6b3863e
-message=修正配置显示
-date=2026-02-11 21:41:29 +0800
+full_hash=dab48edd90b2ad6272b97775e29c94e197375dd0
+short_hash=dab48ed
+message=避免'Response' object is not subscriptable错误
+date=2026-02-17 22:08:37 +0800
