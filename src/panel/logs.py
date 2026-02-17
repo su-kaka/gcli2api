@@ -34,9 +34,11 @@ async def clear_logs(token: str = Depends(verify_panel_token)):
         if os.path.exists(log_file_path):
             try:
                 # 清空文件内容（保留文件），确保以UTF-8编码写入
-                with open(log_file_path, "w", encoding="utf-8", newline="") as f:
+                # 使用 with 确保文件正确关闭
+                with open(log_file_path, "w", encoding="utf-8") as f:
                     f.write("")
                     f.flush()  # 强制刷新到磁盘
+                    # with 退出时会自动关闭文件
                 log.info(f"日志文件已清空: {log_file_path}")
 
                 # 通知所有WebSocket连接日志已清空
@@ -126,6 +128,7 @@ async def websocket_logs(websocket: WebSocket):
         # 发送初始日志（限制为最后50行，减少内存占用）
         if os.path.exists(log_file_path):
             try:
+                # 使用 with 确保文件正确关闭
                 with open(log_file_path, "r", encoding="utf-8") as f:
                     lines = f.readlines()
                     # 只发送最后50行，减少初始内存消耗
@@ -134,6 +137,7 @@ async def websocket_logs(websocket: WebSocket):
                             await websocket.send_text(line.strip())
             except Exception as e:
                 await websocket.send_text(f"Error reading log file: {e}")
+                log.error(f"WebSocket初始日志读取错误: {e}")
 
         # 监控日志文件变化
         last_size = os.path.getsize(log_file_path) if os.path.exists(log_file_path) else 0
@@ -172,9 +176,11 @@ async def websocket_logs(websocket: WebSocket):
                         read_size = min(current_size - last_size, max_read_size)
 
                         try:
+                            # 使用 with 确保文件正确关闭，即使发生异常
                             with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
                                 f.seek(last_size)
                                 new_content = f.read(read_size)
+                                # with 退出时自动关闭文件句柄
 
                                 # 处理编码错误的情况
                                 if not new_content:

@@ -48,6 +48,7 @@ def _close_log_file():
 
     if _log_file_handle is not None:
         try:
+            _log_file_handle.flush()  # 确保数据写入磁盘
             _log_file_handle.close()
         except Exception:
             pass  # 忽略关闭时的异常
@@ -59,8 +60,11 @@ def _open_log_file(mode="a"):
     """打开日志文件句柄"""
     global _log_file_handle, _file_writing_disabled, _disable_reason, _write_counter
 
-    # 先关闭旧的句柄
-    _close_log_file()
+    # 先关闭旧的句柄（确保在任何情况下都关闭）
+    try:
+        _close_log_file()
+    except Exception:
+        pass
     _write_counter = 0  # 重置计数器
 
     try:
@@ -88,9 +92,12 @@ def _clear_log_file():
     try:
         log_file = _get_log_file_path()
         with _file_lock:
+            # 先关闭现有句柄
+            _close_log_file()
             # 使用独立的文件句柄清空，不影响全局句柄
             with open(log_file, "w", encoding="utf-8") as f:
                 f.write("")  # 清空文件
+                f.flush()  # 确保写入磁盘
             # 清空后打开用于追加写入
             _open_log_file("a")
     except (PermissionError, OSError, IOError) as e:
@@ -241,10 +248,6 @@ def _log(level: str, message: str):
     current_level = _get_current_log_level()
     if LOG_LEVELS[level] < current_level:
         return
-
-    # 截断日志消息到最多500个字符
-    #if len(message) > 500:
-        #message = message[:500] + "..."
 
     # 格式化日志消息
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
