@@ -10,6 +10,7 @@ import os
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from fastapi import Response
 from log import log
 from src.converter.utils import merge_system_messages
 
@@ -965,6 +966,14 @@ async def gemini_stream_to_anthropic_stream(
     # 处理流式数据
     try:
         async for chunk in gemini_stream:
+            # 检查是否是 Response 对象（错误情况）
+            if isinstance(chunk, Response):
+                log.warning(f"[GEMINI_TO_ANTHROPIC] 收到 Response 对象，状态码: {chunk.status_code}，直接转发错误")
+                # 直接转发错误响应内容，不做格式转换
+                error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
+                yield error_content
+                return
+
             # 记录接收到的原始chunk
             log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
 

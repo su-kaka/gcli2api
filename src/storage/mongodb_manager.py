@@ -68,9 +68,6 @@ class MongoDBManager:
             # 创建索引
             await self._create_indexes()
 
-            # 为旧凭证添加 preview 字段默认值
-            await self._ensure_preview_field()
-
             # 加载配置到内存
             await self._load_config_cache()
 
@@ -82,45 +79,68 @@ class MongoDBManager:
             raise
 
     async def _create_indexes(self):
-        """创建索引"""
+        """
+        创建索引
+        """
+        from pymongo import IndexModel, ASCENDING
+
         credentials_collection = self._db["credentials"]
         antigravity_credentials_collection = self._db["antigravity_credentials"]
 
-        # 创建普通凭证索引
-        await credentials_collection.create_index("filename", unique=True)
-        await credentials_collection.create_index("disabled")
-        await credentials_collection.create_index("rotation_order")
+        # ===== Geminicli 凭证索引 =====
+        geminicli_indexes = [
+            # 唯一索引 - 用于所有按文件名的精确查询
+            IndexModel([("filename", ASCENDING)], unique=True, name="idx_filename_unique"),
+            
+            # 复合索引1 - 用于 get_next_available_credential
+            # 查询模式: {disabled: False} + 可选 {preview: True/False} + $sample
+            IndexModel(
+                [("disabled", ASCENDING), ("preview", ASCENDING)],
+                name="idx_disabled_preview"
+            ),
+            
+            # 复合索引2 - 用于 get_available_credentials_list
+            # 查询模式: {disabled: False} + sort by rotation_order
+            IndexModel(
+                [("disabled", ASCENDING), ("rotation_order", ASCENDING)],
+                name="idx_disabled_rotation"
+            ),
+            
+            # 单字段索引 - 用于 get_credentials_summary 的错误筛选
+            IndexModel([("error_codes", ASCENDING)], name="idx_error_codes"),
+            
+            # 单字段索引 - 用于 get_duplicate_credentials_by_email 的去重查询
+            IndexModel([("user_email", ASCENDING)], name="idx_user_email"),
+        ]
 
-        # 复合索引
-        await credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
+        # ===== Antigravity 凭证索引 =====
+        antigravity_indexes = [
+            # 唯一索引
+            IndexModel([("filename", ASCENDING)], unique=True, name="idx_filename_unique"),
+            
+            # 复合索引 - antigravity 不需要 preview 字段，一个复合索引即可覆盖主要场景
+            # 查询模式: {disabled: False} + 可选 sort by rotation_order
+            IndexModel(
+                [("disabled", ASCENDING), ("rotation_order", ASCENDING)],
+                name="idx_disabled_rotation"
+            ),
+            
+            # 单字段索引 - 错误筛选
+            IndexModel([("error_codes", ASCENDING)], name="idx_error_codes"),
+            
+            # 单字段索引 - 去重查询
+            IndexModel([("user_email", ASCENDING)], name="idx_user_email"),
+        ]
 
-        # 如果经常按错误码筛选，可以添加此索引
-        await credentials_collection.create_index("error_codes")
-
-        # 创建 Antigravity 凭证索引
-        await antigravity_credentials_collection.create_index("filename", unique=True)
-        await antigravity_credentials_collection.create_index("disabled")
-        await antigravity_credentials_collection.create_index("rotation_order")
-
-        # 复合索引
-        await antigravity_credentials_collection.create_index([("disabled", 1), ("rotation_order", 1)])
-
-        # 如果经常按错误码筛选，可以添加此索引
-        await antigravity_credentials_collection.create_index("error_codes")
-
-        log.debug("MongoDB indexes created")
-
-    async def _ensure_preview_field(self):
-        """为所有没有 preview 字段的 geminicli 凭证添加默认值 True"""
+        # 并行创建索引（提升初始化速度）
         try:
-            result = await self._db["credentials"].update_many(
-                {"preview": {"$exists": False}},
-                {"$set": {"preview": True}}
-            )
-            if result.modified_count > 0:
-                log.info(f"已为 {result.modified_count} 个旧凭证添加 preview=True")
+            await credentials_collection.create_indexes(geminicli_indexes)
+            await antigravity_credentials_collection.create_indexes(antigravity_indexes)
+            log.debug("MongoDB indexes created with high-concurrency optimization")
         except Exception as e:
-            log.error(f"Error ensuring preview field: {e}")
+            # 如果索引已存在，忽略错误
+            if "already exists" not in str(e).lower():
+                log.warning(f"Index creation warning: {e}")
 
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
