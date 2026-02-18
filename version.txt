@@ -1,4 +1,4 @@
-full_hash=27ce2322b278fc45d9e207ff64b29b361e71dff2
-short_hash=27ce232
-message=Update gemini_fix.py
-date=2026-02-18 11:17:58 +0800
+full_hash=9c747d19e5d5930b4bc1074e630263968ecc0397
+short_hash=9c747d1
+message=增加46s think模型
+date=2026-02-18 11:22:50 +0800
