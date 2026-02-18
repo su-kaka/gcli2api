@@ -351,12 +351,12 @@ async def normalize_gemini_request(
                 if "4-5" in model:
                     model = "claude-sonnet-4-5-thinking"
                 else:
-                    model = "claude-sonnet-4-6-thinking"
+                    model = "claude-sonnet-4-6"
             elif "haiku" in model.lower():
                 model = "gemini-2.5-flash"
             elif "claude" in model.lower():
                 # Claude 模型兜底：如果包含 claude 但不是 opus/sonnet/haiku
-                model = "claude-sonnet-4-6-thinking"
+                model = "claude-sonnet-4-6"
             
             result["model"] = model
             if original_model != model:
@@ -364,7 +364,7 @@ async def normalize_gemini_request(
 
         # 5. 模型特殊处理：循环移除末尾的 model 消息，保证以用户消息结尾
         # 因为该模型不支持预填充
-        if "claude-opus-4-6-thinking" in model.lower() or "claude-sonnet-4-6-thinking" in model.lower():
+        if "claude-opus-4-6-thinking" in model.lower() or "claude-sonnet-4-6" in model.lower():
             contents = result.get("contents", [])
             removed_count = 0
             while contents and isinstance(contents[-1], dict) and contents[-1].get("role") == "model":
