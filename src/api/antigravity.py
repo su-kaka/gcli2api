@@ -670,10 +670,10 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
                         owned_by='google'
                     )
                     model_list.append(model_to_dict(model))
-            # 添加额外的 claude-opus-4-5 模型
-            if "claude-opus-4-5-thinking" in data.get('models', {}):
+            # 添加额外的 claude-sonnet-4-6-thinking 模型
+            if "claude-sonnet-4-6" in data.get('models', {}):
                 model = Model(
-                    id='claude-opus-4-5',
+                    id='claude-sonnet-4-6-thinking',
                     object='model',
                     created=current_timestamp,
                     owned_by='google'
