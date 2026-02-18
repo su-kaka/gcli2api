@@ -6,78 +6,79 @@ import os
 import sys
 import threading
 from datetime import datetime
-from queue import Queue, Empty
+from collections import deque
 import atexit
 
 # 日志级别定义
 LOG_LEVELS = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
 
-# 线程锁，用于文件写入同步
-_file_lock = threading.Lock()
-
-# 文件写入状态标志
+# 文件写入状态标志（仅由 writer 线程修改，无需锁保护）
 _file_writing_disabled = False
 _disable_reason = None
 
-# 全局文件句柄和写入计数器
+# 全局文件句柄（仅由 writer 线程访问，无需文件锁）
 _log_file_handle = None
-_write_counter = 0
-_max_writes_before_reopen = 1000  # 每1000次写入后重新打开文件，防止句柄泄漏
 
-# 异步写入相关
-_log_queue = Queue(maxsize=500)  # 日志队列，最多缓存500条
+# -----------------------------------------------------------------
+# 高性能无锁队列：用 deque + Condition 替代 Queue
+# deque.append / deque.popleft 在 CPython 中受 GIL 保护，是原子操作，
+# 不需要额外的 Lock 做入队保护，只用 Condition 做"有数据"通知。
+# -----------------------------------------------------------------
+_log_deque: deque = deque()
+_deque_condition = threading.Condition(threading.Lock())
 _writer_thread = None
 _writer_running = False
-_shutdown_event = threading.Event()
+
+# -----------------------------------------------------------------
+# 缓存日志级别，避免每次都读 os.getenv（高并发热路径）
+# -----------------------------------------------------------------
+_cached_log_level: int = LOG_LEVELS["info"]
+_cached_log_file: str = "log.txt"
 
 
-def _get_current_log_level():
-    """获取当前日志级别"""
+def _refresh_config():
+    """从环境变量刷新缓存配置（模块加载时及需要时调用）"""
+    global _cached_log_level, _cached_log_file
     level = os.getenv("LOG_LEVEL", "info").lower()
-    return LOG_LEVELS.get(level, LOG_LEVELS["info"])
+    _cached_log_level = LOG_LEVELS.get(level, LOG_LEVELS["info"])
+    _cached_log_file = os.getenv("LOG_FILE", "log.txt")
 
 
-def _get_log_file_path():
-    """获取日志文件路径"""
-    return os.getenv("LOG_FILE", "log.txt")
+def _get_current_log_level() -> int:
+    return _cached_log_level
 
+
+def _get_log_file_path() -> str:
+    return _cached_log_file
+
+
+# -----------------------------------------------------------------
+# 文件句柄管理（仅在 writer 线程内调用，不需要 _file_lock）
+# -----------------------------------------------------------------
 
 def _close_log_file():
-    """关闭日志文件句柄"""
     global _log_file_handle
-
     if _log_file_handle is not None:
         try:
-            _log_file_handle.flush()  # 确保数据写入磁盘
+            _log_file_handle.flush()
             _log_file_handle.close()
         except Exception:
-            pass  # 忽略关闭时的异常
+            pass
         finally:
             _log_file_handle = None
 
 
-def _open_log_file(mode="a"):
-    """打开日志文件句柄"""
-    global _log_file_handle, _file_writing_disabled, _disable_reason, _write_counter
-
-    # 先关闭旧的句柄（确保在任何情况下都关闭）
+def _open_log_file(mode: str = "a") -> bool:
+    global _log_file_handle, _file_writing_disabled, _disable_reason
+    _close_log_file()
     try:
-        _close_log_file()
-    except Exception:
-        pass
-    _write_counter = 0  # 重置计数器
-
-    try:
-        log_file = _get_log_file_path()
-        _log_file_handle = open(log_file, mode, encoding="utf-8", buffering=1)  # 行缓冲
+        # 使用较大缓冲区（64 KB），由 writer 线程定期 flush，减少系统调用
+        _log_file_handle = open(_cached_log_file, mode, encoding="utf-8", buffering=65536)
         return True
     except (PermissionError, OSError, IOError) as e:
         _file_writing_disabled = True
         _disable_reason = str(e)
-        print(
-            f"Warning: Cannot open log file. Disabling log file writing: {e}",
-            file=sys.stderr,
-        )
+        print(f"Warning: Cannot open log file, disabling file writing: {e}", file=sys.stderr)
         print("Log messages will continue to display in console only.", file=sys.stderr)
         return False
     except Exception as e:
@@ -86,22 +87,13 @@ def _open_log_file(mode="a"):
 
 
 def _clear_log_file():
-    """清空日志文件（在启动时调用）"""
+    """清空日志文件（启动时调用，此时 writer 线程尚未启动，直接操作安全）"""
     global _file_writing_disabled, _disable_reason
-
     try:
-        log_file = _get_log_file_path()
-        with _file_lock:
-            # 先关闭现有句柄
-            _close_log_file()
-            # 使用独立的文件句柄清空，不影响全局句柄
-            with open(log_file, "w", encoding="utf-8") as f:
-                f.write("")  # 清空文件
-                f.flush()  # 确保写入磁盘
-            # 清空后打开用于追加写入
-            _open_log_file("a")
+        with open(_cached_log_file, "w", encoding="utf-8") as f:
+            pass  # 覆盖清空
+        _open_log_file("a")
     except (PermissionError, OSError, IOError) as e:
-        # 检测只读文件系统或权限问题，禁用文件写入
         _file_writing_disabled = True
         _disable_reason = str(e)
         print(
@@ -111,166 +103,155 @@ def _clear_log_file():
         )
         print("Log messages will continue to display in console only.", file=sys.stderr)
     except Exception as e:
-        # 其他异常仍然输出警告但不禁用写入（可能是临时问题）
         print(f"Warning: Failed to clear log file: {e}", file=sys.stderr)
 
 
-def _write_to_file_sync(message: str):
-    """同步写入日志文件（内部使用）"""
-    global _file_writing_disabled, _disable_reason, _log_file_handle, _write_counter
-
-    # 如果文件写入已被禁用，直接返回
-    if _file_writing_disabled:
-        return False
-
-    with _file_lock:
-        try:
-            # 如果文件句柄不存在或达到重开阈值，重新打开
-            if _log_file_handle is None or _write_counter >= _max_writes_before_reopen:
-                if not _open_log_file("a"):
-                    return False  # 打开失败，直接返回
-
-            # 写入日志
-            _log_file_handle.write(message + "\n")
-            _write_counter += 1
-
-            # 每10条日志刷新一次，平衡性能和实时性
-            if _write_counter % 10 == 0:
-                _log_file_handle.flush()
-
-            return True
-
-        except (PermissionError, OSError, IOError) as e:
-            # 检测只读文件系统或权限问题，禁用文件写入
-            _file_writing_disabled = True
-            _disable_reason = str(e)
-            _close_log_file()  # 关闭句柄
-            print(
-                f"Warning: File system appears to be read-only or permission denied. "
-                f"Disabling log file writing: {e}",
-                file=sys.stderr,
-            )
-            print("Log messages will continue to display in console only.", file=sys.stderr)
-            return False
-        except Exception as e:
-            # 其他异常尝试重新打开文件句柄（自动恢复机制）
-            print(f"Warning: Failed to write to log file: {e}. Attempting to reopen...", file=sys.stderr)
-            _close_log_file()
-            try:
-                _open_log_file("a")
-            except Exception:
-                pass  # 如果重新打开失败，静默处理
-            return False
+# -----------------------------------------------------------------
+# Writer 线程：批量从 deque 取出并写入，减少系统调用次数
+# -----------------------------------------------------------------
+_BATCH_SIZE = 200          # 单次最多批量写入条数
+_FLUSH_INTERVAL = 0.5      # 秒：无新消息时强制 flush 周期
 
 
 def _log_writer_worker():
-    """后台日志写入线程"""
     global _writer_running
 
-    while _writer_running or not _log_queue.empty():
-        try:
-            # 从队列获取日志消息，超时0.1秒
-            message = _log_queue.get(timeout=0.1)
-            _write_to_file_sync(message)
-            _log_queue.task_done()
-        except Empty:
-            # 队列为空，检查是否需要退出
-            if _shutdown_event.is_set() and _log_queue.empty():
-                break
-            continue
-        except Exception as e:
-            print(f"Error in log writer thread: {e}", file=sys.stderr)
+    last_flush_time = 0.0
 
-    # 退出前强制刷新
-    if _log_file_handle:
+    while True:
+        # 等待数据或超时
+        with _deque_condition:
+            if not _log_deque and _writer_running:
+                _deque_condition.wait(timeout=_FLUSH_INTERVAL)
+
+            # 批量取出
+            batch = []
+            for _ in range(_BATCH_SIZE):
+                if _log_deque:
+                    batch.append(_log_deque.popleft())
+                else:
+                    break
+
+        if batch and not _file_writing_disabled:
+            # 一次 write 调用搞定整批，最大化减少系统调用
+            chunk = "\n".join(batch) + "\n"
+            try:
+                if _log_file_handle is None:
+                    _open_log_file("a")
+                if _log_file_handle is not None:
+                    _log_file_handle.write(chunk)
+            except Exception as e:
+                print(f"Warning: Failed to write log batch: {e}", file=sys.stderr)
+                _close_log_file()
+                try:
+                    _open_log_file("a")
+                except Exception:
+                    pass
+
+        # 定时 flush
+        now = _now_ts()
+        if now - last_flush_time >= _FLUSH_INTERVAL:
+            if _log_file_handle is not None:
+                try:
+                    _log_file_handle.flush()
+                except Exception:
+                    pass
+            last_flush_time = now
+
+        # 退出条件：已停止 + deque 已清空
+        if not _writer_running and not _log_deque:
+            break
+
+    # 最终 flush & close
+    if _log_file_handle is not None:
         try:
             _log_file_handle.flush()
         except Exception:
             pass
+    _close_log_file()
+
+
+def _now_ts() -> float:
+    import time
+    return time.monotonic()
 
 
 def _start_writer_thread():
-    """启动异步写入线程"""
     global _writer_thread, _writer_running
 
     if _writer_thread is None or not _writer_thread.is_alive():
         _writer_running = True
-        _shutdown_event.clear()
         _writer_thread = threading.Thread(target=_log_writer_worker, daemon=True, name="LogWriter")
         _writer_thread.start()
 
 
 def _stop_writer_thread():
-    """停止异步写入线程"""
     global _writer_running
 
     _writer_running = False
-    _shutdown_event.set()
+    # 唤醒 writer 线程让它能感知退出信号
+    with _deque_condition:
+        _deque_condition.notify_all()
 
-    # 等待队列处理完成
-    try:
-        _log_queue.join()  # 等待所有任务完成
-    except Exception:
-        pass
-
-    # 等待线程退出
     if _writer_thread and _writer_thread.is_alive():
-        _writer_thread.join(timeout=2.0)
+        _writer_thread.join(timeout=3.0)
 
-    # 关闭文件句柄
-    _close_log_file()
+
+# -----------------------------------------------------------------
+# 入队（热路径，极轻量）
+# -----------------------------------------------------------------
+_MAX_QUEUE_SIZE = 5000  # 防止极端情况内存无限增长
 
 
 def _write_to_file(message: str):
-    """异步写入日志文件（放入队列）"""
-    # 如果文件写入已被禁用，直接返回
     if _file_writing_disabled:
         return
+    # deque.append 在 CPython 受 GIL 保护，无需额外锁
+    if len(_log_deque) >= _MAX_QUEUE_SIZE:
+        return  # 过载保护：丢弃而非阻塞
+    _log_deque.append(message)
+    # 非阻塞通知 writer（acquire 失败直接跳过，不影响主线程）
+    if _deque_condition.acquire(blocking=False):
+        try:
+            _deque_condition.notify()
+        finally:
+            _deque_condition.release()
 
-    try:
-        # 非阻塞放入队列，如果队列满了就丢弃（防止内存溢出）
-        _log_queue.put_nowait(message)
-    except Exception:
-        # 队列满了，直接打印警告（不阻塞主程序）
-        pass
 
+# -----------------------------------------------------------------
+# 核心日志函数（热路径）
+# -----------------------------------------------------------------
 
 def _log(level: str, message: str):
-    """
-    内部日志函数
-    """
     level = level.lower()
-    if level not in LOG_LEVELS:
+    level_val = LOG_LEVELS.get(level)
+    if level_val is None:
         print(f"Warning: Unknown log level '{level}'", file=sys.stderr)
         return
 
-    # 检查日志级别
-    current_level = _get_current_log_level()
-    if LOG_LEVELS[level] < current_level:
+    # 热路径：直接与缓存值比较，无函数调用开销
+    if level_val < _cached_log_level:
         return
 
-    # 格式化日志消息
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{timestamp}] [{level.upper()}] {message}"
 
-    # 输出到控制台
     if level in ("error", "critical"):
         print(entry, file=sys.stderr)
     else:
         print(entry)
 
-    # 实时写入文件
     _write_to_file(entry)
 
 
 def set_log_level(level: str):
-    """设置日志级别提示"""
+    """动态设置日志级别（同时更新缓存）"""
+    global _cached_log_level
     level = level.lower()
     if level not in LOG_LEVELS:
         print(f"Warning: Unknown log level '{level}'. Valid levels: {', '.join(LOG_LEVELS.keys())}")
         return False
-
-    print(f"Note: To set log level '{level}', please set LOG_LEVEL environment variable")
+    _cached_log_level = LOG_LEVELS[level]
     return True
 
 
@@ -278,31 +259,24 @@ class Logger:
     """支持 log('info', 'msg') 和 log.info('msg') 两种调用方式"""
 
     def __call__(self, level: str, message: str):
-        """支持 log('info', 'message') 调用方式"""
         _log(level, message)
 
     def debug(self, message: str):
-        """记录调试信息"""
         _log("debug", message)
 
     def info(self, message: str):
-        """记录一般信息"""
         _log("info", message)
 
     def warning(self, message: str):
-        """记录警告信息"""
         _log("warning", message)
 
     def error(self, message: str):
-        """记录错误信息"""
         _log("error", message)
 
     def critical(self, message: str):
-        """记录严重错误信息"""
         _log("critical", message)
 
     def get_current_level(self) -> str:
-        """获取当前日志级别名称"""
         current_level = _get_current_log_level()
         for name, value in LOG_LEVELS.items():
             if value == current_level:
@@ -310,16 +284,14 @@ class Logger:
         return "info"
 
     def get_log_file(self) -> str:
-        """获取当前日志文件路径"""
         return _get_log_file_path()
 
     def close(self):
-        """手动关闭日志文件句柄（可选，用于优雅退出）"""
+        """手动关闭（优雅退出用）"""
         _stop_writer_thread()
 
     def get_queue_size(self) -> int:
-        """获取当前队列中待写入的日志数量"""
-        return _log_queue.qsize()
+        return len(_log_deque)
 
 
 # 导出全局日志实例
@@ -328,16 +300,18 @@ log = Logger()
 # 导出的公共接口
 __all__ = ["log", "set_log_level", "LOG_LEVELS"]
 
-# 在模块加载时清空日志文件并启动写入线程
+# 模块加载时：读取配置缓存 → 清空日志文件 → 启动 writer 线程
+_refresh_config()
 _clear_log_file()
 _start_writer_thread()
 
-# 注册退出时清理函数
+# 注册退出清理
 atexit.register(_stop_writer_thread)
 
 # 使用说明:
-# 1. 设置日志级别: export LOG_LEVEL=debug (或在.env文件中设置)
-# 2. 设置日志文件: export LOG_FILE=log.txt (或在.env文件中设置)
-# 3. 文件句柄会自动管理，每1000次写入后自动重新打开以防止泄漏
-# 4. 日志采用异步写入，对主程序性能影响极小
-# 5. 队列最多缓存500条日志，超出时会丢弃新日志（防止内存溢出）
+# 1. 设置日志级别: export LOG_LEVEL=debug  (或在 .env 中设置)
+# 2. 设置日志文件: export LOG_FILE=log.txt (或在 .env 中设置)
+# 3. 日志级别已缓存，热路径零 os.getenv 调用
+# 4. 写入线程批量处理（最多 200 条/次），64 KB 缓冲区，每 0.5 s flush 一次
+# 5. 队列上限 5000 条，超出时丢弃新日志（过载保护，不阻塞主线程）
+# 6. 动态调整级别：set_log_level('debug') 立即生效
