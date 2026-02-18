@@ -1,4 +1,4 @@
-full_hash=943af69dfe3fb5b55092c95cf810f9b50283a7db
-short_hash=943af69
-message=Update gemini_fix.py
-date=2026-02-18 10:37:25 +0800
+full_hash=312ca63f5767622de89ccaeec196bac638755a58
+short_hash=312ca63
+message=移除46s的预填充
+date=2026-02-18 10:58:40 +0800
