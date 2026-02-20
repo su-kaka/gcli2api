@@ -245,37 +245,9 @@ class MongoDBManager:
             # 对于 geminicli 模式，根据模型名的 preview 状态筛选凭证
             if mode == "geminicli" and model_name:
                 is_preview_model = "preview" in model_name.lower()
-                is_flash_model = "flash" in model_name.lower()
 
                 if is_preview_model:
                     # 模型名包含 preview，只能使用 preview=True 的凭证
-                    pipeline.append({"$match": {"preview": True}})
-                elif is_flash_model:
-                    # 模型名包含 flash，直接混用所有凭证，不需要优先查找 preview=False
-                    # 不添加任何 preview 相关的筛选条件
-                    pass
-                else:
-                    # 模型名不包含 preview 且不包含 flash
-                    # 先尝试 preview=False
-                    pipeline_non_preview = pipeline.copy()
-                    pipeline_non_preview.append({"$match": {"preview": False}})
-                    pipeline_non_preview.append({"$sample": {"size": 1}})
-                    pipeline_non_preview.append({
-                        "$project": {
-                            "filename": 1,
-                            "credential_data": 1,
-                            "_id": 0
-                        }
-                    })
-
-                    docs = await collection.aggregate(pipeline_non_preview).to_list(length=1)
-
-                    if docs:
-                        # 找到 preview=False 的凭证
-                        doc = docs[0]
-                        return doc["filename"], doc.get("credential_data")
-
-                    # 没有 preview=False 的凭证，使用 preview=True 作为后备
                     pipeline.append({"$match": {"preview": True}})
 
             # 随机抽取一个
