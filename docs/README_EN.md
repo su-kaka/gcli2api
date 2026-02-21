@@ -326,11 +326,11 @@ docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PA
 - Lower section: Antigravity credential batch upload (green theme)
 - Separate credential management tabs for each type
 
-## 💾 Data Storage Mode
+## 💾 Data Storage Modes
 
 ### 🌟 Storage Backend Support
 
-gcli2api supports two storage backends: **Local SQLite (Default)** and **MongoDB (Cloud Distributed Storage)**
+gcli2api supports three storage backends: **Local SQLite (Default)**, **MongoDB (Cloud Distributed Storage)**, and **MySQL (Relational Database)**
 
 ### 📁 Local SQLite Storage (Default)
 
@@ -346,79 +346,95 @@ gcli2api supports two storage backends: **Local SQLite (Default)** and **MongoDB
 
 When multi-instance deployment or cloud storage is needed, MongoDB storage mode can be enabled.
 
-### ⚙️ Enable MongoDB Mode
+### 🐬 MySQL Relational Storage Mode
 
-**Step 1: Configure MongoDB Connection**
+**Enterprise-grade Relational Database Solution**
+
+When enterprise-level database support, transaction processing, or integration with existing MySQL infrastructure is needed, MySQL storage mode can be enabled.
+
+### ⚙️ Enable MySQL Mode
+
+**Step 1: Configure MySQL Connection**
 ```bash
-# Local MongoDB
-export MONGODB_URI="mongodb://localhost:27017"
+# Use standard DSN format
+export MYSQL_DSN="mysql://username:password@hostname:port/database"
 
-# MongoDB Atlas cloud service
-export MONGODB_URI="mongodb+srv://username:password@cluster.mongodb.net"
+# Example: Local MySQL
+export MYSQL_DSN="mysql://root:mypassword@localhost:3306/gcli2api"
 
-# MongoDB with authentication
-export MONGODB_URI="mongodb://admin:password@localhost:27017/admin"
+# Example: Cloud database
+export MYSQL_DSN="mysql://user:pass@mysql.example.com:3306/gcli2api"
 
-# Optional: Custom database name (default: gcli2api)
-export MONGODB_DATABASE="my_gcli_db"
+# Simplified example (using defaults)
+export MYSQL_DSN="mysql://root@localhost/gcli2api"
 ```
 
-**Step 2: Start Application**
+**DSN Format Explanation**
+- `mysql://`: Protocol identifier
+- `username:password`: Database username and password
+- `hostname:port`: Database host and port
+- `database`: Database name
+
+**Step 2: Create Database**
+```sql
+CREATE DATABASE gcli2api CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**Step 3: Start Application**
 ```bash
-# Application will automatically detect MongoDB configuration and use MongoDB storage
+# Application will automatically detect MySQL DSN configuration and use MySQL storage
 python web.py
 ```
 
-**Docker Environment using MongoDB**
+**Docker Environment using MySQL**
 ```bash
-# Single MongoDB deployment
+# Single MySQL deployment
 docker run -d --name gcli2api \
-  -e MONGODB_URI="mongodb://mongodb:27017" \
+  -e MYSQL_DSN="mysql://root:mypassword@mysql:3306/gcli2api" \
   -e API_PASSWORD=your_password \
   --network your_network \
   ghcr.io/su-kaka/gcli2api:latest
 
-# Using MongoDB Atlas
+# Using cloud MySQL service
 docker run -d --name gcli2api \
-  -e MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/gcli2api" \
+  -e MYSQL_DSN="mysql://user:pass@mysql.cloudprovider.com:3306/gcli2api" \
   -e API_PASSWORD=your_password \
   -p 7861:7861 \
   ghcr.io/su-kaka/gcli2api:latest
 ```
 
-**Docker Compose Example**
+**Docker Compose Example (MySQL + gcli2api)**
 ```yaml
 version: '3.8'
 
 services:
-  mongodb:
-    image: mongo:7
-    container_name: gcli2api-mongodb
+  mysql:
+    image: mysql:8
+    container_name: gcli2api-mysql
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
+      MYSQL_ROOT_PASSWORD: password123
+      MYSQL_DATABASE: gcli2api
     volumes:
-      - mongodb_data:/data/db
+      - mysql_data:/var/lib/mysql
     ports:
-      - "27017:27017"
+      - "3306:3306"
 
   gcli2api:
     image: ghcr.io/su-kaka/gcli2api:latest
     container_name: gcli2api
     restart: unless-stopped
     depends_on:
-      - mongodb
+      - mysql
     environment:
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/admin
-      - MONGODB_DATABASE=gcli2api
+      - MYSQL_DSN=mysql://root:password123@mysql:3306/gcli2api
       - API_PASSWORD=your_api_password
       - PORT=7861
     ports:
       - "7861:7861"
 
 volumes:
-  mongodb_data:
+  mysql_data:
 ```
 
 ### 🛠️ Troubleshooting
@@ -472,6 +488,10 @@ export MONGODB_URI="mongodb://host1:27017,host2:27017,host3:27017/gcli2api?repli
 # Read-write separation configuration
 export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryPreferred"
 ```
+
+
+
+---
 
 ## 🏗️ Technical Architecture
 
@@ -565,30 +585,33 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `LOG_FILE`: Log file path (default: gcli2api.log)
 
 **Storage Configuration**
+- `MYSQL_DSN`: MySQL connection string (enables MySQL storage mode)
+- `MONGODB_URI`: MongoDB connection string (enables MongoDB storage mode)
+- Default uses SQLite storage (no configuration required)
 
-**SQLite Configuration (Default)**
-- No configuration required, automatically uses local SQLite database
-- Database files are automatically created in the project directory
-
-**MongoDB Configuration (Optional Cloud Storage)**
-- `MONGODB_URI`: MongoDB connection string (enables MongoDB mode when set)
-- `MONGODB_DATABASE`: MongoDB database name (default: gcli2api)
-
-**Docker Usage Example**
+**Docker Usage Examples**
 ```bash
-# Using universal password
+# Using universal password and default SQLite
 docker run -d --name gcli2api \
   -e PASSWORD=mypassword \
-  -e PORT=11451 \
-  -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
+  -e PORT=7861 \
   ghcr.io/su-kaka/gcli2api:latest
 
-# Using separate passwords
+# Using separate passwords and MySQL
 docker run -d --name gcli2api \
-  -e API_PASSWORD=my_api_password \
+  -e MYSQL_DSN="mysql://root:mypassword@mysql:3306/gcli2api" \
+  -e PASSWORD=mypassword \
   -e PANEL_PASSWORD=my_panel_password \
-  -e PORT=11451 \
-  -e GOOGLE_CREDENTIALS="$(cat credential.json | base64 -w 0)" \
+  -e PORT=7861 \
+  --network my_network \
+  ghcr.io/su-kaka/gcli2api:latest
+
+# Using separate passwords and MongoDB
+docker run -d --name gcli2api \
+  -e MONGODB_URI="mongodb://admin:password@mongodb:27017/gcli2api" \
+  -e PASSWORD=mypassword \
+  -e PORT=7861 \
+  --network my_network \
   ghcr.io/su-kaka/gcli2api:latest
 ```
 
