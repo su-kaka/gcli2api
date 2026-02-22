@@ -359,14 +359,19 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
     if "$ref" in schema:
         resolved = _resolve_ref(schema["$ref"], root_schema)
         if resolved:
-            # 合并解析后的 schema 和当前 schema
-            import copy
-            result = copy.deepcopy(resolved)
+            # 检测循环引用：若 resolved 已在 visited 中，直接返回占位符
+            resolved_id = id(resolved)
+            if resolved_id in visited:
+                return {"type": "OBJECT", "description": "(circular reference)"}
+            # 将 resolved 的 id 加入 visited，防止后续递归时重复处理
+            visited.add(resolved_id)
+            # 合并解析后的 schema 和当前 schema（浅拷贝，避免 deepcopy 爆栈）
+            merged = dict(resolved)
             # 当前 schema 的其他字段会覆盖解析后的字段
             for key, value in schema.items():
                 if key != "$ref":
-                    result[key] = value
-            schema = result
+                    merged[key] = value
+            schema = merged
             result = {}
     
     # 2. 处理 allOf（合并所有 schema）
