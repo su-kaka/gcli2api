@@ -5,6 +5,7 @@
 """
 
 from contextlib import asynccontextmanager
+import json as jsonlib
 from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
@@ -16,9 +17,13 @@ from log import log
 class HttpxClientManager:
     """通用HTTP客户端管理器"""
 
-    async def get_client_kwargs(self, timeout: float = 30.0, **kwargs) -> Dict[str, Any]:
+    async def get_client_kwargs(
+        self, timeout: Optional[float] = 30.0, **kwargs
+    ) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
-        client_kwargs = {"timeout": timeout, **kwargs}
+        client_kwargs = {**kwargs}
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
 
         # 动态读取代理配置，支持热更新
         current_proxy_config = await get_proxy_config()
@@ -39,7 +44,7 @@ class HttpxClientManager:
 
     @asynccontextmanager
     async def get_streaming_client(
-        self, timeout: float = None, **kwargs
+        self, timeout: Optional[float] = None, **kwargs
     ) -> AsyncGenerator[httpx.AsyncClient, None]:
         """获取用于流式请求的HTTP客户端（无超时限制）"""
         client_kwargs = await self.get_client_kwargs(timeout=timeout, **kwargs)
@@ -58,6 +63,24 @@ class HttpxClientManager:
 
 # 全局HTTP客户端管理器实例
 http_client = HttpxClientManager()
+
+
+def _encode_json_body_safely(payload: Any) -> bytes:
+    try:
+        return jsonlib.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except UnicodeEncodeError:
+        log.warning("检测到孤立代理项，使用ASCII转义发送JSON请求体")
+        return jsonlib.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
 
 
 # 通用的异步方法
@@ -79,6 +102,15 @@ async def post_async(
 ) -> httpx.Response:
     """通用异步POST请求"""
     async with http_client.get_client(timeout=timeout, **kwargs) as client:
+        if json is not None and data is None:
+            request_headers = dict(headers or {})
+            request_headers.setdefault("Content-Type", "application/json")
+            safe_json_bytes = _encode_json_body_safely(json)
+            return await client.post(
+                url,
+                content=safe_json_bytes,
+                headers=request_headers,
+            )
         return await client.post(url, data=data, json=json, headers=headers)
 
 
@@ -91,10 +123,16 @@ async def stream_post_async(
 ):
     """流式异步POST请求"""
     async with http_client.get_streaming_client(**kwargs) as client:
-        async with client.stream("POST", url, json=body, headers=headers) as r:
+        request_headers = dict(headers or {})
+        request_headers.setdefault("Content-Type", "application/json")
+        safe_json_bytes = _encode_json_body_safely(body)
+        async with client.stream(
+            "POST", url, content=safe_json_bytes, headers=request_headers
+        ) as r:
             # 错误直接返回
             if r.status_code != 200:
                 from fastapi import Response
+
                 yield Response(await r.aread(), r.status_code, dict(r.headers))
                 return
 
