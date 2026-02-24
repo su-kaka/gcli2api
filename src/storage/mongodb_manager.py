@@ -1008,3 +1008,45 @@ class MongoDBManager:
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
+
+    async def record_success(
+        self,
+        filename: str,
+        model_name: Optional[str] = None,
+        mode: str = "geminicli"
+    ) -> None:
+        """
+        成功调用后的条件写入：
+        - 只有当前 error_codes 非空时才清除错误并写 last_success
+        - 只有当前存在该模型的冷却键时才清除
+        通过 MongoDB 服务端条件匹配实现
+        """
+        self._ensure_initialized()
+        filename = os.path.basename(filename)
+
+        try:
+            collection_name = self._get_collection_name(mode)
+            collection = self._db[collection_name]
+            now = time.time()
+
+            # 条件写入：只有 error_codes 非空时才触发，避免无意义的写 IO
+            await collection.update_one(
+                {"filename": filename, "error_codes": {"$ne": []}},
+                {"$set": {
+                    "last_success": now,
+                    "error_codes": [],
+                    "error_messages": {},
+                    "updated_at": now,
+                }}
+            )
+
+            # 条件删除模型冷却：只有该键存在时才写入
+            if model_name:
+                escaped = self._escape_model_name(model_name)
+                await collection.update_one(
+                    {"filename": filename, f"model_cooldowns.{escaped}": {"$exists": True}},
+                    {"$unset": {f"model_cooldowns.{escaped}": ""}, "$set": {"updated_at": now}}
+                )
+
+        except Exception as e:
+            log.error(f"Error recording success for {filename}: {e}")

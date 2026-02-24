@@ -1270,3 +1270,53 @@ class SQLiteManager:
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
             return False
+
+    async def record_success(
+        self,
+        filename: str,
+        model_name: Optional[str] = None,
+        mode: str = "geminicli"
+    ) -> None:
+        """
+        成功调用后的条件写入：
+        - 只有当前 error_codes 非空时才清除错误并写 last_success
+        - 只有当前存在该模型的冷却键时才清除
+        通过 SQL WHERE 条件匹配实现
+        """
+        self._ensure_initialized()
+        filename = os.path.basename(filename)
+
+        try:
+            table_name = self._get_table_name(mode)
+            async with aiosqlite.connect(self._db_path) as db:
+                # 条件写入：只有 error_codes 非空时才触发
+                await db.execute(f"""
+                    UPDATE {table_name}
+                    SET last_success = unixepoch(),
+                        error_codes   = '[]',
+                        error_messages = '{{}}',
+                        updated_at    = unixepoch()
+                    WHERE filename = ?
+                      AND (error_codes IS NOT NULL AND error_codes != '[]' AND error_codes != '')
+                """, (filename,))
+
+                # 条件删除模型冷却：只有模型键存在时才写入
+                if model_name:
+                    async with db.execute(f"""
+                        SELECT model_cooldowns FROM {table_name} WHERE filename = ?
+                    """, (filename,)) as cursor:
+                        row = await cursor.fetchone()
+                        if row:
+                            cooldowns = json.loads(row[0] or '{}')
+                            if model_name in cooldowns:
+                                cooldowns.pop(model_name)
+                                await db.execute(f"""
+                                    UPDATE {table_name}
+                                    SET model_cooldowns = ?, updated_at = unixepoch()
+                                    WHERE filename = ?
+                                """, (json.dumps(cooldowns), filename))
+
+                await db.commit()
+
+        except Exception as e:
+            log.error(f"Error recording success for {filename}: {e}")
