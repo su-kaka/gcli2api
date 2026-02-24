@@ -3,6 +3,7 @@ MongoDB 存储管理器
 """
 
 import os
+import random
 import time
 from typing import Any, Dict, List, Optional
 
@@ -205,7 +206,7 @@ class MongoDBManager:
               - 如果模型名包含 "flash": 直接混用所有可用凭证，不区分 preview 状态
               - 如果模型名不包含 "preview" 且不包含 "flash": 优先使用 preview=False 的凭证，没有时才使用 preview=True
             - 对于 antigravity: 不检查 preview 状态
-            - 使用聚合管道在数据库层面过滤冷却状态，性能更优
+            - 使用 count + random skip + limit(1) 替代 $sample，避免全集合扫描
         """
         self._ensure_initialized()
 
@@ -214,56 +215,31 @@ class MongoDBManager:
             collection = self._db[collection_name]
             current_time = time.time()
 
-            # 构建聚合管道
-            pipeline = [
-                # 第一步: 筛选未禁用的凭证
-                {"$match": {"disabled": False}},
-            ]
+            # 构建普通查询（避免 $sample 聚合导致全集合扫描）
+            match_query: Dict[str, Any] = {"disabled": False}
 
-            # 如果提供了 model_name，添加冷却检查
+            # 冷却检查：直接用 MongoDB 查询表达，无需 $addFields
             if model_name:
-                # 转义模型名中的点号
                 escaped_model_name = self._escape_model_name(model_name)
-                pipeline.extend([
-                    # 第二步: 添加冷却状态字段
-                    {
-                        "$addFields": {
-                            "is_available": {
-                                "$or": [
-                                    # model_cooldowns 中没有该 model_name
-                                    {"$not": {"$ifNull": [f"$model_cooldowns.{escaped_model_name}", False]}},
-                                    # 或者冷却时间已过期
-                                    {"$lte": [f"$model_cooldowns.{escaped_model_name}", current_time]}
-                                ]
-                            }
-                        }
-                    },
-                    # 第三步: 只保留可用的凭证
-                    {"$match": {"is_available": True}},
-                ])
+                field = f"model_cooldowns.{escaped_model_name}"
+                match_query["$or"] = [
+                    {field: {"$exists": False}},
+                    {field: {"$lte": current_time}},
+                ]
 
-            # 对于 geminicli 模式，根据模型名的 preview 状态筛选凭证
-            if mode == "geminicli" and model_name:
-                is_preview_model = "preview" in model_name.lower()
+            # geminicli preview 筛选
+            if mode == "geminicli" and model_name and "preview" in model_name.lower():
+                match_query["preview"] = True
 
-                if is_preview_model:
-                    # 模型名包含 preview，只能使用 preview=True 的凭证
-                    pipeline.append({"$match": {"preview": True}})
+            # 统计符合条件的凭证总数（走索引，极快）
+            count = await collection.count_documents(match_query)
+            if count == 0:
+                return None
 
-            # 随机抽取一个
-            pipeline.append({"$sample": {"size": 1}})
-
-            # 只投影需要的字段
-            pipeline.append({
-                "$project": {
-                    "filename": 1,
-                    "credential_data": 1,
-                    "_id": 0
-                }
-            })
-
-            # 执行聚合
-            docs = await collection.aggregate(pipeline).to_list(length=1)
+            # 随机偏移 + limit(1)，替代 $sample，避免全集合随机排序
+            skip_n = random.randint(0, count - 1)
+            projection = {"filename": 1, "credential_data": 1, "_id": 0}
+            docs = await collection.find(match_query, projection).skip(skip_n).limit(1).to_list(1)
 
             if docs:
                 doc = docs[0]
