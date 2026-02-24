@@ -166,7 +166,7 @@ async def stream_request(
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
-        keep_current_credential = False  # 标记是否保留当前凭证重试（无cd的429）
+        keep_current_credential = False  # 标记是否保留当前凭证重试（无cd的429/503）
 
         try:
             async for chunk in stream_post_async(
@@ -200,8 +200,8 @@ async def stream_request(
                             except Exception:
                                 pass
 
-                        # 对于没有触发cd的429错误，保留当前凭证重试；否则预热下一个凭证
-                        if status_code == 429 and cooldown_until is None:
+                        # 对于没有触发cd的429/503错误，保留当前凭证重试；否则预热下一个凭证
+                        if (status_code == 429 or status_code == 503) and cooldown_until is None:
                             keep_current_credential = True
                         elif next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
@@ -210,11 +210,13 @@ async def stream_request(
                                 )
                             )
 
-                        await record_api_call_error(
-                            credential_manager, current_file, status_code,
-                            cooldown_until, mode="antigravity", model_name=model_name,
-                            error_message=error_body
-                        )
+                        # 无cd的429/503保留当前凭证重试，无需记录错误
+                        if not keep_current_credential:
+                            await record_api_call_error(
+                                credential_manager, current_file, status_code,
+                                cooldown_until, mode="antigravity", model_name=model_name,
+                                error_message=error_body
+                            )
 
                         # 检查是否应该重试
                         should_retry = await handle_error_with_retry(
@@ -289,7 +291,7 @@ async def stream_request(
 
                 # 对于没有冷却时间的429错误，保留当前凭证重试
                 if keep_current_credential:
-                    log.info(f"[ANTIGRAVITY STREAM] 429无冷却时间，保留当前凭证重试: {current_file}")
+                    log.info(f"[ANTIGRAVITY STREAM] {status_code}无冷却时间，保留当前凭证重试: {current_file}")
                     await asyncio.sleep(retry_interval)
                     continue
 
@@ -522,7 +524,7 @@ async def non_stream_request(
                             pass
 
                     # 对于没有触发cd的429错误，不预热新凭证
-                    if not (status_code == 429 and cooldown_until is None):
+                    if not ((status_code == 429 or status_code == 503) and cooldown_until is None):
                         # 并行预热下一个凭证,不阻塞当前处理
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
@@ -531,11 +533,13 @@ async def non_stream_request(
                                 )
                             )
 
-                    await record_api_call_error(
-                        credential_manager, current_file, status_code,
-                        cooldown_until, mode="antigravity", model_name=model_name,
-                        error_message=error_text
-                    )
+                    # 无cd的429/503保留当前凭证重试，无需记录错误
+                    if not ((status_code == 429 or status_code == 503) and cooldown_until is None):
+                        await record_api_call_error(
+                            credential_manager, current_file, status_code,
+                            cooldown_until, mode="antigravity", model_name=model_name,
+                            error_message=error_text
+                        )
 
                     # 检查是否应该重试
                     should_retry = await handle_error_with_retry(
@@ -548,8 +552,8 @@ async def non_stream_request(
                         need_retry = True
 
                         # 对于没有冷却时间的429错误，保留当前凭证重试
-                        if status_code == 429 and cooldown_until is None:
-                            log.info(f"[ANTIGRAVITY] 429无冷却时间，保留当前凭证重试: {current_file}")
+                        if (status_code == 429 or status_code == 503) and cooldown_until is None:
+                            log.info(f"[ANTIGRAVITY] {status_code}无冷却时间，保留当前凭证重试: {current_file}")
                             await asyncio.sleep(retry_interval)
                             continue
                     else:

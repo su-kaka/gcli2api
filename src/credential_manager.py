@@ -2,6 +2,7 @@
 凭证管理器
 """
 
+import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -263,34 +264,29 @@ class CredentialManager:
         """
         await self._ensure_initialized()
         try:
-            state_updates = {}
-
             if success:
-                state_updates["last_success"] = time.time()
-                # 清除错误码和错误信息
-                state_updates["error_codes"] = []
-                state_updates["error_messages"] = []
-
-                # 如果提供了 model_name，清除该模型的冷却
-                if model_name:
-                    if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
-                        await self._storage_adapter._backend.set_model_cooldown(
-                            credential_name, model_name, None, mode=mode
-                        )
+            # 条件写入：仅当凭证有错误状态或模型冷却时才写 DB，零内存缓存
+            # fire-and-forget，不阻塞请求链路
+                asyncio.create_task(
+                    self._storage_adapter._backend.record_success(
+                        credential_name, model_name=model_name, mode=mode
+                    )
+                )
 
             elif error_code:
-                # 记录错误码和错误信息（覆盖模式）
-                error_codes = [error_code]
-
-                # 保存错误信息（使用字典覆盖模式，与 panel/creds.py 保持一致）
+                # 记录错误码和错误信息
                 error_messages = {}
                 if error_message:
                     error_messages[str(error_code)] = error_message
 
-                state_updates["error_codes"] = error_codes
-                state_updates["error_messages"] = error_messages
+                state_updates = {
+                    "error_codes": [error_code],
+                    "error_messages": error_messages,
+                }
 
-                # 如果提供了冷却时间和模型名，设置模型级冷却
+                await self.update_credential_state(credential_name, state_updates, mode=mode)
+
+                # 设置模型级冷却
                 if cooldown_until is not None and model_name:
                     if hasattr(self._storage_adapter._backend, 'set_model_cooldown'):
                         await self._storage_adapter._backend.set_model_cooldown(
@@ -300,9 +296,6 @@ class CredentialManager:
                             f"设置模型级冷却: {credential_name}, model_name={model_name}, "
                             f"冷却至: {datetime.fromtimestamp(cooldown_until, timezone.utc).isoformat()}"
                         )
-
-            if state_updates:
-                await self.update_credential_state(credential_name, state_updates, mode=mode)
 
         except Exception as e:
             log.error(f"Error recording API call result for {credential_name}: {e}")
