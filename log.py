@@ -34,14 +34,17 @@ _writer_running = False
 # -----------------------------------------------------------------
 _cached_log_level: int = LOG_LEVELS["info"]
 _cached_log_file: str = "log.txt"
+# ENABLE_LOG=0/false/no/off 时彻底关闭日志
+_log_enabled: bool = True
 
 
 def _refresh_config():
     """从环境变量刷新缓存配置（模块加载时及需要时调用）"""
-    global _cached_log_level, _cached_log_file
+    global _cached_log_level, _cached_log_file, _log_enabled
     level = os.getenv("LOG_LEVEL", "info").lower()
     _cached_log_level = LOG_LEVELS.get(level, LOG_LEVELS["info"])
     _cached_log_file = os.getenv("LOG_FILE", "log.txt")
+    _log_enabled = os.getenv("ENABLE_LOG", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 def _get_current_log_level() -> int:
@@ -109,8 +112,8 @@ def _clear_log_file():
 # -----------------------------------------------------------------
 # Writer 线程：批量从 deque 取出并写入，减少系统调用次数
 # -----------------------------------------------------------------
-_BATCH_SIZE = 200          # 单次最多批量写入条数
-_FLUSH_INTERVAL = 0.5      # 秒：无新消息时强制 flush 周期
+_BATCH_SIZE = 1000          # 单次最多批量写入条数
+_FLUSH_INTERVAL = 2      # 秒：无新消息时强制 flush 周期
 
 
 def _log_writer_worker():
@@ -223,6 +226,10 @@ def _write_to_file(message: str):
 # -----------------------------------------------------------------
 
 def _log(level: str, message: str):
+    # 最快短路：日志整体已禁用时直接返回，零开销
+    if not _log_enabled:
+        return
+
     level = level.lower()
     level_val = LOG_LEVELS.get(level)
     if level_val is None:
@@ -302,8 +309,9 @@ __all__ = ["log", "set_log_level", "LOG_LEVELS"]
 
 # 模块加载时：读取配置缓存 → 清空日志文件 → 启动 writer 线程
 _refresh_config()
-_clear_log_file()
-_start_writer_thread()
+if _log_enabled:
+    _clear_log_file()
+    _start_writer_thread()
 
 # 注册退出清理
 atexit.register(_stop_writer_thread)
@@ -315,3 +323,5 @@ atexit.register(_stop_writer_thread)
 # 4. 写入线程批量处理（最多 200 条/次），64 KB 缓冲区，每 0.5 s flush 一次
 # 5. 队列上限 5000 条，超出时丢弃新日志（过载保护，不阻塞主线程）
 # 6. 动态调整级别：set_log_level('debug') 立即生效
+# 7. 彻底关闭日志（最高性能）：export ENABLE_LOG=0  (或 false/no/off)
+#    关闭后不会启动 writer 线程、不写文件、不打印控制台，_log 直接 return
