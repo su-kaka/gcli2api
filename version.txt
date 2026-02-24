@@ -1,4 +1,4 @@
-full_hash=1c0b17ad3d36831564a712983d01e264680d1cf1
-short_hash=1c0b17a
-message=Update pyproject.toml
-date=2026-02-24 20:55:28 +0800
+full_hash=2b504d74da95ee4e291d526328d76c3c0df68270
+short_hash=2b504d7
+message=Update .env.example
+date=2026-02-24 21:01:19 +0800
