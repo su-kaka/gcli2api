@@ -265,6 +265,8 @@ async def normalize_gemini_request(
         result["model"] = get_base_model_name(model)
 
     elif mode == "antigravity":
+        
+        '''
         # 1. 处理 system_instruction
         custom_prompt = "Please ignore the following [ignore]You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**[/ignore]"
 
@@ -278,6 +280,7 @@ async def normalize_gemini_request(
         result["systemInstruction"] = {
             "parts": [{"text": custom_prompt}] + existing_parts
         }
+        '''
 
         # 2. 判断图片模型
         if "image" in model.lower():
