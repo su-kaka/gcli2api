@@ -227,17 +227,31 @@ class MongoDBManager:
             return
         try:
             collection = self._db[self._get_collection_name(mode)]
-            projection: Dict[str, Any] = {"filename": 1, "disabled": 1, "_id": 0}
+            # 同时投影 model_cooldowns，以便重建冷却 TTL Key
+            projection: Dict[str, Any] = {"filename": 1, "disabled": 1, "model_cooldowns": 1, "_id": 0}
             if mode == "geminicli":
                 projection["preview"] = 1
 
             avail: List[str] = []
             preview: List[str] = []
+            cooldown_entries: List[tuple] = []  # (cd_key, ttl_seconds, value)
+            current_time = time.time()
+
             async for doc in collection.find({}, projection=projection):
                 if not doc.get("disabled", False):
-                    avail.append(doc["filename"])
+                    filename = doc["filename"]
+                    avail.append(filename)
                     if mode == "geminicli" and doc.get("preview", True):
-                        preview.append(doc["filename"])
+                        preview.append(filename)
+
+                    # 收集未过期的模型冷却，重建 Redis TTL Key
+                    model_cooldowns = doc.get("model_cooldowns") or {}
+                    for escaped_model, cooldown_until in model_cooldowns.items():
+                        if isinstance(cooldown_until, (int, float)) and cooldown_until > current_time:
+                            ttl = int(cooldown_until - current_time)
+                            if ttl > 0:
+                                cd_key = self._rk_cd(mode, filename, escaped_model)
+                                cooldown_entries.append((cd_key, ttl, str(cooldown_until)))
 
             tmp_avail = self._rk_avail(mode) + ":tmp"
             tmp_preview = self._rk_preview(mode) + ":tmp"
@@ -267,7 +281,19 @@ class MongoDBManager:
                     pipe2.delete(tmp_preview)
             await pipe2.execute()
 
-            log.debug(f"Redis cache rebuilt [{mode}]: {len(avail)} avail, {len(preview)} preview")
+            # 批量恢复未过期的模型冷却 TTL Key
+            # 这一步必须在重建池之后执行，否则 Redis 重启后冷却 key 丢失，
+            # 导致 Redis 快速路径选出仍处于冷却中的凭证
+            if cooldown_entries:
+                pipe3 = self._redis.pipeline()
+                for cd_key, ttl, value in cooldown_entries:
+                    pipe3.setex(cd_key, ttl, value)
+                await pipe3.execute()
+
+            log.debug(
+                f"Redis cache rebuilt [{mode}]: {len(avail)} avail, {len(preview)} preview, "
+                f"{len(cooldown_entries)} cooldown key(s) restored"
+            )
         except Exception as e:
             log.warning(f"Redis rebuild cache error [{mode}]: {e}")
 
