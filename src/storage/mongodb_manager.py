@@ -48,6 +48,10 @@ class MongoDBManager:
         self._config_cache: Dict[str, Any] = {}
         self._config_loaded = False
 
+        # Redis 缓存（仅当 REDIS_URL 环境变量存在时启用）
+        self._redis = None
+        self._redis_enabled: bool = False
+
     async def initialize(self) -> None:
         """初始化 MongoDB 连接"""
         if self._initialized:
@@ -74,6 +78,9 @@ class MongoDBManager:
 
             self._initialized = True
             log.info(f"MongoDB storage initialized (database: {database_name})")
+
+            # 尝试初始化 Redis（可选）
+            await self._init_redis()
 
         except Exception as e:
             log.error(f"Error initializing MongoDB: {e}")
@@ -162,8 +169,177 @@ class MongoDBManager:
             log.error(f"Error loading config cache: {e}")
             self._config_cache = {}
 
+    # ============ Redis 缓存（可选，仅当 REDIS_URL 存在时启用）============
+
+    async def _init_redis(self) -> None:
+        """初始化 Redis 连接并重建凭证池缓存（若 REDIS_URL 存在）"""
+        redis_url = os.getenv("REDIS_URL")
+        if not redis_url:
+            return
+
+        try:
+            import redis.asyncio as aioredis  # type: ignore
+        except ImportError:
+            log.warning("redis package not installed, Redis cache disabled. Run: pip install redis")
+            return
+
+        try:
+            self._redis = aioredis.from_url(redis_url, decode_responses=True)
+            await self._redis.ping()
+            self._redis_enabled = True
+            log.info("Redis connected, rebuilding credential pool cache...")
+
+            # 并行重建两个 mode 的缓存
+            import asyncio
+            await asyncio.gather(
+                self._rebuild_redis_cache("geminicli"),
+                self._rebuild_redis_cache("antigravity"),
+            )
+            log.info("Redis credential pool cache ready")
+        except Exception as e:
+            log.warning(f"Redis init failed, falling back to MongoDB-only mode: {e}")
+            self._redis = None
+            self._redis_enabled = False
+
+    # ---- Redis key 工具 ----
+
+    def _rk_avail(self, mode: str) -> str:
+        """所有未禁用凭证的 Redis Set key"""
+        return f"gcli:avail:{mode}"
+
+    def _rk_preview(self, mode: str) -> str:
+        """未禁用且 preview=True 的凭证 Redis Set key（仅 geminicli）"""
+        return f"gcli:preview:{mode}"
+
+    def _rk_cd(self, mode: str, filename: str, escaped_model: str) -> str:
+        """模型冷却 Redis key（带 TTL）"""
+        return f"gcli:cd:{mode}:{filename}:{escaped_model}"
+
+    # ---- Redis 缓存维护 ----
+
+    async def _rebuild_redis_cache(self, mode: str) -> None:
+        """从 MongoDB 重建指定 mode 的 Redis 凭证池缓存"""
+        if not self._redis:
+            return
+        try:
+            collection = self._db[self._get_collection_name(mode)]
+            projection: Dict[str, Any] = {"filename": 1, "disabled": 1, "_id": 0}
+            if mode == "geminicli":
+                projection["preview"] = 1
+
+            avail: List[str] = []
+            preview: List[str] = []
+            async for doc in collection.find({}, projection=projection):
+                if not doc.get("disabled", False):
+                    avail.append(doc["filename"])
+                    if mode == "geminicli" and doc.get("preview", True):
+                        preview.append(doc["filename"])
+
+            pipe = self._redis.pipeline()
+            pipe.delete(self._rk_avail(mode))
+            pipe.delete(self._rk_preview(mode))
+            if avail:
+                pipe.sadd(self._rk_avail(mode), *avail)
+            if mode == "geminicli" and preview:
+                pipe.sadd(self._rk_preview(mode), *preview)
+            await pipe.execute()
+            log.debug(f"Redis cache rebuilt [{mode}]: {len(avail)} avail, {len(preview)} preview")
+        except Exception as e:
+            log.warning(f"Redis rebuild cache error [{mode}]: {e}")
+
+    async def _redis_add_cred(self, mode: str, filename: str, preview: bool = True) -> None:
+        """将凭证加入 Redis 可用池"""
+        if not self._redis_enabled:
+            return
+        try:
+            pipe = self._redis.pipeline()
+            pipe.sadd(self._rk_avail(mode), filename)
+            if mode == "geminicli" and preview:
+                pipe.sadd(self._rk_preview(mode), filename)
+            await pipe.execute()
+        except Exception as e:
+            log.warning(f"Redis add_cred error: {e}")
+
+    async def _redis_remove_cred(self, mode: str, filename: str) -> None:
+        """从 Redis 所有池中移除凭证"""
+        if not self._redis_enabled:
+            return
+        try:
+            pipe = self._redis.pipeline()
+            pipe.srem(self._rk_avail(mode), filename)
+            pipe.srem(self._rk_preview(mode), filename)
+            await pipe.execute()
+        except Exception as e:
+            log.warning(f"Redis remove_cred error: {e}")
+
+    async def _redis_sync_cred(self, mode: str, filename: str, disabled: bool, preview: bool) -> None:
+        """根据最新状态同步单个凭证在 Redis 中的集合成员"""
+        if not self._redis_enabled:
+            return
+        try:
+            pipe = self._redis.pipeline()
+            if disabled:
+                pipe.srem(self._rk_avail(mode), filename)
+                pipe.srem(self._rk_preview(mode), filename)
+            else:
+                pipe.sadd(self._rk_avail(mode), filename)
+                if mode == "geminicli":
+                    if preview:
+                        pipe.sadd(self._rk_preview(mode), filename)
+                    else:
+                        pipe.srem(self._rk_preview(mode), filename)
+            await pipe.execute()
+        except Exception as e:
+            log.warning(f"Redis sync_cred error: {e}")
+
+    async def _get_next_available_from_redis(
+        self, mode: str, model_name: Optional[str]
+    ) -> Optional[tuple]:
+        """
+        Redis 快速路径：随机取候选凭证，跳过冷却中的，返回 (filename, credential_data)。
+        失败或池为空时返回 None，由调用方降级到 MongoDB。
+        """
+        try:
+            # 选择候选池
+            if mode == "geminicli" and model_name and "preview" in model_name.lower():
+                pool_key = self._rk_preview(mode)
+            else:
+                pool_key = self._rk_avail(mode)
+
+            pool_size = await self._redis.scard(pool_key)
+            if pool_size == 0:
+                return None
+
+            # 一次取多个随机成员，减少 round-trip
+            sample_size = min(pool_size, 10)
+            candidates = await self._redis.srandmember(pool_key, sample_size)
+            if not candidates:
+                return None
+
+            # 过滤冷却中的凭证
+            if model_name:
+                escaped = self._escape_model_name(model_name)
+                for filename in candidates:
+                    cd_key = self._rk_cd(mode, filename, escaped)
+                    if not await self._redis.exists(cd_key):
+                        credential_data = await self.get_credential(filename, mode)
+                        return filename, credential_data
+                # 所有候选都在冷却中，降级到 MongoDB
+                return None
+            else:
+                filename = candidates[0]
+                credential_data = await self.get_credential(filename, mode)
+                return filename, credential_data
+        except Exception as e:
+            log.warning(f"Redis get_next_available error: {e}")
+            return None
+
     async def close(self) -> None:
         """关闭 MongoDB 连接"""
+        if self._redis:
+            await self._redis.aclose()
+            self._redis = None
+            self._redis_enabled = False
         if self._client:
             self._client.close()
             self._client = None
@@ -206,9 +382,18 @@ class MongoDBManager:
               - 如果模型名包含 "flash": 直接混用所有可用凭证，不区分 preview 状态
               - 如果模型名不包含 "preview" 且不包含 "flash": 优先使用 preview=False 的凭证，没有时才使用 preview=True
             - 对于 antigravity: 不检查 preview 状态
-            - 使用 count + random skip + limit(1) 替代 $sample，避免全集合扫描
+            - 开启 Redis 时：利用 Redis Set 随机选凭证 + TTL key 判断冷却
+            - 未开启 Redis 时：使用 count + random skip + limit(1)
         """
         self._ensure_initialized()
+
+        # Redis 快速路径
+        if self._redis_enabled:
+            result = await self._get_next_available_from_redis(mode, model_name)
+            if result is not None:
+                return result
+            # result 为 None 有两种可能：池为空或所有候选都冷却中
+            # 后者需降级到 MongoDB 以得到更大的样本空间
 
         try:
             collection_name = self._get_collection_name(mode)
@@ -337,10 +522,12 @@ class MongoDBManager:
                         new_credential["preview"] = True
 
                     await collection.insert_one(new_credential)
+                    # 新凭证插入成功，添加到 Redis 可用池
+                    await self._redis_add_cred(mode, filename, preview=True)
                 except Exception as insert_error:
                     # 处理并发插入导致的重复键错误
                     if "duplicate key" in str(insert_error).lower():
-                        # 重试更新
+                        # 重试更新（已存在的凭证，无需更新 Redis）
                         await collection.update_one(
                             {"filename": filename},
                             {"$set": {"credential_data": credential_data, "updated_at": current_ts}}
@@ -417,6 +604,8 @@ class MongoDBManager:
             deleted_count = result.deleted_count
 
             if deleted_count > 0:
+                # 从 Redis 池中移除
+                await self._redis_remove_cred(mode, filename)
                 log.debug(f"Deleted {deleted_count} credential(s): {filename} (mode={mode})")
                 return True
             else:
@@ -540,6 +729,33 @@ class MongoDBManager:
                 {"filename": filename}, {"$set": valid_updates}
             )
             updated_count = result.modified_count + result.matched_count
+
+            # 如果 disabled 或 preview 发生变化，同步 Redis 池成员关系
+            if self._redis_enabled and ("disabled" in valid_updates or "preview" in valid_updates):
+                if "disabled" in valid_updates and valid_updates["disabled"]:
+                    # 直接禁用：从两个集合中移除
+                    await self._redis_remove_cred(mode, filename)
+                else:
+                    # 启用或修改 preview：需知道最新的 disabled + preview 状态
+                    # 从 valid_updates 中取，无则向 MongoDB 查一次
+                    if "disabled" in valid_updates and "preview" in valid_updates:
+                        await self._redis_sync_cred(
+                            mode, filename,
+                            disabled=bool(valid_updates["disabled"]),
+                            preview=bool(valid_updates["preview"]),
+                        )
+                    else:
+                        # 只知部分信息，查一次 MongoDB 获取完整状态
+                        snap = await collection.find_one(
+                            {"filename": filename},
+                            {"disabled": 1, "preview": 1, "_id": 0}
+                        )
+                        if snap:
+                            await self._redis_sync_cred(
+                                mode, filename,
+                                disabled=bool(snap.get("disabled", False)),
+                                preview=bool(snap.get("preview", True)),
+                            )
 
             return updated_count > 0
 
@@ -978,6 +1194,19 @@ class MongoDBManager:
                 log.warning(f"Credential {filename} not found")
                 return False
 
+            # 同步写入 Redis TTL key
+            if self._redis_enabled:
+                cd_key = self._rk_cd(mode, filename, escaped_model_name)
+                if cooldown_until is None:
+                    await self._redis.delete(cd_key)
+                else:
+                    ttl = int(cooldown_until - time.time())
+                    if ttl > 0:
+                        await self._redis.setex(cd_key, ttl, str(cooldown_until))
+                    else:
+                        # 冷却已经过期，确保清除
+                        await self._redis.delete(cd_key)
+
             log.debug(f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}")
             return True
 
@@ -1023,6 +1252,9 @@ class MongoDBManager:
                     {"filename": filename, f"model_cooldowns.{escaped}": {"$exists": True}},
                     {"$unset": {f"model_cooldowns.{escaped}": ""}, "$set": {"updated_at": now}}
                 )
+                # 同步删除 Redis 冷却 key
+                if self._redis_enabled:
+                    await self._redis.delete(self._rk_cd(mode, filename, escaped))
 
         except Exception as e:
             log.error(f"Error recording success for {filename}: {e}")
