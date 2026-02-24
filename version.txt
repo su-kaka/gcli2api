@@ -1,4 +1,4 @@
-full_hash=1f360a5ff9fa6e83376c82b82a5749a26b71bf42
-short_hash=1f360a5
-message=Update openai2gemini.py
-date=2026-02-22 10:17:39 +0800
+full_hash=16698704673cfe6a09f8cfa047c5034c54d41057
+short_hash=1669870
+message=反重力取消附加默认系统提示词
+date=2026-02-24 11:01:23 +0800
