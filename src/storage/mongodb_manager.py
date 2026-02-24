@@ -218,7 +218,11 @@ class MongoDBManager:
     # ---- Redis 缓存维护 ----
 
     async def _rebuild_redis_cache(self, mode: str) -> None:
-        """从 MongoDB 重建指定 mode 的 Redis 凭证池缓存"""
+        """
+        从 MongoDB 重建指定 mode 的 Redis 凭证池缓存。
+
+        使用临时 key + RENAME 原子替换
+        """
         if not self._redis:
             return
         try:
@@ -235,14 +239,34 @@ class MongoDBManager:
                     if mode == "geminicli" and doc.get("preview", True):
                         preview.append(doc["filename"])
 
+            tmp_avail = self._rk_avail(mode) + ":tmp"
+            tmp_preview = self._rk_preview(mode) + ":tmp"
+
             pipe = self._redis.pipeline()
-            pipe.delete(self._rk_avail(mode))
-            pipe.delete(self._rk_preview(mode))
+            # 先写临时 key（此时正式 key 仍完整可用）
+            pipe.delete(tmp_avail)
+            pipe.delete(tmp_preview)
             if avail:
-                pipe.sadd(self._rk_avail(mode), *avail)
+                pipe.sadd(tmp_avail, *avail)
             if mode == "geminicli" and preview:
-                pipe.sadd(self._rk_preview(mode), *preview)
+                pipe.sadd(tmp_preview, *preview)
             await pipe.execute()
+
+            # RENAME 是原子操作：瞬间切换，不存在空窗
+            pipe2 = self._redis.pipeline()
+            if avail:
+                pipe2.rename(tmp_avail, self._rk_avail(mode))
+            else:
+                pipe2.delete(self._rk_avail(mode))
+                pipe2.delete(tmp_avail)
+            if mode == "geminicli":
+                if preview:
+                    pipe2.rename(tmp_preview, self._rk_preview(mode))
+                else:
+                    pipe2.delete(self._rk_preview(mode))
+                    pipe2.delete(tmp_preview)
+            await pipe2.execute()
+
             log.debug(f"Redis cache rebuilt [{mode}]: {len(avail)} avail, {len(preview)} preview")
         except Exception as e:
             log.warning(f"Redis rebuild cache error [{mode}]: {e}")
@@ -308,6 +332,7 @@ class MongoDBManager:
 
             pool_size = await self._redis.scard(pool_key)
             if pool_size == 0:
+                log.debug(f"[Redis MISS] mode={mode} pool_key={pool_key}: pool empty, fallback to MongoDB")
                 return None
 
             # 一次取多个随机成员，减少 round-trip
@@ -323,12 +348,15 @@ class MongoDBManager:
                     cd_key = self._rk_cd(mode, filename, escaped)
                     if not await self._redis.exists(cd_key):
                         credential_data = await self.get_credential(filename, mode)
+                        log.debug(f"[Redis HIT] mode={mode} model={model_name} -> {filename}")
                         return filename, credential_data
                 # 所有候选都在冷却中，降级到 MongoDB
+                log.debug(f"[Redis MISS] mode={mode} model={model_name}: all {len(candidates)} candidates in cooldown, fallback to MongoDB")
                 return None
             else:
                 filename = candidates[0]
                 credential_data = await self.get_credential(filename, mode)
+                log.debug(f"[Redis HIT] mode={mode} -> {filename}")
                 return filename, credential_data
         except Exception as e:
             log.warning(f"Redis get_next_available error: {e}")
@@ -394,6 +422,7 @@ class MongoDBManager:
                 return result
             # result 为 None 有两种可能：池为空或所有候选都冷却中
             # 后者需降级到 MongoDB 以得到更大的样本空间
+            log.debug(f"[MongoDB fallback] mode={mode} model={model_name}")
 
         try:
             collection_name = self._get_collection_name(mode)
