@@ -240,6 +240,21 @@ class AntiTruncationStreamProcessor:
                         yield line
                         continue
 
+                    # 处理上游生成器 yield 出 Response 对象的情况（错误响应）
+                    from fastapi import Response as FastAPIResponse
+                    if isinstance(line, FastAPIResponse):
+                        log.error(f"Anti-truncation: Received Response object from stream (status={line.status_code}), treating as error")
+                        error_chunk = {
+                            "error": {
+                                "message": line.body.decode('utf-8', errors='ignore') if hasattr(line, 'body') and line.body else "Upstream error",
+                                "type": "api_error",
+                                "code": line.status_code,
+                            }
+                        }
+                        yield f"data: {json.dumps(error_chunk)}\n\n".encode()
+                        yield b"data: [DONE]\n\n"
+                        return
+
                     # 处理 bytes 类型的流式数据
                     if isinstance(line, bytes):
                         # 解码 bytes 为字符串
