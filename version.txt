@@ -1,4 +1,4 @@
-full_hash=773bff80df681336fcf913f4eda5810a91f211fe
-short_hash=773bff8
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-02-24 21:18:30 +0800
+full_hash=7781092553206cce0ae8361862db281f98934ea9
+short_hash=7781092
+message=Merge pull request #340 from haosenwang1018/fix/bare-excepts
+date=2026-02-25 15:34:16 +0800
