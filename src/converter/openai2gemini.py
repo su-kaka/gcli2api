@@ -1231,7 +1231,7 @@ def convert_gemini_to_openai_response(
                     return json.loads(str(body))
                 else:
                     return {"error": str(gemini_response)}
-            except:
+            except Exception:
                 return {"error": str(gemini_response)}
 
     # 确保是字典格式
@@ -1247,7 +1247,7 @@ def convert_gemini_to_openai_response(
                     gemini_response = json.loads(str(body))
             else:
                 gemini_response = json.loads(str(gemini_response))
-        except:
+        except Exception:
             return {"error": "Invalid response format"}
 
     # 处理 GeminiCLI 的 response 包装格式
