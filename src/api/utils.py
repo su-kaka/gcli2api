@@ -18,36 +18,35 @@ from config import (
     get_retry_429_max_retries,
 )
 from log import log
-from src.credential_manager import CredentialManager
 
 
 # ==================== 错误检查与处理 ====================
 
+
 async def check_should_auto_ban(status_code: int) -> bool:
     """
     检查是否应该触发自动封禁
-    
+
     Args:
         status_code: HTTP状态码
-        
+
     Returns:
         bool: 是否应该触发自动封禁
     """
     return (
-        await get_auto_ban_enabled()
-        and status_code in await get_auto_ban_error_codes()
+        await get_auto_ban_enabled() and status_code in await get_auto_ban_error_codes()
     )
 
 
 async def handle_auto_ban(
-    credential_manager: CredentialManager,
+    credential_manager: Any,
     status_code: int,
     credential_name: str,
-    mode: str = "geminicli"
+    mode: str = "geminicli",
 ) -> None:
     """
     处理自动封禁：直接禁用凭证
-    
+
     Args:
         credential_manager: 凭证管理器实例
         status_code: HTTP状态码
@@ -58,20 +57,18 @@ async def handle_auto_ban(
         log.warning(
             f"[{mode.upper()} AUTO_BAN] Status {status_code} triggers auto-ban for credential: {credential_name}"
         )
-        await credential_manager.set_cred_disabled(
-            credential_name, True, mode=mode
-        )
+        await credential_manager.set_cred_disabled(credential_name, True, mode=mode)
 
 
 async def handle_error_with_retry(
-    credential_manager: CredentialManager,
+    credential_manager: Any,
     status_code: int,
     credential_name: str,
     retry_enabled: bool,
     attempt: int,
     max_retries: int,
     retry_interval: float,
-    mode: str = "geminicli"
+    mode: str = "geminicli",
 ) -> bool:
     """
     统一处理错误和重试逻辑
@@ -90,7 +87,7 @@ async def handle_error_with_retry(
         max_retries: 最大重试次数
         retry_interval: 重试间隔
         mode: 模式（geminicli 或 antigravity）
-        
+
     Returns:
         bool: True表示需要继续重试，False表示不需要重试
     """
@@ -112,7 +109,11 @@ async def handle_error_with_retry(
         return False
 
     # 如果不触发自动封禁，仅对429和503错误进行重试
-    if (status_code == 429 or status_code == 503) and retry_enabled and attempt < max_retries:
+    if (
+        (status_code == 429 or status_code == 503)
+        and retry_enabled
+        and attempt < max_retries
+    ):
         log.info(
             f"[{mode.upper()} RETRY] {status_code} error encountered, retrying "
             f"(attempt {attempt + 1}/{max_retries})"
@@ -126,10 +127,11 @@ async def handle_error_with_retry(
 
 # ==================== 重试配置获取 ====================
 
+
 async def get_retry_config() -> Dict[str, Any]:
     """
     获取重试配置
-    
+
     Returns:
         包含重试配置的字典
     """
@@ -142,15 +144,16 @@ async def get_retry_config() -> Dict[str, Any]:
 
 # ==================== API调用结果记录 ====================
 
+
 async def record_api_call_success(
-    credential_manager: CredentialManager,
+    credential_manager: Any,
     credential_name: str,
     mode: str = "geminicli",
-    model_name: Optional[str] = None
+    model_name: Optional[str] = None,
 ) -> None:
     """
     记录API调用成功
-    
+
     Args:
         credential_manager: 凭证管理器实例
         credential_name: 凭证名称
@@ -164,13 +167,13 @@ async def record_api_call_success(
 
 
 async def record_api_call_error(
-    credential_manager: CredentialManager,
+    credential_manager: Any,
     credential_name: str,
     status_code: int,
     cooldown_until: Optional[float] = None,
     mode: str = "geminicli",
     model_name: Optional[str] = None,
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
 ) -> None:
     """
     记录API调用错误
@@ -192,15 +195,15 @@ async def record_api_call_error(
             cooldown_until=cooldown_until,
             mode=mode,
             model_name=model_name,
-            error_message=error_message
+            error_message=error_message,
         )
 
 
 # ==================== 429错误处理 ====================
 
+
 async def parse_and_log_cooldown(
-    error_text: str,
-    mode: str = "geminicli"
+    error_text: str, mode: str = "geminicli"
 ) -> Optional[float]:
     """
     解析并记录冷却时间
@@ -228,6 +231,7 @@ async def parse_and_log_cooldown(
 
 # ==================== 流式响应收集 ====================
 
+
 async def collect_streaming_response(stream_generator) -> Response:
     """
     将Gemini流式响应收集为一条完整的非流式响应
@@ -246,20 +250,19 @@ async def collect_streaming_response(stream_generator) -> Response:
     # 初始化响应结构
     merged_response = {
         "response": {
-            "candidates": [{
-                "content": {
-                    "parts": [],
-                    "role": "model"
-                },
-                "finishReason": None,
-                "safetyRatings": [],
-                "citationMetadata": None
-            }],
+            "candidates": [
+                {
+                    "content": {"parts": [], "role": "model"},
+                    "finishReason": None,
+                    "safetyRatings": [],
+                    "citationMetadata": None,
+                }
+            ],
             "usageMetadata": {
                 "promptTokenCount": 0,
                 "candidatesTokenCount": 0,
-                "totalTokenCount": 0
-            }
+                "totalTokenCount": 0,
+            },
         }
     }
 
@@ -278,23 +281,33 @@ async def collect_streaming_response(stream_generator) -> Response:
 
             # 如果收到的是Response对象（错误），直接返回
             if isinstance(line, Response):
-                log.debug(f"[STREAM COLLECTOR] 收到错误Response，状态码: {line.status_code}")
+                log.debug(
+                    f"[STREAM COLLECTOR] 收到错误Response，状态码: {line.status_code}"
+                )
                 return line
 
             # 处理 bytes 类型
             if isinstance(line, bytes):
-                line_str = line.decode('utf-8', errors='ignore')
-                log.debug(f"[STREAM COLLECTOR] Processing bytes line {line_count}: {line_str[:200] if line_str else 'empty'}")
+                line_str = line.decode("utf-8", errors="ignore")
+                log.debug(
+                    f"[STREAM COLLECTOR] Processing bytes line {line_count}: {line_str[:200] if line_str else 'empty'}"
+                )
             elif isinstance(line, str):
                 line_str = line
-                log.debug(f"[STREAM COLLECTOR] Processing line {line_count}: {line_str[:200] if line_str else 'empty'}")
+                log.debug(
+                    f"[STREAM COLLECTOR] Processing line {line_count}: {line_str[:200] if line_str else 'empty'}"
+                )
             else:
-                log.debug(f"[STREAM COLLECTOR] Skipping non-string/bytes line: {type(line)}")
+                log.debug(
+                    f"[STREAM COLLECTOR] Skipping non-string/bytes line: {type(line)}"
+                )
                 continue
 
             # 解析流式数据行
             if not line_str.startswith("data: "):
-                log.debug(f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line_str[:100]}")
+                log.debug(
+                    f"[STREAM COLLECTOR] Skipping line without 'data: ' prefix: {line_str[:100]}"
+                )
                 continue
 
             raw = line_str[6:].strip()
@@ -306,18 +319,24 @@ async def collect_streaming_response(stream_generator) -> Response:
                 log.debug(f"[STREAM COLLECTOR] Parsing JSON: {raw[:200]}")
                 chunk = json.loads(raw)
                 has_data = True
-                log.debug(f"[STREAM COLLECTOR] Chunk keys: {chunk.keys() if isinstance(chunk, dict) else type(chunk)}")
+                log.debug(
+                    f"[STREAM COLLECTOR] Chunk keys: {chunk.keys() if isinstance(chunk, dict) else type(chunk)}"
+                )
 
                 # 提取响应对象
                 response_obj = chunk.get("response", {})
                 if not response_obj:
-                    log.debug("[STREAM COLLECTOR] No 'response' key in chunk, trying direct access")
+                    log.debug(
+                        "[STREAM COLLECTOR] No 'response' key in chunk, trying direct access"
+                    )
                     response_obj = chunk  # 尝试直接使用chunk
 
                 candidates = response_obj.get("candidates", [])
                 log.debug(f"[STREAM COLLECTOR] Found {len(candidates)} candidates")
                 if not candidates:
-                    log.debug(f"[STREAM COLLECTOR] No candidates in chunk, chunk structure: {list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}")
+                    log.debug(
+                        f"[STREAM COLLECTOR] No candidates in chunk, chunk structure: {list(chunk.keys()) if isinstance(chunk, dict) else type(chunk)}"
+                    )
                     continue
 
                 candidate = candidates[0]
@@ -325,7 +344,9 @@ async def collect_streaming_response(stream_generator) -> Response:
                 # 收集文本内容
                 content = candidate.get("content", {})
                 parts = content.get("parts", [])
-                log.debug(f"[STREAM COLLECTOR] Processing {len(parts)} parts from candidate")
+                log.debug(
+                    f"[STREAM COLLECTOR] Processing {len(parts)} parts from candidate"
+                )
 
                 for part in parts:
                     if not isinstance(part, dict):
@@ -333,10 +354,16 @@ async def collect_streaming_response(stream_generator) -> Response:
 
                     # 优先保留工具调用相关 part（functionCall / functionResponse）
                     # 避免在 stream2nostream 模式下工具调用丢失
-                    if "functionCall" in part or "functionResponse" in part or "function_call" in part:
+                    if (
+                        "functionCall" in part
+                        or "functionResponse" in part
+                        or "function_call" in part
+                    ):
                         collected_other_parts.append(part)
                         collected_tool_parts_count += 1
-                        log.debug(f"[STREAM COLLECTOR] Collected tool part: {list(part.keys())}")
+                        log.debug(
+                            f"[STREAM COLLECTOR] Collected tool part: {list(part.keys())}"
+                        )
                         continue
 
                     # 处理文本内容
@@ -345,24 +372,41 @@ async def collect_streaming_response(stream_generator) -> Response:
                         # 区分普通文本和思维链
                         if part.get("thought", False):
                             collected_thought_text.append(text)
-                            log.debug(f"[STREAM COLLECTOR] Collected thought text: {text[:100]}")
+                            log.debug(
+                                f"[STREAM COLLECTOR] Collected thought text: {text[:100]}"
+                            )
                         else:
                             collected_text.append(text)
-                            log.debug(f"[STREAM COLLECTOR] Collected regular text: {text[:100]}")
+                            log.debug(
+                                f"[STREAM COLLECTOR] Collected regular text: {text[:100]}"
+                            )
                     # 处理非文本内容（图片、文件等）
-                    elif "inlineData" in part or "fileData" in part or "executableCode" in part or "codeExecutionResult" in part:
+                    elif (
+                        "inlineData" in part
+                        or "fileData" in part
+                        or "executableCode" in part
+                        or "codeExecutionResult" in part
+                    ):
                         collected_other_parts.append(part)
-                        log.debug(f"[STREAM COLLECTOR] Collected non-text part: {list(part.keys())}")
+                        log.debug(
+                            f"[STREAM COLLECTOR] Collected non-text part: {list(part.keys())}"
+                        )
 
                 # 收集其他信息（使用最后一个块的值）
                 if candidate.get("finishReason"):
-                    merged_response["response"]["candidates"][0]["finishReason"] = candidate["finishReason"]
+                    merged_response["response"]["candidates"][0]["finishReason"] = (
+                        candidate["finishReason"]
+                    )
 
                 if candidate.get("safetyRatings"):
-                    merged_response["response"]["candidates"][0]["safetyRatings"] = candidate["safetyRatings"]
+                    merged_response["response"]["candidates"][0]["safetyRatings"] = (
+                        candidate["safetyRatings"]
+                    )
 
                 if candidate.get("citationMetadata"):
-                    merged_response["response"]["candidates"][0]["citationMetadata"] = candidate["citationMetadata"]
+                    merged_response["response"]["candidates"][0]["citationMetadata"] = (
+                        candidate["citationMetadata"]
+                    )
 
                 # 更新使用元数据
                 usage = response_obj.get("usageMetadata", {})
@@ -377,22 +421,28 @@ async def collect_streaming_response(stream_generator) -> Response:
                 continue
 
     except Exception as e:
-        log.error(f"[STREAM COLLECTOR] Error collecting stream after {line_count} lines: {e}")
+        log.error(
+            f"[STREAM COLLECTOR] Error collecting stream after {line_count} lines: {e}"
+        )
         return Response(
             content=json.dumps({"error": f"收集流式响应失败: {str(e)}"}),
             status_code=500,
-            media_type="application/json"
+            media_type="application/json",
         )
 
-    log.debug(f"[STREAM COLLECTOR] Finished iteration, has_data={has_data}, line_count={line_count}")
+    log.debug(
+        f"[STREAM COLLECTOR] Finished iteration, has_data={has_data}, line_count={line_count}"
+    )
 
     # 如果没有收集到任何数据，返回错误
     if not has_data:
-        log.error(f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines")
+        log.error(
+            f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines"
+        )
         return Response(
             content=json.dumps({"error": "No data collected from stream"}),
             status_code=500,
-            media_type="application/json"
+            media_type="application/json",
         )
 
     # 组装最终的parts
@@ -400,16 +450,11 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     # 先添加思维链内容（如果有）
     if collected_thought_text:
-        final_parts.append({
-            "text": "".join(collected_thought_text),
-            "thought": True
-        })
+        final_parts.append({"text": "".join(collected_thought_text), "thought": True})
 
     # 再添加普通文本内容
     if collected_text:
-        final_parts.append({
-            "text": "".join(collected_text)
-        })
+        final_parts.append({"text": "".join(collected_text)})
 
     # 添加其他类型的parts（图片、文件等）
     final_parts.extend(collected_other_parts)
@@ -433,10 +478,10 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     # 返回纯JSON格式
     return Response(
-        content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
+        content=json.dumps(merged_response, ensure_ascii=False).encode("utf-8"),
         status_code=200,
         headers={},
-        media_type="application/json"
+        media_type="application/json",
     )
 
 
@@ -474,7 +519,9 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
         for detail in details:
             if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
+                reset_timestamp_str = detail.get("metadata", {}).get(
+                    "quotaResetTimeStamp"
+                )
 
                 if reset_timestamp_str:
                     if reset_timestamp_str.endswith("Z"):

@@ -15,13 +15,16 @@ from log import log
 
 
 class HttpxClientManager:
-    """通用HTTP客户端管理器"""
+    """通用HTTP客户端管理器（启用 HTTP/2 以匹配 Google API 预期）"""
 
     async def get_client_kwargs(
         self, timeout: Optional[float] = 30.0, **kwargs
     ) -> Dict[str, Any]:
         """获取httpx客户端的通用配置参数"""
-        client_kwargs = {**kwargs}
+        client_kwargs = {
+            "http2": True,  # Google cloudcode-pa 端点要求/优先 HTTP/2
+            **kwargs,
+        }
         if timeout is not None:
             client_kwargs["timeout"] = timeout
 

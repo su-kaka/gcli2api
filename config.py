@@ -51,6 +51,7 @@ ENV_MAPPINGS = {
 
 # ====================== 配置系统 ======================
 
+
 async def init_config():
     """初始化配置缓存（启动时调用一次）"""
     global _config_cache, _config_initialized
@@ -60,6 +61,7 @@ async def init_config():
 
     try:
         from src.storage_adapter import get_storage_adapter
+
         storage_adapter = await get_storage_adapter()
         _config_cache = await storage_adapter.get_all_config()
         _config_initialized = True
@@ -75,10 +77,11 @@ async def reload_config():
 
     try:
         from src.storage_adapter import get_storage_adapter
+
         storage_adapter = await get_storage_adapter()
 
         # 如果后端支持 reload_config_cache，调用它
-        if hasattr(storage_adapter._backend, 'reload_config_cache'):
+        if hasattr(storage_adapter._backend, "reload_config_cache"):
             await storage_adapter._backend.reload_config_cache()
 
         # 重新加载配置缓存
@@ -93,7 +96,9 @@ def _get_cached_config(key: str, default: Any = None) -> Any:
     return _config_cache.get(key, default)
 
 
-async def get_config_value(key: str, default: Any = None, env_var: Optional[str] = None) -> Any:
+async def get_config_value(
+    key: str, default: Any = None, env_var: Optional[str] = None
+) -> Any:
     """Get configuration value with priority: ENV > Storage > default."""
     # 确保配置已初始化
     if not _config_initialized:
@@ -178,7 +183,7 @@ async def get_retry_429_interval() -> float:
         except ValueError:
             pass
 
-    return float(await get_config_value("retry_429_interval", 1))
+    return float(await get_config_value("retry_429_interval", 1.0))
 
 
 async def get_anti_truncation_max_attempts() -> int:
@@ -295,7 +300,9 @@ async def get_code_assist_endpoint() -> str:
     """
     return str(
         await get_config_value(
-            "code_assist_endpoint", "https://cloudcode-pa.googleapis.com", "CODE_ASSIST_ENDPOINT"
+            "code_assist_endpoint",
+            "https://cloudcode-pa.googleapis.com",
+            "CODE_ASSIST_ENDPOINT",
         )
     )
 
@@ -419,7 +426,9 @@ async def get_service_usage_api_url() -> str:
     """
     return str(
         await get_config_value(
-            "service_usage_api_url", "https://serviceusage.googleapis.com", "SERVICE_USAGE_API_URL"
+            "service_usage_api_url",
+            "https://serviceusage.googleapis.com",
+            "SERVICE_USAGE_API_URL",
         )
     )
 
