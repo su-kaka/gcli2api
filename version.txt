@@ -1,4 +1,4 @@
-full_hash=209b3503cd21cfeb9e0eda8d802e8ef3651ea567
-short_hash=209b350
-message=移除重试时不切换凭证
-date=2026-02-27 23:04:41 +0800
+full_hash=3a2aec4900e6e2139a2156e3cb50ab351e5fb7ab
+short_hash=3a2aec4
+message=优化流式传输时的报错显示
+date=2026-02-27 23:32:41 +0800
