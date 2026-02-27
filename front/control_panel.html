@@ -1160,6 +1160,7 @@
             from {
                 opacity: 0;
             }
+
             to {
                 opacity: 1;
             }
@@ -1182,6 +1183,7 @@
                 transform: translateY(-50px);
                 opacity: 0;
             }
+
             to {
                 transform: translateY(0);
                 opacity: 1;
@@ -1336,7 +1338,8 @@
 
         <!-- 主界面 -->
         <div id="mainSection" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
                 <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                     <h1 style="margin: 0;">GCLI2API 管理面板</h1>
                     <span id="versionInfo" style="font-size: 12px; color: #666;">
@@ -2053,6 +2056,14 @@
                                     step="0.01" />
                                 <small class="config-note">遇到错误时每两次重试间的等待时间</small>
                             </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="retry429KeepCredential" class="config-checkbox" checked />
+                                    429/503时保持凭证重试
+                                </label>
+                                <small class="config-note">启用后，429/503时保留当前凭证继续重试，而非切换到下一个凭证</small>
+                            </div>
                         </div>
 
 
@@ -2092,11 +2103,12 @@
                                     <input type="checkbox" id="antigravityStream2nostream" class="config-checkbox" />
                                     Antigravity流式转非流式
                                 </label>
-                                <small class="config-note">启用后，非流式请求将使用流式API并收集为完整响应 <span
-                                        style="color: #28a745;">✓ 支持热更新</span></small>
+                                <small class="config-note">启用后，非流式请求将使用流式API并收集为完整响应 <span style="color: #28a745;">✓
+                                        支持热更新</span></small>
                                 <div class="config-info"
                                     style="background-color: #f3e5f5; border: 1px solid #9c27b0; color: #4a148c;">
-                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
+                                    <strong>🔄
+                                        说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
                                     <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
                                     <br><strong>默认：</strong>已启用
                                 </div>
