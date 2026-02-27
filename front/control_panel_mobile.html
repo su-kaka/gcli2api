@@ -805,6 +805,7 @@
             from {
                 opacity: 0;
             }
+
             to {
                 opacity: 1;
             }
@@ -827,6 +828,7 @@
                 transform: translateY(-50px);
                 opacity: 0;
             }
+
             to {
                 transform: translateY(0);
                 opacity: 1;
@@ -1788,8 +1790,8 @@
 
                             <div class="form-group">
                                 <label style="display: flex; align-items: center; gap: 8px;">
-                                    <input type="checkbox" id="retry429KeepCredential"
-                                        style="width: auto; margin: 0;" checked />
+                                    <input type="checkbox" id="retry429KeepCredential" style="width: auto; margin: 0;"
+                                        checked />
                                     429/503无冷却时保持凭证重试
                                 </label>
                                 <small
@@ -1844,7 +1846,8 @@
                                     <span style="color: #28a745;">✓ 支持热更新</span></small>
                                 <div
                                     style="background-color: #f3e5f5; border: 1px solid #9c27b0; border-radius: 6px; padding: 12px; margin-top: 8px; font-size: 13px; color: #4a148c;">
-                                    <strong>🔄 说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
+                                    <strong>🔄
+                                        说明：</strong>针对Antigravity模式的优化选项。启用后，即使客户端请求非流式响应，后端也会使用流式API获取数据并收集完整后再返回。
                                     <br><strong>适用场景：</strong>某些情况下流式API比非流式API更稳定，启用此选项可以提高响应质量。
                                     <br><strong>默认：</strong>已启用
                                 </div>
