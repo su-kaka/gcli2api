@@ -1,4 +1,4 @@
-full_hash=e00d7ecabba4be42fe1869af2bb7022b56816508
-short_hash=e00d7ec
-message=Update gemini_fix.py
-date=2026-02-27 12:30:17 +0800
+full_hash=ee5ea5dd651b2525dfb39f6d621c5f9d9c1e703d
+short_hash=ee5ea5d
+message=配置项：重试时是否切换凭证
+date=2026-02-27 17:11:48 +0800
