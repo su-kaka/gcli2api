@@ -48,7 +48,7 @@ def prepare_image_generation_request(
     if image_size:
         image_config["imageSize"] = image_size
 
-    request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
+    request_body["model"] = "gemini-3.1-flash-image"  # 统一使用基础模型名
     request_body["generationConfig"] = {
         "candidateCount": 1,
         "imageConfig": image_config
