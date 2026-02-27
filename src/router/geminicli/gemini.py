@@ -203,12 +203,12 @@ async def stream_generate_content(
             # 错误响应 - 提取错误信息并以SSE格式返回
             log.error(f"Fake streaming got error response: status={response.status_code}")
 
-            if hasattr(response, "body"):
-                error_body = response.body.decode() if isinstance(response.body, bytes) else response.body
-            elif hasattr(response, "content"):
-                error_body = response.content.decode() if isinstance(response.content, bytes) else response.content
-            else:
-                error_body = str(response)
+            raw = None
+            if hasattr(response, "body") and response.body:
+                raw = response.body.decode('utf-8') if isinstance(response.body, bytes) else response.body
+            elif hasattr(response, "content") and response.content:
+                raw = response.content.decode('utf-8') if isinstance(response.content, bytes) else response.content
+            error_body = raw or ""
 
             try:
                 error_data = json.loads(error_body)
@@ -216,7 +216,7 @@ async def stream_generate_content(
                 yield f"data: {json.dumps(error_data)}\n\n".encode()
             except Exception:
                 # 如果无法解析为JSON，包装成错误对象
-                yield f"data: {json.dumps({'error': error_body})}\n\n".encode()
+                yield f"data: {json.dumps({'error': {'code': response.status_code, 'message': error_body or 'upstream error', 'status': 'ERROR'}})}\n\n".encode()
 
             yield "data: [DONE]\n\n".encode()
             return
@@ -355,10 +355,15 @@ async def stream_generate_content(
             # 检查是否是Response对象（错误情况）
             if isinstance(chunk, Response):
                 # 将Response转换为SSE格式的错误消息
-                error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
-                error_json = json.loads(error_content.decode('utf-8'))
-                # 以SSE格式返回错误
+                try:
+                    error_content = chunk.body if isinstance(chunk.body, bytes) else (chunk.body or b'').encode('utf-8')
+                    error_json = json.loads(error_content.decode('utf-8'))
+                except Exception:
+                    error_json = {"error": {"code": chunk.status_code, "message": "upstream error", "status": "ERROR"}}
+                log.error(f"[GEMINICLI STREAM] 返回错误给客户端: status={chunk.status_code}, error={str(error_json)[:200]}")
+                # 以SSE格式返回错误，并以[DONE]结束
                 yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
+                yield b"data: [DONE]\n\n"
                 return
 
             # 处理SSE格式的chunk

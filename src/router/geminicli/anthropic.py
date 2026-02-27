@@ -193,12 +193,12 @@ async def messages(
             # 错误响应 - 提取错误信息并以SSE格式返回
             log.error(f"Fake streaming got error response: status={response.status_code}")
 
-            if hasattr(response, "body"):
-                error_body = response.body.decode() if isinstance(response.body, bytes) else response.body
-            elif hasattr(response, "content"):
-                error_body = response.content.decode() if isinstance(response.content, bytes) else response.content
-            else:
-                error_body = str(response)
+            raw = None
+            if hasattr(response, "body") and response.body:
+                raw = response.body.decode('utf-8') if isinstance(response.body, bytes) else response.body
+            elif hasattr(response, "content") and response.content:
+                raw = response.content.decode('utf-8') if isinstance(response.content, bytes) else response.content
+            error_body = raw or ""
 
             try:
                 error_data = json.loads(error_body)
@@ -212,8 +212,7 @@ async def messages(
                 yield f"data: {json.dumps(anthropic_error)}\n\n".encode()
             except Exception:
                 # 如果无法解析为JSON，包装成错误对象
-                yield f"data: {json.dumps({'error': error_body})}\n\n".encode()
-
+                yield f"data: {json.dumps({'error': {'code': response.status_code, 'message': error_body or 'upstream error', 'status': 'ERROR'}})}\n\n".encode()
             yield "data: [DONE]\n\n".encode()
             return
 
@@ -328,8 +327,8 @@ async def messages(
                 # 检查是否是Response对象（错误情况）
                 if isinstance(chunk, Response):
                     # 错误响应，不进行转换，直接传递
-                    error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
                     try:
+                        error_content = chunk.body if isinstance(chunk.body, bytes) else (chunk.body or b'').encode('utf-8')
                         gemini_error = json.loads(error_content.decode('utf-8'))
                         from src.converter.anthropic2gemini import gemini_to_anthropic_response
                         anthropic_error = gemini_to_anthropic_response(
@@ -340,6 +339,7 @@ async def messages(
                         yield f"data: {json.dumps(anthropic_error)}\n\n".encode('utf-8')
                     except Exception:
                         yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode('utf-8')
+                    yield b"data: [DONE]\n\n"
                     return
                 else:
                     # 确保是bytes类型

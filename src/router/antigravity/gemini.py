@@ -356,10 +356,14 @@ async def stream_generate_content(
             # 检查是否是Response对象（错误情况）
             if isinstance(chunk, Response):
                 # 将Response转换为SSE格式的错误消息
-                error_content = chunk.body if isinstance(chunk.body, bytes) else chunk.body.encode('utf-8')
-                error_json = json.loads(error_content.decode('utf-8'))
-                # 以SSE格式返回错误
+                try:
+                    error_content = chunk.body if isinstance(chunk.body, bytes) else (chunk.body or b'').encode('utf-8')
+                    error_json = json.loads(error_content.decode('utf-8'))
+                except Exception:
+                    error_json = {"error": {"code": chunk.status_code, "message": "upstream error", "status": "ERROR"}}
+                log.error(f"[ANTIGRAVITY STREAM] 返回错误给客户端: status={chunk.status_code}, error={str(error_json)[:200]}")
                 yield f"data: {json.dumps(error_json)}\n\n".encode('utf-8')
+                yield b"data: [DONE]\n\n"
                 return
 
             # 处理SSE格式的chunk
