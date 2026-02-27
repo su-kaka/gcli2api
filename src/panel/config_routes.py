@@ -2,8 +2,6 @@
 配置路由模块 - 处理 /config/* 相关的HTTP请求
 """
 
-import os
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -49,8 +47,6 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["retry_429_max_retries"] = await config.get_retry_429_max_retries()
         current_config["retry_429_enabled"] = await config.get_retry_429_enabled()
         current_config["retry_429_interval"] = await config.get_retry_429_interval()
-        current_config["retry_429_keep_credential"] = await config.get_retry_429_keep_credential()
-
         # 抗截断配置
         current_config["anti_truncation_max_attempts"] = await config.get_anti_truncation_max_attempts()
 
@@ -146,9 +142,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
             if not isinstance(new_config["antigravity_stream2nostream"], bool):
                 raise HTTPException(status_code=400, detail="Antigravity流式转非流式开关必须是布尔值")
 
-        if "retry_429_keep_credential" in new_config:
-            if not isinstance(new_config["retry_429_keep_credential"], bool):
-                raise HTTPException(status_code=400, detail="429/503无cd时保持凭证开关必须是布尔值")
         # 验证保活配置
         if "keepalive_url" in new_config:
             if not isinstance(new_config["keepalive_url"], str):

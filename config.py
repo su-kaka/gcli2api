@@ -35,7 +35,6 @@ ENV_MAPPINGS = {
     "RETRY_429_MAX_RETRIES": "retry_429_max_retries",
     "RETRY_429_ENABLED": "retry_429_enabled",
     "RETRY_429_INTERVAL": "retry_429_interval",
-    "RETRY_429_KEEP_CREDENTIAL": "retry_429_keep_credential",
     "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
     "COMPATIBILITY_MODE": "compatibility_mode_enabled",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
@@ -179,26 +178,7 @@ async def get_retry_429_interval() -> float:
         except ValueError:
             pass
 
-    return float(await get_config_value("retry_429_interval", 0.1))
-
-
-async def get_retry_429_keep_credential() -> bool:
-    """
-    Get 429/503 keep credential setting.
-
-    控制当 429/503 错误没有冷却时间（无 cd）时，重试是否保持当前凭证。
-    - True（默认）：保留当前凭证重试，不切换
-    - False：切换到下一个可用凭证重试
-
-    Environment variable: RETRY_429_KEEP_CREDENTIAL
-    Database config key: retry_429_keep_credential
-    Default: True
-    """
-    env_value = os.getenv("RETRY_429_KEEP_CREDENTIAL")
-    if env_value:
-        return env_value.lower() in ("true", "1", "yes", "on")
-
-    return bool(await get_config_value("retry_429_keep_credential", True))
+    return float(await get_config_value("retry_429_interval", 1))
 
 
 async def get_anti_truncation_max_attempts() -> int:
