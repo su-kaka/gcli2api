@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 import config
 from log import log
+from src.keeplive import keepalive_service
 from src.models import ConfigSaveRequest
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token
@@ -61,6 +62,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
 
         # Antigravity流式转非流式配置
         current_config["antigravity_stream2nostream"] = await config.get_antigravity_stream2nostream()
+
+        # 保活配置
+        current_config["keepalive_url"] = await config.get_keepalive_url()
+        current_config["keepalive_interval"] = await config.get_keepalive_interval()
 
         # 服务器配置
         current_config["host"] = await config.get_server_host()
@@ -144,7 +149,19 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         if "retry_429_keep_credential" in new_config:
             if not isinstance(new_config["retry_429_keep_credential"], bool):
                 raise HTTPException(status_code=400, detail="429/503无cd时保持凭证开关必须是布尔值")
+        # 验证保活配置
+        if "keepalive_url" in new_config:
+            if not isinstance(new_config["keepalive_url"], str):
+                raise HTTPException(status_code=400, detail="保活URL必须是字符串")
 
+        if "keepalive_interval" in new_config:
+            try:
+                interval = int(new_config["keepalive_interval"])
+                if interval < 5 or interval > 86400:
+                    raise HTTPException(status_code=400, detail="保活间隔必须在 5-86400 秒之间")
+                new_config["keepalive_interval"] = interval
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="保活间隔必须是有效整数")
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
@@ -183,6 +200,14 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
 
         # 重新加载配置缓存（关键！）
         await config.reload_config()
+
+        # 如果保活相关配置发生变化，立即重启保活服务
+        keepalive_keys = {"keepalive_url", "keepalive_interval"}
+        if keepalive_keys & set(new_config.keys()):
+            try:
+                await keepalive_service.restart()
+            except Exception as e:
+                log.warning(f"重启保活服务失败: {e}")
 
         # 验证保存后的结果
         test_api_password = await config.get_api_password()

@@ -45,6 +45,8 @@ ENV_MAPPINGS = {
     "API_PASSWORD": "api_password",
     "PANEL_PASSWORD": "panel_password",
     "PASSWORD": "password",
+    "KEEPALIVE_URL": "keepalive_url",
+    "KEEPALIVE_INTERVAL": "keepalive_interval",
 }
 
 
@@ -459,3 +461,37 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
+
+
+async def get_keepalive_url() -> str:
+    """
+    Get keep-alive URL setting.
+
+    配置后保活服务会定期向该URL发送GET请求。
+    留空表示禁用保活服务。
+
+    Environment variable: KEEPALIVE_URL
+    Database config key: keepalive_url
+    Default: "" (disabled)
+    """
+    return str(await get_config_value("keepalive_url", "", "KEEPALIVE_URL"))
+
+
+async def get_keepalive_interval() -> int:
+    """
+    Get keep-alive interval in seconds.
+
+    保活请求发送间隔（秒）。
+
+    Environment variable: KEEPALIVE_INTERVAL
+    Database config key: keepalive_interval
+    Default: 60
+    """
+    env_value = os.getenv("KEEPALIVE_INTERVAL")
+    if env_value:
+        try:
+            return int(env_value)
+        except ValueError:
+            pass
+
+    return int(await get_config_value("keepalive_interval", 60))
