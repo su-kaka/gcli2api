@@ -1,4 +1,4 @@
-full_hash=169accc1f76c046746118bd7ab087774920d6c32
-short_hash=169accc
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-02-27 20:34:56 +0800
+full_hash=209b3503cd21cfeb9e0eda8d802e8ef3651ea567
+short_hash=209b350
+message=移除重试时不切换凭证
+date=2026-02-27 23:04:41 +0800
