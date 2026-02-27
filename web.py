@@ -27,6 +27,7 @@ from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.router.geminicli.model_list import router as geminicli_model_list_router
 from src.task_manager import shutdown_all_tasks
 from src.panel import router as panel_router
+from src.keeplive import keepalive_service
 
 # 全局凭证管理器
 global_credential_manager = None
@@ -59,10 +60,22 @@ async def lifespan(app: FastAPI):
 
     # OAuth回调服务器将在需要时按需启动
 
+    # 启动保活服务（未配置URL时自动跳过，零开销）
+    try:
+        await keepalive_service.start()
+    except Exception as e:
+        log.error(f"保活服务启动失败: {e}")
+
     yield
 
     # 清理资源
     log.info("开始关闭 GCLI2API 主服务")
+
+    # 停止保活服务
+    try:
+        await keepalive_service.stop()
+    except Exception as e:
+        log.error(f"关闭保活服务时出错: {e}")
 
     # 首先关闭所有异步任务
     try:

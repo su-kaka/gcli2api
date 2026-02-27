@@ -1876,6 +1876,23 @@
                         </div>
 
                         <div class="card">
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">保活配置</h4>
+
+                            <div class="form-group">
+                                <label for="keepaliveUrl">保活 URL:</label>
+                                <input type="text" id="keepaliveUrl"
+                                    placeholder="留空则不启用，例如: https://your-app.example.com/keepalive" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">配置后服务会定期向该 URL 发送 GET 请求以保持在线；留空则禁用保活 ✓ 支持热更新</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="keepaliveInterval">保活间隔 (秒):</label>
+                                <input type="number" id="keepaliveInterval" min="5" max="86400" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">两次保活请求之间的等待时间，范围 5 - 86400 秒，默认 60 ✓ 支持热更新</small>
+                            </div>
+                        </div>
+
+                        <div class="card">
                             <h4 style="margin-top: 0; margin-bottom: 15px;">配置热更新说明</h4>
 
                             <div
