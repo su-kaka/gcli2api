@@ -14,6 +14,7 @@ from config import (
     get_antigravity_api_url,
     get_antigravity_stream2nostream,
     get_auto_ban_error_codes,
+    get_retry_429_keep_credential,
 )
 from log import log
 
@@ -144,6 +145,7 @@ async def stream_request(
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
     next_cred_task = None  # 预热的下一个凭证任务
+    keep_credential_config = await get_retry_429_keep_credential()  # 无cd时是否保留凭证
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
     async def refresh_credential_fast():
@@ -200,10 +202,10 @@ async def stream_request(
                             except Exception:
                                 pass
 
-                        # 对于没有触发cd的429/503错误，保留当前凭证重试；否则预热下一个凭证
+                        # 对于没有触发cd的429/503错误，根据配置决定是否保留当前凭证重试
                         if (status_code == 429 or status_code == 503) and cooldown_until is None:
-                            keep_current_credential = True
-                        elif next_cred_task is None and attempt < max_retries:
+                            keep_current_credential = keep_credential_config
+                        if not keep_current_credential and next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
                                     mode="antigravity", model_name=model_name
@@ -430,6 +432,7 @@ async def non_stream_request(
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
     next_cred_task = None  # 预热的下一个凭证任务
+    keep_credential_config = await get_retry_429_keep_credential()  # 无cd时是否保留凭证
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
     async def refresh_credential_fast():
@@ -523,8 +526,9 @@ async def non_stream_request(
                         except Exception:
                             pass
 
-                    # 对于没有触发cd的429错误，不预热新凭证
-                    if not ((status_code == 429 or status_code == 503) and cooldown_until is None):
+                    # 对于没有触发cd且配置为保留凭证时，不预热新凭证
+                    no_cd_keep = (status_code == 429 or status_code == 503) and cooldown_until is None and keep_credential_config
+                    if not no_cd_keep:
                         # 并行预热下一个凭证,不阻塞当前处理
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
@@ -533,8 +537,8 @@ async def non_stream_request(
                                 )
                             )
 
-                    # 无cd的429/503保留当前凭证重试，无需记录错误
-                    if not ((status_code == 429 or status_code == 503) and cooldown_until is None):
+                    # 无cd且保留凭证时不记录错误
+                    if not no_cd_keep:
                         await record_api_call_error(
                             credential_manager, current_file, status_code,
                             cooldown_until, mode="antigravity", model_name=model_name,
@@ -551,8 +555,8 @@ async def non_stream_request(
                     if should_retry and attempt < max_retries:
                         need_retry = True
 
-                        # 对于没有冷却时间的429错误，保留当前凭证重试
-                        if (status_code == 429 or status_code == 503) and cooldown_until is None:
+                        # 对于没有冷却时间且配置为保留凭证，保留当前凭证重试
+                        if no_cd_keep:
                             log.info(f"[ANTIGRAVITY] {status_code}无冷却时间，保留当前凭证重试: {current_file}")
                             await asyncio.sleep(retry_interval)
                             continue
