@@ -285,6 +285,7 @@ def _clean_schema_for_claude(schema: Any, root_schema: Optional[Dict[str, Any]] 
         "const",  # const 可能导致问题
         "contentEncoding", "contentMediaType",
         "oneOf",  # oneOf 可能导致问题，用 anyOf 替代
+        "patternProperties", "dependencies", "propertyNames",  # Google API 不支持
     }
 
     for key in list(result.keys()):
