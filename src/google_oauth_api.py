@@ -4,6 +4,7 @@ Google OAuth2 认证模块
 
 import time
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -113,7 +114,7 @@ class Credentials:
         except Exception as e:
             error_msg = str(e)
             status_code = None
-            if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+            if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 status_code = e.response.status_code
                 error_msg = f"Token刷新失败 (HTTP {status_code}): {error_msg}"
             else:
@@ -134,11 +135,15 @@ class Credentials:
                 expiry_str = data["expiry"]
                 if isinstance(expiry_str, str):
                     if expiry_str.endswith("Z"):
-                        expires_at = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+                        expires_at = datetime.fromisoformat(
+                            expiry_str.replace("Z", "+00:00")
+                        )
                     elif "+" in expiry_str:
                         expires_at = datetime.fromisoformat(expiry_str)
                     else:
-                        expires_at = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc)
+                        expires_at = datetime.fromisoformat(expiry_str).replace(
+                            tzinfo=timezone.utc
+                        )
             except ValueError:
                 log.warning(f"无法解析过期时间: {expiry_str}")
 
@@ -171,7 +176,11 @@ class Flow:
     """OAuth流程类"""
 
     def __init__(
-        self, client_id: str, client_secret: str, scopes: List[str], redirect_uri: str = None
+        self,
+        client_id: str,
+        client_secret: str,
+        scopes: List[str],
+        redirect_uri: str = None,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -217,7 +226,9 @@ class Flow:
             oauth_base_url = await get_oauth_proxy_url()
             token_url = f"{oauth_base_url.rstrip('/')}/token"
             response = await post_async(
-                token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+                token_url,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             response.raise_for_status()
 
@@ -250,7 +261,11 @@ class ServiceAccount:
     """Service Account类"""
 
     def __init__(
-        self, email: str, private_key: str, project_id: str = None, scopes: List[str] = None
+        self,
+        email: str,
+        private_key: str,
+        project_id: str = None,
+        scopes: List[str] = None,
     ):
         self.email = email
         self.private_key = private_key
@@ -293,13 +308,18 @@ class ServiceAccount:
 
         assertion = self.create_jwt()
 
-        data = {"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": assertion}
+        data = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        }
 
         try:
             oauth_base_url = await get_oauth_proxy_url()
             token_url = f"{oauth_base_url.rstrip('/')}/token"
             response = await post_async(
-                token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+                token_url,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             response.raise_for_status()
 
@@ -308,7 +328,9 @@ class ServiceAccount:
 
             if "expires_in" in token_data:
                 expires_in = int(token_data["expires_in"])
-                self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                self.expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=expires_in
+                )
 
             return self.access_token
 
@@ -318,7 +340,9 @@ class ServiceAccount:
             raise TokenError(error_msg)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], scopes: List[str] = None) -> "ServiceAccount":
+    def from_dict(
+        cls, data: Dict[str, Any], scopes: List[str] = None
+    ) -> "ServiceAccount":
         """从字典创建Service Account凭证"""
         return cls(
             email=data["client_email"],
@@ -337,7 +361,8 @@ async def get_user_info(credentials: Credentials) -> Optional[Dict[str, Any]]:
         googleapis_base_url = await get_googleapis_proxy_url()
         userinfo_url = f"{googleapis_base_url.rstrip('/')}/oauth2/v2/userinfo"
         response = await get_async(
-            userinfo_url, headers={"Authorization": f"Bearer {credentials.access_token}"}
+            userinfo_url,
+            headers={"Authorization": f"Bearer {credentials.access_token}"},
         )
         response.raise_for_status()
         return response.json()
@@ -426,9 +451,7 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
 
             # 检查服务是否已启用
             service_usage_base_url = await get_service_usage_api_url()
-            check_url = (
-                f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
-            )
+            check_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
             try:
                 check_response = await get_async(check_url, headers=headers)
                 if check_response.status_code == 200:
@@ -448,7 +471,10 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
                     log.info(f"✅ 成功启用服务: {service}")
                 elif enable_response.status_code == 400:
                     error_data = enable_response.json()
-                    if "already enabled" in error_data.get("error", {}).get("message", "").lower():
+                    if (
+                        "already enabled"
+                        in error_data.get("error", {}).get("message", "").lower()
+                    ):
                         log.info(f"✅ 服务 {service} 已经启用")
                     else:
                         log.warning(f"⚠️ 启用服务 {service} 时出现警告: {error_data}")
@@ -494,7 +520,9 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             projects = data.get("projects", [])
             # 只返回活跃的项目
             active_projects = [
-                project for project in projects if project.get("lifecycleState") == "ACTIVE"
+                project
+                for project in projects
+                if project.get("lifecycleState") == "ACTIVE"
             ]
             log.info(f"获取到 {len(active_projects)} 个活跃项目")
             return active_projects
@@ -518,7 +546,9 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
         # Google API returns projectId in camelCase
         project_id = project.get("projectId", "")
         if "default" in display_name or "default" in project_id.lower():
-            log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
+            log.info(
+                f"选择默认项目: {project_id} ({project.get('displayName', project_id)})"
+            )
             return project_id
 
     # 策略2：选择第一个项目
@@ -532,9 +562,7 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
 
 async def fetch_project_id(
-    access_token: str,
-    user_agent: str,
-    api_base_url: str
+    access_token: str, user_agent: str, api_base_url: str
 ) -> Optional[str]:
     """
     从 API 获取 project_id，如果 loadCodeAssist 失败则回退到 onboardUser
@@ -548,10 +576,10 @@ async def fetch_project_id(
         project_id 字符串，如果获取失败返回 None
     """
     headers = {
-        'User-Agent': user_agent,
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json',
-        'Accept-Encoding': 'gzip'
+        "User-Agent": user_agent,
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept-Encoding": "gzip",
     }
 
     # 步骤 1: 尝试 loadCodeAssist
@@ -560,10 +588,14 @@ async def fetch_project_id(
         if project_id:
             return project_id
 
-        log.warning("[fetch_project_id] loadCodeAssist did not return project_id, falling back to onboardUser")
+        log.warning(
+            "[fetch_project_id] loadCodeAssist did not return project_id, falling back to onboardUser"
+        )
 
     except Exception as e:
-        log.warning(f"[fetch_project_id] loadCodeAssist failed: {type(e).__name__}: {e}")
+        log.warning(
+            f"[fetch_project_id] loadCodeAssist failed: {type(e).__name__}: {e}"
+        )
         log.warning("[fetch_project_id] Falling back to onboardUser")
 
     # 步骤 2: 回退到 onboardUser
@@ -572,20 +604,63 @@ async def fetch_project_id(
         if project_id:
             return project_id
 
-        log.error("[fetch_project_id] Failed to get project_id from both loadCodeAssist and onboardUser")
+        log.error(
+            "[fetch_project_id] Failed to get project_id from both loadCodeAssist and onboardUser"
+        )
         return None
 
     except Exception as e:
         log.error(f"[fetch_project_id] onboardUser failed: {type(e).__name__}: {e}")
         import traceback
+
         log.debug(f"[fetch_project_id] Traceback: {traceback.format_exc()}")
         return None
 
 
-async def _try_load_code_assist(
-    api_base_url: str,
-    headers: dict
-) -> Optional[str]:
+def _extract_project_id_from_resource_name(value: str) -> Optional[str]:
+    """从资源名中提取 project_id，例如 projects/xxx/locations/global。"""
+    if not value:
+        return None
+    match = re.search(r"projects/([^/]+)/", value)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _normalize_project_id_value(value: Any) -> Optional[str]:
+    """兼容多种返回结构并归一化 project_id。"""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        # 兼容资源名格式
+        from_resource = _extract_project_id_from_resource_name(raw)
+        if from_resource:
+            return from_resource
+        return raw
+
+    if isinstance(value, dict):
+        # 常见字段优先级
+        for key in ("projectId", "project_id", "id", "name", "project"):
+            normalized = _normalize_project_id_value(value.get(key))
+            if normalized:
+                return normalized
+        return None
+
+    if isinstance(value, list):
+        for item in value:
+            normalized = _normalize_project_id_value(item)
+            if normalized:
+                return normalized
+        return None
+
+    return None
+
+
+async def _try_load_code_assist(api_base_url: str, headers: dict) -> Optional[str]:
     """
     尝试通过 loadCodeAssist 获取 project_id
 
@@ -597,7 +672,7 @@ async def _try_load_code_assist(
         "metadata": {
             "ideType": "ANTIGRAVITY",
             "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
+            "pluginType": "GEMINI",
         }
     }
 
@@ -626,9 +701,21 @@ async def _try_load_code_assist(
             log.info("[loadCodeAssist] User is already activated")
 
             # 使用服务器返回的 project_id
-            project_id = data.get("cloudaicompanionProject")
+            project_id = _normalize_project_id_value(
+                data.get("cloudaicompanionProject")
+            )
             if project_id:
-                log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}")
+                log.info(
+                    f"[loadCodeAssist] Successfully fetched project_id: {project_id}"
+                )
+                return project_id
+
+            # 兼容部分返回结构：projectId/project_id/name 等位置
+            project_id = _normalize_project_id_value(data)
+            if project_id:
+                log.info(
+                    f"[loadCodeAssist] Fallback extracted project_id: {project_id}"
+                )
                 return project_id
 
             log.warning("[loadCodeAssist] No project_id in response")
@@ -642,10 +729,7 @@ async def _try_load_code_assist(
         raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
 
 
-async def _try_onboard_user(
-    api_base_url: str,
-    headers: dict
-) -> Optional[str]:
+async def _try_onboard_user(api_base_url: str, headers: dict) -> Optional[str]:
     """
     尝试通过 onboardUser 获取 project_id（长时间运行操作，需要轮询）
 
@@ -669,16 +753,16 @@ async def _try_onboard_user(
         "metadata": {
             "ideType": "ANTIGRAVITY",
             "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
-        }
+            "pluginType": "GEMINI",
+        },
     }
 
     log.debug(f"[onboardUser] Request URL: {request_url}")
     log.debug(f"[onboardUser] Request body: {request_body}")
 
     # onboardUser 是长时间运行操作，需要轮询
-    # 最多等待 10 秒（5 次 * 2 秒）
-    max_attempts = 5
+    # 最多等待 30 秒（15 次 * 2 秒），提升慢速环境下的成功率
+    max_attempts = 15
     attempt = 0
 
     while attempt < max_attempts:
@@ -704,37 +788,40 @@ async def _try_onboard_user(
 
                 # 从响应中提取 project_id
                 response_data = data.get("response", {})
-                project_obj = response_data.get("cloudaicompanionProject", {})
+                project_obj = response_data.get("cloudaicompanionProject")
 
-                if isinstance(project_obj, dict):
-                    project_id = project_obj.get("id")
-                elif isinstance(project_obj, str):
-                    project_id = project_obj
-                else:
-                    project_id = None
+                project_id = _normalize_project_id_value(project_obj)
+                if not project_id:
+                    # 兼容返回结构变化，尝试在整个响应中提取
+                    project_id = _normalize_project_id_value(response_data)
+                if not project_id:
+                    project_id = _normalize_project_id_value(data)
 
                 if project_id:
-                    log.info(f"[onboardUser] Successfully fetched project_id: {project_id}")
+                    log.info(
+                        f"[onboardUser] Successfully fetched project_id: {project_id}"
+                    )
                     return project_id
                 else:
-                    log.warning("[onboardUser] Operation completed but no project_id in response")
+                    log.warning(
+                        "[onboardUser] Operation completed but no project_id in response"
+                    )
                     return None
             else:
-                log.debug("[onboardUser] Operation still in progress, waiting 2 seconds...")
+                log.debug(
+                    "[onboardUser] Operation still in progress, waiting 2 seconds..."
+                )
                 await asyncio.sleep(2)
         else:
             log.warning(f"[onboardUser] Failed: HTTP {response.status_code}")
             log.warning(f"[onboardUser] Response body: {response.text[:500]}")
             raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
 
-    log.error("[onboardUser] Timeout: Operation did not complete within 10 seconds")
+    log.error("[onboardUser] Timeout: Operation did not complete within 30 seconds")
     return None
 
 
-async def _get_onboard_tier(
-    api_base_url: str,
-    headers: dict
-) -> Optional[str]:
+async def _get_onboard_tier(api_base_url: str, headers: dict) -> Optional[str]:
     """
     从 loadCodeAssist 响应中获取用户应该注册的 tier
 
@@ -746,7 +833,7 @@ async def _get_onboard_tier(
         "metadata": {
             "ideType": "ANTIGRAVITY",
             "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
+            "pluginType": "GEMINI",
         }
     }
 
@@ -775,7 +862,7 @@ async def _get_onboard_tier(
         log.warning("[_get_onboard_tier] No default tier found, using LEGACY")
         return "LEGACY"
     else:
-        log.error(f"[_get_onboard_tier] Failed to fetch tier info: HTTP {response.status_code}")
+        log.error(
+            f"[_get_onboard_tier] Failed to fetch tier info: HTTP {response.status_code}"
+        )
         return None
-
-
