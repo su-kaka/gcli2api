@@ -69,6 +69,8 @@ async def handle_error_with_retry(
     max_retries: int,
     retry_interval: float,
     mode: str = "geminicli",
+    metrics_ctx: Optional[Dict[str, Any]] = None,
+    retry_policy_v2_enabled: bool = True,
 ) -> bool:
     """
     统一处理错误和重试逻辑
@@ -91,6 +93,20 @@ async def handle_error_with_retry(
     Returns:
         bool: True表示需要继续重试，False表示不需要重试
     """
+
+    def _record_retry_sleep(sleep_seconds: float) -> None:
+        if not isinstance(metrics_ctx, dict):
+            return
+        sleep_ms = max(0.0, float(sleep_seconds)) * 1000.0
+        metrics_ctx["retry_count"] = int(metrics_ctx.get("retry_count", 0) or 0) + 1
+        metrics_ctx["retry_sleep_ms"] = (
+            float(metrics_ctx.get("retry_sleep_ms", 0.0) or 0.0) + sleep_ms
+        )
+
+    async def _sleep_with_metrics(sleep_seconds: float) -> None:
+        _record_retry_sleep(sleep_seconds)
+        await asyncio.sleep(sleep_seconds)
+
     # 优先检查自动封禁
     should_auto_ban = await check_should_auto_ban(status_code)
 
@@ -104,7 +120,8 @@ async def handle_error_with_retry(
                 f"[{mode.upper()} RETRY] Retrying with next credential after auto-ban "
                 f"(status {status_code}, attempt {attempt + 1}/{max_retries})"
             )
-            await asyncio.sleep(retry_interval)
+            if retry_policy_v2_enabled:
+                await _sleep_with_metrics(retry_interval)
             return True
         return False
 
@@ -118,7 +135,8 @@ async def handle_error_with_retry(
             f"[{mode.upper()} RETRY] {status_code} error encountered, retrying "
             f"(attempt {attempt + 1}/{max_retries})"
         )
-        await asyncio.sleep(retry_interval)
+        if retry_policy_v2_enabled:
+            await _sleep_with_metrics(retry_interval)
         return True
 
     # 其他错误不进行重试
@@ -473,7 +491,7 @@ async def collect_streaming_response(stream_generator) -> Response:
 
     # 去掉嵌套的 "response" 包装（Antigravity格式 -> 标准Gemini格式）
     if "response" in merged_response and "candidates" not in merged_response:
-        log.debug(f"[STREAM COLLECTOR] 展开response包装")
+        log.debug("[STREAM COLLECTOR] 展开response包装")
         merged_response = merged_response["response"]
 
     # 返回纯JSON格式

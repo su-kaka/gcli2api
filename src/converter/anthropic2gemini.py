@@ -12,6 +12,7 @@ import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import Response
+from config import get_ff_converter_fast_path
 from log import log
 from src.converter.utils import merge_system_messages
 
@@ -437,6 +438,87 @@ def _extract_tool_result_output(content: Any) -> str:
     return str(content)
 
 
+def _can_use_text_only_fast_path(payload: Dict[str, Any]) -> bool:
+    """判断是否可以走纯文本 fast-path。"""
+    if payload.get("thinking") is not None:
+        return False
+
+    if payload.get("tools"):
+        return False
+
+    if payload.get("tool_choice"):
+        return False
+
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return False
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            return False
+
+        role = msg.get("role", "user")
+        if role not in ("user", "assistant", "model", "system"):
+            return False
+
+        if role == "system":
+            continue
+
+        raw_content = msg.get("content", "")
+        if isinstance(raw_content, str):
+            continue
+
+        if isinstance(raw_content, list):
+            for item in raw_content:
+                if isinstance(item, dict):
+                    if item.get("type") != "text":
+                        return False
+                elif item is None:
+                    continue
+            continue
+
+        if raw_content is None:
+            continue
+
+    return True
+
+
+def _convert_text_only_messages_to_contents_fast(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """纯文本 messages 的轻量转换。"""
+    contents: List[Dict[str, Any]] = []
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        if role == "system":
+            continue
+
+        gemini_role = "model" if role in ("assistant", "model") else "user"
+        raw_content = msg.get("content", "")
+
+        parts: List[Dict[str, Any]] = []
+        if isinstance(raw_content, str):
+            if _is_non_whitespace_text(raw_content):
+                parts.append({"text": str(raw_content)})
+        elif isinstance(raw_content, list):
+            for item in raw_content:
+                if isinstance(item, dict):
+                    text = item.get("text", "")
+                else:
+                    text = item
+
+                if _is_non_whitespace_text(text):
+                    parts.append({"text": str(text)})
+        elif _is_non_whitespace_text(raw_content):
+            parts.append({"text": str(raw_content)})
+
+        if parts:
+            contents.append({"role": gemini_role, "parts": parts})
+
+    return contents
+
+
 def convert_messages_to_contents(
     messages: List[Dict[str, Any]], *, include_thinking: bool = True
 ) -> List[Dict[str, Any]]:
@@ -818,32 +900,42 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     if not isinstance(messages, list):
         messages = []
 
+    use_text_only_fast_path = bool(
+        await get_ff_converter_fast_path()
+    ) and _can_use_text_only_fast_path(payload)
+
     # [CRITICAL FIX] 过滤并修复 Thinking 块签名
     # 在转换前先过滤无效的 thinking 块
-    filter_invalid_thinking_blocks(messages)
+    if not use_text_only_fast_path:
+        filter_invalid_thinking_blocks(messages)
 
     # 构建生成配置
     generation_config = build_generation_config(payload)
 
-    # 转换消息内容（始终包含thinking块，由响应端处理）
-    contents = convert_messages_to_contents(messages, include_thinking=True)
+    if use_text_only_fast_path:
+        contents = _convert_text_only_messages_to_contents_fast(messages)
+        tools = None
+        tool_config = None
+    else:
+        # 转换消息内容（始终包含thinking块，由响应端处理）
+        contents = convert_messages_to_contents(messages, include_thinking=True)
 
-    # [CRITICAL FIX] 移除尾部无签名的 thinking 块
-    # 对真实请求应用额外的清理
-    for content in contents:
-        role = content.get("role", "")
-        if role == "model":  # 只处理 model/assistant 消息
-            parts = content.get("parts", [])
-            if isinstance(parts, list):
-                remove_trailing_unsigned_thinking(parts)
+        # [CRITICAL FIX] 移除尾部无签名的 thinking 块
+        # 对真实请求应用额外的清理
+        for content in contents:
+            role = content.get("role", "")
+            if role == "model":  # 只处理 model/assistant 消息
+                parts = content.get("parts", [])
+                if isinstance(parts, list):
+                    remove_trailing_unsigned_thinking(parts)
 
-    contents = reorganize_tool_messages(contents)
+        contents = reorganize_tool_messages(contents)
 
-    # 转换工具
-    tools = convert_tools(payload.get("tools"))
+        # 转换工具
+        tools = convert_tools(payload.get("tools"))
 
-    # 转换 tool_choice
-    tool_config = convert_tool_choice_to_tool_config(payload.get("tool_choice"))
+        # 转换 tool_choice
+        tool_config = convert_tool_choice_to_tool_config(payload.get("tool_choice"))
 
     # 构建基础请求数据
     gemini_request = {
@@ -1040,6 +1132,7 @@ async def gemini_stream_to_anthropic_stream(
     input_tokens = 0
     output_tokens = 0
     finish_reason: Optional[str] = None
+    debug_logging_enabled = log.get_current_level() == "debug"
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
         """生成 SSE 事件"""
@@ -1067,41 +1160,50 @@ async def gemini_stream_to_anthropic_stream(
                     f"[GEMINI_TO_ANTHROPIC] 收到 Response 对象，状态码: {chunk.status_code}，直接转发错误"
                 )
                 # 直接转发错误响应内容，不做格式转换
-                error_content = (
-                    chunk.body
-                    if isinstance(chunk.body, bytes)
-                    else chunk.body.encode("utf-8")
-                )
+                body = chunk.body
+                if isinstance(body, (bytes, bytearray, memoryview)):
+                    error_content = bytes(body)
+                else:
+                    error_content = str(body or "").encode("utf-8")
                 yield error_content
                 return
 
             # 记录接收到的原始chunk
-            log.debug(
-                f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}"
-            )
+            if debug_logging_enabled:
+                log.debug(
+                    f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}"
+                )
 
             # 解析 Gemini 流式块
             if not chunk or not chunk.startswith(b"data: "):
-                log.debug(
-                    f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)"
-                )
+                if debug_logging_enabled:
+                    log.debug(
+                        "[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)"
+                    )
                 continue
 
-            raw = chunk[6:].strip()
+            raw = chunk[6:].rstrip()
             if raw == b"[DONE]":
-                log.debug(f"[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
+                if debug_logging_enabled:
+                    log.debug("[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
                 break
 
-            log.debug(f"[GEMINI_TO_ANTHROPIC] Parsing JSON: {raw[:200]}")
+            if debug_logging_enabled:
+                log.debug(f"[GEMINI_TO_ANTHROPIC] Parsing JSON: {raw[:200]}")
 
             try:
-                data = json.loads(raw.decode("utf-8", errors="ignore"))
+                data = json.loads(raw)
+            except Exception as e:
+                try:
+                    data = json.loads(raw.decode("utf-8", errors="ignore"))
+                except Exception:
+                    log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
+                    continue
+
+            if debug_logging_enabled:
                 log.debug(
                     f"[GEMINI_TO_ANTHROPIC] Parsed data: {json.dumps(data, ensure_ascii=False)[:300]}"
                 )
-            except Exception as e:
-                log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
-                continue
 
             # 处理 GeminiCLI 的 response 包装格式
             if "response" in data:

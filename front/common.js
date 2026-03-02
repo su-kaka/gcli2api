@@ -2668,44 +2668,84 @@ async function loadConfig() {
 function populateConfigForm() {
     const c = AppState.currentConfig;
 
-    setConfigField('host', c.host || '0.0.0.0');
-    setConfigField('port', c.port || 7861);
-    setConfigField('configApiPassword', c.api_password || '');
-    setConfigField('configPanelPassword', c.panel_password || '');
-    setConfigField('configPassword', c.password || 'pwd');
-    setConfigField('credentialsDir', c.credentials_dir || '');
-    setConfigField('proxy', c.proxy || '');
-    setConfigField('codeAssistEndpoint', c.code_assist_endpoint || '');
-    setConfigField('oauthProxyUrl', c.oauth_proxy_url || '');
-    setConfigField('googleapisProxyUrl', c.googleapis_proxy_url || '');
-    setConfigField('resourceManagerApiUrl', c.resource_manager_api_url || '');
-    setConfigField('serviceUsageApiUrl', c.service_usage_api_url || '');
-    setConfigField('antigravityApiUrl', c.antigravity_api_url || '');
+    setConfigField('host', c.host || '0.0.0.0', 'host');
+    setConfigField('port', c.port || 7861, 'port');
+    setConfigField('configApiPassword', c.api_password || '', 'api_password');
+    setConfigField('configPanelPassword', c.panel_password || '', 'panel_password');
+    setConfigField('configPassword', c.password || 'pwd', 'password');
+    setConfigField('credentialsDir', c.credentials_dir || '', 'credentials_dir');
+    setConfigField('proxy', c.proxy || '', 'proxy');
+    setConfigField('codeAssistEndpoint', c.code_assist_endpoint || '', 'code_assist_endpoint');
+    setConfigField('oauthProxyUrl', c.oauth_proxy_url || '', 'oauth_proxy_url');
+    setConfigField('googleapisProxyUrl', c.googleapis_proxy_url || '', 'googleapis_proxy_url');
+    setConfigField('resourceManagerApiUrl', c.resource_manager_api_url || '', 'resource_manager_api_url');
+    setConfigField('serviceUsageApiUrl', c.service_usage_api_url || '', 'service_usage_api_url');
+    setConfigField('antigravityApiUrl', c.antigravity_api_url || '', 'antigravity_api_url');
 
-    document.getElementById('autoBanEnabled').checked = Boolean(c.auto_ban_enabled);
-    setConfigField('autoBanErrorCodes', (c.auto_ban_error_codes || []).join(','));
+    setConfigCheckbox('autoBanEnabled', Boolean(c.auto_ban_enabled), 'auto_ban_enabled');
+    setConfigField('autoBanErrorCodes', (c.auto_ban_error_codes || []).join(','), 'auto_ban_error_codes');
     setConfigField('callsPerRotation', c.calls_per_rotation || 10);
 
-    document.getElementById('retry429Enabled').checked = Boolean(c.retry_429_enabled);
-    setConfigField('retry429MaxRetries', c.retry_429_max_retries || 20);
-    setConfigField('retry429Interval', c.retry_429_interval || 0.1);
+    setConfigCheckbox('retry429Enabled', Boolean(c.retry_429_enabled), 'retry_429_enabled');
+    setConfigField('retry429MaxRetries', c.retry_429_max_retries || 20, 'retry_429_max_retries');
+    setConfigField('retry429Interval', c.retry_429_interval || 0.1, 'retry_429_interval');
 
-    document.getElementById('compatibilityModeEnabled').checked = Boolean(c.compatibility_mode_enabled);
-    document.getElementById('returnThoughtsToFrontend').checked = Boolean(c.return_thoughts_to_frontend !== false);
-    document.getElementById('antigravityStream2nostream').checked = Boolean(c.antigravity_stream2nostream !== false);
+    setConfigCheckbox('ffRetryPolicyV2', Boolean(c.ff_retry_policy_v2), 'ff_retry_policy_v2');
+    setConfigCheckbox('ffHttp2PoolTuning', Boolean(c.ff_http2_pool_tuning), 'ff_http2_pool_tuning');
+    setConfigCheckbox('ffConverterFastPath', Boolean(c.ff_converter_fast_path), 'ff_converter_fast_path');
+    setConfigCheckbox(
+        'ffPreviewCredentialSchedulerV2',
+        Boolean(c.ff_preview_credential_scheduler_v2),
+        'ff_preview_credential_scheduler_v2'
+    );
+    setConfigField('rolloutStagePercent', c.rollout_stage_percent ?? 5, 'rollout_stage_percent');
+    setConfigField(
+        'rollbackTriggerLatencyP95Ms',
+        c.rollback_trigger_latency_p95_ms ?? 2500,
+        'rollback_trigger_latency_p95_ms'
+    );
+    setConfigField(
+        'rollbackTriggerThroughputDropPct',
+        c.rollback_trigger_throughput_drop_pct ?? 20,
+        'rollback_trigger_throughput_drop_pct'
+    );
+    setConfigField(
+        'rollbackTriggerQualityDropPct',
+        c.rollback_trigger_quality_drop_pct ?? 10,
+        'rollback_trigger_quality_drop_pct'
+    );
 
-    setConfigField('antiTruncationMaxAttempts', c.anti_truncation_max_attempts || 3);
+    setConfigCheckbox('compatibilityModeEnabled', Boolean(c.compatibility_mode_enabled), 'compatibility_mode_enabled');
+    setConfigCheckbox('returnThoughtsToFrontend', Boolean(c.return_thoughts_to_frontend !== false), 'return_thoughts_to_frontend');
+    setConfigCheckbox('antigravityStream2nostream', Boolean(c.antigravity_stream2nostream !== false), 'antigravity_stream2nostream');
 
-    setConfigField('keepaliveUrl', c.keepalive_url || '');
-    setConfigField('keepaliveInterval', c.keepalive_interval || 60);
+    setConfigField('antiTruncationMaxAttempts', c.anti_truncation_max_attempts || 3, 'anti_truncation_max_attempts');
+
+    setConfigField('keepaliveUrl', c.keepalive_url || '', 'keepalive_url');
+    setConfigField('keepaliveInterval', c.keepalive_interval || 60, 'keepalive_interval');
 }
 
-function setConfigField(fieldId, value) {
+function setConfigField(fieldId, value, configKey = null) {
     const field = document.getElementById(fieldId);
     if (field) {
         field.value = value;
-        const configKey = fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
-        if (AppState.envLockedFields.has(configKey)) {
+        const key = configKey || fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
+        if (AppState.envLockedFields.has(key)) {
+            field.disabled = true;
+            field.classList.add('env-locked');
+        } else {
+            field.disabled = false;
+            field.classList.remove('env-locked');
+        }
+    }
+}
+
+function setConfigCheckbox(fieldId, checked, configKey = null) {
+    const field = document.getElementById(fieldId);
+    if (field) {
+        field.checked = Boolean(checked);
+        const key = configKey || fieldId.replace(/([A-Z])/g, '_$1').toLowerCase();
+        if (AppState.envLockedFields.has(key)) {
             field.disabled = true;
             field.classList.add('env-locked');
         } else {
@@ -2717,10 +2757,24 @@ function setConfigField(fieldId, value) {
 
 async function saveConfig() {
     try {
-        const getValue = (id, def = '') => document.getElementById(id)?.value.trim() || def;
-        const getInt = (id, def = 0) => parseInt(document.getElementById(id)?.value) || def;
-        const getFloat = (id, def = 0.0) => parseFloat(document.getElementById(id)?.value) || def;
-        const getChecked = (id, def = false) => document.getElementById(id)?.checked || def;
+        const getValue = (id, def = '') => {
+            const rawValue = document.getElementById(id)?.value;
+            if (rawValue === undefined || rawValue === null) return def;
+            const trimmed = rawValue.trim();
+            return trimmed === '' ? def : trimmed;
+        };
+        const getInt = (id, def = 0) => {
+            const value = parseInt(document.getElementById(id)?.value, 10);
+            return Number.isNaN(value) ? def : value;
+        };
+        const getFloat = (id, def = 0.0) => {
+            const value = parseFloat(document.getElementById(id)?.value);
+            return Number.isNaN(value) ? def : value;
+        };
+        const getChecked = (id, def = false) => {
+            const field = document.getElementById(id);
+            return field ? Boolean(field.checked) : def;
+        };
 
         const config = {
             host: getValue('host', '0.0.0.0'),
@@ -2743,6 +2797,14 @@ async function saveConfig() {
             retry_429_enabled: getChecked('retry429Enabled'),
             retry_429_max_retries: getInt('retry429MaxRetries', 20),
             retry_429_interval: getFloat('retry429Interval', 0.1),
+            ff_retry_policy_v2: getChecked('ffRetryPolicyV2'),
+            ff_http2_pool_tuning: getChecked('ffHttp2PoolTuning'),
+            ff_converter_fast_path: getChecked('ffConverterFastPath'),
+            ff_preview_credential_scheduler_v2: getChecked('ffPreviewCredentialSchedulerV2'),
+            rollout_stage_percent: getInt('rolloutStagePercent', 5),
+            rollback_trigger_latency_p95_ms: getFloat('rollbackTriggerLatencyP95Ms', 2500),
+            rollback_trigger_throughput_drop_pct: getFloat('rollbackTriggerThroughputDropPct', 20),
+            rollback_trigger_quality_drop_pct: getFloat('rollbackTriggerQualityDropPct', 10),
             compatibility_mode_enabled: getChecked('compatibilityModeEnabled'),
             return_thoughts_to_frontend: getChecked('returnThoughtsToFrontend'),
             antigravity_stream2nostream: getChecked('antigravityStream2nostream'),

@@ -1,6 +1,9 @@
 import asyncio
 
-from src.converter.anthropic2gemini import anthropic_to_gemini_request
+from src.converter.anthropic2gemini import (
+    anthropic_to_gemini_request,
+    _can_use_text_only_fast_path,
+)
 
 
 def test_anthropic_tools_schema_shorthand_object_is_normalized():
@@ -30,3 +33,142 @@ def test_anthropic_tools_schema_shorthand_object_is_normalized():
     assert params["type"] == "object"
     assert params["properties"]["key"]["type"] == "string"
     assert params["properties"]["value"]["type"] == "object"
+
+
+def test_fast_path_guard_accepts_simple_text_messages():
+    payload = {
+        "messages": [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        ],
+        "tools": [],
+    }
+
+    assert _can_use_text_only_fast_path(payload) is True
+
+
+def test_fast_path_guard_rejects_tool_image_and_thinking_paths():
+    tool_payload = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{"name": "search", "input_schema": {"type": "object"}}],
+    }
+    image_payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "AAAA",
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    thinking_payload = {
+        "messages": [{"role": "user", "content": "hello"}],
+        "thinking": {"type": "enabled", "budget_tokens": 256},
+    }
+
+    assert _can_use_text_only_fast_path(tool_payload) is False
+    assert _can_use_text_only_fast_path(image_payload) is False
+    assert _can_use_text_only_fast_path(thinking_payload) is False
+
+
+def test_fast_path_text_conversion_keeps_expected_request_shape():
+    payload = {
+        "model": "gemini-2.5-pro",
+        "max_tokens": 128,
+        "messages": [
+            {"role": "system", "content": "be concise"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+        ],
+        "tools": [],
+    }
+
+    gemini_request = asyncio.run(anthropic_to_gemini_request(payload))
+
+    assert gemini_request["contents"] == [
+        {"role": "user", "parts": [{"text": "hello"}]},
+        {"role": "model", "parts": [{"text": "hi"}]},
+    ]
+    assert "tools" not in gemini_request
+    assert "toolConfig" not in gemini_request
+    assert gemini_request["systemInstruction"]["parts"][0]["text"] == "be concise"
+
+
+def test_non_fast_path_still_preserves_tool_and_thinking_structure():
+    payload = {
+        "model": "gemini-2.5-pro",
+        "max_tokens": 256,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "thinking",
+                        "thinking": "plan",
+                        "thoughtSignature": "abcdefghijk",
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "fetch_weather",
+                        "input": {"city": "shenzhen"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "name": "fetch_weather",
+                        "content": [{"type": "text", "text": "sunny"}],
+                    }
+                ],
+            },
+        ],
+        "tools": [
+            {
+                "name": "fetch_weather",
+                "description": "Fetch city weather",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                    "required": ["city"],
+                },
+            }
+        ],
+        "tool_choice": {"type": "tool", "name": "fetch_weather"},
+        "thinking": {"type": "enabled", "budget_tokens": 128},
+    }
+
+    gemini_request = asyncio.run(anthropic_to_gemini_request(payload))
+
+    assert "tools" in gemini_request
+    assert gemini_request["toolConfig"]["functionCallingConfig"][
+        "allowedFunctionNames"
+    ] == ["fetch_weather"]
+    assert gemini_request["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 128
+
+    all_parts = [
+        part
+        for content in gemini_request["contents"]
+        for part in content.get("parts", [])
+        if isinstance(part, dict)
+    ]
+    assert any(part.get("thought") is True for part in all_parts)
+    assert any("functionCall" in part for part in all_parts)
+    assert any("functionResponse" in part for part in all_parts)

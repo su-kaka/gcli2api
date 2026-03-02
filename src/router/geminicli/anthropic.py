@@ -3,6 +3,8 @@ Anthropic Router - Handles Anthropic/Claude format API requests via GeminiCLI
 通过GeminiCLI处理Anthropic/Claude格式请求的路由模块
 """
 
+# ruff: noqa: E402
+
 import sys
 from pathlib import Path
 
@@ -14,6 +16,8 @@ if str(project_root) not in sys.path:
 # 标准库
 import asyncio
 import json
+import time
+from typing import Any
 
 # 第三方库
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -58,10 +62,10 @@ router = APIRouter()
 
 # ==================== API 路由 ====================
 
+
 @router.post("/v1/messages")
 async def messages(
-    claude_request: ClaudeRequest,
-    token: str = Depends(authenticate_bearer)
+    claude_request: ClaudeRequest, token: str = Depends(authenticate_bearer)
 ):
     """
     处理Anthropic/Claude格式的消息请求（流式和非流式）
@@ -97,25 +101,28 @@ async def messages(
 
     # 转换为 Gemini 格式 (使用 converter)
     from src.converter.anthropic2gemini import anthropic_to_gemini_request
+
+    converter_started_at = time.perf_counter()
     gemini_dict = await anthropic_to_gemini_request(normalized_dict)
+    converter_cpu_ms = max(0.0, (time.perf_counter() - converter_started_at) * 1000.0)
+    converter_cpu_header_value = f"{converter_cpu_ms:.3f}"
 
     # anthropic_to_gemini_request 不包含 model 字段，需要手动添加
     gemini_dict["model"] = real_model
 
     # 规范化 Gemini 请求 (使用 geminicli 模式)
     from src.converter.gemini_fix import normalize_gemini_request
+
     gemini_dict = await normalize_gemini_request(gemini_dict, mode="geminicli")
 
     # 准备API请求格式 - 提取model并将其他字段放入request中
-    api_request = {
-        "model": gemini_dict.pop("model"),
-        "request": gemini_dict
-    }
+    api_request = {"model": gemini_dict.pop("model"), "request": gemini_dict}
 
     # ========== 非流式请求 ==========
     if not is_streaming:
         # 调用 API 层的非流式请求
         from src.api.geminicli import non_stream_request
+
         response = await non_stream_request(body=api_request)
 
         # 检查响应状态码
@@ -123,9 +130,19 @@ async def messages(
 
         # 提取响应体
         if hasattr(response, "body"):
-            response_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+            response_raw_body: Any = response.body
+            response_body = (
+                bytes(response_raw_body).decode()
+                if isinstance(response_raw_body, (bytes, bytearray, memoryview))
+                else str(response_raw_body)
+            )
         elif hasattr(response, "content"):
-            response_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+            response_content: Any = getattr(response, "content", "")
+            response_body = (
+                bytes(response_content).decode()
+                if isinstance(response_content, (bytes, bytearray, memoryview))
+                else str(response_content)
+            )
         else:
             response_body = str(response)
 
@@ -137,13 +154,16 @@ async def messages(
 
         # 转换为 Anthropic 格式
         from src.converter.anthropic2gemini import gemini_to_anthropic_response
+
         anthropic_response = gemini_to_anthropic_response(
-            gemini_response,
-            real_model,
-            status_code
+            gemini_response, real_model, status_code
         )
 
-        return JSONResponse(content=anthropic_response, status_code=status_code)
+        return JSONResponse(
+            content=anthropic_response,
+            status_code=status_code,
+            headers={"x-gcli-obs-converter-cpu-ms": converter_cpu_header_value},
+        )
 
     # ========== 流式请求 ==========
 
@@ -156,11 +176,14 @@ async def messages(
         # 异步发送实际请求
         async def get_response():
             from src.api.geminicli import non_stream_request
+
             response = await non_stream_request(body=api_request)
             return response
 
         # 创建请求任务
-        response_task = create_managed_task(get_response(), name="anthropic_fake_stream_request")
+        response_task = create_managed_task(
+            get_response(), name="anthropic_fake_stream_request"
+        )
 
         try:
             # 每3秒发送一次心跳，直到收到响应
@@ -191,23 +214,32 @@ async def messages(
         # 检查响应状态码
         if hasattr(response, "status_code") and response.status_code != 200:
             # 错误响应 - 提取错误信息并以SSE格式返回
-            log.error(f"Fake streaming got error response: status={response.status_code}")
+            log.error(
+                f"Fake streaming got error response: status={response.status_code}"
+            )
 
             raw = None
             if hasattr(response, "body") and response.body:
-                raw = response.body.decode('utf-8') if isinstance(response.body, bytes) else response.body
+                raw = (
+                    response.body.decode("utf-8")
+                    if isinstance(response.body, bytes)
+                    else response.body
+                )
             elif hasattr(response, "content") and response.content:
-                raw = response.content.decode('utf-8') if isinstance(response.content, bytes) else response.content
+                raw = (
+                    response.content.decode("utf-8")
+                    if isinstance(response.content, bytes)
+                    else response.content
+                )
             error_body = raw or ""
 
             try:
                 error_data = json.loads(error_body)
                 # 转换错误为 Anthropic 格式
                 from src.converter.anthropic2gemini import gemini_to_anthropic_response
+
                 anthropic_error = gemini_to_anthropic_response(
-                    error_data,
-                    real_model,
-                    response.status_code
+                    error_data, real_model, response.status_code
                 )
                 yield f"data: {json.dumps(anthropic_error)}\n\n".encode()
             except Exception:
@@ -218,9 +250,17 @@ async def messages(
 
         # 处理成功响应 - 提取响应内容
         if hasattr(response, "body"):
-            response_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+            response_body = (
+                response.body.decode()
+                if isinstance(response.body, bytes)
+                else response.body
+            )
         elif hasattr(response, "content"):
-            response_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+            response_body = (
+                response.content.decode()
+                if isinstance(response.content, bytes)
+                else response.content
+            )
         else:
             response_body = str(response)
 
@@ -230,30 +270,39 @@ async def messages(
 
             # 检查是否是错误响应（有些错误可能status_code是200但包含error字段）
             if "error" in gemini_response:
-                log.error(f"Fake streaming got error in response body: {gemini_response['error']}")
+                log.error(
+                    f"Fake streaming got error in response body: {gemini_response['error']}"
+                )
                 # 转换错误为 Anthropic 格式
                 from src.converter.anthropic2gemini import gemini_to_anthropic_response
+
                 anthropic_error = gemini_to_anthropic_response(
-                    gemini_response,
-                    real_model,
-                    200
+                    gemini_response, real_model, 200
                 )
                 yield f"data: {json.dumps(anthropic_error)}\n\n".encode()
                 yield "data: [DONE]\n\n".encode()
                 return
 
             # 使用统一的解析函数
-            content, reasoning_content, finish_reason, images = parse_response_for_fake_stream(gemini_response)
+            content, reasoning_content, finish_reason, images = (
+                parse_response_for_fake_stream(gemini_response)
+            )
 
             log.debug(f"Anthropic extracted content: {content}")
-            log.debug(f"Anthropic extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}...")
+            log.debug(
+                f"Anthropic extracted reasoning: {reasoning_content[:100] if reasoning_content else 'None'}..."
+            )
             log.debug(f"Anthropic extracted images count: {len(images)}")
 
             # 构建响应块
-            chunks = build_anthropic_fake_stream_chunks(content, reasoning_content, finish_reason, real_model, images)
+            chunks = build_anthropic_fake_stream_chunks(
+                content, reasoning_content, finish_reason, real_model, images
+            )
             for idx, chunk in enumerate(chunks):
                 chunk_json = json.dumps(chunk)
-                log.debug(f"[FAKE_STREAM] Yielding chunk #{idx+1}: {chunk_json[:200]}")
+                log.debug(
+                    f"[FAKE_STREAM] Yielding chunk #{idx + 1}: {chunk_json[:200]}"
+                )
                 yield f"data: {chunk_json}\n\n".encode()
 
         except Exception as e:
@@ -261,10 +310,7 @@ async def messages(
             # 构建错误响应
             error_chunk = {
                 "type": "error",
-                "error": {
-                    "type": "api_error",
-                    "message": str(e)
-                }
+                "error": {"type": "api_error", "message": str(e)},
             }
             yield f"data: {json.dumps(error_chunk)}\n\n".encode()
 
@@ -286,28 +332,24 @@ async def messages(
         async def stream_request_wrapper(payload):
             # stream_request 返回异步生成器，需要包装成 StreamingResponse
             stream_gen = stream_request(body=payload, native=False)
-            return StreamingResponse(stream_gen, media_type="text/event-stream")
+            return StreamingResponse(stream_gen, media_type="text/event-stream")  # type: ignore[arg-type]
 
         # 创建反截断处理器
         processor = AntiTruncationStreamProcessor(
-            stream_request_wrapper,
-            anti_truncation_payload,
-            max_attempts
+            stream_request_wrapper, anti_truncation_payload, max_attempts
         )
 
         # 包装以确保是bytes流
         async def bytes_wrapper():
             async for chunk in processor.process_stream():
                 if isinstance(chunk, str):
-                    yield chunk.encode('utf-8')
+                    yield chunk.encode("utf-8")
                 else:
                     yield chunk
 
         # 直接将整个流传递给转换器
         async for anthropic_chunk in gemini_stream_to_anthropic_stream(
-            bytes_wrapper(),
-            real_model,
-            200
+            bytes_wrapper(), real_model, 200
         ):
             if anthropic_chunk:
                 yield anthropic_chunk
@@ -328,57 +370,68 @@ async def messages(
                 if isinstance(chunk, Response):
                     # 错误响应，不进行转换，直接传递
                     try:
-                        error_content = chunk.body if isinstance(chunk.body, bytes) else (chunk.body or b'').encode('utf-8')
-                        gemini_error = json.loads(error_content.decode('utf-8'))
-                        from src.converter.anthropic2gemini import gemini_to_anthropic_response
-                        anthropic_error = gemini_to_anthropic_response(
-                            gemini_error,
-                            real_model,
-                            chunk.status_code
+                        raw_body = chunk.body
+                        if isinstance(raw_body, (bytes, bytearray, memoryview)):
+                            error_content = bytes(raw_body)
+                        else:
+                            error_content = str(raw_body or "").encode("utf-8")
+                        gemini_error = json.loads(error_content.decode("utf-8"))
+                        from src.converter.anthropic2gemini import (
+                            gemini_to_anthropic_response,
                         )
-                        yield f"data: {json.dumps(anthropic_error)}\n\n".encode('utf-8')
+
+                        anthropic_error = gemini_to_anthropic_response(
+                            gemini_error, real_model, chunk.status_code
+                        )
+                        yield f"data: {json.dumps(anthropic_error)}\n\n".encode("utf-8")
                     except Exception:
-                        yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode('utf-8')
+                        yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode(
+                            "utf-8"
+                        )
                     yield b"data: [DONE]\n\n"
                     return
                 else:
                     # 确保是bytes类型
                     if isinstance(chunk, str):
-                        yield chunk.encode('utf-8')
+                        yield chunk.encode("utf-8")
                     else:
                         yield chunk
 
         # 使用转换器处理整个流
         async for anthropic_chunk in gemini_stream_to_anthropic_stream(
-            gemini_chunk_wrapper(),
-            real_model,
-            200
+            gemini_chunk_wrapper(), real_model, 200
         ):
             if anthropic_chunk:
                 yield anthropic_chunk
 
     # ========== 根据模式选择生成器 ==========
     if use_fake_streaming:
-        return StreamingResponse(fake_stream_generator(), media_type="text/event-stream")
+        response = StreamingResponse(
+            fake_stream_generator(), media_type="text/event-stream"
+        )
     elif use_anti_truncation:
         log.info("启用流式抗截断功能")
-        return StreamingResponse(anti_truncation_generator(), media_type="text/event-stream")
+        response = StreamingResponse(
+            anti_truncation_generator(), media_type="text/event-stream"
+        )
     else:
-        return StreamingResponse(normal_stream_generator(), media_type="text/event-stream")
+        response = StreamingResponse(
+            normal_stream_generator(), media_type="text/event-stream"
+        )
+
+    response.headers["x-gcli-obs-converter-cpu-ms"] = converter_cpu_header_value
+    return response
 
 
 @router.post("/v1/messages/count_tokens")
-async def count_tokens(
-    request: Request,
-    _token: str = Depends(authenticate_bearer)
-):
+async def count_tokens(request: Request, _token: str = Depends(authenticate_bearer)):
     """
     处理Anthropic格式的token计数请求
-    
+
     Args:
         request: FastAPI请求对象
         _token: Bearer认证令牌（由Depends验证）
-    
+
     Returns:
         JSONResponse: 包含input_tokens的响应
     """
@@ -387,19 +440,37 @@ async def count_tokens(
     except Exception as e:
         return JSONResponse(
             status_code=400,
-            content={"type": "error", "error": {"type": "invalid_request_error", "message": f"JSON 解析失败: {str(e)}"}}
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": f"JSON 解析失败: {str(e)}",
+                },
+            },
         )
 
     if not isinstance(payload, dict):
         return JSONResponse(
             status_code=400,
-            content={"type": "error", "error": {"type": "invalid_request_error", "message": "请求体必须为 JSON object"}}
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "请求体必须为 JSON object",
+                },
+            },
         )
 
     if not payload.get("model") or not isinstance(payload.get("messages"), list):
         return JSONResponse(
             status_code=400,
-            content={"type": "error", "error": {"type": "invalid_request_error", "message": "缺少必填字段：model / messages"}}
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "缺少必填字段：model / messages",
+                },
+            },
         )
 
     try:
@@ -466,7 +537,7 @@ if __name__ == "__main__":
         "max_tokens": 1024,
         "messages": [
             {"role": "user", "content": "Hello, tell me a joke in one sentence."}
-        ]
+        ],
     }
 
     # 测试Bearer令牌（模拟）
@@ -477,12 +548,14 @@ if __name__ == "__main__":
         print("\n" + "=" * 80)
         print("【测试1】非流式请求 (POST /v1/messages)")
         print("=" * 80)
-        print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
+        print(
+            f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n"
+        )
 
         response = client.post(
             "/v1/messages",
             json=test_request_body,
-            headers={"Authorization": test_token}
+            headers={"Authorization": test_token},
         )
 
         print("非流式响应数据:")
@@ -497,7 +570,7 @@ if __name__ == "__main__":
             # 尝试解析JSON
             try:
                 json_data = response.json()
-                print(f"响应内容 (格式化JSON):")
+                print("响应内容 (格式化JSON):")
                 print(json.dumps(json_data, indent=2, ensure_ascii=False))
             except json.JSONDecodeError:
                 print("(非JSON格式)")
@@ -513,7 +586,9 @@ if __name__ == "__main__":
         stream_request_body = test_request_body.copy()
         stream_request_body["stream"] = True
 
-        print(f"请求体: {json.dumps(stream_request_body, indent=2, ensure_ascii=False)}\n")
+        print(
+            f"请求体: {json.dumps(stream_request_body, indent=2, ensure_ascii=False)}\n"
+        )
 
         print("流式响应数据 (每个chunk):")
         print("-" * 80)
@@ -522,7 +597,7 @@ if __name__ == "__main__":
             "POST",
             "/v1/messages",
             json=stream_request_body,
-            headers={"Authorization": test_token}
+            headers={"Authorization": test_token},
         ) as response:
             print(f"状态码: {response.status_code}")
             print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
@@ -537,24 +612,30 @@ if __name__ == "__main__":
 
                     # 解码chunk
                     try:
-                        chunk_str = chunk.decode('utf-8')
-                        print(f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}")
+                        chunk_str = chunk.decode("utf-8")
+                        print(
+                            f"  内容预览: {repr(chunk_str[:200] if len(chunk_str) > 200 else chunk_str)}"
+                        )
 
                         # 如果是SSE格式，尝试解析每一行
-                        if chunk_str.startswith("event: ") or chunk_str.startswith("data: "):
+                        if chunk_str.startswith("event: ") or chunk_str.startswith(
+                            "data: "
+                        ):
                             # 按行分割，处理每个SSE事件
-                            for line in chunk_str.strip().split('\n'):
+                            for line in chunk_str.strip().split("\n"):
                                 line = line.strip()
                                 if not line:
                                     continue
 
                                 if line == "data: [DONE]":
-                                    print(f"  => 流结束标记")
+                                    print("  => 流结束标记")
                                 elif line.startswith("data: "):
                                     try:
                                         json_str = line[6:]  # 去掉 "data: " 前缀
                                         json_data = json.loads(json_str)
-                                        print(f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}")
+                                        print(
+                                            f"  解析后的JSON: {json.dumps(json_data, indent=4, ensure_ascii=False)}"
+                                        )
                                     except Exception as e:
                                         print(f"  SSE解析失败: {e}")
                     except Exception as e:
@@ -572,7 +653,9 @@ if __name__ == "__main__":
         fake_stream_request_body["model"] = "假流式/gemini-2.5-flash"
         fake_stream_request_body["stream"] = True
 
-        print(f"请求体: {json.dumps(fake_stream_request_body, indent=2, ensure_ascii=False)}\n")
+        print(
+            f"请求体: {json.dumps(fake_stream_request_body, indent=2, ensure_ascii=False)}\n"
+        )
 
         print("假流式响应数据 (每个chunk):")
         print("-" * 80)
@@ -581,7 +664,7 @@ if __name__ == "__main__":
             "POST",
             "/v1/messages",
             json=fake_stream_request_body,
-            headers={"Authorization": test_token}
+            headers={"Authorization": test_token},
         ) as response:
             print(f"状态码: {response.status_code}")
             print(f"Content-Type: {response.headers.get('content-type', 'N/A')}\n")
@@ -590,14 +673,14 @@ if __name__ == "__main__":
             for chunk in response.iter_bytes():
                 if chunk:
                     chunk_count += 1
-                    chunk_str = chunk.decode('utf-8')
+                    chunk_str = chunk.decode("utf-8")
 
                     print(f"\nChunk #{chunk_count}:")
                     print(f"  长度: {len(chunk_str)} 字节")
 
                     # 解析chunk中的所有SSE事件
                     events = []
-                    for line in chunk_str.split('\n'):
+                    for line in chunk_str.split("\n"):
                         line = line.strip()
                         if line.startswith("data: ") or line.startswith("event: "):
                             events.append(line)
@@ -637,4 +720,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ 测试过程中出现异常: {e}")
         import traceback
+
         traceback.print_exc()

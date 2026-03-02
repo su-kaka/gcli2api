@@ -5,6 +5,7 @@ import httpx
 from fastapi import Response
 
 from src.api import geminicli
+from src.api import utils as api_utils
 from src.models import GeminiRequest
 from src.router.geminicli import gemini as gemini_router
 
@@ -28,6 +29,10 @@ async def _collect(gen):
     async for item in gen:
         items.append(item)
     return items
+
+
+async def _retry_policy_v2_enabled():
+    return True
 
 
 def test_stream_request_handles_disable_code_without_unbound_state(monkeypatch):
@@ -60,6 +65,7 @@ def test_stream_request_handles_disable_code_without_unbound_state(monkeypatch):
         )
 
     monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
     monkeypatch.setattr(
         geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
     )
@@ -110,6 +116,7 @@ def test_stream_request_uses_structured_stream_timeout(monkeypatch):
         yield "data: test"
 
     monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
     monkeypatch.setattr(
         geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
     )
@@ -135,6 +142,412 @@ def test_stream_request_uses_structured_stream_timeout(monkeypatch):
     assert captured["timeout"].write == 30.0
     assert captured["timeout"].pool == 30.0
     assert captured["timeout"].read is None
+
+
+def test_stream_request_does_not_retry_after_first_chunk(monkeypatch):
+    called = {"stream_post": 0, "handle_retry": 0}
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        called["handle_retry"] += 1
+        return True
+
+    async def fake_stream_post_async(*args, **kwargs):
+        called["stream_post"] += 1
+        yield "data: token"
+        yield Response(
+            content=b'{"error":"too many requests"}',
+            status_code=429,
+            media_type="application/json",
+        )
+
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    assert called["stream_post"] == 1
+    assert called["handle_retry"] == 0
+    assert chunks[0] == "data: token"
+    assert isinstance(chunks[1], Response)
+    assert chunks[1].status_code == 429
+
+
+def test_non_stream_request_waits_once_per_retry_attempt(monkeypatch):
+    wait_calls = {"count": 0}
+    responses = [
+        httpx.Response(
+            status_code=429,
+            json={"error": {"code": 429, "message": "too many requests"}},
+        ),
+        httpx.Response(status_code=200, json={"ok": True}),
+    ]
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        wait_calls["count"] += 1
+        metrics_ctx = kwargs.get("metrics_ctx")
+        if isinstance(metrics_ctx, dict):
+            metrics_ctx["retry_count"] = int(metrics_ctx.get("retry_count", 0) or 0) + 1
+        return True
+
+    async def fake_sleep_with_observability(*args, **kwargs):
+        wait_calls["count"] += 1
+
+    async def fake_post_async(*args, **kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(
+        geminicli, "_sleep_with_observability", fake_sleep_with_observability
+    )
+    monkeypatch.setattr(geminicli, "post_async", fake_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    response = asyncio.run(geminicli.non_stream_request(body=body))
+
+    assert response.status_code == 200
+    assert wait_calls["count"] == 1
+
+
+class _SequentialCredentialManager:
+    def __init__(self):
+        self._credentials = [
+            ("cred-a.json", {"token": "token-a", "project_id": "project-a"}),
+            ("cred-b.json", {"token": "token-b", "project_id": "project-b"}),
+        ]
+        self._index = 0
+
+    async def get_valid_credential(self, mode=None, model_name=None):
+        idx = min(self._index, len(self._credentials) - 1)
+        self._index += 1
+        return self._credentials[idx]
+
+    async def update_credential_state(self, *args, **kwargs):
+        return None
+
+    async def record_api_call_result(self, *args, **kwargs):
+        return None
+
+    async def set_cred_disabled(self, *args, **kwargs):
+        return None
+
+
+def test_stream_request_retry_policy_v2_on_keeps_current_credential(monkeypatch):
+    captured = {"auth": [], "flags": []}
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        captured["flags"].append(kwargs.get("retry_policy_v2_enabled"))
+        return True
+
+    async def fake_stream_post_async(*args, **kwargs):
+        captured["auth"].append(kwargs.get("headers", {}).get("Authorization"))
+        if len(captured["auth"]) == 1:
+            yield Response(
+                content=b'{"error":{"message":"too many requests"}}',
+                status_code=429,
+                media_type="application/json",
+            )
+        else:
+            yield "data: ok"
+
+    monkeypatch.setattr(geminicli, "credential_manager", _SequentialCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    assert chunks == ["data: ok"]
+    assert captured["flags"] == [True]
+    assert captured["auth"] == ["Bearer token-a", "Bearer token-a"]
+
+
+def test_stream_request_retry_policy_v2_off_rotates_credential(monkeypatch):
+    captured = {"auth": [], "flags": []}
+
+    async def fake_get_ff_retry_policy_v2():
+        return False
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        captured["flags"].append(kwargs.get("retry_policy_v2_enabled"))
+        return True
+
+    async def fake_stream_post_async(*args, **kwargs):
+        captured["auth"].append(kwargs.get("headers", {}).get("Authorization"))
+        if len(captured["auth"]) == 1:
+            yield Response(
+                content=b'{"error":{"message":"too many requests"}}',
+                status_code=429,
+                media_type="application/json",
+            )
+        else:
+            yield "data: ok"
+
+    monkeypatch.setattr(
+        geminicli, "get_ff_retry_policy_v2", fake_get_ff_retry_policy_v2
+    )
+    monkeypatch.setattr(geminicli, "credential_manager", _SequentialCredentialManager())
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    assert chunks == ["data: ok"]
+    assert captured["flags"] == [False]
+    assert captured["auth"] == ["Bearer token-a", "Bearer token-b"]
+
+
+def test_non_stream_request_passes_retry_policy_v2_flag_to_helper(monkeypatch):
+    captured = {"flags": []}
+    responses = [
+        httpx.Response(
+            status_code=429,
+            json={"error": {"code": 429, "message": "too many requests"}},
+        ),
+        httpx.Response(status_code=200, json={"ok": True}),
+    ]
+
+    async def fake_get_ff_retry_policy_v2():
+        return False
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        captured["flags"].append(kwargs.get("retry_policy_v2_enabled"))
+        return True
+
+    async def fake_post_async(*args, **kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(
+        geminicli, "get_ff_retry_policy_v2", fake_get_ff_retry_policy_v2
+    )
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "post_async", fake_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    response = asyncio.run(geminicli.non_stream_request(body=body))
+
+    assert response.status_code == 200
+    assert captured["flags"] == [False]
+
+
+def test_handle_error_with_retry_v2_controls_internal_sleep(monkeypatch):
+    sleep_calls = []
+
+    async def fake_check_should_auto_ban(*args, **kwargs):
+        return False
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(api_utils, "check_should_auto_ban", fake_check_should_auto_ban)
+    monkeypatch.setattr(api_utils.asyncio, "sleep", fake_sleep)
+
+    should_retry = asyncio.run(
+        api_utils.handle_error_with_retry(
+            credential_manager=None,
+            status_code=429,
+            credential_name="dummy.json",
+            retry_enabled=True,
+            attempt=0,
+            max_retries=1,
+            retry_interval=0.3,
+            retry_policy_v2_enabled=True,
+        )
+    )
+
+    assert should_retry is True
+    assert sleep_calls == [0.3]
+
+    sleep_calls.clear()
+    should_retry = asyncio.run(
+        api_utils.handle_error_with_retry(
+            credential_manager=None,
+            status_code=429,
+            credential_name="dummy.json",
+            retry_enabled=True,
+            attempt=0,
+            max_retries=1,
+            retry_interval=0.3,
+            retry_policy_v2_enabled=False,
+        )
+    )
+
+    assert should_retry is True
+    assert sleep_calls == []
 
 
 def test_stream_router_injects_thought_signature_for_function_call(monkeypatch):

@@ -1789,6 +1789,71 @@
                             </div>
                         </div>
 
+                        <div class="card">
+                            <h4 style="margin-top: 0; margin-bottom: 15px;">灰度发布与回滚门禁</h4>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="ffRetryPolicyV2" style="margin-right: 8px;" />
+                                    启用 Retry Policy V2
+                                </label>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">关闭时始终走当前稳定重试策略</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="ffHttp2PoolTuning" style="margin-right: 8px;" />
+                                    启用 HTTP2 连接池调优
+                                </label>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">关闭时使用现有连接池参数</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="ffConverterFastPath" style="margin-right: 8px;" />
+                                    启用 Converter Fast Path
+                                </label>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">关闭时回退到当前转换路径</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="ffPreviewCredentialSchedulerV2" style="margin-right: 8px;" />
+                                    启用 Preview Scheduler V2
+                                </label>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">关闭时使用当前凭证调度逻辑</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="rolloutStagePercent">灰度比例阶段:</label>
+                                <select id="rolloutStagePercent">
+                                    <option value="5">5%</option>
+                                    <option value="20">20%</option>
+                                    <option value="50">50%</option>
+                                    <option value="100">100%</option>
+                                </select>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">仅支持 5 / 20 / 50 / 100 四个阶段</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="rollbackTriggerLatencyP95Ms">回滚触发：P95 延迟阈值 (ms)</label>
+                                <input type="number" id="rollbackTriggerLatencyP95Ms" min="0" max="60000" step="1" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">当 P95 延迟超过该阈值时触发回滚门禁</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="rollbackTriggerThroughputDropPct">回滚触发：吞吐下降阈值 (%)</label>
+                                <input type="number" id="rollbackTriggerThroughputDropPct" min="0" max="100" step="0.1" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">0-100，超过该比例触发回滚门禁</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="rollbackTriggerQualityDropPct">回滚触发：质量下降阈值 (%)</label>
+                                <input type="number" id="rollbackTriggerQualityDropPct" min="0" max="100" step="0.1" />
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">0-100，超过该比例触发回滚门禁</small>
+                            </div>
+                        </div>
+
 
                         <div class="card">
                             <h4 style="margin-top: 0; margin-bottom: 15px;">兼容性配置</h4>

@@ -21,7 +21,12 @@ from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import Response
-from config import get_code_assist_endpoint, get_auto_ban_error_codes, get_proxy_config
+from config import (
+    get_code_assist_endpoint,
+    get_auto_ban_error_codes,
+    get_ff_retry_policy_v2,
+    get_proxy_config,
+)
 from log import log
 
 from src.credential_manager import credential_manager
@@ -90,6 +95,164 @@ def _compute_capacity_retry_delay(base_interval: float, attempt: int) -> float:
     return min(12.0, exp_backoff + jitter)
 
 
+_OBS_METRIC_KEYS = (
+    "t_req_in",
+    "t_upstream_send",
+    "t_first_byte",
+    "t_first_token",
+    "t_done",
+    "retry_count",
+    "retry_sleep_ms",
+    "converter_cpu_ms",
+)
+
+_OBS_HEADER_MAP = {
+    "route": "x-gcli-obs-route",
+    "model": "x-gcli-obs-model",
+    "stream": "x-gcli-obs-stream",
+    "status": "x-gcli-obs-status",
+    "t_req_in": "x-gcli-obs-t-req-in",
+    "t_upstream_send": "x-gcli-obs-t-upstream-send",
+    "t_first_byte": "x-gcli-obs-t-first-byte",
+    "t_first_token": "x-gcli-obs-t-first-token",
+    "t_done": "x-gcli-obs-t-done",
+    "retry_count": "x-gcli-obs-retry-count",
+    "retry_sleep_ms": "x-gcli-obs-retry-sleep-ms",
+    "converter_cpu_ms": "x-gcli-obs-converter-cpu-ms",
+}
+
+
+def create_observability_context(
+    route: str, model: str, stream: bool
+) -> Dict[str, Any]:
+    now = time.time()
+    return {
+        "route": route,
+        "model": model,
+        "stream": bool(stream),
+        "status": None,
+        "t_req_in": now,
+        "t_upstream_send": None,
+        "t_first_byte": None,
+        "t_first_token": None,
+        "t_done": None,
+        "retry_count": 0,
+        "retry_sleep_ms": 0.0,
+        "converter_cpu_ms": 0.0,
+    }
+
+
+def add_converter_cpu_elapsed(
+    metrics_ctx: Optional[Dict[str, Any]], elapsed_seconds: float
+) -> None:
+    if not isinstance(metrics_ctx, dict):
+        return
+    elapsed_ms = max(0.0, float(elapsed_seconds)) * 1000.0
+    metrics_ctx["converter_cpu_ms"] = (
+        float(metrics_ctx.get("converter_cpu_ms", 0.0) or 0.0) + elapsed_ms
+    )
+
+
+def build_observability_headers(
+    metrics_ctx: Optional[Dict[str, Any]],
+) -> Dict[str, str]:
+    if not isinstance(metrics_ctx, dict):
+        return {}
+
+    headers: Dict[str, str] = {}
+
+    for key in _OBS_METRIC_KEYS:
+        value = metrics_ctx.get(key)
+        if value is None:
+            continue
+        header_key = _OBS_HEADER_MAP.get(key)
+        if header_key is None:
+            continue
+        if key == "retry_count":
+            headers[header_key] = str(int(value))
+        else:
+            headers[header_key] = f"{float(value):.6f}"
+
+    route = metrics_ctx.get("route")
+    if route:
+        headers[_OBS_HEADER_MAP["route"]] = str(route)
+
+    model = metrics_ctx.get("model")
+    if model:
+        headers[_OBS_HEADER_MAP["model"]] = str(model)
+
+    stream = metrics_ctx.get("stream")
+    if stream is not None:
+        headers[_OBS_HEADER_MAP["stream"]] = "true" if bool(stream) else "false"
+
+    status = metrics_ctx.get("status")
+    if status is not None:
+        headers[_OBS_HEADER_MAP["status"]] = str(status)
+
+    return headers
+
+
+def _ensure_observability_context(
+    metrics_ctx: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(metrics_ctx, dict):
+        return None
+    for key in _OBS_METRIC_KEYS:
+        if key not in metrics_ctx:
+            if key == "retry_count":
+                metrics_ctx[key] = 0
+            else:
+                metrics_ctx[key] = (
+                    0.0 if key in {"retry_sleep_ms", "converter_cpu_ms"} else None
+                )
+    return metrics_ctx
+
+
+def _mark_timestamp(
+    metrics_ctx: Optional[Dict[str, Any]], key: str, overwrite: bool = False
+) -> None:
+    if not isinstance(metrics_ctx, dict):
+        return
+    if overwrite or metrics_ctx.get(key) is None:
+        metrics_ctx[key] = time.time()
+
+
+def _mark_status(metrics_ctx: Optional[Dict[str, Any]], status_code: int) -> None:
+    if not isinstance(metrics_ctx, dict):
+        return
+    metrics_ctx["status"] = int(status_code)
+
+
+def _inject_observability_headers(
+    response: Response,
+    metrics_ctx: Optional[Dict[str, Any]],
+) -> None:
+    headers = build_observability_headers(metrics_ctx)
+    if not headers:
+        return
+    for key, value in headers.items():
+        response.headers[key] = value
+
+
+def _record_retry_sleep(
+    metrics_ctx: Optional[Dict[str, Any]], sleep_seconds: float
+) -> None:
+    if not isinstance(metrics_ctx, dict):
+        return
+    sleep_ms = max(0.0, float(sleep_seconds)) * 1000.0
+    metrics_ctx["retry_count"] = int(metrics_ctx.get("retry_count", 0) or 0) + 1
+    metrics_ctx["retry_sleep_ms"] = (
+        float(metrics_ctx.get("retry_sleep_ms", 0.0) or 0.0) + sleep_ms
+    )
+
+
+async def _sleep_with_observability(
+    metrics_ctx: Optional[Dict[str, Any]], sleep_seconds: float
+) -> None:
+    _record_retry_sleep(metrics_ctx, sleep_seconds)
+    await asyncio.sleep(sleep_seconds)
+
+
 # ==================== 全局凭证管理器 ====================
 
 # 使用全局单例 credential_manager，自动初始化
@@ -146,6 +309,7 @@ async def stream_request(
     body: Dict[str, Any],
     native: bool = False,
     headers: Optional[Dict[str, str]] = None,
+    metrics_ctx: Optional[Dict[str, Any]] = None,
 ):
     """
     流式请求函数
@@ -160,6 +324,12 @@ async def stream_request(
     """
     # 获取有效凭证
     model_name = body.get("model", "")
+    if metrics_ctx is None:
+        metrics_ctx = create_observability_context(
+            route="geminicli-stream", model=model_name, stream=True
+        )
+    metrics_ctx = _ensure_observability_context(metrics_ctx)
+    _mark_timestamp(metrics_ctx, "t_req_in")
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
@@ -168,11 +338,15 @@ async def stream_request(
 
     if not cred_result:
         # 如果返回值是None，直接返回错误500
-        yield Response(
+        _mark_status(metrics_ctx, 500)
+        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+        resp = Response(
             content=json.dumps({"error": "当前无可用凭证"}),
             status_code=500,
             media_type="application/json",
         )
+        _inject_observability_headers(resp, metrics_ctx)
+        yield resp
         return
 
     current_file, credential_data = cred_result
@@ -195,17 +369,22 @@ async def stream_request(
 
     except Exception as e:
         log.error(f"准备请求失败: {e}")
-        yield Response(
+        _mark_status(metrics_ctx, 500)
+        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+        resp = Response(
             content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
             status_code=500,
             media_type="application/json",
         )
+        _inject_observability_headers(resp, metrics_ctx)
+        yield resp
         return
 
     # 3. 调用stream_post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
+    retry_policy_v2_enabled = await get_ff_retry_policy_v2()
     proxy_enabled = bool(await get_proxy_config())
     # 流式请求采用结构化超时：限制连接/写入/连接池等待，读取保持无限制以兼容长SSE空隙
     stream_timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
@@ -243,8 +422,10 @@ async def stream_request(
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
         keep_current_credential = False  # 标记是否保留当前凭证
+        retry_wait_applied = False  # 标记本次attempt是否已执行等待
         status_code: Optional[int] = None
         attempt_started_at = time.time()
+        _mark_timestamp(metrics_ctx, "t_upstream_send")
 
         try:
             async for chunk in stream_post_async(
@@ -254,10 +435,21 @@ async def stream_request(
                 headers=auth_headers,
                 timeout=stream_timeout,
             ):
+                _mark_timestamp(metrics_ctx, "t_first_byte")
                 # 判断是否是Response对象
                 if isinstance(chunk, Response):
                     status_code = chunk.status_code
                     last_error_response = chunk  # 记录最后一次错误
+
+                    if success_recorded:
+                        log.warning(
+                            f"[GEMINICLI STREAM] 首token后收到错误响应，禁止重试 (status={status_code})"
+                        )
+                        _mark_status(metrics_ctx, chunk.status_code)
+                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                        _inject_observability_headers(chunk, metrics_ctx)
+                        yield chunk
+                        return
 
                     # 缓存错误解析结果,避免重复decode
                     error_body = None
@@ -303,7 +495,8 @@ async def stream_request(
 
                         # 对于没有触发cd且非容量耗尽的429/503错误，保留当前凭证重试；否则预热下一个凭证
                         if (
-                            (status_code == 429 or status_code == 503)
+                            retry_policy_v2_enabled
+                            and (status_code == 429 or status_code == 503)
                             and cooldown_until is None
                             and not is_model_capacity_exhausted
                         ):
@@ -344,16 +537,22 @@ async def stream_request(
                             max_retries,
                             retry_interval,
                             mode="geminicli",
+                            metrics_ctx=metrics_ctx,
+                            retry_policy_v2_enabled=retry_policy_v2_enabled,
                         )
 
                         if should_retry and attempt < max_retries:
                             need_retry = True
+                            retry_wait_applied = retry_policy_v2_enabled
                             break  # 跳出内层循环，准备重试
                         else:
                             # 不重试，直接返回原始错误
                             log.error(
-                                f"[GEMINICLI STREAM] 达到最大重试次数或不应重试，返回原始错误"
+                                "[GEMINICLI STREAM] 达到最大重试次数或不应重试，返回原始错误"
                             )
+                            _mark_status(metrics_ctx, chunk.status_code)
+                            _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                            _inject_observability_headers(chunk, metrics_ctx)
                             yield chunk
                             return
                     elif status_code == 404 and "preview" in model_name.lower():
@@ -400,8 +599,11 @@ async def stream_request(
                             break
                         else:
                             log.error(
-                                f"[GEMINICLI STREAM] 达到最大重试次数，返回404错误"
+                                "[GEMINICLI STREAM] 达到最大重试次数，返回404错误"
                             )
+                            _mark_status(metrics_ctx, chunk.status_code)
+                            _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                            _inject_observability_headers(chunk, metrics_ctx)
                             yield chunk
                             return
                     else:
@@ -418,12 +620,16 @@ async def stream_request(
                             model_name=model_name,
                             error_message=error_body,
                         )
+                        _mark_status(metrics_ctx, chunk.status_code)
+                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                        _inject_observability_headers(chunk, metrics_ctx)
                         yield chunk
                         return
                 else:
                     # 不是Response，说明是真流，直接yield返回
                     # 只在第一个chunk时记录成功
                     if not success_recorded:
+                        _mark_timestamp(metrics_ctx, "t_first_token")
                         await record_api_call_success(
                             credential_manager,
                             current_file,
@@ -440,6 +646,8 @@ async def stream_request(
             # 流式请求完成，检查结果
             if success_recorded:
                 log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
+                _mark_status(metrics_ctx, 200)
+                _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
                 return
 
             # 统一处理重试
@@ -456,7 +664,8 @@ async def stream_request(
                     log.info(
                         f"[GEMINICLI STREAM] {status_label}无冷却时间，保留当前凭证重试: {current_file}"
                     )
-                    await asyncio.sleep(retry_interval)
+                    if not retry_wait_applied:
+                        await _sleep_with_observability(metrics_ctx, retry_interval)
                     continue
 
                 # 使用预热的凭证任务,避免等待
@@ -475,22 +684,30 @@ async def stream_request(
                             if token and project_id:
                                 auth_headers["Authorization"] = f"Bearer {token}"
                                 final_payload["project"] = project_id
-                                await asyncio.sleep(retry_interval)
+                                if not retry_wait_applied:
+                                    await _sleep_with_observability(
+                                        metrics_ctx, retry_interval
+                                    )
                                 continue  # 重试
                     except Exception as e:
                         log.warning(f"[GEMINICLI STREAM] 预热凭证任务失败: {e}")
                         next_cred_task = None
 
                 # 如果预热的凭证不可用,则同步获取
-                await asyncio.sleep(retry_interval)
+                if not retry_wait_applied:
+                    await _sleep_with_observability(metrics_ctx, retry_interval)
 
                 if not await refresh_credential_fast():
                     log.error("[GEMINICLI STREAM] 重试时无可用凭证或刷新失败")
-                    yield Response(
+                    _mark_status(metrics_ctx, 500)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    resp = Response(
                         content=json.dumps({"error": "当前无可用凭证"}),
                         status_code=500,
                         media_type="application/json",
                     )
+                    _inject_observability_headers(resp, metrics_ctx)
+                    yield resp
                     return
                 continue  # 重试
 
@@ -502,13 +719,18 @@ async def stream_request(
                 f"耗时: {elapsed:.2f}s, url: {target_url}, proxy={'on' if proxy_enabled else 'off'}, "
                 f"http2=True, timeout(connect/write/pool=30s, read=None), 凭证: {current_file}"
             )
+            if success_recorded:
+                log.warning("[GEMINICLI STREAM] 首token后发生异常，停止流且不重试")
+                _mark_status(metrics_ctx, 500)
+                _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                return
             if attempt < max_retries:
                 delay = _compute_capacity_retry_delay(retry_interval, attempt)
                 log.info(
                     f"[GEMINICLI STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1}), "
                     f"等待 {delay:.1f}s..."
                 )
-                await asyncio.sleep(delay)
+                await _sleep_with_observability(metrics_ctx, delay)
                 continue
             else:
                 # 所有重试都失败，返回最后一次的错误（如果有）
@@ -517,20 +739,28 @@ async def stream_request(
                     f"detail={repr(e)}"
                 )
                 if last_error_response:
+                    _mark_status(metrics_ctx, last_error_response.status_code)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    _inject_observability_headers(last_error_response, metrics_ctx)
                     yield last_error_response
                 else:
                     # 如果没有记录到错误响应，返回500错误
-                    yield Response(
+                    _mark_status(metrics_ctx, 500)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    resp = Response(
                         content=json.dumps({"error": f"流式请求异常: {str(e)}"}),
                         status_code=500,
                         media_type="application/json",
                     )
+                    _inject_observability_headers(resp, metrics_ctx)
+                    yield resp
                 return
 
 
 async def non_stream_request(
     body: Dict[str, Any],
     headers: Optional[Dict[str, str]] = None,
+    metrics_ctx: Optional[Dict[str, Any]] = None,
 ) -> Response:
     """
     非流式请求函数
@@ -545,6 +775,12 @@ async def non_stream_request(
     """
     # 获取有效凭证
     model_name = body.get("model", "")
+    if metrics_ctx is None:
+        metrics_ctx = create_observability_context(
+            route="geminicli-non-stream", model=model_name, stream=False
+        )
+    metrics_ctx = _ensure_observability_context(metrics_ctx)
+    _mark_timestamp(metrics_ctx, "t_req_in")
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
@@ -553,11 +789,15 @@ async def non_stream_request(
 
     if not cred_result:
         # 如果返回值是None，直接返回错误500
-        return Response(
+        _mark_status(metrics_ctx, 500)
+        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+        resp = Response(
             content=json.dumps({"error": "当前无可用凭证"}),
             status_code=500,
             media_type="application/json",
         )
+        _inject_observability_headers(resp, metrics_ctx)
+        return resp
 
     current_file, credential_data = cred_result
 
@@ -579,16 +819,21 @@ async def non_stream_request(
 
     except Exception as e:
         log.error(f"准备请求失败: {e}")
-        return Response(
+        _mark_status(metrics_ctx, 500)
+        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+        resp = Response(
             content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
             status_code=500,
             media_type="application/json",
         )
+        _inject_observability_headers(resp, metrics_ctx)
+        return resp
 
     # 3. 调用post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
+    retry_policy_v2_enabled = await get_ff_retry_policy_v2()
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
@@ -620,10 +865,24 @@ async def non_stream_request(
             return False
 
     for attempt in range(max_retries + 1):
+        retry_wait_applied = False
         try:
-            response = await post_async(
-                url=target_url, json=final_payload, headers=auth_headers, timeout=300.0
+            _mark_timestamp(metrics_ctx, "t_upstream_send")
+            non_stream_timeout = httpx.Timeout(
+                connect=20.0,
+                read=300.0,
+                write=30.0,
+                pool=20.0,
             )
+            response = await post_async(
+                url=target_url,
+                json=final_payload,
+                headers=auth_headers,
+                timeout=non_stream_timeout,
+            )
+
+            _mark_timestamp(metrics_ctx, "t_first_byte")
+            _mark_timestamp(metrics_ctx, "t_first_token")
 
             status_code = response.status_code
 
@@ -635,10 +894,13 @@ async def non_stream_request(
                     mode="geminicli",
                     model_name=model_name,
                 )
+                _mark_status(metrics_ctx, 200)
+                _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
                 # 创建响应头,移除压缩相关的header避免重复解压
                 response_headers = dict(response.headers)
                 response_headers.pop("content-encoding", None)
                 response_headers.pop("content-length", None)
+                response_headers.update(build_observability_headers(metrics_ctx))
 
                 return Response(
                     content=response.content, status_code=200, headers=response_headers
@@ -689,12 +951,15 @@ async def non_stream_request(
                     status_code == 429 and error_reason == "MODEL_CAPACITY_EXHAUSTED"
                 )
 
-                # 对于没有触发cd且非容量耗尽的429错误，不预热新凭证
-                if not (
-                    (status_code == 429 or status_code == 503)
+                keep_current_credential = (
+                    retry_policy_v2_enabled
+                    and (status_code == 429 or status_code == 503)
                     and cooldown_until is None
                     and not is_model_capacity_exhausted
-                ):
+                )
+
+                # 对于没有触发cd且非容量耗尽的429错误，不预热新凭证
+                if not keep_current_credential:
                     # 并行预热下一个凭证,不阻塞当前处理
                     if next_cred_task is None and attempt < max_retries:
                         next_cred_task = asyncio.create_task(
@@ -710,11 +975,7 @@ async def non_stream_request(
                     )
 
                 # 无cd的429/503保留当前凭证重试，无需记录错误
-                if not (
-                    (status_code == 429 or status_code == 503)
-                    and cooldown_until is None
-                    and not is_model_capacity_exhausted
-                ):
+                if not keep_current_credential:
                     await record_api_call_error(
                         credential_manager,
                         current_file,
@@ -735,6 +996,8 @@ async def non_stream_request(
                     max_retries,
                     retry_interval,
                     mode="geminicli",
+                    metrics_ctx=metrics_ctx,
+                    retry_policy_v2_enabled=retry_policy_v2_enabled,
                 )
 
                 if should_retry and attempt < max_retries:
@@ -742,17 +1005,15 @@ async def non_stream_request(
                     log.info(
                         f"[NON-STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})..."
                     )
+                    retry_wait_applied = retry_policy_v2_enabled
 
                     # 对于没有冷却时间且非容量耗尽的429错误，保留当前凭证重试
-                    if (
-                        (status_code == 429 or status_code == 503)
-                        and cooldown_until is None
-                        and not is_model_capacity_exhausted
-                    ):
+                    if keep_current_credential:
                         log.info(
                             f"[NON-STREAM] {status_code}无冷却时间，保留当前凭证重试: {current_file}"
                         )
-                        await asyncio.sleep(retry_interval)
+                        if not retry_wait_applied:
+                            await _sleep_with_observability(metrics_ctx, retry_interval)
                         continue
 
                     # 使用预热的凭证任务,避免等待
@@ -771,26 +1032,37 @@ async def non_stream_request(
                                 if token and project_id:
                                     auth_headers["Authorization"] = f"Bearer {token}"
                                     final_payload["project"] = project_id
-                                    await asyncio.sleep(retry_interval)
+                                    if not retry_wait_applied:
+                                        await _sleep_with_observability(
+                                            metrics_ctx, retry_interval
+                                        )
                                     continue  # 重试
                         except Exception as e:
                             log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
                             next_cred_task = None
 
                     # 如果预热的凭证不可用,则同步获取
-                    await asyncio.sleep(retry_interval)
+                    if not retry_wait_applied:
+                        await _sleep_with_observability(metrics_ctx, retry_interval)
 
                     if not await refresh_credential_fast():
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
-                        return Response(
+                        _mark_status(metrics_ctx, 500)
+                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                        resp = Response(
                             content=json.dumps({"error": "当前无可用凭证"}),
                             status_code=500,
                             media_type="application/json",
                         )
+                        _inject_observability_headers(resp, metrics_ctx)
+                        return resp
                     continue  # 重试
                 else:
                     # 不重试，直接返回原始错误
-                    log.error(f"[NON-STREAM] 达到最大重试次数或不应重试，返回原始错误")
+                    log.error("[NON-STREAM] 达到最大重试次数或不应重试，返回原始错误")
+                    _mark_status(metrics_ctx, status_code)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    _inject_observability_headers(last_error_response, metrics_ctx)
                     return last_error_response
             elif status_code == 404 and "preview" in model_name.lower():
                 # 特殊处理：preview模型返回404，说明该凭证不支持preview模型
@@ -850,25 +1122,36 @@ async def non_stream_request(
                                 if token and project_id:
                                     auth_headers["Authorization"] = f"Bearer {token}"
                                     final_payload["project"] = project_id
-                                    await asyncio.sleep(retry_interval)
+                                    if not retry_wait_applied:
+                                        await _sleep_with_observability(
+                                            metrics_ctx, retry_interval
+                                        )
                                     continue  # 重试
                         except Exception as e:
                             log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
                             next_cred_task = None
 
                     # 如果预热的凭证不可用,则同步获取
-                    await asyncio.sleep(retry_interval)
+                    if not retry_wait_applied:
+                        await _sleep_with_observability(metrics_ctx, retry_interval)
 
                     if not await refresh_credential_fast():
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
-                        return Response(
+                        _mark_status(metrics_ctx, 500)
+                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                        resp = Response(
                             content=json.dumps({"error": "当前无可用凭证"}),
                             status_code=500,
                             media_type="application/json",
                         )
+                        _inject_observability_headers(resp, metrics_ctx)
+                        return resp
                     continue  # 重试
                 else:
-                    log.error(f"[NON-STREAM] 达到最大重试次数，返回404错误")
+                    log.error("[NON-STREAM] 达到最大重试次数，返回404错误")
+                    _mark_status(metrics_ctx, status_code)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    _inject_observability_headers(last_error_response, metrics_ctx)
                     return last_error_response
             else:
                 # 错误码不在重试范围内，直接返回
@@ -884,6 +1167,9 @@ async def non_stream_request(
                     model_name=model_name,
                     error_message=error_text,
                 )
+                _mark_status(metrics_ctx, status_code)
+                _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                _inject_observability_headers(last_error_response, metrics_ctx)
                 return last_error_response
 
         except Exception as e:
@@ -897,7 +1183,7 @@ async def non_stream_request(
                     f"[NON-STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1}), "
                     f"等待 {delay:.1f}s..."
                 )
-                await asyncio.sleep(delay)
+                await _sleep_with_observability(metrics_ctx, delay)
                 continue
             else:
                 # 所有重试都失败，返回最后一次的错误（如果有）或500错误
@@ -906,23 +1192,37 @@ async def non_stream_request(
                     f"detail={repr(e)}"
                 )
                 if last_error_response:
+                    _mark_status(metrics_ctx, last_error_response.status_code)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    _inject_observability_headers(last_error_response, metrics_ctx)
                     return last_error_response
                 else:
-                    return Response(
+                    _mark_status(metrics_ctx, 500)
+                    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                    resp = Response(
                         content=json.dumps({"error": f"请求异常: {str(e)}"}),
                         status_code=500,
                         media_type="application/json",
                     )
+                    _inject_observability_headers(resp, metrics_ctx)
+                    return resp
 
     # 所有重试都失败，返回最后一次的原始错误
     log.error("[NON-STREAM] 所有重试均失败")
     if last_error_response is not None:
+        _mark_status(metrics_ctx, last_error_response.status_code)
+        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+        _inject_observability_headers(last_error_response, metrics_ctx)
         return last_error_response
-    return Response(
+    _mark_status(metrics_ctx, 500)
+    _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+    resp = Response(
         content=json.dumps({"error": "请求失败，且未收到上游错误响应"}),
         status_code=500,
         media_type="application/json",
     )
+    _inject_observability_headers(resp, metrics_ctx)
+    return resp
 
 
 # ==================== 测试代码 ====================
@@ -964,7 +1264,7 @@ if __name__ == "__main__":
             chunk_count += 1
             if isinstance(chunk, Response):
                 # 错误响应
-                print(f"\n❌ 错误响应:")
+                print("\n❌ 错误响应:")
                 print(f"  状态码: {chunk.status_code}")
                 print(f"  Content-Type: {chunk.headers.get('content-type', 'N/A')}")
                 try:
@@ -1024,7 +1324,7 @@ if __name__ == "__main__":
             # 尝试解析JSON
             try:
                 json_data = json.loads(content)
-                print(f"响应内容 (格式化JSON):")
+                print("响应内容 (格式化JSON):")
                 print(json.dumps(json_data, indent=2, ensure_ascii=False))
             except json.JSONDecodeError:
                 print("(非JSON格式)")
