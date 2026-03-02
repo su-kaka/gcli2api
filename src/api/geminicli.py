@@ -19,8 +19,9 @@ import random
 import time
 from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import Response
-from config import get_code_assist_endpoint, get_auto_ban_error_codes
+from config import get_code_assist_endpoint, get_auto_ban_error_codes, get_proxy_config
 from log import log
 
 from src.credential_manager import credential_manager
@@ -205,19 +206,22 @@ async def stream_request(
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
     retry_interval = retry_config["retry_interval"]
+    proxy_enabled = bool(await get_proxy_config())
+    # 流式请求采用结构化超时：限制连接/写入/连接池等待，读取保持无限制以兼容长SSE空隙
+    stream_timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
     last_error_response = None  # 记录最后一次的错误响应
     next_cred_task = None  # 预热的下一个凭证任务
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
-    async def refresh_credential_fast():
+    async def refresh_credential_fast() -> bool:
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
             mode="geminicli", model_name=model_name
         )
         if not cred_result:
-            return None
+            return False
         current_file, credential_data = cred_result
         try:
             # 只更新token和project_id,不重建整个headers和payload
@@ -226,22 +230,29 @@ async def stream_request(
             )
             project_id = credential_data.get("project_id", "")
             if not token or not project_id:
-                return None
+                return False
 
             # 直接更新现有的headers和payload
             auth_headers["Authorization"] = f"Bearer {token}"
             final_payload["project"] = project_id
             return True
         except Exception:
-            return None
+            return False
 
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
+        keep_current_credential = False  # 标记是否保留当前凭证
+        status_code: Optional[int] = None
+        attempt_started_at = time.time()
 
         try:
             async for chunk in stream_post_async(
-                url=target_url, body=final_payload, native=native, headers=auth_headers
+                url=target_url,
+                body=final_payload,
+                native=native,
+                headers=auth_headers,
+                timeout=stream_timeout,
             ):
                 # 判断是否是Response对象
                 if isinstance(chunk, Response):
@@ -439,8 +450,11 @@ async def stream_request(
 
                 # 对于没有冷却时间的429错误，保留当前凭证重试
                 if keep_current_credential:
+                    status_label = (
+                        str(status_code) if status_code is not None else "unknown"
+                    )
                     log.info(
-                        f"[GEMINICLI STREAM] {status_code}无冷却时间，保留当前凭证重试: {current_file}"
+                        f"[GEMINICLI STREAM] {status_label}无冷却时间，保留当前凭证重试: {current_file}"
                     )
                     await asyncio.sleep(retry_interval)
                     continue
@@ -481,9 +495,12 @@ async def stream_request(
                 continue  # 重试
 
         except Exception as e:
+            elapsed = time.time() - attempt_started_at
             log.error(
                 f"[GEMINICLI STREAM] 流式请求异常: type={type(e).__name__}, "
-                f"detail={repr(e)}, 凭证: {current_file}"
+                f"detail={repr(e)}, 模型: {model_name}, 尝试: {attempt + 1}/{max_retries + 1}, "
+                f"耗时: {elapsed:.2f}s, url: {target_url}, proxy={'on' if proxy_enabled else 'off'}, "
+                f"http2=True, timeout(connect/write/pool=30s, read=None), 凭证: {current_file}"
             )
             if attempt < max_retries:
                 delay = _compute_capacity_retry_delay(retry_interval, attempt)
@@ -578,13 +595,13 @@ async def non_stream_request(
     next_cred_task = None  # 预热的下一个凭证任务
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
-    async def refresh_credential_fast():
+    async def refresh_credential_fast() -> bool:
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
             mode="geminicli", model_name=model_name
         )
         if not cred_result:
-            return None
+            return False
         current_file, credential_data = cred_result
         try:
             # 只更新token和project_id,不重建整个headers和payload
@@ -593,14 +610,14 @@ async def non_stream_request(
             )
             project_id = credential_data.get("project_id", "")
             if not token or not project_id:
-                return None
+                return False
 
             # 直接更新现有的headers和payload
             auth_headers["Authorization"] = f"Bearer {token}"
             final_payload["project"] = project_id
             return True
         except Exception:
-            return None
+            return False
 
     for attempt in range(max_retries + 1):
         try:
@@ -899,7 +916,13 @@ async def non_stream_request(
 
     # 所有重试都失败，返回最后一次的原始错误
     log.error("[NON-STREAM] 所有重试均失败")
-    return last_error_response
+    if last_error_response is not None:
+        return last_error_response
+    return Response(
+        content=json.dumps({"error": "请求失败，且未收到上游错误响应"}),
+        status_code=500,
+        media_type="application/json",
+    )
 
 
 # ==================== 测试代码 ====================

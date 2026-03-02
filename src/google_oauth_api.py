@@ -6,12 +6,14 @@ import time
 import asyncio
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, overload
 from urllib.parse import urlencode
 
+import httpx
 import jwt
 
 from config import (
+    get_proxy_config,
     get_googleapis_proxy_url,
     get_oauth_proxy_url,
     get_resource_manager_api_url,
@@ -493,7 +495,51 @@ async def enable_required_apis(credentials: Credentials, project_id: str) -> boo
         return False
 
 
-async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
+def _build_project_discovery_diagnostics(
+    *, proxy_config: Optional[str]
+) -> Dict[str, Any]:
+    return {
+        "all_failed_by_connect_error": False,
+        "connect_error_count": 0,
+        "total_attempts": 0,
+        "last_connect_error": None,
+        "proxy_configured": bool(proxy_config),
+    }
+
+
+def _log_project_discovery_connect_error(
+    endpoint_name: str,
+    url: str,
+    error: Exception,
+    *,
+    using_http1_fallback: bool,
+    proxy_configured: bool,
+):
+    transport = "HTTP/1.1 fallback" if using_http1_fallback else "HTTP/2 default"
+    log.warning(
+        f"[{endpoint_name}] ConnectError on {url} ({transport}, proxy_configured={proxy_configured}): "
+        f"{type(error).__name__}: {repr(error)}"
+    )
+
+
+@overload
+async def get_user_projects(
+    credentials: Credentials,
+    with_diagnostics: Literal[False] = False,
+) -> List[Dict[str, Any]]: ...
+
+
+@overload
+async def get_user_projects(
+    credentials: Credentials,
+    with_diagnostics: Literal[True],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]: ...
+
+
+async def get_user_projects(
+    credentials: Credentials,
+    with_diagnostics: bool = False,
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
     """获取用户可访问的Google Cloud项目列表"""
     try:
         # 确保凭证有效
@@ -505,33 +551,128 @@ async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
             "User-Agent": "geminicli-oauth/1.0",
         }
 
-        # 使用Resource Manager API的正确域名和端点
+        # 同时兼容 v3 search（推荐）与 v1 list（回退）
+        # 并加入 googleapis 直连域名回退
         resource_manager_base_url = await get_resource_manager_api_url()
-        url = f"{resource_manager_base_url.rstrip('/')}/v1/projects"
-        log.info(f"正在调用API: {url}")
-        response = await get_async(url, headers=headers)
+        proxy_config = await get_proxy_config()
+        diagnostics = _build_project_discovery_diagnostics(proxy_config=proxy_config)
 
-        log.info(f"API响应状态码: {response.status_code}")
-        if response.status_code != 200:
-            log.error(f"API响应内容: {response.text}")
+        endpoint_candidates: List[Tuple[str, str]] = []
 
-        if response.status_code == 200:
+        def _add_endpoint(name: str, endpoint_url: str):
+            if any(
+                existing_url == endpoint_url for _, existing_url in endpoint_candidates
+            ):
+                return
+            endpoint_candidates.append((name, endpoint_url))
+
+        _add_endpoint(
+            "v3.projects:search",
+            f"{resource_manager_base_url.rstrip('/')}/v3/projects:search",
+        )
+        _add_endpoint(
+            "v1.projects:list",
+            f"{resource_manager_base_url.rstrip('/')}/v1/projects",
+        )
+        _add_endpoint(
+            "googleapis.v1.projects:list",
+            "https://www.googleapis.com/cloudresourcemanager/v1/projects",
+        )
+
+        for endpoint_name, url in endpoint_candidates:
+            log.info(f"正在调用API({endpoint_name}): {url}")
+            diagnostics["total_attempts"] += 1
+            try:
+                response = await get_async(url, headers=headers)
+            except httpx.ConnectError as endpoint_error:
+                diagnostics["connect_error_count"] += 1
+                diagnostics["last_connect_error"] = repr(endpoint_error)
+                _log_project_discovery_connect_error(
+                    endpoint_name,
+                    url,
+                    endpoint_error,
+                    using_http1_fallback=False,
+                    proxy_configured=diagnostics["proxy_configured"],
+                )
+
+                # 网络层连接失败时，仅在项目发现路径做 HTTP/1.1 回退重试
+                diagnostics["total_attempts"] += 1
+                try:
+                    log.info(f"[{endpoint_name}] 尝试HTTP/1.1回退重试")
+                    response = await get_async(url, headers=headers, http2=False)
+                except httpx.ConnectError as fallback_error:
+                    diagnostics["connect_error_count"] += 1
+                    diagnostics["last_connect_error"] = repr(fallback_error)
+                    _log_project_discovery_connect_error(
+                        endpoint_name,
+                        url,
+                        fallback_error,
+                        using_http1_fallback=True,
+                        proxy_configured=diagnostics["proxy_configured"],
+                    )
+                    continue
+            except Exception as endpoint_error:
+                log.warning(
+                    f"调用{endpoint_name}异常: {type(endpoint_error).__name__}: {repr(endpoint_error)}"
+                )
+                continue
+
+            log.info(f"{endpoint_name} 响应状态码: {response.status_code}")
+            if response.status_code != 200:
+                log.warning(
+                    f"{endpoint_name} 获取项目列表失败: {response.status_code} - {response.text[:500]}"
+                )
+                continue
+
             data = response.json()
-            projects = data.get("projects", [])
-            # 只返回活跃的项目
+            projects = data.get("projects", []) if isinstance(data, dict) else []
+            if not isinstance(projects, list):
+                projects = []
+
             active_projects = [
                 project
                 for project in projects
-                if project.get("lifecycleState") == "ACTIVE"
+                if isinstance(project, dict) and _is_project_active(project)
             ]
-            log.info(f"获取到 {len(active_projects)} 个活跃项目")
-            return active_projects
-        else:
-            log.warning(f"获取项目列表失败: {response.status_code} - {response.text}")
-            return []
+
+            if active_projects:
+                log.info(f"{endpoint_name} 获取到 {len(active_projects)} 个活跃项目")
+                if with_diagnostics:
+                    return active_projects, diagnostics
+                return active_projects
+
+            log.info(f"{endpoint_name} 未返回活跃项目，尝试下一个端点")
+
+        diagnostics["all_failed_by_connect_error"] = (
+            diagnostics["total_attempts"] > 0
+            and diagnostics["connect_error_count"] == diagnostics["total_attempts"]
+        )
+
+        if diagnostics["all_failed_by_connect_error"]:
+            log.error(
+                "项目发现失败：所有端点均发生连接错误。"
+                f"proxy_configured={diagnostics['proxy_configured']}, "
+                f"attempts={diagnostics['total_attempts']}, "
+                f"last_connect_error={diagnostics['last_connect_error']}"
+            )
+
+        log.warning("所有项目发现端点均未返回可用项目")
+        if with_diagnostics:
+            return [], diagnostics
+        return []
 
     except Exception as e:
         log.error(f"获取用户项目列表失败: {e}")
+        if with_diagnostics:
+            try:
+                proxy_config = await get_proxy_config()
+            except Exception:
+                proxy_config = None
+            diagnostics = _build_project_discovery_diagnostics(
+                proxy_config=proxy_config
+            )
+            diagnostics["last_connect_error"] = repr(e)
+            return [], diagnostics
         return []
 
 
@@ -543,8 +684,9 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
     # 策略1：查找显示名称或项目ID包含"default"的项目
     for project in projects:
         display_name = project.get("displayName", "").lower()
-        # Google API returns projectId in camelCase
-        project_id = project.get("projectId", "")
+        project_id = _project_id_from_project(project)
+        if not project_id:
+            continue
         if "default" in display_name or "default" in project_id.lower():
             log.info(
                 f"选择默认项目: {project_id} ({project.get('displayName', project_id)})"
@@ -553,8 +695,10 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 
     # 策略2：选择第一个项目
     first_project = projects[0]
-    # Google API returns projectId in camelCase
-    project_id = first_project.get("projectId", "")
+    project_id = _project_id_from_project(first_project)
+    if not project_id:
+        log.warning("首个项目缺少可识别的 project_id")
+        return None
     log.info(
         f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})"
     )
@@ -621,7 +765,10 @@ def _extract_project_id_from_resource_name(value: str) -> Optional[str]:
     """从资源名中提取 project_id，例如 projects/xxx/locations/global。"""
     if not value:
         return None
-    match = re.search(r"projects/([^/]+)/", value)
+    # 同时兼容：
+    # - projects/<id>/locations/global
+    # - projects/<id>
+    match = re.search(r"projects/([^/]+)(?:/|$)", value)
     if match:
         return match.group(1)
     return None
@@ -658,6 +805,36 @@ def _normalize_project_id_value(value: Any) -> Optional[str]:
         return None
 
     return None
+
+
+def _is_project_active(project: Dict[str, Any]) -> bool:
+    """兼容 v1(v1.projects:list) 与 v3(v3.projects:search) 的项目活跃状态字段。"""
+    if not isinstance(project, dict):
+        return False
+
+    lifecycle_state = project.get("lifecycleState")
+    if isinstance(lifecycle_state, str) and lifecycle_state:
+        return lifecycle_state.upper() == "ACTIVE"
+
+    state = project.get("state")
+    if isinstance(state, str) and state:
+        return state.upper() == "ACTIVE"
+
+    # 某些返回结构可能不带状态字段，此时默认放行
+    return True
+
+
+def _project_id_from_project(project: Dict[str, Any]) -> Optional[str]:
+    """从项目对象中提取 project_id，兼容多种返回结构。"""
+    if not isinstance(project, dict):
+        return None
+
+    for key in ("projectId", "project_id", "id", "name", "project"):
+        normalized = _normalize_project_id_value(project.get(key))
+        if normalized:
+            return normalized
+
+    return _normalize_project_id_value(project)
 
 
 async def _try_load_code_assist(api_base_url: str, headers: dict) -> Optional[str]:
