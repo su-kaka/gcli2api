@@ -459,7 +459,7 @@ class CredentialManager:
                     f"剩余时间={int(time_left / 60)}分{int(time_left % 60)}秒"
                 )
 
-                if time_left > 120:  # 2分钟缓冲
+                if time_left > 300:  # 5分钟缓冲
                     return False
                 else:
                     log.debug(

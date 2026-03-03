@@ -11,3 +11,4 @@ motor
 pypinyin
 aiosqlite
 redis
+asyncpg

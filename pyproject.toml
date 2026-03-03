@@ -30,6 +30,7 @@ dependencies = [
     "pypinyin>=0.51.0",
     "aiosqlite>=0.20.0",
     "redis>=7.2.0",
+    "asyncpg>=0.31.0",
 ]
 
 [project.optional-dependencies]
