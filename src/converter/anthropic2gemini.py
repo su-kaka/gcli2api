@@ -1101,7 +1101,7 @@ def gemini_to_anthropic_response(
 
 
 async def gemini_stream_to_anthropic_stream(
-    gemini_stream: AsyncIterator[bytes], model: str, status_code: int = 200
+    gemini_stream: AsyncIterator[Any], model: str, status_code: int = 200
 ) -> AsyncIterator[bytes]:
     """
     将 Gemini 格式流式响应转换为 Anthropic SSE 格式流式响应
@@ -1109,7 +1109,7 @@ async def gemini_stream_to_anthropic_stream(
     注意: 如果收到的不是 200 开头的响应体，不做任何处理，直接转发
 
     Args:
-        gemini_stream: Gemini 格式的流式响应 (bytes 迭代器)
+        gemini_stream: Gemini 格式的流式响应（通常为 bytes，也可能包含 Response 错误对象）
         model: 模型名称
         status_code: HTTP 状态码 (默认 200)
 
@@ -1132,6 +1132,7 @@ async def gemini_stream_to_anthropic_stream(
     input_tokens = 0
     output_tokens = 0
     finish_reason: Optional[str] = None
+    received_done_marker = False
     debug_logging_enabled = log.get_current_level() == "debug"
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
@@ -1151,21 +1152,77 @@ async def gemini_stream_to_anthropic_stream(
         current_block_type = None
         return event
 
+    def _build_error_event_payload(raw_error: Any) -> Dict[str, Any]:
+        """将上游错误载荷规范化为 Anthropic error 事件。"""
+        if isinstance(raw_error, dict):
+            if raw_error.get("type") == "error" and isinstance(
+                raw_error.get("error"), dict
+            ):
+                message_value = raw_error["error"].get("message")
+                if isinstance(message_value, str) and message_value:
+                    return raw_error
+
+            error_obj = raw_error.get("error")
+            if isinstance(error_obj, dict):
+                message_value = error_obj.get("message")
+                if isinstance(message_value, str) and message_value:
+                    return {
+                        "type": "error",
+                        "error": {"type": "api_error", "message": message_value},
+                    }
+
+        return {
+            "type": "error",
+            "error": {"type": "api_error", "message": str(raw_error)},
+        }
+
     # 处理流式数据
     try:
         async for chunk in gemini_stream:
             # 检查是否是 Response 对象（错误情况）
             if isinstance(chunk, Response):
                 log.warning(
-                    f"[GEMINI_TO_ANTHROPIC] 收到 Response 对象，状态码: {chunk.status_code}，直接转发错误"
+                    f"[GEMINI_TO_ANTHROPIC] 收到 Response 对象，状态码: {chunk.status_code}，按错误事件返回"
                 )
-                # 直接转发错误响应内容，不做格式转换
+                close_evt = _close_block()
+                if close_evt:
+                    yield close_evt
+
                 body = chunk.body
                 if isinstance(body, (bytes, bytearray, memoryview)):
-                    error_content = bytes(body)
+                    raw_text = bytes(body).decode("utf-8", errors="ignore")
                 else:
-                    error_content = str(body or "").encode("utf-8")
-                yield error_content
+                    raw_text = str(body or "")
+
+                parsed_error: Any
+                try:
+                    parsed_error = json.loads(raw_text)
+                except Exception:
+                    parsed_error = raw_text
+
+                if not message_start_sent:
+                    message_start_sent = True
+                    yield _sse_event(
+                        "message_start",
+                        {
+                            "type": "message_start",
+                            "message": {
+                                "id": message_id,
+                                "type": "message",
+                                "role": "assistant",
+                                "model": model,
+                                "content": [],
+                                "stop_reason": None,
+                                "stop_sequence": None,
+                                "usage": {
+                                    "input_tokens": input_tokens,
+                                    "output_tokens": output_tokens,
+                                },
+                            },
+                        },
+                    )
+
+                yield _sse_event("error", _build_error_event_payload(parsed_error))
                 return
 
             # 记录接收到的原始chunk
@@ -1184,6 +1241,7 @@ async def gemini_stream_to_anthropic_stream(
 
             raw = chunk[6:].rstrip()
             if raw == b"[DONE]":
+                received_done_marker = True
                 if debug_logging_enabled:
                     log.debug("[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
                 break
@@ -1428,6 +1486,22 @@ async def gemini_stream_to_anthropic_stream(
         close_evt = _close_block()
         if close_evt:
             yield close_evt
+
+        if message_start_sent and finish_reason is None and not received_done_marker:
+            log.warning(
+                "[ANTHROPIC][stream_end] 上游流在无finish_reason情况下结束，按错误事件返回"
+            )
+            yield _sse_event(
+                "error",
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "api_error",
+                        "message": "upstream stream ended before finishReason",
+                    },
+                },
+            )
+            return
 
         # 确定停止原因
         # 只有在正常停止（STOP）且有工具调用时才设为 tool_use

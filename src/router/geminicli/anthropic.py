@@ -368,27 +368,8 @@ async def messages(
             async for chunk in stream_gen:
                 # 检查是否是Response对象（错误情况）
                 if isinstance(chunk, Response):
-                    # 错误响应，不进行转换，直接传递
-                    try:
-                        raw_body = chunk.body
-                        if isinstance(raw_body, (bytes, bytearray, memoryview)):
-                            error_content = bytes(raw_body)
-                        else:
-                            error_content = str(raw_body or "").encode("utf-8")
-                        gemini_error = json.loads(error_content.decode("utf-8"))
-                        from src.converter.anthropic2gemini import (
-                            gemini_to_anthropic_response,
-                        )
-
-                        anthropic_error = gemini_to_anthropic_response(
-                            gemini_error, real_model, chunk.status_code
-                        )
-                        yield f"data: {json.dumps(anthropic_error)}\n\n".encode("utf-8")
-                    except Exception:
-                        yield f"data: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': 'Stream error'}})}\n\n".encode(
-                            "utf-8"
-                        )
-                    yield b"data: [DONE]\n\n"
+                    # 让转换器统一处理错误，不在此处伪造 [DONE]
+                    yield chunk
                     return
                 else:
                     # 确保是bytes类型

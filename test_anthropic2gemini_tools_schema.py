@@ -1,8 +1,10 @@
 import asyncio
+from fastapi import Response
 
 from src.converter.anthropic2gemini import (
     anthropic_to_gemini_request,
     _can_use_text_only_fast_path,
+    gemini_stream_to_anthropic_stream,
 )
 
 
@@ -172,3 +174,46 @@ def test_non_fast_path_still_preserves_tool_and_thinking_structure():
     assert any(part.get("thought") is True for part in all_parts)
     assert any("functionCall" in part for part in all_parts)
     assert any("functionResponse" in part for part in all_parts)
+
+
+def test_gemini_stream_interrupted_without_finish_reason_emits_error_event():
+    async def fake_stream():
+        yield b'data: {"response": {"candidates": [{"content": {"parts": [{"text": "partial answer"}]}}]}}\n\n'
+
+    async def collect_stream_output():
+        chunks = []
+        async for chunk in gemini_stream_to_anthropic_stream(
+            fake_stream(), "gemini-3-flash-preview", 200
+        ):
+            chunks.append(chunk.decode("utf-8"))
+        return "".join(chunks)
+
+    output = asyncio.run(collect_stream_output())
+
+    assert "event: error" in output
+    assert "upstream stream ended before finishReason" in output
+    assert "event: message_delta" not in output
+
+
+def test_gemini_stream_response_error_chunk_emits_error_event():
+    async def fake_stream():
+        yield Response(
+            content=b'{"error":{"message":"stream broken"}}',
+            status_code=502,
+            media_type="application/json",
+        )
+
+    async def collect_stream_output():
+        chunks = []
+        async for chunk in gemini_stream_to_anthropic_stream(
+            fake_stream(), "gemini-3-flash-preview", 200
+        ):
+            chunks.append(chunk.decode("utf-8"))
+        return "".join(chunks)
+
+    output = asyncio.run(collect_stream_output())
+
+    assert "event: message_start" in output
+    assert "event: error" in output
+    assert "stream broken" in output
+    assert "event: message_delta" not in output

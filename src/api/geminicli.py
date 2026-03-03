@@ -95,6 +95,75 @@ def _compute_capacity_retry_delay(base_interval: float, attempt: int) -> float:
     return min(12.0, exp_backoff + jitter)
 
 
+def _stream_chunk_has_committed_output(chunk: Any) -> bool:
+    """判断流式 chunk 是否已经包含对客户端可见且不可安全重试的输出。
+
+    仅把“正文文本 / 工具调用 / 工具结果”视为已提交输出。
+    thinking-only chunk 不视为提交，允许在传输异常时重试。
+    """
+    raw_line: Optional[str]
+    if isinstance(chunk, str):
+        raw_line = chunk
+    elif isinstance(chunk, (bytes, bytearray, memoryview)):
+        try:
+            raw_line = bytes(chunk).decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+    else:
+        return False
+
+    line = raw_line.strip()
+    if not line.startswith("data: "):
+        return False
+
+    payload = line[6:].strip()
+    if not payload or payload == "[DONE]":
+        return False
+
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return False
+
+    if not isinstance(data, dict):
+        return False
+
+    response_obj: Dict[str, Any]
+    if isinstance(data.get("response"), dict):
+        response_obj = data["response"]
+    else:
+        response_obj = data
+
+    candidates = response_obj.get("candidates")
+    if not isinstance(candidates, list):
+        return False
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        content_obj = candidate.get("content")
+        if not isinstance(content_obj, dict):
+            continue
+        parts = content_obj.get("parts")
+        if not isinstance(parts, list):
+            continue
+
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if "functionCall" in part or "functionResponse" in part:
+                return True
+            text = part.get("text")
+            if (
+                isinstance(text, str)
+                and text.strip()
+                and part.get("thought") is not True
+            ):
+                return True
+
+    return False
+
+
 _OBS_METRIC_KEYS = (
     "t_req_in",
     "t_upstream_send",
@@ -369,6 +438,15 @@ async def stream_request(
 
     except Exception as e:
         log.error(f"准备请求失败: {e}")
+        await record_api_call_error(
+            credential_manager,
+            current_file,
+            500,
+            None,
+            mode="geminicli",
+            model_name=model_name,
+            error_message=str(e),
+        )
         _mark_status(metrics_ctx, 500)
         _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
         resp = Response(
@@ -419,7 +497,8 @@ async def stream_request(
             return False
 
     for attempt in range(max_retries + 1):
-        success_recorded = False  # 标记是否已记录成功
+        success_recorded = False  # 标记是否已收到首个上游chunk
+        committed_output = False  # 标记是否已输出正文/工具块（不可安全重试）
         need_retry = False  # 标记是否需要重试
         keep_current_credential = False  # 标记是否保留当前凭证
         retry_wait_applied = False  # 标记本次attempt是否已执行等待
@@ -441,16 +520,6 @@ async def stream_request(
                     status_code = chunk.status_code
                     last_error_response = chunk  # 记录最后一次错误
 
-                    if success_recorded:
-                        log.warning(
-                            f"[GEMINICLI STREAM] 首token后收到错误响应，禁止重试 (status={status_code})"
-                        )
-                        _mark_status(metrics_ctx, chunk.status_code)
-                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
-                        _inject_observability_headers(chunk, metrics_ctx)
-                        yield chunk
-                        return
-
                     # 缓存错误解析结果,避免重复decode
                     error_body = None
                     try:
@@ -461,6 +530,29 @@ async def stream_request(
                         )
                     except Exception:
                         error_body = ""
+
+                    if success_recorded and committed_output:
+                        log.warning(
+                            f"[GEMINICLI STREAM] 首token后收到错误响应且已输出正文，禁止重试 (status={status_code})"
+                        )
+                        await record_api_call_error(
+                            credential_manager,
+                            current_file,
+                            status_code,
+                            None,
+                            mode="geminicli",
+                            model_name=model_name,
+                            error_message=error_body,
+                        )
+                        _mark_status(metrics_ctx, chunk.status_code)
+                        _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                        _inject_observability_headers(chunk, metrics_ctx)
+                        yield chunk
+                        return
+                    if success_recorded and not committed_output:
+                        log.warning(
+                            "[GEMINICLI STREAM] 首token后仅收到thinking阶段内容后报错，允许继续重试"
+                        )
 
                     # 如果错误码是429、503或者在禁用码当中，做好记录后进行重试
                     if (
@@ -627,24 +719,37 @@ async def stream_request(
                         return
                 else:
                     # 不是Response，说明是真流，直接yield返回
-                    # 只在第一个chunk时记录成功
+                    # 只在第一个chunk时打点首token
                     if not success_recorded:
                         _mark_timestamp(metrics_ctx, "t_first_token")
+                        success_recorded = True
+                        log.debug(
+                            f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}"
+                        )
+
+                    # 仅当出现正文/工具块时才记为成功（thinking-only 不算提交输出）
+                    if not committed_output and _stream_chunk_has_committed_output(
+                        chunk
+                    ):
                         await record_api_call_success(
                             credential_manager,
                             current_file,
                             mode="geminicli",
                             model_name=model_name,
                         )
-                        success_recorded = True
-                        log.debug(
-                            f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}"
-                        )
+                        committed_output = True
 
                     yield chunk
 
             # 流式请求完成，检查结果
             if success_recorded:
+                if not committed_output:
+                    await record_api_call_success(
+                        credential_manager,
+                        current_file,
+                        mode="geminicli",
+                        model_name=model_name,
+                    )
                 log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
                 _mark_status(metrics_ctx, 200)
                 _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
@@ -713,19 +818,49 @@ async def stream_request(
 
         except Exception as e:
             elapsed = time.time() - attempt_started_at
+            error_detail = repr(e)
             log.error(
                 f"[GEMINICLI STREAM] 流式请求异常: type={type(e).__name__}, "
-                f"detail={repr(e)}, 模型: {model_name}, 尝试: {attempt + 1}/{max_retries + 1}, "
+                f"detail={error_detail}, 模型: {model_name}, 尝试: {attempt + 1}/{max_retries + 1}, "
                 f"耗时: {elapsed:.2f}s, url: {target_url}, proxy={'on' if proxy_enabled else 'off'}, "
                 f"http2=True, timeout(connect/write/pool=30s, read=None), 凭证: {current_file}"
             )
-            if success_recorded:
-                log.warning("[GEMINICLI STREAM] 首token后发生异常，停止流且不重试")
-                _mark_status(metrics_ctx, 500)
+            if success_recorded and committed_output:
+                log.warning(
+                    "[GEMINICLI STREAM] 首token后发生异常且已输出正文，停止流且不重试"
+                )
+                await record_api_call_error(
+                    credential_manager,
+                    current_file,
+                    503,
+                    None,
+                    mode="geminicli",
+                    model_name=model_name,
+                    error_message=error_detail,
+                )
+                _mark_status(metrics_ctx, 502)
                 _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
+                resp = Response(
+                    content=json.dumps({"error": "流式响应中断", "detail": str(e)}),
+                    status_code=502,
+                    media_type="application/json",
+                )
+                _inject_observability_headers(resp, metrics_ctx)
+                yield resp
                 return
+            if success_recorded and not committed_output:
+                log.warning("[GEMINICLI STREAM] 首token后仅thinking阶段异常，允许重试")
             if attempt < max_retries:
                 delay = _compute_capacity_retry_delay(retry_interval, attempt)
+                await record_api_call_error(
+                    credential_manager,
+                    current_file,
+                    503,
+                    None,
+                    mode="geminicli",
+                    model_name=model_name,
+                    error_message=error_detail,
+                )
                 log.info(
                     f"[GEMINICLI STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1}), "
                     f"等待 {delay:.1f}s..."
@@ -736,7 +871,16 @@ async def stream_request(
                 # 所有重试都失败，返回最后一次的错误（如果有）
                 log.error(
                     f"[GEMINICLI STREAM] 所有重试均失败，最后异常: type={type(e).__name__}, "
-                    f"detail={repr(e)}"
+                    f"detail={error_detail}"
+                )
+                await record_api_call_error(
+                    credential_manager,
+                    current_file,
+                    503,
+                    None,
+                    mode="geminicli",
+                    model_name=model_name,
+                    error_message=error_detail,
                 )
                 if last_error_response:
                     _mark_status(metrics_ctx, last_error_response.status_code)
@@ -819,6 +963,15 @@ async def non_stream_request(
 
     except Exception as e:
         log.error(f"准备请求失败: {e}")
+        await record_api_call_error(
+            credential_manager,
+            current_file,
+            500,
+            None,
+            mode="geminicli",
+            model_name=model_name,
+            error_message=str(e),
+        )
         _mark_status(metrics_ctx, 500)
         _mark_timestamp(metrics_ctx, "t_done", overwrite=True)
         resp = Response(
@@ -1173,12 +1326,22 @@ async def non_stream_request(
                 return last_error_response
 
         except Exception as e:
+            error_detail = repr(e)
             log.error(
-                f"非流式请求异常: type={type(e).__name__}, detail={repr(e)}, "
+                f"非流式请求异常: type={type(e).__name__}, detail={error_detail}, "
                 f"凭证: {current_file}"
             )
             if attempt < max_retries:
                 delay = _compute_capacity_retry_delay(retry_interval, attempt)
+                await record_api_call_error(
+                    credential_manager,
+                    current_file,
+                    503,
+                    None,
+                    mode="geminicli",
+                    model_name=model_name,
+                    error_message=error_detail,
+                )
                 log.info(
                     f"[NON-STREAM] 异常后重试 (attempt {attempt + 2}/{max_retries + 1}), "
                     f"等待 {delay:.1f}s..."
@@ -1189,7 +1352,16 @@ async def non_stream_request(
                 # 所有重试都失败，返回最后一次的错误（如果有）或500错误
                 log.error(
                     f"[NON-STREAM] 所有重试均失败，最后异常: type={type(e).__name__}, "
-                    f"detail={repr(e)}"
+                    f"detail={error_detail}"
+                )
+                await record_api_call_error(
+                    credential_manager,
+                    current_file,
+                    503,
+                    None,
+                    mode="geminicli",
+                    model_name=model_name,
+                    error_message=error_detail,
                 )
                 if last_error_response:
                     _mark_status(metrics_ctx, last_error_response.status_code)

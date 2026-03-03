@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any
 
 import httpx
@@ -171,7 +172,23 @@ def test_stream_request_does_not_retry_after_first_chunk(monkeypatch):
 
     async def fake_stream_post_async(*args, **kwargs):
         called["stream_post"] += 1
-        yield "data: token"
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "response": {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [{"text": "final output"}],
+                                }
+                            }
+                        ]
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
         yield Response(
             content=b'{"error":"too many requests"}',
             status_code=429,
@@ -205,9 +222,107 @@ def test_stream_request_does_not_retry_after_first_chunk(monkeypatch):
 
     assert called["stream_post"] == 1
     assert called["handle_retry"] == 0
-    assert chunks[0] == "data: token"
+    assert "final output" in chunks[0]
     assert isinstance(chunks[1], Response)
     assert chunks[1].status_code == 429
+
+
+def test_stream_request_retries_when_exception_after_thinking_only(monkeypatch):
+    called = {"stream_post": 0, "record_error": 0, "record_success": 0}
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        called["record_success"] += 1
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        called["record_error"] += 1
+
+    async def fake_sleep_with_observability(*args, **kwargs):
+        return None
+
+    async def fake_stream_post_async(*args, **kwargs):
+        called["stream_post"] += 1
+        if called["stream_post"] == 1:
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "response": {
+                            "candidates": [
+                                {
+                                    "content": {
+                                        "parts": [
+                                            {"text": "thinking-only", "thought": True}
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            raise httpx.ReadError("stream interrupted")
+
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "response": {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [{"text": "final answer"}],
+                                },
+                                "finishReason": "STOP",
+                            }
+                        ]
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+    monkeypatch.setattr(
+        geminicli, "_sleep_with_observability", fake_sleep_with_observability
+    )
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    assert called["stream_post"] == 2
+    assert called["record_error"] == 1
+    assert called["record_success"] == 1
+    assert any("final answer" in str(item) for item in chunks)
 
 
 def test_non_stream_request_waits_once_per_retry_attempt(monkeypatch):
