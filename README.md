@@ -11,6 +11,7 @@
 ## 🚀 快速部署
 
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/97VMEF?referralCode=su-kaka)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/su-kaka/gcli2api)
 ---
 
 ## ⚠️ 许可证声明
@@ -118,7 +119,6 @@
 - WebSocket 实时日志流
 - 系统状态监控
 - 凭证健康状态
-- API 调用成功率统计
 
 ### 🔧 高级配置和自定义
 
@@ -152,10 +152,11 @@
 ### 🤖 基础模型
 - `gemini-2.5-pro`
 - `gemini-3-pro-preview`
+- `gemini-3.1-pro-preview`
 
 ### 🧠 思维模型（Thinking Models）
-- `gemini-2.5-pro-maxthinking`：最大思考预算模式
-- `gemini-2.5-pro-nothinking`：无思考模式
+- `gemini-2.5-pro-high`：思考模式
+- `gemini-2.5-pro-low`：低思考模式
 - 支持自定义思考预算配置
 - 自动分离思维内容和最终回答
 
@@ -163,7 +164,7 @@
 - `gemini-2.5-pro-search`：集成搜索功能的模型
 
 ### 🖼️ 图像生成模型（Antigravity）
-- `gemini-3-pro-image`：基础图像生成模型
+- `gemini-3.1-flash-image`：基础图像生成模型
 - **分辨率后缀**：
   - `-2k`：2K 分辨率
   - `-4k`：4K 高清分辨率
@@ -175,8 +176,8 @@
   - `-4x3`：传统显示器
   - `-3x4`：竖版海报
 - **组合使用示例**：
-  - `gemini-3-pro-image-4k-16x9`：4K 横屏
-  - `gemini-3-pro-image-2k-9x16`：2K 竖屏
+  - `gemini-3.1-flash-image-4k-16x9`：4K 横屏
+  - `gemini-3.1-flash-image-2k-9x16`：2K 竖屏
 - 不指定比例时，API 自动决定横竖比例
 
 ### 🌊 特殊功能变体
@@ -314,14 +315,6 @@ ghcr.io/su-kaka/gcli2api:latest
     ```bash
     docker-compose up -d
     ```
-
----
-
-## ⚠️ 注意事项
-
-- 当前 OAuth 验证流程**仅支持本地主机（localhost）访问**，即须通过 `http://127.0.0.1:7861` 完成认证（默认端口 7861，可通过 PORT 环境变量修改）。
-- **如需在云服务器或其他远程环境部署，请先在本地运行服务并完成 OAuth 验证，获得生成的 json 凭证文件（位于 `./geminicli/creds` 目录）后，再在auth面板将该文件上传即可。**
-- **请严格遵守使用限制，仅用于个人学习和非商业用途**
 
 ---
 
@@ -473,62 +466,6 @@ export MONGODB_URI="mongodb://host1:27017,host2:27017,host3:27017/gcli2api?repli
 export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryPreferred"
 ```
 
-## 🏗️ 技术架构
-
-### 核心模块说明
-
-**认证和凭证管理** (`src/auth.py`, `src/credential_manager.py`)
-- OAuth 2.0 认证流程管理
-- 多凭证文件状态管理和轮换
-- 自动故障检测和恢复
-- JWT 令牌生成和验证
-
-**API 路由和转换** (`src/openai_router.py`, `src/gemini_router.py`, `src/openai_transfer.py`)
-- OpenAI 和 Gemini 格式双向转换
-- 多模态输入处理（文本+图像）
-- 思维链内容分离和处理
-- 流式响应管理
-
-**网络和代理** (`src/httpx_client.py`, `src/google_chat_api.py`)
-- 统一 HTTP 客户端管理
-- 代理配置和热更新支持
-- 超时和重试策略
-- 异步请求池管理
-
-**状态管理** (`src/state_manager.py`, `src/usage_stats.py`)
-- 原子化状态操作
-- 使用统计和配额管理
-- 文件锁和并发安全
-- 数据持久化（TOML 格式）
-
-**任务管理** (`src/task_manager.py`)
-- 全局异步任务生命周期管理
-- 资源清理和内存管理
-- 优雅关闭和异常处理
-
-**Web 控制台** (`src/web_routes.py`)
-- RESTful API 端点
-- WebSocket 实时通信
-- 移动端适配检测
-- 批量操作支持
-
-### 高级特性实现
-
-**流式抗截断机制** (`src/anti_truncation.py`)
-- 检测响应截断模式
-- 自动重试和状态恢复
-- 上下文连接管理
-
-**格式检测和转换** (`src/format_detector.py`)
-- 自动检测请求格式（OpenAI vs Gemini）
-- 无缝格式转换
-- 参数映射和验证
-
-**用户代理模拟** (`src/utils.py`)
-- GeminiCLI 格式用户代理生成
-- 平台检测和客户端元数据
-- API 兼容性保证
-
 ### 环境变量配置
 
 **基础配置**
@@ -541,7 +478,6 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 - `PASSWORD`: 通用密码，设置后覆盖上述两个（默认：pwd）
 
 **性能和稳定性配置**
-- `CALLS_PER_ROTATION`: 每个凭证轮换前的调用次数（默认：10）
 - `RETRY_429_ENABLED`: 启用 429 错误自动重试（默认：true）
 - `RETRY_429_MAX_RETRIES`: 429 错误最大重试次数（默认：3）
 - `RETRY_429_INTERVAL`: 429 错误重试间隔，秒（默认：1.0）
@@ -562,7 +498,7 @@ export MONGODB_URI="mongodb://localhost:27017/gcli2api?readPreference=secondaryP
 
 **日志配置**
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
-- `LOG_FILE`: 日志文件路径（默认：gcli2api.log）
+- `LOG_FILE`: 日志文件路径（默认：log.txt）
 
 **存储配置**
 
@@ -805,7 +741,7 @@ prompt = (
 )
 
 response = client.models.generate_content(
-    model="gemini-2.5-flash-image",
+    model="gemini-3.1-flash-image",
     contents=[prompt],
     config=types.GenerateContentConfig(
         image_config=types.ImageConfig(
