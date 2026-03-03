@@ -6,7 +6,7 @@ services:
     dockerContext: .
     plan: free
     region: singapore
-    healthCheckPath: /v1/models
+    healthCheckPath: /
 
     envVars:
       # ========== 必填：访问密码 ==========
