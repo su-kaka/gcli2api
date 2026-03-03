@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: gcli2api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /v1/models
+
+    envVars:
+      # ========== 必填：访问密码 ==========
+      - key: PASSWORD
+        sync: false          # 部署时手动填写，不同步到代码库
+
+      # ========== 服务器配置 ==========
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "10000"        # Render 要求 Web 服务监听 10000 端口

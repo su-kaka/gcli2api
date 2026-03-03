@@ -86,11 +86,33 @@ class StorageAdapter:
             if self._initialized:
                 return
 
-            # 按优先级检查存储后端：SQLite > MongoDB
+            # 按优先级检查存储后端：PostgreSQL > MongoDB > SQLite
+            postgresql_uri = os.getenv("POSTGRESQL_URI", "")
             mongodb_uri = os.getenv("MONGODB_URI", "")
 
-            # 优先使用 SQLite（默认启用，无需环境变量）
-            if not mongodb_uri:
+            if postgresql_uri:
+                # 使用 PostgreSQL
+                try:
+                    from .storage.psql_manager import PSQLManager
+
+                    self._backend = PSQLManager()
+                    await self._backend.initialize()
+                    log.info("Using PostgreSQL storage backend")
+                except Exception as e:
+                    log.error(f"Failed to initialize PostgreSQL backend: {e}")
+                    # 尝试降级到 SQLite
+                    log.info("Falling back to SQLite storage backend")
+                    try:
+                        from .storage.sqlite_manager import SQLiteManager
+
+                        self._backend = SQLiteManager()
+                        await self._backend.initialize()
+                        log.info("Using SQLite storage backend (fallback)")
+                    except Exception as e2:
+                        log.error(f"Failed to initialize SQLite backend: {e2}")
+                        raise RuntimeError("No storage backend available") from e2
+            elif not mongodb_uri:
+                # 优先使用 SQLite（默认启用，无需环境变量）
                 try:
                     from .storage.sqlite_manager import SQLiteManager
 
@@ -253,6 +275,8 @@ class StorageAdapter:
             return "sqlite"
         elif "MongoDB" in backend_class_name or "mongo" in backend_class_name.lower():
             return "mongodb"
+        elif "PSQL" in backend_class_name or "Postgres" in backend_class_name or "psql" in backend_class_name.lower():
+            return "postgresql"
         else:
             return "unknown"
 
@@ -283,6 +307,12 @@ class StorageAdapter:
                 info.update(
                     {
                         "database_name": getattr(self._backend, "_db", {}).name if hasattr(self._backend, "_db") else None,
+                    }
+                )
+            elif backend_type == "postgresql":
+                info.update(
+                    {
+                        "dsn": getattr(self._backend, "_dsn", None),
                     }
                 )
 
