@@ -336,6 +336,17 @@ async def stream_request(
                     )
                 return
 
+    # 所有重试均已耗尽（for循环正常结束），返回最后记录的错误
+    log.error("[ANTIGRAVITY STREAM] 所有重试均失败")
+    if last_error_response:
+        yield last_error_response
+    else:
+        yield Response(
+            content=json.dumps({"error": "请求失败，所有重试均已耗尽"}),
+            status_code=429,
+            media_type="application/json"
+        )
+
 
 async def non_stream_request(
     body: Dict[str, Any],
