@@ -346,12 +346,9 @@ async def normalize_gemini_request(
             # 使用关键词匹配而不是精确匹配，更灵活地处理各种变体
             original_model = model
             if "opus" in model.lower():
-                    model = "claude-opus-4-6-thinking"
+                model = "claude-opus-4-6-thinking"
             elif "sonnet" in model.lower():
-                if "4-5" in model:
-                    model = "claude-sonnet-4-5-thinking"
-                else:
-                    model = "claude-sonnet-4-6"
+                model = "claude-sonnet-4-6"
             elif "haiku" in model.lower():
                 model = "gemini-2.5-flash"
             elif "claude" in model.lower():
