@@ -1,4 +1,4 @@
-full_hash=bd6531f6152c91337f5faa0307a95019f76fafc4
-short_hash=bd6531f
-message=前端动态显示api地址
-date=2026-03-04 20:58:16 +0800
+full_hash=325bf646ad93f2fdd006b21344642bbe1f45697a
+short_hash=325bf64
+message=重试结束时 正常返回错误
+date=2026-03-04 23:33:56 +0800
