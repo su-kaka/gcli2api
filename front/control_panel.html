@@ -1658,6 +1658,18 @@
             <div id="manageTab" class="tab-content">
                 <h3>GCLI凭证文件管理</h3>
                 <p>管理所有GCLI认证文件，查看状态和执行操作</p>
+                <div style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
+                    <strong>📡 API地址（点击复制）：</strong>
+                    <table style="margin-top:6px;border-collapse:collapse;width:100%;">
+                        <tr><td style="color:#666;width:90px;">OpenAI格式</td><td><code id="gcliOpenaiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr><td style="color:#666;">Claude格式</td><td><code id="gcliClaudeUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr><td style="color:#666;">Gemini格式</td><td><code id="gcliGeminiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                    </table>
+                    <script>
+                        (function(){var o=window.location.origin;document.getElementById('gcliOpenaiUrl').textContent=o+'/v1';document.getElementById('gcliClaudeUrl').textContent=o+'/v1';document.getElementById('gcliGeminiUrl').textContent=o;})();
+                        function cpUrl(el){navigator.clipboard.writeText(el.textContent).then(function(){var s=el.style.background;el.style.background='#b7f0b7';setTimeout(function(){el.style.background=s;},800);});}
+                    </script>
+                </div>
 
                 <!-- 检验功能说明 -->
                 <div class="status info" style="margin-bottom: 20px;">
@@ -1782,6 +1794,17 @@
             <div id="antigravity-manageTab" class="tab-content">
                 <h3>Antigravity凭证文件管理</h3>
                 <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
+                <div style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
+                    <strong>📡 API地址（点击复制）：</strong>
+                    <table style="margin-top:6px;border-collapse:collapse;width:100%;">
+                        <tr><td style="color:#666;width:90px;">OpenAI格式</td><td><code id="antOpenaiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr><td style="color:#666;">Claude格式</td><td><code id="antClaudeUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr><td style="color:#666;">Gemini格式</td><td><code id="antGeminiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                    </table>
+                    <script>
+                        (function(){var o2=window.location.origin;document.getElementById('antOpenaiUrl').textContent=o2+'/antigravity/v1';document.getElementById('antClaudeUrl').textContent=o2+'/antigravity/v1';document.getElementById('antGeminiUrl').textContent=o2+'/antigravity';})();
+                    </script>
+                </div>
 
                 <!-- 检验功能说明 -->
                 <div class="status info" style="margin-bottom: 20px;">
