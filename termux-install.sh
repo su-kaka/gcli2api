@@ -86,12 +86,6 @@ echo "   cp \$PREFIX/etc/apt/sources.list.backup.* \$PREFIX/etc/apt/sources.list
 need_update=false
 packages_to_install=""
 
-# 检查 uv 是否已安装
-if ! command -v uv &> /dev/null; then
-    need_update=true
-    packages_to_install="$packages_to_install uv"
-fi
-
 # 检查 python 是否已安装
 if ! command -v python &> /dev/null; then
     need_update=true
@@ -145,21 +139,9 @@ echo "强制同步项目代码，忽略本地修改..."
 git fetch --all
 git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 
-# 只在不存在时创建
-if [ ! -d ".venv" ]; then
-    echo "创建虚拟环境..."
-    rm pyproject.toml
-    uv python pin 3.12
-    uv init
-    uv venv
-else
-    echo "虚拟环境已存在，跳过创建"
-fi
-
 echo "安装 Python 依赖..."
-uv add -r requirements-termux.txt
+pip install -r requirements-termux.txt
 
-echo "激活虚拟环境并启动服务..."
-source .venv/bin/activate
-pm2 start .venv/bin/python --name web -- web.py
+echo "启动服务..."
+pm2 start python --name web -- web.py
 cd ..
