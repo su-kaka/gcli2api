@@ -1,4 +1,4 @@
-full_hash=5df0e2187ab3946a8b2b9daaaf8053d236c8902d
-short_hash=5df0e21
-message=Update termux-start.sh
-date=2026-03-05 19:36:05 +0800
+full_hash=288c73dc1ff782404fc382e0497c61ade8bc5529
+short_hash=288c73d
+message=zeabur
+date=2026-03-05 20:34:08 +0800
