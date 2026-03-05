@@ -1,4 +1,4 @@
-full_hash=35b72101debe5df917f2e3135eceb87b7f2ce33f
-short_hash=35b7210
-message=更新 termux-start.sh
-date=2026-03-05 08:54:32 +0800
+full_hash=51ac44cff2423b2dd4fc3842379b93983ae8b14c
+short_hash=51ac44c
+message=termux启动去掉uv
+date=2026-03-05 19:34:01 +0800
