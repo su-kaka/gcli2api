@@ -46,10 +46,19 @@ ENV_MAPPINGS = {
     "PASSWORD": "password",
     "KEEPALIVE_URL": "keepalive_url",
     "KEEPALIVE_INTERVAL": "keepalive_interval",
+    "FF_RETRY_POLICY_V2": "ff_retry_policy_v2",
+    "FF_HTTP2_POOL_TUNING": "ff_http2_pool_tuning",
+    "FF_CONVERTER_FAST_PATH": "ff_converter_fast_path",
+    "FF_PREVIEW_CREDENTIAL_SCHEDULER_V2": "ff_preview_credential_scheduler_v2",
+    "ROLLOUT_STAGE_PERCENT": "rollout_stage_percent",
+    "ROLLBACK_TRIGGER_LATENCY_P95_MS": "rollback_trigger_latency_p95_ms",
+    "ROLLBACK_TRIGGER_THROUGHPUT_DROP_PCT": "rollback_trigger_throughput_drop_pct",
+    "ROLLBACK_TRIGGER_QUALITY_DROP_PCT": "rollback_trigger_quality_drop_pct",
 }
 
 
 # ====================== 配置系统 ======================
+
 
 async def init_config():
     """初始化配置缓存（启动时调用一次）"""
@@ -60,6 +69,7 @@ async def init_config():
 
     try:
         from src.storage_adapter import get_storage_adapter
+
         storage_adapter = await get_storage_adapter()
         _config_cache = await storage_adapter.get_all_config()
         _config_initialized = True
@@ -75,10 +85,11 @@ async def reload_config():
 
     try:
         from src.storage_adapter import get_storage_adapter
+
         storage_adapter = await get_storage_adapter()
 
         # 如果后端支持 reload_config_cache，调用它
-        if hasattr(storage_adapter._backend, 'reload_config_cache'):
+        if hasattr(storage_adapter._backend, "reload_config_cache"):
             await storage_adapter._backend.reload_config_cache()
 
         # 重新加载配置缓存
@@ -93,7 +104,9 @@ def _get_cached_config(key: str, default: Any = None) -> Any:
     return _config_cache.get(key, default)
 
 
-async def get_config_value(key: str, default: Any = None, env_var: Optional[str] = None) -> Any:
+async def get_config_value(
+    key: str, default: Any = None, env_var: Optional[str] = None
+) -> Any:
     """Get configuration value with priority: ENV > Storage > default."""
     # 确保配置已初始化
     if not _config_initialized:
@@ -178,7 +191,7 @@ async def get_retry_429_interval() -> float:
         except ValueError:
             pass
 
-    return float(await get_config_value("retry_429_interval", 1))
+    return float(await get_config_value("retry_429_interval", 1.0))
 
 
 async def get_anti_truncation_max_attempts() -> int:
@@ -295,7 +308,9 @@ async def get_code_assist_endpoint() -> str:
     """
     return str(
         await get_config_value(
-            "code_assist_endpoint", "https://cloudcode-pa.googleapis.com", "CODE_ASSIST_ENDPOINT"
+            "code_assist_endpoint",
+            "https://cloudcode-pa.googleapis.com",
+            "CODE_ASSIST_ENDPOINT",
         )
     )
 
@@ -352,6 +367,132 @@ async def get_antigravity_stream2nostream() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("antigravity_stream2nostream", True))
+
+
+async def get_ff_retry_policy_v2() -> bool:
+    """Get retry policy v2 feature flag."""
+    env_value = os.getenv("FF_RETRY_POLICY_V2")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("ff_retry_policy_v2", False))
+
+
+async def get_ff_http2_pool_tuning() -> bool:
+    """Get http2 pool tuning feature flag."""
+    env_value = os.getenv("FF_HTTP2_POOL_TUNING")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("ff_http2_pool_tuning", False))
+
+
+async def get_ff_converter_fast_path() -> bool:
+    """Get converter fast path feature flag."""
+    env_value = os.getenv("FF_CONVERTER_FAST_PATH")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("ff_converter_fast_path", False))
+
+
+async def get_ff_preview_credential_scheduler_v2() -> bool:
+    """Get preview credential scheduler v2 feature flag."""
+    env_value = os.getenv("FF_PREVIEW_CREDENTIAL_SCHEDULER_V2")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("ff_preview_credential_scheduler_v2", False))
+
+
+async def get_rollout_stage_percent() -> int:
+    """Get rollout stage percent (5/20/50/100)."""
+    allowed = {5, 20, 50, 100}
+
+    env_value = os.getenv("ROLLOUT_STAGE_PERCENT")
+    if env_value:
+        try:
+            parsed = int(env_value)
+            if parsed in allowed:
+                return parsed
+        except ValueError:
+            pass
+
+    value = await get_config_value("rollout_stage_percent", 5)
+    try:
+        parsed = int(value)
+        if parsed in allowed:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+
+    return 5
+
+
+async def get_rollback_trigger_latency_p95_ms() -> int:
+    """Get rollback trigger latency p95 threshold in ms."""
+    env_value = os.getenv("ROLLBACK_TRIGGER_LATENCY_P95_MS")
+    if env_value:
+        try:
+            parsed = int(env_value)
+            if parsed >= 0:
+                return parsed
+        except ValueError:
+            pass
+
+    value = await get_config_value("rollback_trigger_latency_p95_ms", 2500)
+    try:
+        parsed = int(value)
+        if parsed >= 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+
+    return 2500
+
+
+async def get_rollback_trigger_throughput_drop_pct() -> float:
+    """Get rollback trigger throughput drop threshold in percent."""
+    env_value = os.getenv("ROLLBACK_TRIGGER_THROUGHPUT_DROP_PCT")
+    if env_value:
+        try:
+            parsed = float(env_value)
+            if parsed >= 0:
+                return parsed
+        except ValueError:
+            pass
+
+    value = await get_config_value("rollback_trigger_throughput_drop_pct", 20.0)
+    try:
+        parsed = float(value)
+        if parsed >= 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+
+    return 20.0
+
+
+async def get_rollback_trigger_quality_drop_pct() -> float:
+    """Get rollback trigger quality drop threshold in percent."""
+    env_value = os.getenv("ROLLBACK_TRIGGER_QUALITY_DROP_PCT")
+    if env_value:
+        try:
+            parsed = float(env_value)
+            if parsed >= 0:
+                return parsed
+        except ValueError:
+            pass
+
+    value = await get_config_value("rollback_trigger_quality_drop_pct", 10.0)
+    try:
+        parsed = float(value)
+        if parsed >= 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+
+    return 10.0
 
 
 async def get_oauth_proxy_url() -> str:
@@ -419,7 +560,9 @@ async def get_service_usage_api_url() -> str:
     """
     return str(
         await get_config_value(
-            "service_usage_api_url", "https://serviceusage.googleapis.com", "SERVICE_USAGE_API_URL"
+            "service_usage_api_url",
+            "https://serviceusage.googleapis.com",
+            "SERVICE_USAGE_API_URL",
         )
     )
 

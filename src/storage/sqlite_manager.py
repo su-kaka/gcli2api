@@ -5,6 +5,7 @@ SQLite 存储管理器
 import asyncio
 import json
 import os
+import random
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,7 +41,7 @@ class SQLiteManager:
             ("rotation_order", "INTEGER DEFAULT 0"),
             ("call_count", "INTEGER DEFAULT 0"),
             ("created_at", "REAL DEFAULT (unixepoch())"),
-            ("updated_at", "REAL DEFAULT (unixepoch())")
+            ("updated_at", "REAL DEFAULT (unixepoch())"),
         ],
         "antigravity_credentials": [
             ("disabled", "INTEGER DEFAULT 0"),
@@ -52,8 +53,8 @@ class SQLiteManager:
             ("rotation_order", "INTEGER DEFAULT 0"),
             ("call_count", "INTEGER DEFAULT 0"),
             ("created_at", "REAL DEFAULT (unixepoch())"),
-            ("updated_at", "REAL DEFAULT (unixepoch())")
-        ]
+            ("updated_at", "REAL DEFAULT (unixepoch())"),
+        ],
     }
 
     def __init__(self):
@@ -120,7 +121,7 @@ class SQLiteManager:
                 # 检查表是否存在
                 async with db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    (table_name,)
+                    (table_name,),
                 ) as cursor:
                     if not await cursor.fetchone():
                         log.debug(f"Table {table_name} does not exist, will be created")
@@ -135,14 +136,20 @@ class SQLiteManager:
                 for col_name, col_def in columns:
                     if col_name not in existing_columns:
                         try:
-                            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+                            await db.execute(
+                                f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
+                            )
                             log.info(f"Added missing column {table_name}.{col_name}")
                             added_count += 1
                         except Exception as e:
-                            log.error(f"Failed to add column {table_name}.{col_name}: {e}")
+                            log.error(
+                                f"Failed to add column {table_name}.{col_name}: {e}"
+                            )
 
                 if added_count > 0:
-                    log.info(f"Table {table_name}: added {added_count} missing column(s)")
+                    log.info(
+                        f"Table {table_name}: added {added_count} missing column(s)"
+                    )
 
         except Exception as e:
             log.error(f"Error ensuring schema compatibility: {e}")
@@ -254,7 +261,7 @@ class SQLiteManager:
                         # 检查是否会产生冲突
                         async with db.execute(
                             "SELECT COUNT(*) FROM credentials WHERE filename = ?",
-                            (basename,)
+                            (basename,),
                         ) as check_cursor:
                             count = (await check_cursor.fetchone())[0]
 
@@ -262,21 +269,27 @@ class SQLiteManager:
                             # 无冲突，直接更新
                             await db.execute(
                                 "UPDATE credentials SET filename = ? WHERE filename = ?",
-                                (basename, filename)
+                                (basename, filename),
                             )
                             repaired_count += 1
-                            log.info(f"Repaired credential filename: {filename} -> {basename}")
+                            log.info(
+                                f"Repaired credential filename: {filename} -> {basename}"
+                            )
                         else:
                             # 有冲突，删除带路径的旧记录（保留 basename 的记录）
                             await db.execute(
                                 "DELETE FROM credentials WHERE filename = ?",
-                                (filename,)
+                                (filename,),
                             )
                             repaired_count += 1
-                            log.warning(f"Removed duplicate credential with path: {filename} (kept {basename})")
+                            log.warning(
+                                f"Removed duplicate credential with path: {filename} (kept {basename})"
+                            )
 
             # 修复 antigravity_credentials 表
-            async with db.execute("SELECT filename FROM antigravity_credentials") as cursor:
+            async with db.execute(
+                "SELECT filename FROM antigravity_credentials"
+            ) as cursor:
                 rows = await cursor.fetchall()
                 for (filename,) in rows:
                     basename = os.path.basename(filename)
@@ -284,7 +297,7 @@ class SQLiteManager:
                         # 检查是否会产生冲突
                         async with db.execute(
                             "SELECT COUNT(*) FROM antigravity_credentials WHERE filename = ?",
-                            (basename,)
+                            (basename,),
                         ) as check_cursor:
                             count = (await check_cursor.fetchone())[0]
 
@@ -292,18 +305,22 @@ class SQLiteManager:
                             # 无冲突，直接更新
                             await db.execute(
                                 "UPDATE antigravity_credentials SET filename = ? WHERE filename = ?",
-                                (basename, filename)
+                                (basename, filename),
                             )
                             repaired_count += 1
-                            log.info(f"Repaired antigravity credential filename: {filename} -> {basename}")
+                            log.info(
+                                f"Repaired antigravity credential filename: {filename} -> {basename}"
+                            )
                         else:
                             # 有冲突，删除带路径的旧记录（保留 basename 的记录）
                             await db.execute(
                                 "DELETE FROM antigravity_credentials WHERE filename = ?",
-                                (filename,)
+                                (filename,),
                             )
                             repaired_count += 1
-                            log.warning(f"Removed duplicate antigravity credential with path: {filename} (kept {basename})")
+                            log.warning(
+                                f"Removed duplicate antigravity credential with path: {filename} (kept {basename})"
+                            )
 
             if repaired_count > 0:
                 log.info(f"Repaired {repaired_count} credential filename(s)")
@@ -354,18 +371,23 @@ class SQLiteManager:
         elif mode == "geminicli":
             return "credentials"
         else:
-            raise ValueError(f"Invalid mode: {mode}. Must be 'geminicli' or 'antigravity'")
+            raise ValueError(
+                f"Invalid mode: {mode}. Must be 'geminicli' or 'antigravity'"
+            )
 
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, mode: str = "geminicli", model_name: Optional[str] = None
+        self,
+        mode: str = "geminicli",
+        model_name: Optional[str] = None,
+        scheduling_hints: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
-        随机获取一个可用凭证（负载均衡）
+        获取一个可用凭证（健康感知负载均衡）
         - 未禁用
         - 如果提供了 model_name，还会检查模型级冷却和preview状态
-        - 随机选择
+        - 基于健康评分（in-flight / recent errors / call_count）选择
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
@@ -383,105 +405,298 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
+                in_flight_map: Dict[str, int] = {}
+                if isinstance(scheduling_hints, dict):
+                    raw_in_flight = scheduling_hints.get("in_flight")
+                    if isinstance(raw_in_flight, dict):
+                        in_flight_map = {
+                            str(k): int(v)
+                            for k, v in raw_in_flight.items()
+                            if isinstance(v, (int, float))
+                        }
 
-                # 确定模型名用于冷却检查
-                if model_name:
-                    # 所有模式都使用完整模型名
-                    pass
+                def has_error_code(error_codes_raw: str, code: int) -> bool:
+                    try:
+                        parsed = json.loads(error_codes_raw or "[]")
+                        for item in parsed if isinstance(parsed, list) else []:
+                            if item == code:
+                                return True
+                            if isinstance(item, str):
+                                try:
+                                    if int(item) == code:
+                                        return True
+                                except ValueError:
+                                    continue
+                    except Exception:
+                        return False
+                    return False
+
+                def get_error_count(error_codes_raw: str) -> int:
+                    try:
+                        parsed = json.loads(error_codes_raw or "[]")
+                        return len(parsed) if isinstance(parsed, list) else 0
+                    except Exception:
+                        return 0
+
+                def score_candidate(candidate: Dict[str, Any]) -> float:
+                    in_flight = in_flight_map.get(candidate["filename"], 0)
+                    recent_429 = 1 if candidate.get("has_429") else 0
+                    error_count = int(candidate.get("error_count", 0) or 0)
+                    call_count = int(candidate.get("call_count", 0) or 0)
+                    penalty = (
+                        (in_flight * 3.0)
+                        + (recent_429 * 4.0)
+                        + (min(error_count, 3) * 1.2)
+                        + (min(call_count, 1000) / 1000.0)
+                    )
+                    return penalty + random.uniform(0.0, 0.5)
+
+                async def pick_from_candidates(
+                    candidates: List[Dict[str, Any]],
+                    pool_stats: Dict[str, Any],
+                ) -> Optional[Tuple[str, Dict[str, Any]]]:
+                    if not candidates:
+                        return None
+
+                    scored_candidates = []
+                    for candidate in candidates:
+                        scored_candidates.append(
+                            (score_candidate(candidate), candidate)
+                        )
+                    scored_candidates.sort(key=lambda item: item[0])
+
+                    selected_score, selected = scored_candidates[0]
+                    selected_candidate: Dict[str, Any] = selected
+                    await db.execute(
+                        f"""
+                        UPDATE {table_name}
+                        SET call_count = call_count + 1,
+                            updated_at = unixepoch()
+                        WHERE filename = ?
+                        """,
+                        (selected_candidate["filename"],),
+                    )
+                    await db.commit()
+
+                    if (
+                        mode == "geminicli"
+                        and model_name
+                        and "preview" in model_name.lower()
+                    ):
+                        log.info(
+                            "[PREVIEW_POOL] "
+                            f"model={model_name} "
+                            f"available={int(pool_stats.get('available', 0))} "
+                            f"cooling={int(pool_stats.get('cooling', 0))} "
+                            f"ratio_429={float(pool_stats.get('ratio_429', 0.0)):.3f} "
+                            f"selected={selected_candidate['filename']} "
+                            f"score={float(selected_score):.3f} "
+                            f"in_flight={int(in_flight_map.get(selected_candidate['filename'], 0))}"
+                        )
+
+                    return selected_candidate["filename"], json.loads(
+                        selected_candidate["credential_json"]
+                    )
 
                 # 根据模式构建查询
                 if mode == "geminicli":
                     # geminicli 模式，需要处理 preview 状态
                     async with db.execute(f"""
-                        SELECT filename, credential_data, model_cooldowns, preview
+                        SELECT filename, credential_data, model_cooldowns, preview, error_codes, call_count
                         FROM {table_name}
                         WHERE disabled = 0
-                        ORDER BY RANDOM()
+                        ORDER BY rotation_order ASC
                     """) as cursor:
                         rows = await cursor.fetchall()
 
-                        if not model_name:
-                            # 没有提供模型名，返回第一个可用凭证
-                            if rows:
-                                filename, credential_json, _, _ = rows[0]
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
+                        if not rows:
                             return None
 
-                        # 检查模型是否为 preview 模型
-                        is_preview_model = "preview" in model_name.lower()
+                        is_preview_model = bool(
+                            model_name and "preview" in model_name.lower()
+                        )
 
-                        # 分别收集 preview=False 和 preview=True 的可用凭证
-                        non_preview_creds = []
-                        preview_creds = []
+                        all_candidates: List[Dict[str, Any]] = []
+                        non_preview_candidates: List[Dict[str, Any]] = []
+                        preview_candidates: List[Dict[str, Any]] = []
+                        preview_cooling_count = 0
+                        non_preview_cooling_count = 0
 
-                        for filename, credential_json, model_cooldowns_json, preview in rows:
-                            model_cooldowns = json.loads(model_cooldowns_json or '{}')
+                        for (
+                            filename,
+                            credential_json,
+                            model_cooldowns_json,
+                            preview,
+                            error_codes_json,
+                            call_count,
+                        ) in rows:
+                            model_cooldowns = json.loads(model_cooldowns_json or "{}")
+                            model_cooldown = (
+                                model_cooldowns.get(model_name) if model_name else None
+                            )
+                            in_cooldown = bool(
+                                model_name
+                                and model_cooldown is not None
+                                and current_time < model_cooldown
+                            )
 
-                            # 检查该模型是否在冷却中
-                            model_cooldown = model_cooldowns.get(model_name)
-                            if model_cooldown is None or current_time >= model_cooldown:
-                                # 该模型未冷却或冷却已过期
-                                if preview:
-                                    preview_creds.append((filename, credential_json))
+                            candidate = {
+                                "filename": filename,
+                                "credential_json": credential_json,
+                                "preview": bool(preview),
+                                "has_429": has_error_code(
+                                    error_codes_json or "[]", 429
+                                ),
+                                "error_count": get_error_count(
+                                    error_codes_json or "[]"
+                                ),
+                                "call_count": int(call_count or 0),
+                            }
+
+                            if in_cooldown:
+                                if candidate["preview"]:
+                                    preview_cooling_count += 1
                                 else:
-                                    non_preview_creds.append((filename, credential_json))
+                                    non_preview_cooling_count += 1
+                                continue
 
-                        # 根据模型类型选择凭证
+                            all_candidates.append(candidate)
+                            if candidate["preview"]:
+                                preview_candidates.append(candidate)
+                            else:
+                                non_preview_candidates.append(candidate)
+
+                        if not model_name:
+                            ratio_429 = (
+                                sum(1 for item in all_candidates if item.get("has_429"))
+                                / len(all_candidates)
+                                if all_candidates
+                                else 0.0
+                            )
+                            return await pick_from_candidates(
+                                all_candidates,
+                                {
+                                    "available": len(all_candidates),
+                                    "cooling": preview_cooling_count
+                                    + non_preview_cooling_count,
+                                    "ratio_429": ratio_429,
+                                },
+                            )
+
                         if is_preview_model:
-                            # preview 模型只能使用 preview=True 的凭证
-                            if preview_creds:
-                                filename, credential_json = preview_creds[0]
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
-                        else:
-                            # 非 preview 模型
-                            # 除非没有 preview=False 的凭证，否则只使用 preview=False 的凭证
-                            if non_preview_creds:
-                                # 存在 preview=False 的凭证，只使用它们
-                                filename, credential_json = non_preview_creds[0]
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
-                            elif preview_creds:
-                                # 不存在 preview=False 的凭证，使用 preview=True 作为后备
-                                filename, credential_json = preview_creds[0]
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
+                            ratio_429 = (
+                                sum(
+                                    1
+                                    for item in preview_candidates
+                                    if item.get("has_429")
+                                )
+                                / len(preview_candidates)
+                                if preview_candidates
+                                else 0.0
+                            )
+                            return await pick_from_candidates(
+                                preview_candidates,
+                                {
+                                    "available": len(preview_candidates),
+                                    "cooling": preview_cooling_count,
+                                    "ratio_429": ratio_429,
+                                },
+                            )
 
-                        return None
+                        # 非 preview 模型：优先 non-preview，不足时 fallback preview
+                        primary_candidates = (
+                            non_preview_candidates or preview_candidates
+                        )
+                        primary_cooling_count = (
+                            non_preview_cooling_count
+                            if non_preview_candidates
+                            else preview_cooling_count
+                        )
+                        ratio_429 = (
+                            sum(1 for item in primary_candidates if item.get("has_429"))
+                            / len(primary_candidates)
+                            if primary_candidates
+                            else 0.0
+                        )
+                        return await pick_from_candidates(
+                            primary_candidates,
+                            {
+                                "available": len(primary_candidates),
+                                "cooling": primary_cooling_count,
+                                "ratio_429": ratio_429,
+                            },
+                        )
                 else:
                     # antigravity 模式，不需要处理 preview
                     async with db.execute(f"""
-                        SELECT filename, credential_data, model_cooldowns
+                        SELECT filename, credential_data, model_cooldowns, error_codes, call_count
                         FROM {table_name}
                         WHERE disabled = 0
-                        ORDER BY RANDOM()
+                        ORDER BY rotation_order ASC
                     """) as cursor:
                         rows = await cursor.fetchall()
 
-                        # 如果没有提供 model_name，使用第一个可用凭证
-                        if not model_name:
-                            if rows:
-                                filename, credential_json, _ = rows[0]
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
+                        if not rows:
                             return None
 
-                        # 如果提供了 model_name，检查模型级冷却
-                        for filename, credential_json, model_cooldowns_json in rows:
-                            model_cooldowns = json.loads(model_cooldowns_json or '{}')
+                        candidates: List[Dict[str, Any]] = []
+                        cooling_count = 0
 
-                            # 检查该模型是否在冷却中
-                            model_cooldown = model_cooldowns.get(model_name)
-                            if model_cooldown is None or current_time >= model_cooldown:
-                                # 该模型未冷却或冷却已过期
-                                credential_data = json.loads(credential_json)
-                                return filename, credential_data
+                        for (
+                            filename,
+                            credential_json,
+                            model_cooldowns_json,
+                            error_codes_json,
+                            call_count,
+                        ) in rows:
+                            in_cooldown = False
+                            if model_name:
+                                model_cooldowns = json.loads(
+                                    model_cooldowns_json or "{}"
+                                )
+                                model_cooldown = model_cooldowns.get(model_name)
+                                in_cooldown = bool(
+                                    model_cooldown is not None
+                                    and current_time < model_cooldown
+                                )
 
-                        return None
+                            if in_cooldown:
+                                cooling_count += 1
+                                continue
+
+                            candidates.append(
+                                {
+                                    "filename": filename,
+                                    "credential_json": credential_json,
+                                    "has_429": has_error_code(
+                                        error_codes_json or "[]", 429
+                                    ),
+                                    "error_count": get_error_count(
+                                        error_codes_json or "[]"
+                                    ),
+                                    "call_count": int(call_count or 0),
+                                }
+                            )
+
+                        ratio_429 = (
+                            sum(1 for item in candidates if item.get("has_429"))
+                            / len(candidates)
+                            if candidates
+                            else 0.0
+                        )
+                        return await pick_from_candidates(
+                            candidates,
+                            {
+                                "available": len(candidates),
+                                "cooling": cooling_count,
+                                "ratio_429": ratio_429,
+                            },
+                        )
 
         except Exception as e:
-            log.error(f"Error getting next available credential (mode={mode}, model_name={model_name}): {e}")
+            log.error(
+                f"Error getting next available credential (mode={mode}, model_name={model_name}): {e}"
+            )
             return None
 
     async def get_available_credentials_list(self) -> List[str]:
@@ -509,7 +724,9 @@ class SQLiteManager:
 
     # ============ StorageBackend 协议方法 ============
 
-    async def store_credential(self, filename: str, credential_data: Dict[str, Any], mode: str = "geminicli") -> bool:
+    async def store_credential(
+        self, filename: str, credential_data: Dict[str, Any], mode: str = "geminicli"
+    ) -> bool:
         """存储或更新凭证"""
         self._ensure_initialized()
 
@@ -520,21 +737,27 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 检查凭证是否存在
-                async with db.execute(f"""
+                async with db.execute(
+                    f"""
                     SELECT disabled, error_codes, last_success, user_email,
                            rotation_order, call_count
                     FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                """,
+                    (filename,),
+                ) as cursor:
                     existing = await cursor.fetchone()
 
                 if existing:
                     # 更新现有凭证（保留状态）
-                    await db.execute(f"""
+                    await db.execute(
+                        f"""
                         UPDATE {table_name}
                         SET credential_data = ?,
                             updated_at = unixepoch()
                         WHERE filename = ?
-                    """, (json.dumps(credential_data), filename))
+                    """,
+                        (json.dumps(credential_data), filename),
+                    )
                 else:
                     # 插入新凭证
                     async with db.execute(f"""
@@ -543,11 +766,19 @@ class SQLiteManager:
                         row = await cursor.fetchone()
                         next_order = row[0]
 
-                    await db.execute(f"""
+                    await db.execute(
+                        f"""
                         INSERT INTO {table_name}
                         (filename, credential_data, rotation_order, last_success)
                         VALUES (?, ?, ?, ?)
-                    """, (filename, json.dumps(credential_data), next_order, time.time()))
+                    """,
+                        (
+                            filename,
+                            json.dumps(credential_data),
+                            next_order,
+                            time.time(),
+                        ),
+                    )
 
                 await db.commit()
                 log.debug(f"Stored credential: {filename} (mode={mode})")
@@ -557,7 +788,9 @@ class SQLiteManager:
             log.error(f"Error storing credential {filename}: {e}")
             return False
 
-    async def get_credential(self, filename: str, mode: str = "geminicli") -> Optional[Dict[str, Any]]:
+    async def get_credential(
+        self, filename: str, mode: str = "geminicli"
+    ) -> Optional[Dict[str, Any]]:
         """获取凭证数据"""
         self._ensure_initialized()
 
@@ -568,9 +801,12 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
-                async with db.execute(f"""
+                async with db.execute(
+                    f"""
                     SELECT credential_data FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                """,
+                    (filename,),
+                ) as cursor:
                     row = await cursor.fetchone()
                     if row:
                         return json.loads(row[0])
@@ -609,25 +845,34 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配删除
-                result = await db.execute(f"""
+                result = await db.execute(
+                    f"""
                     DELETE FROM {table_name} WHERE filename = ?
-                """, (filename,))
+                """,
+                    (filename,),
+                )
                 deleted_count = result.rowcount
 
                 await db.commit()
 
                 if deleted_count > 0:
-                    log.debug(f"Deleted {deleted_count} credential(s): {filename} (mode={mode})")
+                    log.debug(
+                        f"Deleted {deleted_count} credential(s): {filename} (mode={mode})"
+                    )
                     return True
                 else:
-                    log.warning(f"No credential found to delete: {filename} (mode={mode})")
+                    log.warning(
+                        f"No credential found to delete: {filename} (mode={mode})"
+                    )
                     return False
 
         except Exception as e:
             log.error(f"Error deleting credential {filename}: {e}")
             return False
 
-    async def update_credential_state(self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli") -> bool:
+    async def update_credential_state(
+        self, filename: str, state_updates: Dict[str, Any], mode: str = "geminicli"
+    ) -> bool:
         """更新凭证状态"""
         self._ensure_initialized()
 
@@ -636,7 +881,9 @@ class SQLiteManager:
 
         try:
             table_name = self._get_table_name(mode)
-            log.debug(f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}")
+            log.debug(
+                f"[DB] update_credential_state 开始: filename={filename}, state_updates={state_updates}, mode={mode}, table={table_name}"
+            )
 
             # 构建动态 SQL
             set_clauses = []
@@ -665,7 +912,7 @@ class SQLiteManager:
                 # 精确匹配更新
                 sql_exact = f"""
                     UPDATE {table_name}
-                    SET {', '.join(set_clauses)}
+                    SET {", ".join(set_clauses)}
                     WHERE filename = ?
                 """
                 log.debug(f"[DB] 执行精确匹配SQL: {sql_exact}")
@@ -681,14 +928,18 @@ class SQLiteManager:
                 log.debug(f"[DB] commit完成")
 
                 success = updated_count > 0
-                log.debug(f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}")
+                log.debug(
+                    f"[DB] update_credential_state 结束: success={success}, updated_count={updated_count}"
+                )
                 return success
 
         except Exception as e:
             log.error(f"[DB] Error updating credential state {filename}: {e}")
             return False
 
-    async def get_credential_state(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
+    async def get_credential_state(
+        self, filename: str, mode: str = "geminicli"
+    ) -> Dict[str, Any]:
         """获取凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
@@ -700,15 +951,18 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
                 if mode == "geminicli":
-                    async with db.execute(f"""
+                    async with db.execute(
+                        f"""
                         SELECT disabled, error_codes, last_success, user_email, model_cooldowns, preview
                         FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                    """,
+                        (filename,),
+                    ) as cursor:
                         row = await cursor.fetchone()
 
                         if row:
-                            error_codes_json = row[1] or '[]'
-                            model_cooldowns_json = row[4] or '{}'
+                            error_codes_json = row[1] or "[]"
+                            model_cooldowns_json = row[4] or "{}"
                             return {
                                 "disabled": bool(row[0]),
                                 "error_codes": json.loads(error_codes_json),
@@ -729,15 +983,18 @@ class SQLiteManager:
                     }
                 else:
                     # antigravity 模式
-                    async with db.execute(f"""
+                    async with db.execute(
+                        f"""
                         SELECT disabled, error_codes, last_success, user_email, model_cooldowns
                         FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                    """,
+                        (filename,),
+                    ) as cursor:
                         row = await cursor.fetchone()
 
                         if row:
-                            error_codes_json = row[1] or '[]'
-                            model_cooldowns_json = row[4] or '{}'
+                            error_codes_json = row[1] or "[]"
+                            model_cooldowns_json = row[4] or "{}"
                             return {
                                 "disabled": bool(row[0]),
                                 "error_codes": json.loads(error_codes_json),
@@ -759,7 +1016,9 @@ class SQLiteManager:
             log.error(f"Error getting credential state {filename}: {e}")
             return {}
 
-    async def get_all_credential_states(self, mode: str = "geminicli") -> Dict[str, Dict[str, Any]]:
+    async def get_all_credential_states(
+        self, mode: str = "geminicli"
+    ) -> Dict[str, Dict[str, Any]]:
         """获取所有凭证状态（不包含error_messages）"""
         self._ensure_initialized()
 
@@ -779,14 +1038,15 @@ class SQLiteManager:
 
                         for row in rows:
                             filename = row[0]
-                            error_codes_json = row[2] or '[]'
-                            model_cooldowns_json = row[5] or '{}'
+                            error_codes_json = row[2] or "[]"
+                            model_cooldowns_json = row[5] or "{}"
                             model_cooldowns = json.loads(model_cooldowns_json)
 
                             # 自动过滤掉已过期的模型CD
                             if model_cooldowns:
                                 model_cooldowns = {
-                                    k: v for k, v in model_cooldowns.items()
+                                    k: v
+                                    for k, v in model_cooldowns.items()
                                     if v > current_time
                                 }
 
@@ -814,14 +1074,15 @@ class SQLiteManager:
 
                         for row in rows:
                             filename = row[0]
-                            error_codes_json = row[2] or '[]'
-                            model_cooldowns_json = row[5] or '{}'
+                            error_codes_json = row[2] or "[]"
+                            model_cooldowns_json = row[5] or "{}"
                             model_cooldowns = json.loads(model_cooldowns_json)
 
                             # 自动过滤掉已过期的模型CD
                             if model_cooldowns:
                                 model_cooldowns = {
-                                    k: v for k, v in model_cooldowns.items()
+                                    k: v
+                                    for k, v in model_cooldowns.items()
                                     if v > current_time
                                 }
 
@@ -847,7 +1108,7 @@ class SQLiteManager:
         mode: str = "geminicli",
         error_code_filter: Optional[str] = None,
         cooldown_filter: Optional[str] = None,
-        preview_filter: Optional[str] = None
+        preview_filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -895,7 +1156,10 @@ class SQLiteManager:
 
                 filter_value = None
                 filter_int = None
-                if error_code_filter and str(error_code_filter).strip().lower() != "all":
+                if (
+                    error_code_filter
+                    and str(error_code_filter).strip().lower() != "all"
+                ):
                     filter_value = str(error_code_filter).strip()
                     try:
                         filter_int = int(filter_value)
@@ -933,15 +1197,16 @@ class SQLiteManager:
 
                     for row in all_rows:
                         filename = row[0]
-                        error_codes_json = row[2] or '[]'
-                        model_cooldowns_json = row[6] or '{}'
+                        error_codes_json = row[2] or "[]"
+                        model_cooldowns_json = row[6] or "{}"
                         model_cooldowns = json.loads(model_cooldowns_json)
 
                         # 自动过滤掉已过期的模型CD
                         active_cooldowns = {}
                         if model_cooldowns:
                             active_cooldowns = {
-                                k: v for k, v in model_cooldowns.items()
+                                k: v
+                                for k, v in model_cooldowns.items()
                                 if v > current_time
                             }
 
@@ -974,7 +1239,9 @@ class SQLiteManager:
 
                         # preview状态只对geminicli模式有效
                         if mode == "geminicli":
-                            summary["preview"] = bool(row[7]) if row[7] is not None else True
+                            summary["preview"] = (
+                                bool(row[7]) if row[7] is not None else True
+                            )
 
                         # 应用 preview 筛选（仅对 geminicli 模式）
                         if mode == "geminicli" and preview_filter:
@@ -1000,7 +1267,7 @@ class SQLiteManager:
                     # 应用分页
                     total_count = len(all_summaries)
                     if limit is not None:
-                        summaries = all_summaries[offset:offset + limit]
+                        summaries = all_summaries[offset : offset + limit]
                     else:
                         summaries = all_summaries[offset:]
 
@@ -1022,7 +1289,9 @@ class SQLiteManager:
                 "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
-    async def get_duplicate_credentials_by_email(self, mode: str = "geminicli") -> Dict[str, Any]:
+    async def get_duplicate_credentials_by_email(
+        self, mode: str = "geminicli"
+    ) -> Dict[str, Any]:
         """
         获取按邮箱分组的重复凭证信息（只查询邮箱和文件名，不加载完整凭证数据）
         用于去重操作
@@ -1069,12 +1338,14 @@ class SQLiteManager:
                     for email, files in email_to_files.items():
                         if len(files) > 1:
                             # 保留第一个文件，其他为重复
-                            duplicate_groups.append({
-                                "email": email,
-                                "kept_file": files[0],
-                                "duplicate_files": files[1:],
-                                "duplicate_count": len(files) - 1,
-                            })
+                            duplicate_groups.append(
+                                {
+                                    "email": email,
+                                    "kept_file": files[0],
+                                    "duplicate_files": files[1:],
+                                    "duplicate_count": len(files) - 1,
+                                }
+                            )
                             total_duplicate_count += len(files) - 1
 
                     return {
@@ -1107,13 +1378,16 @@ class SQLiteManager:
 
         try:
             async with aiosqlite.connect(self._db_path) as db:
-                await db.execute("""
+                await db.execute(
+                    """
                     INSERT INTO config (key, value, updated_at)
                     VALUES (?, ?, unixepoch())
                     ON CONFLICT(key) DO UPDATE SET
                         value = excluded.value,
                         updated_at = excluded.updated_at
-                """, (key, json.dumps(value)))
+                """,
+                    (key, json.dumps(value)),
+                )
                 await db.commit()
 
             # 更新内存缓存
@@ -1158,7 +1432,9 @@ class SQLiteManager:
             log.error(f"Error deleting config {key}: {e}")
             return False
 
-    async def get_credential_errors(self, filename: str, mode: str = "geminicli") -> Dict[str, Any]:
+    async def get_credential_errors(
+        self, filename: str, mode: str = "geminicli"
+    ) -> Dict[str, Any]:
         """
         专门获取凭证的错误信息（包含 error_codes 和 error_messages）
 
@@ -1178,14 +1454,17 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
-                async with db.execute(f"""
+                async with db.execute(
+                    f"""
                     SELECT error_codes, error_messages FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                """,
+                    (filename,),
+                ) as cursor:
                     row = await cursor.fetchone()
 
                     if row:
-                        error_codes_json = row[0] or '[]'
-                        error_messages_json = row[1] or '[]'
+                        error_codes_json = row[0] or "[]"
+                        error_messages_json = row[1] or "[]"
                         return {
                             "filename": filename,
                             "error_codes": json.loads(error_codes_json),
@@ -1205,7 +1484,7 @@ class SQLiteManager:
                 "filename": filename,
                 "error_codes": [],
                 "error_messages": [],
-                "error": str(e)
+                "error": str(e),
             }
 
     # ============ 模型级冷却管理 ============
@@ -1215,7 +1494,7 @@ class SQLiteManager:
         filename: str,
         model_name: str,
         cooldown_until: Optional[float],
-        mode: str = "geminicli"
+        mode: str = "geminicli",
     ) -> bool:
         """
         设置特定模型的冷却时间
@@ -1238,16 +1517,19 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 获取当前的 model_cooldowns
-                async with db.execute(f"""
+                async with db.execute(
+                    f"""
                     SELECT model_cooldowns FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                """,
+                    (filename,),
+                ) as cursor:
                     row = await cursor.fetchone()
 
                     if not row:
                         log.warning(f"Credential {filename} not found")
                         return False
 
-                    model_cooldowns = json.loads(row[0] or '{}')
+                    model_cooldowns = json.loads(row[0] or "{}")
 
                     # 更新或删除指定模型的冷却时间
                     if cooldown_until is None:
@@ -1256,15 +1538,20 @@ class SQLiteManager:
                         model_cooldowns[model_name] = cooldown_until
 
                     # 写回数据库
-                    await db.execute(f"""
+                    await db.execute(
+                        f"""
                         UPDATE {table_name}
                         SET model_cooldowns = ?,
                             updated_at = unixepoch()
                         WHERE filename = ?
-                    """, (json.dumps(model_cooldowns), filename))
+                    """,
+                        (json.dumps(model_cooldowns), filename),
+                    )
                     await db.commit()
 
-                    log.debug(f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}")
+                    log.debug(
+                        f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}"
+                    )
                     return True
 
         except Exception as e:
@@ -1272,10 +1559,7 @@ class SQLiteManager:
             return False
 
     async def record_success(
-        self,
-        filename: str,
-        model_name: Optional[str] = None,
-        mode: str = "geminicli"
+        self, filename: str, model_name: Optional[str] = None, mode: str = "geminicli"
     ) -> None:
         """
         成功调用后的条件写入：
@@ -1290,7 +1574,8 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 条件写入：只有 error_codes 非空时才触发
-                await db.execute(f"""
+                await db.execute(
+                    f"""
                     UPDATE {table_name}
                     SET last_success = unixepoch(),
                         error_codes   = '[]',
@@ -1298,23 +1583,31 @@ class SQLiteManager:
                         updated_at    = unixepoch()
                     WHERE filename = ?
                       AND (error_codes IS NOT NULL AND error_codes != '[]' AND error_codes != '')
-                """, (filename,))
+                """,
+                    (filename,),
+                )
 
                 # 条件删除模型冷却：只有模型键存在时才写入
                 if model_name:
-                    async with db.execute(f"""
+                    async with db.execute(
+                        f"""
                         SELECT model_cooldowns FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                    """,
+                        (filename,),
+                    ) as cursor:
                         row = await cursor.fetchone()
                         if row:
-                            cooldowns = json.loads(row[0] or '{}')
+                            cooldowns = json.loads(row[0] or "{}")
                             if model_name in cooldowns:
                                 cooldowns.pop(model_name)
-                                await db.execute(f"""
+                                await db.execute(
+                                    f"""
                                     UPDATE {table_name}
                                     SET model_cooldowns = ?, updated_at = unixepoch()
                                     WHERE filename = ?
-                                """, (json.dumps(cooldowns), filename))
+                                """,
+                                    (json.dumps(cooldowns), filename),
+                                )
 
                 await db.commit()
 
