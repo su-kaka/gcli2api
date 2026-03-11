@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -483,6 +484,189 @@ def test_stream_request_retry_policy_v2_on_keeps_current_credential(monkeypatch)
     assert captured["auth"] == ["Bearer token-a", "Bearer token-a"]
 
 
+def test_stream_request_daily_quota_does_not_keep_current_credential(monkeypatch):
+    captured = {"auth": [], "flags": []}
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_parse_and_log_cooldown(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        captured["flags"].append(kwargs.get("retry_policy_v2_enabled"))
+        return True
+
+    async def fake_stream_post_async(*args, **kwargs):
+        captured["auth"].append(kwargs.get("headers", {}).get("Authorization"))
+        if len(captured["auth"]) == 1:
+            yield Response(
+                content=json.dumps(
+                    {
+                        "error": {
+                            "status": "RESOURCE_EXHAUSTED",
+                            "details": [
+                                {
+                                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                                    "reason": "RESOURCE_EXHAUSTED",
+                                    "metadata": {
+                                        "quota_unit": "1/d/{project}",
+                                    },
+                                }
+                            ],
+                        }
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+                status_code=429,
+                media_type="application/json",
+            )
+        else:
+            yield "data: ok"
+
+    monkeypatch.setattr(geminicli, "credential_manager", _SequentialCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "parse_and_log_cooldown", fake_parse_and_log_cooldown
+    )
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    assert chunks == ["data: ok"]
+    assert captured["flags"] == [True]
+    assert captured["auth"] == ["Bearer token-a", "Bearer token-b"]
+
+
+def test_stream_request_daily_quota_missing_cooldown_falls_back_to_utc_midnight(
+    monkeypatch,
+):
+    captured = {"cooldown_until": None, "warnings": []}
+    fixed_now = datetime(2026, 3, 11, 15, 30, 0, tzinfo=timezone.utc)
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 0, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_get_proxy_config():
+        return None
+
+    async def fake_parse_and_log_cooldown(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        captured["cooldown_until"] = args[3]
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        return False
+
+    async def fake_stream_post_async(*args, **kwargs):
+        yield Response(
+            content=json.dumps(
+                {
+                    "error": {
+                        "status": "RESOURCE_EXHAUSTED",
+                        "details": [
+                            {
+                                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                                "reason": "RESOURCE_EXHAUSTED",
+                                "metadata": {
+                                    "quota_limit": "GenerateContentRequestsPerDayPerProjectPerModel-FreeTier",
+                                },
+                            }
+                        ],
+                    }
+                },
+                ensure_ascii=False,
+            ).encode("utf-8"),
+            status_code=429,
+            media_type="application/json",
+        )
+
+    def fake_warning(message):
+        captured["warnings"].append(message)
+
+    monkeypatch.setattr(geminicli, "datetime", _FixedDateTime)
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(geminicli, "get_proxy_config", fake_get_proxy_config)
+    monkeypatch.setattr(
+        geminicli, "parse_and_log_cooldown", fake_parse_and_log_cooldown
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "stream_post_async", fake_stream_post_async)
+    monkeypatch.setattr(geminicli.log, "warning", fake_warning)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    chunks = asyncio.run(_collect(geminicli.stream_request(body=body, native=False)))
+
+    expected_cooldown = datetime(2026, 3, 12, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    assert len(chunks) == 1
+    assert isinstance(chunks[0], Response)
+    assert chunks[0].status_code == 429
+    assert captured["cooldown_until"] == expected_cooldown
+    assert any("回退到下一个UTC午夜" in message for message in captured["warnings"])
+
+
 def test_stream_request_retry_policy_v2_off_rotates_credential(monkeypatch):
     captured = {"auth": [], "flags": []}
 
@@ -617,6 +801,172 @@ def test_non_stream_request_passes_retry_policy_v2_flag_to_helper(monkeypatch):
 
     assert response.status_code == 200
     assert captured["flags"] == [False]
+
+
+def test_non_stream_request_daily_quota_does_not_keep_current_credential(monkeypatch):
+    captured = {"auth": [], "flags": []}
+    responses = [
+        httpx.Response(
+            status_code=429,
+            json={
+                "error": {
+                    "status": "RESOURCE_EXHAUSTED",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "reason": "RESOURCE_EXHAUSTED",
+                            "metadata": {
+                                "quota_unit": "1/d/{project}",
+                            },
+                        }
+                    ],
+                }
+            },
+        ),
+        httpx.Response(status_code=200, json={"ok": True}),
+    ]
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 1, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_parse_and_log_cooldown(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_success(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        return None
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        captured["flags"].append(kwargs.get("retry_policy_v2_enabled"))
+        return True
+
+    async def fake_post_async(*args, **kwargs):
+        captured["auth"].append(kwargs.get("headers", {}).get("Authorization"))
+        return responses.pop(0)
+
+    monkeypatch.setattr(geminicli, "credential_manager", _SequentialCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(
+        geminicli, "parse_and_log_cooldown", fake_parse_and_log_cooldown
+    )
+    monkeypatch.setattr(
+        geminicli, "record_api_call_success", fake_record_api_call_success
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "post_async", fake_post_async)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    response = asyncio.run(geminicli.non_stream_request(body=body))
+
+    assert response.status_code == 200
+    assert captured["flags"] == [True]
+    assert captured["auth"] == ["Bearer token-a", "Bearer token-b"]
+
+
+def test_non_stream_request_daily_quota_missing_cooldown_falls_back_to_utc_midnight(
+    monkeypatch,
+):
+    captured = {"cooldown_until": None, "warnings": []}
+    fixed_now = datetime(2026, 3, 11, 15, 30, 0, tzinfo=timezone.utc)
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now.replace(tzinfo=None)
+            return fixed_now.astimezone(tz)
+
+    async def fake_get_code_assist_endpoint():
+        return "https://example.com"
+
+    async def fake_get_retry_config():
+        return {"retry_enabled": True, "max_retries": 0, "retry_interval": 0.0}
+
+    async def fake_get_auto_ban_error_codes():
+        return []
+
+    async def fake_parse_and_log_cooldown(*args, **kwargs):
+        return None
+
+    async def fake_record_api_call_error(*args, **kwargs):
+        captured["cooldown_until"] = args[3]
+
+    async def fake_handle_error_with_retry(*args, **kwargs):
+        return False
+
+    async def fake_post_async(*args, **kwargs):
+        return httpx.Response(
+            status_code=429,
+            json={
+                "error": {
+                    "status": "RESOURCE_EXHAUSTED",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "reason": "RESOURCE_EXHAUSTED",
+                            "metadata": {
+                                "quota_limit": "GenerateContentRequestsPerDayPerProjectPerModel-FreeTier",
+                            },
+                        }
+                    ],
+                }
+            },
+        )
+
+    def fake_warning(message):
+        captured["warnings"].append(message)
+
+    monkeypatch.setattr(geminicli, "datetime", _FixedDateTime)
+    monkeypatch.setattr(geminicli, "credential_manager", _DummyCredentialManager())
+    monkeypatch.setattr(geminicli, "get_ff_retry_policy_v2", _retry_policy_v2_enabled)
+    monkeypatch.setattr(
+        geminicli, "get_code_assist_endpoint", fake_get_code_assist_endpoint
+    )
+    monkeypatch.setattr(geminicli, "get_retry_config", fake_get_retry_config)
+    monkeypatch.setattr(
+        geminicli, "get_auto_ban_error_codes", fake_get_auto_ban_error_codes
+    )
+    monkeypatch.setattr(
+        geminicli, "parse_and_log_cooldown", fake_parse_and_log_cooldown
+    )
+    monkeypatch.setattr(geminicli, "record_api_call_error", fake_record_api_call_error)
+    monkeypatch.setattr(
+        geminicli, "handle_error_with_retry", fake_handle_error_with_retry
+    )
+    monkeypatch.setattr(geminicli, "post_async", fake_post_async)
+    monkeypatch.setattr(geminicli.log, "warning", fake_warning)
+
+    body = {
+        "model": "gemini-2.5-pro",
+        "request": {"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+    }
+    response = asyncio.run(geminicli.non_stream_request(body=body))
+
+    expected_cooldown = datetime(2026, 3, 12, 0, 0, 0, tzinfo=timezone.utc).timestamp()
+    assert response.status_code == 429
+    assert captured["cooldown_until"] == expected_cooldown
+    assert any("回退到下一个UTC午夜" in message for message in captured["warnings"])
 
 
 def test_handle_error_with_retry_v2_controls_internal_sleep(monkeypatch):
