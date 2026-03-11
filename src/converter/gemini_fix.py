@@ -4,8 +4,7 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 ────────────────────────────────────────────────────────────────
 """
 
-from math import e
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from log import log
 from src.utils import DEFAULT_SAFETY_SETTINGS
@@ -187,6 +186,114 @@ def is_thinking_model(model_name: str) -> bool:
     return "think" in model_name or "pro" in model_name.lower()
 
 
+def validate_function_call_pairs(contents: List[Any]) -> List[Any]:
+    """确保 functionCall turn 后紧跟数量匹配的 functionResponse turn。"""
+    validated_contents = list(contents)
+    index = 0
+
+    while index < len(validated_contents):
+        content = validated_contents[index]
+        if not isinstance(content, dict) or content.get("role") != "model":
+            index += 1
+            continue
+
+        parts = content.get("parts") or []
+        if not isinstance(parts, list):
+            index += 1
+            continue
+
+        function_calls = [
+            part
+            for part in parts
+            if isinstance(part, dict) and isinstance(part.get("functionCall"), dict)
+        ]
+        call_count = len(function_calls)
+        if call_count == 0:
+            index += 1
+            continue
+
+        def _synthesize_response(call_part: Dict[str, Any]) -> Dict[str, Any]:
+            call = call_part.get("functionCall", {})
+            synthesized = {
+                "name": call.get("name") or "unknown_function",
+                "response": {"result": "no response"},
+            }
+            if call.get("id"):
+                synthesized["id"] = call["id"]
+            return {"functionResponse": synthesized}
+
+        next_index = index + 1
+        next_turn = (
+            validated_contents[next_index]
+            if next_index < len(validated_contents)
+            else None
+        )
+
+        if not isinstance(next_turn, dict) or next_turn.get("role") != "user":
+            synthesized_parts = [
+                _synthesize_response(call_part) for call_part in function_calls
+            ]
+            validated_contents.insert(
+                next_index,
+                {
+                    "role": "user",
+                    "parts": synthesized_parts,
+                },
+            )
+            log.warning(
+                "[GEMINI_FIX] functionCall turn 后缺少 user/functionResponse，"
+                f"已插入 user turn 并补齐 {call_count} 个 response"
+            )
+            index += 2
+            continue
+
+        user_parts = next_turn.get("parts") or []
+        if not isinstance(user_parts, list):
+            user_parts = []
+
+        function_responses = [
+            part
+            for part in user_parts
+            if isinstance(part, dict) and isinstance(part.get("functionResponse"), dict)
+        ]
+        response_count = len(function_responses)
+
+        if response_count == call_count:
+            index += 1
+            continue
+
+        fixed_responses = function_responses[:call_count]
+        if response_count < call_count:
+            missing_count = call_count - response_count
+            for call_part in function_calls[response_count:]:
+                fixed_responses.append(_synthesize_response(call_part))
+            log.warning(
+                "[GEMINI_FIX] functionCall/functionResponse 数量不匹配，"
+                f"call={call_count}, response={response_count}，已补齐 {missing_count} 个 response"
+            )
+        else:
+            removed_count = response_count - call_count
+            log.warning(
+                "[GEMINI_FIX] functionCall/functionResponse 数量不匹配，"
+                f"call={call_count}, response={response_count}，已移除 {removed_count} 个多余 response"
+            )
+
+        non_function_response_parts = [
+            part
+            for part in user_parts
+            if not (
+                isinstance(part, dict)
+                and isinstance(part.get("functionResponse"), dict)
+            )
+        ]
+        updated_user_turn = next_turn.copy()
+        updated_user_turn["parts"] = non_function_response_parts + fixed_responses
+        validated_contents[next_index] = updated_user_turn
+        index += 1
+
+    return validated_contents
+
+
 async def normalize_gemini_request(
     request: Dict[str, Any], mode: str = "geminicli"
 ) -> Dict[str, Any]:
@@ -213,10 +320,16 @@ async def normalize_gemini_request(
     generation_config = (
         result.get("generationConfig") or {}
     ).copy()  # 创建副本避免修改原对象
-    tools = result.get("tools")
-    system_instruction = result.get("systemInstruction") or result.get(
-        "system_instructions"
-    )
+    system_instruction = result.get("systemInstruction")
+    for alias_key in ("system_instruction", "system_instructions"):
+        alias_value = result.pop(alias_key, None)
+        if (not system_instruction) and alias_value:
+            system_instruction = alias_value
+
+    if system_instruction:
+        result["systemInstruction"] = system_instruction
+    else:
+        result.pop("systemInstruction", None)
 
     # 记录原始请求
     log.debug(
@@ -352,7 +465,7 @@ async def normalize_gemini_request(
                     if has_tool_calls:
                         # MCP 场景：检测到工具调用，移除 thinkingConfig
                         log.warning(
-                            f"[ANTIGRAVITY] 检测到工具调用（MCP场景），移除 thinkingConfig 避免失效"
+                            "[ANTIGRAVITY] 检测到工具调用（MCP场景），移除 thinkingConfig 避免失效"
                         )
                         generation_config.pop("thinkingConfig", None)
                     else:
@@ -383,7 +496,7 @@ async def normalize_gemini_request(
                                 ):
                                     content["parts"] = [thinking_part] + parts
                                     log.debug(
-                                        f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）"
+                                        "[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）"
                                     )
                                 break
 
@@ -478,11 +591,15 @@ async def normalize_gemini_request(
 
                     # 检查 part 是否有有效的非空值
                     # 过滤掉空字典或所有值都为空的 part
-                    has_valid_value = any(
-                        value not in (None, "", {}, [])
-                        for key, value in part.items()
-                        if key != "thought"  # thought 字段可以为空
-                    )
+                    # functionCall/functionResponse 豁免空值过滤
+                    if "functionCall" in part or "functionResponse" in part:
+                        has_valid_value = True
+                    else:
+                        has_valid_value = any(
+                            value not in (None, "", {}, [])
+                            for key, value in part.items()
+                            if key != "thought"  # thought 字段可以为空
+                        )
 
                     if has_valid_value:
                         # 修复 text 字段：确保是字符串而不是列表
@@ -521,6 +638,7 @@ async def normalize_gemini_request(
                 cleaned_contents.append(content)
 
         result["contents"] = cleaned_contents
+        result["contents"] = validate_function_call_pairs(result["contents"])
 
     if generation_config:
         result["generationConfig"] = generation_config
