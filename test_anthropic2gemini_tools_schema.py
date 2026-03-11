@@ -5,6 +5,7 @@ from src.converter.anthropic2gemini import (
     anthropic_to_gemini_request,
     _can_use_text_only_fast_path,
     gemini_stream_to_anthropic_stream,
+    reorganize_tool_messages,
 )
 
 
@@ -174,6 +175,189 @@ def test_non_fast_path_still_preserves_tool_and_thinking_structure():
     assert any(part.get("thought") is True for part in all_parts)
     assert any("functionCall" in part for part in all_parts)
     assert any("functionResponse" in part for part in all_parts)
+
+
+def test_reorganize_tool_messages_groups_parallel_calls_into_single_turn_pair():
+    contents = [
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"id": "call_1", "name": "a", "args": {}}},
+                {"functionCall": {"id": "call_2", "name": "b", "args": {}}},
+                {"functionCall": {"id": "call_3", "name": "c", "args": {}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "id": "call_1",
+                        "name": "a",
+                        "response": {"output": "r1"},
+                    }
+                },
+                {
+                    "functionResponse": {
+                        "id": "call_2",
+                        "name": "b",
+                        "response": {"output": "r2"},
+                    }
+                },
+                {
+                    "functionResponse": {
+                        "id": "call_3",
+                        "name": "c",
+                        "response": {"output": "r3"},
+                    }
+                },
+            ],
+        },
+    ]
+
+    out = reorganize_tool_messages(contents)
+
+    assert len(out) == 2
+    assert out[0]["role"] == "model"
+    assert len(out[0]["parts"]) == 3
+    assert all("functionCall" in p for p in out[0]["parts"])
+    assert out[1]["role"] == "user"
+    assert len(out[1]["parts"]) == 3
+    assert [p["functionResponse"]["id"] for p in out[1]["parts"]] == [
+        "call_1",
+        "call_2",
+        "call_3",
+    ]
+
+
+def test_reorganize_tool_messages_keeps_single_call_single_response_pairing():
+    contents = [
+        {
+            "role": "model",
+            "parts": [
+                {
+                    "functionCall": {
+                        "id": "single_1",
+                        "name": "fetch_weather",
+                        "args": {"city": "shenzhen"},
+                    }
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "id": "single_1",
+                        "name": "fetch_weather",
+                        "response": {"output": "sunny"},
+                    }
+                }
+            ],
+        },
+    ]
+
+    out = reorganize_tool_messages(contents)
+
+    assert len(out) == 2
+    assert out[0] == {
+        "role": "model",
+        "parts": [
+            {
+                "functionCall": {
+                    "id": "single_1",
+                    "name": "fetch_weather",
+                    "args": {"city": "shenzhen"},
+                }
+            }
+        ],
+    }
+    assert out[1] == {
+        "role": "user",
+        "parts": [
+            {
+                "functionResponse": {
+                    "id": "single_1",
+                    "name": "fetch_weather",
+                    "response": {"output": "sunny"},
+                }
+            }
+        ],
+    }
+
+
+def test_reorganize_tool_messages_synthesizes_missing_response_with_fallback():
+    contents = [
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"id": "missing_1", "name": "tool_a", "args": {}}},
+                {"functionCall": {"id": "missing_2", "name": "tool_b", "args": {}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "id": "missing_1",
+                        "name": "tool_a",
+                        "response": {"output": "ok"},
+                    }
+                }
+            ],
+        },
+    ]
+
+    out = reorganize_tool_messages(contents)
+
+    assert len(out) == 2
+    assert len(out[0]["parts"]) == 2
+    assert len(out[1]["parts"]) == 2
+    assert out[1]["parts"][0]["functionResponse"]["id"] == "missing_1"
+    assert out[1]["parts"][1] == {
+        "functionResponse": {
+            "id": "missing_2",
+            "name": "tool_b",
+            "response": {"result": "no response"},
+        }
+    }
+
+
+def test_reorganize_tool_messages_separates_text_turn_from_grouped_calls():
+    contents = [
+        {
+            "role": "model",
+            "parts": [
+                {"text": "planning"},
+                {"functionCall": {"id": "mix_1", "name": "lookup", "args": {"q": "x"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "id": "mix_1",
+                        "name": "lookup",
+                        "response": {"output": "done"},
+                    }
+                }
+            ],
+        },
+    ]
+
+    out = reorganize_tool_messages(contents)
+
+    assert len(out) == 3
+    assert out[0] == {"role": "model", "parts": [{"text": "planning"}]}
+    assert out[1]["role"] == "model"
+    assert len(out[1]["parts"]) == 1
+    assert "functionCall" in out[1]["parts"][0]
+    assert out[2]["role"] == "user"
+    assert len(out[2]["parts"]) == 1
+    assert "functionResponse" in out[2]["parts"][0]
 
 
 def test_gemini_stream_interrupted_without_finish_reason_emits_error_event():

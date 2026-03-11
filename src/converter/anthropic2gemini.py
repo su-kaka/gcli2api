@@ -695,45 +695,81 @@ def reorganize_tool_messages(contents: List[Dict[str, Any]]) -> List[Dict[str, A
     """
     重新组织消息，满足 tool_use/tool_result 约束。
     """
+    # Pass 1: 收集所有 functionResponse，建立 id -> response part 映射
     tool_results: Dict[str, Dict[str, Any]] = {}
-
     for msg in contents:
         for part in msg.get("parts", []) or []:
-            if isinstance(part, dict) and "functionResponse" in part:
-                tool_id = (part.get("functionResponse") or {}).get("id")
-                if tool_id:
-                    tool_results[str(tool_id)] = part
+            if not isinstance(part, dict) or "functionResponse" not in part:
+                continue
+            tool_id = (part.get("functionResponse") or {}).get("id")
+            if tool_id is not None:
+                tool_results[str(tool_id)] = part
 
-    flattened: List[Dict[str, Any]] = []
-    for msg in contents:
-        role = msg.get("role")
-        for part in msg.get("parts", []) or []:
-            flattened.append({"role": role, "parts": [part]})
+    def _emit_call_group(
+        out: List[Dict[str, Any]], call_parts: List[Dict[str, Any]]
+    ) -> None:
+        """输出一组 functionCall + 对应的单个 user functionResponse 回合。"""
+        if not call_parts:
+            return
 
-    new_contents: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(flattened):
-        msg = flattened[i]
-        part = msg["parts"][0]
+        out.append({"role": "model", "parts": list(call_parts)})
 
-        if isinstance(part, dict) and "functionResponse" in part:
-            i += 1
-            continue
+        response_parts: List[Dict[str, Any]] = []
+        for call_part in call_parts:
+            fc = (call_part or {}).get("functionCall") or {}
+            tool_id = fc.get("id")
+            tool_name = fc.get("name")
 
-        if isinstance(part, dict) and "functionCall" in part:
-            tool_id = (part.get("functionCall") or {}).get("id")
-            new_contents.append({"role": "model", "parts": [part]})
+            matched = None
+            if tool_id is not None:
+                matched = tool_results.get(str(tool_id))
 
-            if tool_id is not None and str(tool_id) in tool_results:
-                new_contents.append(
-                    {"role": "user", "parts": [tool_results[str(tool_id)]]}
+            if matched is not None:
+                response_parts.append(matched)
+            else:
+                response_parts.append(
+                    {
+                        "functionResponse": {
+                            "id": tool_id,
+                            "name": tool_name or "unknown_function",
+                            "response": {"result": "no response"},
+                        }
+                    }
                 )
 
-            i += 1
-            continue
+        out.append({"role": "user", "parts": response_parts})
 
-        new_contents.append(msg)
-        i += 1
+    # Pass 2: 逐条消息重组，保持非 tool part 的既有行为（逐 part 输出）
+    new_contents: List[Dict[str, Any]] = []
+    for msg in contents:
+        role = msg.get("role")
+        pending_calls: List[Dict[str, Any]] = []
+
+        for part in msg.get("parts", []) or []:
+            if not isinstance(part, dict):
+                # 与旧逻辑一致：非 dict part 当作普通文本 part 保留
+                if pending_calls:
+                    _emit_call_group(new_contents, pending_calls)
+                    pending_calls = []
+                new_contents.append({"role": role, "parts": [part]})
+                continue
+
+            if "functionResponse" in part:
+                # functionResponse 统一在 call group 后输出
+                continue
+
+            if "functionCall" in part:
+                pending_calls.append(part)
+                continue
+
+            # 普通 part（text/thinking/image/...）维持逐 part 输出
+            if pending_calls:
+                _emit_call_group(new_contents, pending_calls)
+                pending_calls = []
+            new_contents.append({"role": role, "parts": [part]})
+
+        if pending_calls:
+            _emit_call_group(new_contents, pending_calls)
 
     return new_contents
 
