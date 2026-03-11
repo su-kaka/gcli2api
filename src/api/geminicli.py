@@ -17,6 +17,7 @@ import asyncio
 import json
 import random
 import time
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
 import httpx
@@ -45,14 +46,14 @@ from src.utils import GEMINICLI_USER_AGENT
 
 def _extract_gemini_error_info(
     error_text: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Any, Optional[str], bool]:
     """提取 Gemini 错误状态与 ErrorInfo.reason，兼容非标准错误结构。"""
     if not error_text:
-        return None, None
+        return None, None, False
     try:
         error_data = json.loads(error_text)
     except Exception:
-        return None, None
+        return None, None, False
 
     error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
     error_status = error_obj.get("status") if isinstance(error_obj, dict) else None
@@ -68,13 +69,25 @@ def _extract_gemini_error_info(
     merged_message = " ".join([m for m in message_candidates if m]).lower()
 
     reason = None
+    is_daily_quota = False
     if isinstance(details, list):
         for detail in details:
             if not isinstance(detail, dict):
                 continue
             if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                reason = detail.get("reason")
-                if reason:
+                if not reason:
+                    reason = detail.get("reason")
+
+                metadata = detail.get("metadata")
+                if isinstance(metadata, dict):
+                    quota_unit = metadata.get("quota_unit")
+                    quota_limit = metadata.get("quota_limit")
+                    if isinstance(quota_unit, str) and "/d/" in quota_unit:
+                        is_daily_quota = True
+                    if isinstance(quota_limit, str) and "PerDay" in quota_limit:
+                        is_daily_quota = True
+
+                if reason and is_daily_quota:
                     break
 
     # 文本兜底：识别容量耗尽的非标准消息
@@ -85,7 +98,7 @@ def _extract_gemini_error_info(
         ):
             reason = "MODEL_CAPACITY_EXHAUSTED"
 
-    return error_status, reason
+    return error_status, reason, is_daily_quota
 
 
 def _compute_capacity_retry_delay(base_interval: float, attempt: int) -> float:
@@ -568,6 +581,7 @@ async def stream_request(
                         cooldown_until = None
                         error_status = None
                         error_reason = None
+                        is_daily_quota = False
                         if (status_code == 429 or status_code == 503) and error_body:
                             try:
                                 cooldown_until = await parse_and_log_cooldown(
@@ -575,9 +589,11 @@ async def stream_request(
                                 )
                             except Exception:
                                 pass
-                            error_status, error_reason = _extract_gemini_error_info(
-                                error_body
-                            )
+                            (
+                                error_status,
+                                error_reason,
+                                is_daily_quota,
+                            ) = _extract_gemini_error_info(error_body)
 
                         # 429 MODEL_CAPACITY_EXHAUSTED 视为容量拥塞，不保留同一凭证立即重试
                         is_model_capacity_exhausted = (
@@ -591,6 +607,7 @@ async def stream_request(
                             and (status_code == 429 or status_code == 503)
                             and cooldown_until is None
                             and not is_model_capacity_exhausted
+                            and not is_daily_quota
                         ):
                             keep_current_credential = True
                         elif next_cred_task is None and attempt < max_retries:
@@ -605,6 +622,17 @@ async def stream_request(
                             cooldown_until = (
                                 time.time()
                                 + _compute_capacity_retry_delay(retry_interval, attempt)
+                            )
+
+                        # 日配额错误缺少冷却时间时，回退到下一个 UTC 零点
+                        if is_daily_quota and cooldown_until is None:
+                            next_midnight_utc = datetime.now(timezone.utc).replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            ) + timedelta(days=1)
+                            cooldown_until = next_midnight_utc.timestamp()
+                            log.warning(
+                                "[GEMINICLI STREAM] 日配额429缺少冷却时间，回退到下一个UTC午夜: "
+                                f"{next_midnight_utc.isoformat()}"
                             )
 
                         # 无cd的429/503保留当前凭证重试，无需记录错误
@@ -1091,6 +1119,7 @@ async def non_stream_request(
                 cooldown_until = None
                 error_status = None
                 error_reason = None
+                is_daily_quota = False
                 if (status_code == 429 or status_code == 503) and error_text:
                     try:
                         cooldown_until = await parse_and_log_cooldown(
@@ -1098,7 +1127,11 @@ async def non_stream_request(
                         )
                     except Exception:
                         pass
-                    error_status, error_reason = _extract_gemini_error_info(error_text)
+                    (
+                        error_status,
+                        error_reason,
+                        is_daily_quota,
+                    ) = _extract_gemini_error_info(error_text)
 
                 is_model_capacity_exhausted = (
                     status_code == 429 and error_reason == "MODEL_CAPACITY_EXHAUSTED"
@@ -1109,6 +1142,7 @@ async def non_stream_request(
                     and (status_code == 429 or status_code == 503)
                     and cooldown_until is None
                     and not is_model_capacity_exhausted
+                    and not is_daily_quota
                 )
 
                 # 对于没有触发cd且非容量耗尽的429错误，不预热新凭证
@@ -1125,6 +1159,16 @@ async def non_stream_request(
                 if is_model_capacity_exhausted and cooldown_until is None:
                     cooldown_until = time.time() + _compute_capacity_retry_delay(
                         retry_interval, attempt
+                    )
+
+                # 日配额错误缺少冷却时间时，回退到下一个 UTC 零点
+                if is_daily_quota and cooldown_until is None:
+                    next_midnight_utc = datetime.now(timezone.utc).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    ) + timedelta(days=1)
+                    cooldown_until = next_midnight_utc.timestamp()
+                    log.warning(
+                        f"[NON-STREAM] 日配额429缺少冷却时间，回退到下一个UTC午夜: {next_midnight_utc.isoformat()}"
                     )
 
                 # 无cd的429/503保留当前凭证重试，无需记录错误

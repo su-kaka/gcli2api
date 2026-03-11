@@ -5,7 +5,9 @@ Base API Client - 共用的 API 客户端基础功能
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import re
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Response
@@ -503,6 +505,33 @@ async def collect_streaming_response(stream_generator) -> Response:
     )
 
 
+def _parse_duration_string(duration_str: str) -> Optional[float]:
+    """Parse Go-style duration strings (e.g. 13h19m1.209s) to seconds."""
+    if not isinstance(duration_str, str):
+        return None
+
+    value = duration_str.strip()
+    if not value:
+        return None
+
+    match = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", value)
+    if not match:
+        return None
+
+    hours_str, minutes_str, seconds_str = match.groups()
+    if hours_str is None and minutes_str is None and seconds_str is None:
+        return None
+
+    try:
+        hours = int(hours_str) if hours_str is not None else 0
+        minutes = int(minutes_str) if minutes_str is not None else 0
+        seconds = float(seconds_str) if seconds_str is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+
+    return float(hours * 3600 + minutes * 60) + seconds
+
+
 def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     """
     从Google API错误响应中提取quota重置时间戳
@@ -534,22 +563,67 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     """
     try:
         details = error_response.get("error", {}).get("details", [])
+        if not isinstance(details, list):
+            return None
+
+        parsed_delay_seconds: Optional[float] = None
+        has_daily_quota = False
 
         for detail in details:
-            if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                reset_timestamp_str = detail.get("metadata", {}).get(
-                    "quotaResetTimeStamp"
-                )
+            if not isinstance(detail, dict):
+                continue
+            if detail.get("@type") != "type.googleapis.com/google.rpc.ErrorInfo":
+                continue
 
-                if reset_timestamp_str:
-                    if reset_timestamp_str.endswith("Z"):
-                        reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
+            metadata = detail.get("metadata", {})
+            if not isinstance(metadata, dict):
+                continue
 
-                    reset_dt = datetime.fromisoformat(reset_timestamp_str)
+            # Priority 1: explicit quota reset timestamp
+            reset_timestamp_str = metadata.get("quotaResetTimeStamp")
+            if isinstance(reset_timestamp_str, str) and reset_timestamp_str.strip():
+                ts_value = reset_timestamp_str.strip()
+                if ts_value.endswith("Z"):
+                    ts_value = ts_value.replace("Z", "+00:00")
+
+                try:
+                    reset_dt = datetime.fromisoformat(ts_value)
                     if reset_dt.tzinfo is None:
                         reset_dt = reset_dt.replace(tzinfo=timezone.utc)
-
                     return reset_dt.astimezone(timezone.utc).timestamp()
+                except Exception:
+                    # Ignore malformed timestamp and keep trying fallbacks
+                    pass
+
+            # Priority 2: relative reset delay
+            if parsed_delay_seconds is None:
+                reset_delay = metadata.get("quotaResetDelay")
+                if isinstance(reset_delay, str):
+                    parsed_delay_seconds = _parse_duration_string(reset_delay)
+
+            # Priority 3: daily quota detection
+            quota_unit = metadata.get("quota_unit")
+            quota_limit = metadata.get("quota_limit")
+            if (
+                isinstance(quota_unit, str)
+                and "/d/" in quota_unit
+                or isinstance(quota_limit, str)
+                and "PerDay" in quota_limit
+            ):
+                has_daily_quota = True
+
+        if parsed_delay_seconds is not None:
+            return time.time() + parsed_delay_seconds
+
+        if has_daily_quota:
+            now_utc = datetime.now(timezone.utc)
+            next_midnight_utc = (now_utc + timedelta(days=1)).replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            return next_midnight_utc.timestamp()
 
         return None
 
