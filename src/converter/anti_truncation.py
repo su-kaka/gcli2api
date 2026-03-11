@@ -135,8 +135,18 @@ def apply_anti_truncation(payload: Dict[str, Any]) -> Dict[str, Any]:
     modified_payload = apply_regex_replacements_to_payload(payload)
     request_data = modified_payload.get("request", {})
 
+    # 统一 systemInstruction 字段命名，避免 oneof 字段重复写入
+    system_instruction = request_data.get("systemInstruction")
+    for alias_key in ("system_instruction", "system_instructions"):
+        alias_value = request_data.pop(alias_key, None)
+        if (not system_instruction) and alias_value:
+            system_instruction = alias_value
+
     # 获取或创建systemInstruction
-    system_instruction = request_data.get("systemInstruction", {})
+    if system_instruction:
+        request_data["systemInstruction"] = system_instruction
+    else:
+        system_instruction = {}
     if not system_instruction:
         system_instruction = {"parts": []}
     elif "parts" not in system_instruction:

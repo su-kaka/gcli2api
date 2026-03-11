@@ -54,6 +54,8 @@ asyncio_mode = "auto"
 addopts = [
     "-v",
     "--strict-markers",
+    "--ignore=gpt4free_source",
+    "--ignore=temp",
 ]
 
 [tool.black]
