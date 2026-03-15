@@ -440,6 +440,9 @@ async def collect_streaming_response(stream_generator) -> Response:
     )
 
 
+RESOURCE_EXHAUSTED_COOLDOWN_HOURS = 12  # RESOURCE_EXHAUSTED 错误的默认冷却时间（小时）
+
+
 def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     """
     从Google API错误响应中提取quota重置时间戳
@@ -470,7 +473,8 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     }
     """
     try:
-        details = error_response.get("error", {}).get("details", [])
+        error_obj = error_response.get("error", {})
+        details = error_obj.get("details", [])
 
         for detail in details:
             if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
@@ -485,6 +489,15 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
                         reset_dt = reset_dt.replace(tzinfo=timezone.utc)
 
                     return reset_dt.astimezone(timezone.utc).timestamp()
+
+        # 如果是 RESOURCE_EXHAUSTED 错误且消息完全匹配，设置默认12小时冷却时间
+        if (
+            error_obj.get("status") == "RESOURCE_EXHAUSTED"
+            and error_obj.get("message") == "Resource has been exhausted (e.g. check quota)."
+        ):
+            import time
+            cooldown_until = time.time() + RESOURCE_EXHAUSTED_COOLDOWN_HOURS * 3600
+            return cooldown_until
 
         return None
 
