@@ -1,4 +1,4 @@
-full_hash=191ef8d63cf811df91551ac69b343e90f7688678
-short_hash=191ef8d
-message=对于"Resource has been exhausted (e.g. check quota)."设置12h冷却 避免一直重试
-date=2026-03-15 20:54:07 +0800
+full_hash=6d4b2fa0706712670fbd2086dc60a19fcb711270
+short_hash=6d4b2fa
+message=Update utils.py
+date=2026-03-16 19:03:43 +0800
