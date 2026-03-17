@@ -1,4 +1,4 @@
-full_hash=6d4b2fa0706712670fbd2086dc60a19fcb711270
-short_hash=6d4b2fa
-message=Update utils.py
-date=2026-03-16 19:03:43 +0800
+full_hash=9b634846321dbf84d7d21b328f99a6d8a9752b44
+short_hash=9b63484
+message=更新 termux-start.sh
+date=2026-03-17 16:16:25 +0800
