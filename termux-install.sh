@@ -149,7 +149,6 @@ git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 if [ ! -d ".venv" ]; then
     echo "创建虚拟环境..."
     rm pyproject.toml
-    uv python pin 3.12
     uv init
     uv venv
 else
