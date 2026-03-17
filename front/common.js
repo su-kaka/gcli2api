@@ -1643,7 +1643,7 @@ async function testCredential(filename) {
         // 解析JSON响应
         const data = await response.json();
 
-        if (response.status === 200 || response.status === 429) {
+        if (response.status === 200) {
             // 凭证可用
             const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: ${data.message || '凭证可用'} (${data.status_code || 200})`;
             showStatus('✅ 测试成功！', 'success');
@@ -1691,7 +1691,7 @@ async function testAntigravityCredential(filename) {
         // 解析JSON响应
         const data = await response.json();
 
-        if (response.status === 200 || response.status === 429) {
+        if (response.status === 200) {
             // 凭证可用
             const successMsg = `✅ 测试成功！\n文件: ${filename}\n状态: ${data.message || 'Antigravity凭证可用'} (${data.status_code || 200})`;
             showStatus('✅ 测试成功！', 'success');
