@@ -148,6 +148,11 @@ git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 # 只在不存在时创建
 if [ ! -d ".venv" ]; then
     echo "创建虚拟环境..."
+    PYTHON_VERSION=$(python -V 2>&1 | grep -oP '\d+\.\d+' | head -1)
+    if [ -n "$PYTHON_VERSION" ]; then
+        echo "检测到 Python $PYTHON_VERSION，固定版本..."
+        uv python pin "$PYTHON_VERSION"
+    fi
     rm pyproject.toml
     uv init
     uv venv
