@@ -1,4 +1,4 @@
-full_hash=9b634846321dbf84d7d21b328f99a6d8a9752b44
-short_hash=9b63484
-message=更新 termux-start.sh
-date=2026-03-17 16:16:25 +0800
+full_hash=1869bcfbef09fbde9ce0798378425a24bb6bff42
+short_hash=1869bcf
+message=更新 termux-install.sh
+date=2026-03-17 16:16:48 +0800
