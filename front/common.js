@@ -3155,13 +3155,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 function autoSetKeepaliveUrl() {
-    const host = window.location.hostname;
-    const match = host.match(/^([\w-]+)\.onrender\.com$/);
-    if (match) {
-        const appName = match[1];
-        const url = `https://render-keeplive.sukaka.top/${appName}`;
-        document.getElementById('keepaliveUrl').value = url;
-    } else {
-        alert('未检测到 Render 域名（*.onrender.com），无法自动设置保活 URL。');
-    }
+    const url = `${window.location.protocol}//${window.location.host}`;
+    document.getElementById('keepaliveUrl').value = url;
 }
