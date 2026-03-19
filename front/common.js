@@ -1588,11 +1588,12 @@ async function verifyProjectId(filename) {
 
         if (response.ok && data.success) {
             // 成功时显示绿色成功消息和Project ID
-            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`;
+            const tierLine = data.subscription_tier ? `\nTier: ${data.subscription_tier}` : '';
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
 
             // 弹出成功提示
-            showMessageModal('检验成功', `✅ 检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`, 'success');
+            showMessageModal('检验成功', `✅ 检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`, 'success');
 
             await AppState.creds.refresh();
         } else {
@@ -1621,11 +1622,12 @@ async function verifyAntigravityProjectId(filename) {
 
         if (response.ok && data.success) {
             // 成功时显示绿色成功消息和Project ID
-            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`;
+            const tierLine = data.subscription_tier ? `\nTier: ${data.subscription_tier}` : '';
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
 
             // 弹出成功提示
-            showMessageModal('检验成功', `✅ Antigravity检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}\n\n${data.message}`, 'success');
+            showMessageModal('检验成功', `✅ Antigravity检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`, 'success');
 
             await AppState.antigravityCreds.refresh();
         } else {

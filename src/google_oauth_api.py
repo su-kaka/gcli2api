@@ -555,11 +555,34 @@ async def fetch_project_id_and_tier(
         'Accept-Encoding': 'gzip'
     }
 
+    def _map_raw_tier(raw_tier: Optional[str]) -> Optional[str]:
+        """将 loadCodeAssist 返回的 raw tier 映射为统一 tier。"""
+        if not raw_tier:
+            return None
+
+        tier_mapping = {
+            "g1-ultra-tier": "ultra",
+            "ws-ai-ultra-business-tier": "ultra",
+            "g1-pro-tier": "pro",
+            "helium-tier": "pro",
+            "standard-tier": "pro",
+            "free-tier": "free",
+        }
+
+        return tier_mapping.get(raw_tier.lower(), "pro")
+
     subscription_tier = None
 
     # 步骤 1: 尝试 loadCodeAssist
     try:
-        project_id, subscription_tier = await _try_load_code_assist(api_base_url, headers)
+        project_id, raw_tier = await _try_load_code_assist(api_base_url, headers)
+        subscription_tier = _map_raw_tier(raw_tier)
+
+        if raw_tier:
+            log.info(
+                f"[fetch_project_id_and_tier] Raw tier '{raw_tier}' mapped to '{subscription_tier}'"
+            )
+
         if project_id:
             return project_id, subscription_tier
 

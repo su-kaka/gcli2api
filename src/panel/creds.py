@@ -558,8 +558,6 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
 
     if project_id:
         credential_data["project_id"] = project_id
-    if subscription_tier:
-        credential_data["subscription_tier"] = subscription_tier
 
     if project_id or subscription_tier:
         await storage_adapter.store_credential(filename, credential_data, mode=mode)
@@ -569,6 +567,9 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
             "disabled": False,
             "error_codes": []
         }
+
+        # 同步更新状态表中的 tier 字段
+        state_update["tier"] = subscription_tier
 
         # 如果是 geminicli 模式，直接设置 preview=True
         if mode == "geminicli":

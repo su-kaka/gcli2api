@@ -66,9 +66,6 @@ def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: s
             "project_id": project_id,
         }
 
-    if subscription_tier:
-        creds_data["subscription_tier"] = subscription_tier
-
     if credentials.expires_at:
         if credentials.expires_at.tzinfo is None:
             expiry_utc = credentials.expires_at.replace(tzinfo=timezone.utc)
@@ -1000,6 +997,7 @@ async def save_credentials(creds: Credentials, project_id: str, mode: str = "gem
                 "disabled": False,
                 "last_success": time.time(),
                 "user_email": None,
+                "tier": subscription_tier,
             }
             await storage_adapter.update_credential_state(filename, default_state, mode=mode)
             log.info(f"凭证和状态已保存到: {filename} (mode={mode})")
