@@ -3,15 +3,13 @@
 """
 
 import asyncio
-import json
-import secrets
 import socket
 import threading
 import time
 import uuid
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
 from config import get_config_value, get_antigravity_api_url, get_code_assist_endpoint
@@ -21,7 +19,7 @@ from .google_oauth_api import (
     Credentials,
     Flow,
     enable_required_apis,
-    fetch_project_id,
+    fetch_project_id_and_tier,
     get_user_projects,
     select_default_project,
 )
@@ -45,7 +43,7 @@ async def get_callback_port():
     return int(await get_config_value("oauth_callback_port", "11451", "OAUTH_CALLBACK_PORT"))
 
 
-def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: str = "geminicli") -> Dict[str, Any]:
+def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: str = "geminicli", subscription_tier: str = None) -> Dict[str, Any]:
     """准备凭证数据字典（统一函数）"""
     if mode == "antigravity":
         creds_data = {
@@ -67,6 +65,9 @@ def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: s
             "token_uri": TOKEN_URL,
             "project_id": project_id,
         }
+
+    if subscription_tier:
+        creds_data["subscription_tier"] = subscription_tier
 
     if credentials.expires_at:
         if credentials.expires_at.tzinfo is None:
@@ -677,23 +678,23 @@ async def asyncio_complete_auth_flow(
                     log.info("Antigravity模式：从API获取project_id...")
                     # 使用API获取project_id
                     antigravity_url = await get_antigravity_api_url()
-                    project_id = await fetch_project_id(
+                    project_id, subscription_tier = await fetch_project_id_and_tier(
                         credentials.access_token,
                         ANTIGRAVITY_USER_AGENT,
                         antigravity_url
                     )
                     if project_id:
-                        log.info(f"成功从API获取project_id: {project_id}")
+                        log.info(f"成功从API获取project_id: {project_id}, tier: {subscription_tier}")
                     else:
                         log.warning("无法从API获取project_id，回退到随机生成")
                         project_id = _generate_random_project_id()
                         log.info(f"生成的随机project_id: {project_id}")
 
                     # 保存antigravity凭证
-                    saved_filename = await save_credentials(credentials, project_id, mode="antigravity")
+                    saved_filename = await save_credentials(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
 
                     # 准备返回的凭证数据
-                    creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity")
+                    creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
 
                     # 清理使用过的流程
                     _cleanup_auth_flow_server(state)
@@ -712,7 +713,7 @@ async def asyncio_complete_auth_flow(
                     log.info("标准模式：从API获取project_id...")
                     # 使用API获取project_id（使用标准模式的User-Agent）
                     code_assist_url = await get_code_assist_endpoint()
-                    project_id = await fetch_project_id(
+                    project_id, subscription_tier = await fetch_project_id_and_tier(
                         credentials.access_token,
                         GEMINICLI_USER_AGENT,
                         code_assist_url
@@ -855,23 +856,23 @@ async def complete_auth_flow_from_callback_url(
                 log.info("Antigravity模式（从回调URL）：从API获取project_id...")
                 # 使用API获取project_id
                 antigravity_url = await get_antigravity_api_url()
-                project_id = await fetch_project_id(
+                project_id, subscription_tier = await fetch_project_id_and_tier(
                     credentials.access_token,
                     ANTIGRAVITY_USER_AGENT,
                     antigravity_url
                 )
                 if project_id:
-                    log.info(f"成功从API获取project_id: {project_id}")
+                    log.info(f"成功从API获取project_id: {project_id}, tier: {subscription_tier}")
                 else:
                     log.warning("无法从API获取project_id，回退到随机生成")
                     project_id = _generate_random_project_id()
                     log.info(f"生成的随机project_id: {project_id}")
 
                 # 保存antigravity凭证
-                saved_filename = await save_credentials(credentials, project_id, mode="antigravity")
+                saved_filename = await save_credentials(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
 
                 # 准备返回的凭证数据
-                creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity")
+                creds_data = _prepare_credentials_data(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
 
                 # 清理使用过的流程
                 _cleanup_auth_flow_server(state)
@@ -890,18 +891,18 @@ async def complete_auth_flow_from_callback_url(
             auto_detected = False
 
             if not project_id:
-                # 尝试使用fetch_project_id自动获取项目ID
+                # 尝试使用fetch_project_id_and_tier自动获取项目ID
                 try:
                     log.info("标准模式：从API获取project_id...")
                     code_assist_url = await get_code_assist_endpoint()
-                    detected_project_id = await fetch_project_id(
+                    detected_project_id, subscription_tier = await fetch_project_id_and_tier(
                         credentials.access_token,
                         GEMINICLI_USER_AGENT,
                         code_assist_url
                     )
                     if detected_project_id:
                         auto_detected = True
-                        log.info(f"成功从API获取project_id: {detected_project_id}")
+                        log.info(f"成功从API获取project_id: {detected_project_id}, tier: {subscription_tier}")
                     else:
                         log.warning("无法从API获取project_id，回退到项目列表获取方式")
                         # 回退到原来的项目列表获取方式
@@ -948,10 +949,10 @@ async def complete_auth_flow_from_callback_url(
                     log.warning(f"启用API服务失败: {e}")
 
             # 保存凭证
-            saved_filename = await save_credentials(credentials, detected_project_id)
+            saved_filename = await save_credentials(credentials, detected_project_id, subscription_tier=subscription_tier)
 
             # 准备返回的凭证数据
-            creds_data = _prepare_credentials_data(credentials, detected_project_id, mode="geminicli")
+            creds_data = _prepare_credentials_data(credentials, detected_project_id, mode="geminicli", subscription_tier=subscription_tier)
 
             # 清理使用过的流程
             _cleanup_auth_flow_server(state)
@@ -973,7 +974,7 @@ async def complete_auth_flow_from_callback_url(
         return {"success": False, "error": str(e)}
 
 
-async def save_credentials(creds: Credentials, project_id: str, mode: str = "geminicli") -> str:
+async def save_credentials(creds: Credentials, project_id: str, mode: str = "geminicli", subscription_tier: str = None) -> str:
     """通过统一存储系统保存凭证"""
     # 生成文件名（使用project_id和时间戳）
     timestamp = int(time.time())
@@ -985,7 +986,7 @@ async def save_credentials(creds: Credentials, project_id: str, mode: str = "gem
         filename = f"{project_id}-{timestamp}.json"
 
     # 准备凭证数据
-    creds_data = _prepare_credentials_data(creds, project_id, mode)
+    creds_data = _prepare_credentials_data(creds, project_id, mode, subscription_tier)
 
     # 通过存储适配器保存
     storage_adapter = await get_storage_adapter()
@@ -1113,130 +1114,3 @@ async def verify_password(password: str) -> bool:
 
     correct_password = await get_panel_password()
     return password == correct_password
-
-
-def generate_auth_token() -> str:
-    """生成认证令牌"""
-    # 清理过期令牌
-    cleanup_expired_tokens()
-
-    token = secrets.token_urlsafe(32)
-    # 只存储创建时间
-    auth_tokens[token] = time.time()
-    return token
-
-
-def verify_auth_token(token: str) -> bool:
-    """验证认证令牌"""
-    if not token or token not in auth_tokens:
-        return False
-
-    created_at = auth_tokens[token]
-
-    # 检查令牌是否过期 (使用更短的过期时间)
-    if time.time() - created_at > TOKEN_EXPIRY:
-        del auth_tokens[token]
-        return False
-
-    return True
-
-
-def cleanup_expired_tokens():
-    """清理过期的认证令牌"""
-    current_time = time.time()
-    expired_tokens = [
-        token
-        for token, created_at in auth_tokens.items()
-        if current_time - created_at > TOKEN_EXPIRY
-    ]
-
-    for token in expired_tokens:
-        del auth_tokens[token]
-
-    if expired_tokens:
-        log.debug(f"清理了 {len(expired_tokens)} 个过期的认证令牌")
-
-
-def invalidate_auth_token(token: str):
-    """使认证令牌失效"""
-    if token in auth_tokens:
-        del auth_tokens[token]
-
-
-# 文件验证和处理功能 - 使用统一存储系统
-def validate_credential_content(content: str) -> Dict[str, Any]:
-    """验证凭证内容格式"""
-    try:
-        creds_data = json.loads(content)
-
-        # 检查必要字段
-        required_fields = ["client_id", "client_secret", "refresh_token", "token_uri"]
-        missing_fields = [field for field in required_fields if field not in creds_data]
-
-        if missing_fields:
-            return {"valid": False, "error": f'缺少必要字段: {", ".join(missing_fields)}'}
-
-        # 检查project_id
-        if "project_id" not in creds_data:
-            log.warning("认证文件缺少project_id字段")
-
-        return {"valid": True, "data": creds_data}
-
-    except json.JSONDecodeError as e:
-        return {"valid": False, "error": f"JSON格式错误: {str(e)}"}
-    except Exception as e:
-        return {"valid": False, "error": f"文件验证失败: {str(e)}"}
-
-
-async def save_uploaded_credential(content: str, original_filename: str) -> Dict[str, Any]:
-    """通过统一存储系统保存上传的凭证"""
-    try:
-        # 验证内容格式
-        validation = validate_credential_content(content)
-        if not validation["valid"]:
-            return {"success": False, "error": validation["error"]}
-
-        creds_data = validation["data"]
-
-        # 生成文件名
-        project_id = creds_data.get("project_id", "unknown")
-        timestamp = int(time.time())
-
-        # 从原文件名中提取有用信息
-        import os
-
-        base_name = os.path.splitext(original_filename)[0]
-        filename = f"{base_name}-{timestamp}.json"
-
-        # 通过存储适配器保存
-        storage_adapter = await get_storage_adapter()
-        success = await storage_adapter.store_credential(filename, creds_data)
-
-        if success:
-            log.info(f"凭证文件已上传保存: {filename}")
-            return {"success": True, "file_path": filename, "project_id": project_id}
-        else:
-            return {"success": False, "error": "保存到存储系统失败"}
-
-    except Exception as e:
-        log.error(f"保存上传文件失败: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def batch_upload_credentials(files_data: List[Dict[str, str]]) -> Dict[str, Any]:
-    """批量上传凭证文件到统一存储系统"""
-    results = []
-    success_count = 0
-
-    for file_data in files_data:
-        filename = file_data.get("filename", "unknown.json")
-        content = file_data.get("content", "")
-
-        result = await save_uploaded_credential(content, filename)
-        result["filename"] = filename
-        results.append(result)
-
-        if result["success"]:
-            success_count += 1
-
-    return {"uploaded_count": success_count, "total_count": len(files_data), "results": results}

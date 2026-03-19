@@ -5,7 +5,7 @@ Google OAuth2 认证模块
 import time
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import jwt
@@ -531,13 +531,13 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
     return project_id
 
 
-async def fetch_project_id(
+async def fetch_project_id_and_tier(
     access_token: str,
     user_agent: str,
     api_base_url: str
-) -> Optional[str]:
+) -> Tuple[Optional[str], Optional[str]]:
     """
-    从 API 获取 project_id，如果 loadCodeAssist 失败则回退到 onboardUser
+    从 API 获取 project_id 和订阅等级
 
     Args:
         access_token: Google OAuth access token
@@ -545,7 +545,8 @@ async def fetch_project_id(
         api_base_url: API base URL (e.g., antigravity or code assist endpoint)
 
     Returns:
-        project_id 字符串，如果获取失败返回 None
+        (project_id, subscription_tier) 元组
+        subscription_tier 可能是 "FREE", "PRO", "ULTRA" 或 None
     """
     headers = {
         'User-Agent': user_agent,
@@ -554,50 +555,51 @@ async def fetch_project_id(
         'Accept-Encoding': 'gzip'
     }
 
+    subscription_tier = None
+
     # 步骤 1: 尝试 loadCodeAssist
     try:
-        project_id = await _try_load_code_assist(api_base_url, headers)
+        project_id, subscription_tier = await _try_load_code_assist(api_base_url, headers)
         if project_id:
-            return project_id
+            return project_id, subscription_tier
 
-        log.warning("[fetch_project_id] loadCodeAssist did not return project_id, falling back to onboardUser")
+        log.warning("[fetch_project_id_and_tier] loadCodeAssist did not return project_id, falling back to onboardUser")
 
     except Exception as e:
-        log.warning(f"[fetch_project_id] loadCodeAssist failed: {type(e).__name__}: {e}")
-        log.warning("[fetch_project_id] Falling back to onboardUser")
+        log.warning(f"[fetch_project_id_and_tier] loadCodeAssist failed: {type(e).__name__}: {e}")
+        log.warning("[fetch_project_id_and_tier] Falling back to onboardUser")
 
     # 步骤 2: 回退到 onboardUser
     try:
         project_id = await _try_onboard_user(api_base_url, headers)
         if project_id:
-            return project_id
+            return project_id, subscription_tier
 
-        log.error("[fetch_project_id] Failed to get project_id from both loadCodeAssist and onboardUser")
-        return None
+        log.error("[fetch_project_id_and_tier] Failed to get project_id from both loadCodeAssist and onboardUser")
+        return None, subscription_tier
 
     except Exception as e:
-        log.error(f"[fetch_project_id] onboardUser failed: {type(e).__name__}: {e}")
+        log.error(f"[fetch_project_id_and_tier] onboardUser failed: {type(e).__name__}: {e}")
         import traceback
-        log.debug(f"[fetch_project_id] Traceback: {traceback.format_exc()}")
-        return None
+        log.debug(f"[fetch_project_id_and_tier] Traceback: {traceback.format_exc()}")
+        return None, subscription_tier
 
 
 async def _try_load_code_assist(
     api_base_url: str,
     headers: dict
-) -> Optional[str]:
+) -> Tuple[Optional[str], Optional[str]]:
     """
-    尝试通过 loadCodeAssist 获取 project_id
+    尝试通过 loadCodeAssist 获取 project_id 和订阅等级
 
     Returns:
-        project_id 或 None
+        (project_id, subscription_tier) 元组
+        subscription_tier 可能是 "FREE", "PRO", "ULTRA" 或 None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
         "metadata": {
-            "ideType": "ANTIGRAVITY",
-            "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
+            "ideType": "ANTIGRAVITY"
         }
     }
 
@@ -620,22 +622,34 @@ async def _try_load_code_assist(
         data = response.json()
         log.debug(f"[loadCodeAssist] Response JSON keys: {list(data.keys())}")
 
+        # 提取订阅等级 - 优先使用 paidTier（更准确反映实际权益）
+        paid_tier = data.get("paidTier", {})
+        current_tier = data.get("currentTier", {})
+
+        # paidTier.id 优先，然后是 currentTier.id
+        subscription_tier = None
+        if isinstance(paid_tier, dict) and paid_tier.get("id"):
+            subscription_tier = paid_tier.get("id")
+            log.info(f"[loadCodeAssist] Found paidTier: {subscription_tier}")
+        elif isinstance(current_tier, dict) and current_tier.get("id"):
+            subscription_tier = current_tier.get("id")
+            log.info(f"[loadCodeAssist] Found currentTier: {subscription_tier}")
+
         # 检查是否有 currentTier（表示用户已激活）
-        current_tier = data.get("currentTier")
         if current_tier:
             log.info("[loadCodeAssist] User is already activated")
 
             # 使用服务器返回的 project_id
             project_id = data.get("cloudaicompanionProject")
             if project_id:
-                log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}")
-                return project_id
+                log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}, tier: {subscription_tier}")
+                return project_id, subscription_tier
 
             log.warning("[loadCodeAssist] No project_id in response")
-            return None
+            return None, subscription_tier
         else:
             log.info("[loadCodeAssist] User not activated yet (no currentTier)")
-            return None
+            return None, None
     else:
         log.warning(f"[loadCodeAssist] Failed: HTTP {response.status_code}")
         log.warning(f"[loadCodeAssist] Response body: {response.text[:500]}")

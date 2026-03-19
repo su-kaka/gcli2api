@@ -1318,16 +1318,32 @@
             <div id="manageTab" class="tab-content">
                 <h3>凭证文件管理</h3>
                 <p>管理所有认证文件，查看状态和执行操作</p>
-                <div style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
+                <div
+                    style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
                     <strong>📡 API地址（点击复制）：</strong>
                     <table style="margin-top:6px;border-collapse:collapse;width:100%;">
-                        <tr><td style="color:#666;width:90px;">OpenAI格式</td><td><code id="mGcliOpenaiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
-                        <tr><td style="color:#666;">Claude格式</td><td><code id="mGcliClaudeUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
-                        <tr><td style="color:#666;">Gemini格式</td><td><code id="mGcliGeminiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr>
+                            <td style="color:#666;width:90px;">OpenAI格式</td>
+                            <td><code id="mGcliOpenaiUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="color:#666;">Claude格式</td>
+                            <td><code id="mGcliClaudeUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="color:#666;">Gemini格式</td>
+                            <td><code id="mGcliGeminiUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
                     </table>
                     <script>
-                        (function(){var mo=window.location.origin;document.getElementById('mGcliOpenaiUrl').textContent=mo+'/v1';document.getElementById('mGcliClaudeUrl').textContent=mo+'/v1';document.getElementById('mGcliGeminiUrl').textContent=mo;})();
-                        function cpUrl(el){navigator.clipboard.writeText(el.textContent).then(function(){var s=el.style.background;el.style.background='#b7f0b7';setTimeout(function(){el.style.background=s;},800);});}
+                        (function () { var mo = window.location.origin; document.getElementById('mGcliOpenaiUrl').textContent = mo + '/v1'; document.getElementById('mGcliClaudeUrl').textContent = mo + '/v1'; document.getElementById('mGcliGeminiUrl').textContent = mo; })();
+                        function cpUrl(el) { navigator.clipboard.writeText(el.textContent).then(function () { var s = el.style.background; el.style.background = '#b7f0b7'; setTimeout(function () { el.style.background = s; }, 800); }); }
                     </script>
                 </div>
 
@@ -1441,6 +1457,16 @@
                         </select>
                     </div>
 
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="tierFilter">Tier：</label>
+                        <select id="tierFilter" onchange="applyStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="free">Free</option>
+                            <option value="pro">Pro</option>
+                            <option value="ultra">Ultra</option>
+                        </select>
+                    </div>
+
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="pageSizeSelect">每页显示：</label>
                         <select id="pageSizeSelect" onchange="changePageSize()">
@@ -1487,15 +1513,31 @@
             <div id="antigravity-manageTab" class="tab-content">
                 <h3>Antigravity凭证文件管理</h3>
                 <p>管理所有Antigravity认证文件，查看状态和执行操作</p>
-                <div style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
+                <div
+                    style="background:#f0f7ff;border:1px solid #b8d4f0;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">
                     <strong>📡 API地址（点击复制）：</strong>
                     <table style="margin-top:6px;border-collapse:collapse;width:100%;">
-                        <tr><td style="color:#666;width:90px;">OpenAI格式</td><td><code id="mAntOpenaiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
-                        <tr><td style="color:#666;">Claude格式</td><td><code id="mAntClaudeUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
-                        <tr><td style="color:#666;">Gemini格式</td><td><code id="mAntGeminiUrl" onclick="cpUrl(this)" title="点击复制" style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code></td></tr>
+                        <tr>
+                            <td style="color:#666;width:90px;">OpenAI格式</td>
+                            <td><code id="mAntOpenaiUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="color:#666;">Claude格式</td>
+                            <td><code id="mAntClaudeUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="color:#666;">Gemini格式</td>
+                            <td><code id="mAntGeminiUrl" onclick="cpUrl(this)" title="点击复制"
+                                    style="background:#e8f0fe;padding:2px 6px;border-radius:3px;cursor:pointer;"></code>
+                            </td>
+                        </tr>
                     </table>
                     <script>
-                        (function(){var mo2=window.location.origin;document.getElementById('mAntOpenaiUrl').textContent=mo2+'/antigravity/v1';document.getElementById('mAntClaudeUrl').textContent=mo2+'/antigravity/v1';document.getElementById('mAntGeminiUrl').textContent=mo2+'/antigravity';})();
+                        (function () { var mo2 = window.location.origin; document.getElementById('mAntOpenaiUrl').textContent = mo2 + '/antigravity/v1'; document.getElementById('mAntClaudeUrl').textContent = mo2 + '/antigravity/v1'; document.getElementById('mAntGeminiUrl').textContent = mo2 + '/antigravity'; })();
                     </script>
                 </div>
 
@@ -1595,6 +1637,16 @@
                             <option value="all">全部</option>
                             <option value="in_cooldown">CD中</option>
                             <option value="no_cooldown">未CD</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label for="antigravityTierFilter">Tier：</label>
+                        <select id="antigravityTierFilter" onchange="applyAntigravityStatusFilter()">
+                            <option value="all">全部</option>
+                            <option value="free">Free</option>
+                            <option value="pro">Pro</option>
+                            <option value="ultra">Ultra</option>
                         </select>
                     </div>
 
@@ -1895,14 +1947,18 @@
                                 <label for="keepaliveUrl">保活 URL:</label>
                                 <input type="text" id="keepaliveUrl"
                                     placeholder="留空则不启用，例如: https://your-app.example.com/keepalive" />
-                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">配置后服务会定期向该 URL 发送 GET 请求以保持在线；留空则禁用保活 ✓ 支持热更新</small>
-                                <button type="button" onclick="autoSetKeepaliveUrl()" style="margin-top:6px; padding:4px 12px; font-size:13px; cursor:pointer;">一键设置保活</button>
+                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">配置后服务会定期向该
+                                    URL 发送 GET 请求以保持在线；留空则禁用保活 ✓ 支持热更新</small>
+                                <button type="button" onclick="autoSetKeepaliveUrl()"
+                                    style="margin-top:6px; padding:4px 12px; font-size:13px; cursor:pointer;">一键设置保活</button>
                             </div>
 
                             <div class="form-group">
                                 <label for="keepaliveInterval">保活间隔 (秒):</label>
                                 <input type="number" id="keepaliveInterval" min="5" max="86400" />
-                                <small style="display: block; color: #666; font-size: 12px; margin-top: 5px;">两次保活请求之间的等待时间，范围 5 - 86400 秒，默认 60 ✓ 支持热更新</small>
+                                <small
+                                    style="display: block; color: #666; font-size: 12px; margin-top: 5px;">两次保活请求之间的等待时间，范围
+                                    5 - 86400 秒，默认 60 ✓ 支持热更新</small>
                             </div>
                         </div>
 

@@ -58,6 +58,7 @@ function createCredsManager(type) {
         currentErrorCodeFilter: 'all',
         currentCooldownFilter: 'all',
         currentPreviewFilter: 'all',
+        currentTierFilter: 'all',
         statsData: { total: 0, normal: 0, disabled: 0 },
 
         // API端点
@@ -104,8 +105,9 @@ function createCredsManager(type) {
                 const errorCodeFilter = this.currentErrorCodeFilter || 'all';
                 const cooldownFilter = this.currentCooldownFilter || 'all';
                 const previewFilter = this.currentPreviewFilter || 'all';
+                const tierFilter = this.currentTierFilter || 'all';
                 const response = await fetch(
-                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&preview_filter=${previewFilter}&${this.getModeParam()}`,
+                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&preview_filter=${previewFilter}&tier_filter=${tierFilter}&${this.getModeParam()}`,
                     { headers: getAuthHeaders() }
                 );
 
@@ -123,7 +125,8 @@ function createCredsManager(type) {
                             },
                             user_email: item.user_email,
                             model_cooldowns: item.model_cooldowns || {},
-                            preview: item.preview  // 保存preview字段
+                            preview: item.preview,
+                            tier: item.tier || 'pro'
                         };
                     });
 
@@ -237,9 +240,11 @@ function createCredsManager(type) {
             const errorCodeFilterEl = document.getElementById(this.getElementId('ErrorCodeFilter'));
             const cooldownFilterEl = document.getElementById(this.getElementId('CooldownFilter'));
             const previewFilterEl = document.getElementById(this.getElementId('PreviewFilter'));
+            const tierFilterEl = document.getElementById(this.getElementId('TierFilter'));
             this.currentErrorCodeFilter = errorCodeFilterEl ? errorCodeFilterEl.value : 'all';
             this.currentCooldownFilter = cooldownFilterEl ? cooldownFilterEl.value : 'all';
             this.currentPreviewFilter = previewFilterEl ? previewFilterEl.value : 'all';
+            this.currentTierFilter = tierFilterEl ? tierFilterEl.value : 'all';
             this.currentPage = 1;
             this.refresh();
         },
@@ -644,6 +649,12 @@ function createCredCard(credInfo, manager) {
             statusBadges += '<span class="status-badge" style="background-color: #607d8b; color: white;" title="该凭证不支持Preview模型">❌ Preview</span>';
         }
     }
+
+    // tier 状态显示 (geminicli 和 antigravity 都显示)
+    const tier = (credInfo.tier || 'pro').toString().toLowerCase();
+    const tierLabel = tier.toUpperCase();
+    const tierColor = tier === 'ultra' ? '#ff9800' : (tier === 'free' ? '#607d8b' : '#2e7d32');
+    statusBadges += `<span class="status-badge" style="background-color: ${tierColor}; color: white;" title="凭证等级: ${tierLabel}">Tier: ${tierLabel}</span>`;
 
     // 模型级冷却状态
     if (credInfo.model_cooldowns && Object.keys(credInfo.model_cooldowns).length > 0) {

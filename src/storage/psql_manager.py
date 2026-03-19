@@ -25,6 +25,7 @@ class PSQLManager:
         "user_email",
         "model_cooldowns",
         "preview",
+        "tier",
     }
 
     def __init__(self):
@@ -85,6 +86,7 @@ class PSQLManager:
 
                 model_cooldowns TEXT DEFAULT '{}',
                 preview INTEGER DEFAULT 1,
+                tier TEXT DEFAULT 'pro',
 
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
@@ -107,6 +109,7 @@ class PSQLManager:
                 user_email TEXT,
 
                 model_cooldowns TEXT DEFAULT '{}',
+                tier TEXT DEFAULT 'pro',
 
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
@@ -151,6 +154,7 @@ class PSQLManager:
                 ("user_email", "TEXT"),
                 ("model_cooldowns", "TEXT DEFAULT '{}'"),
                 ("preview", "INTEGER DEFAULT 1"),
+                ("tier", "TEXT DEFAULT 'pro'"),
                 ("rotation_order", "INTEGER DEFAULT 0"),
                 ("call_count", "INTEGER DEFAULT 0"),
                 ("created_at", "DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW())"),
@@ -163,6 +167,7 @@ class PSQLManager:
                 ("last_success", "DOUBLE PRECISION"),
                 ("user_email", "TEXT"),
                 ("model_cooldowns", "TEXT DEFAULT '{}'"),
+                ("tier", "TEXT DEFAULT 'pro'"),
                 ("rotation_order", "INTEGER DEFAULT 0"),
                 ("call_count", "INTEGER DEFAULT 0"),
                 ("created_at", "DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW())"),
@@ -246,10 +251,14 @@ class PSQLManager:
 
             async with self._pool.acquire() as conn:
                 if mode == "geminicli":
+                    tier_clause = ""
+                    if model_name and "gemini-3.1-pro-preview" in model_name.lower():
+                        tier_clause = "AND (tier IS NULL OR tier != 'free')"
+
                     rows = await conn.fetch(f"""
                         SELECT filename, credential_data, model_cooldowns, preview
                         FROM {table_name}
-                        WHERE disabled = 0
+                        WHERE disabled = 0 {tier_clause}
                         ORDER BY RANDOM()
                     """)
 
@@ -480,7 +489,7 @@ class PSQLManager:
             async with self._pool.acquire() as conn:
                 if mode == "geminicli":
                     row = await conn.fetchrow(f"""
-                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, preview
+                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, preview, tier
                         FROM {table_name} WHERE filename = $1
                     """, filename)
 
@@ -492,6 +501,7 @@ class PSQLManager:
                             "user_email": row["user_email"],
                             "model_cooldowns": json.loads(row["model_cooldowns"] or "{}"),
                             "preview": bool(row["preview"]) if row["preview"] is not None else True,
+                            "tier": row["tier"] if row["tier"] is not None else "pro",
                         }
 
                     return {
@@ -501,10 +511,11 @@ class PSQLManager:
                         "user_email": None,
                         "model_cooldowns": {},
                         "preview": True,
+                        "tier": "pro",
                     }
                 else:
                     row = await conn.fetchrow(f"""
-                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns
+                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, tier
                         FROM {table_name} WHERE filename = $1
                     """, filename)
 
@@ -515,6 +526,7 @@ class PSQLManager:
                             "last_success": row["last_success"] or time.time(),
                             "user_email": row["user_email"],
                             "model_cooldowns": json.loads(row["model_cooldowns"] or "{}"),
+                            "tier": row["tier"] if row["tier"] is not None else "pro",
                         }
 
                     return {
@@ -523,6 +535,7 @@ class PSQLManager:
                         "last_success": time.time(),
                         "user_email": None,
                         "model_cooldowns": {},
+                        "tier": "pro",
                     }
 
         except Exception as e:
@@ -541,7 +554,7 @@ class PSQLManager:
                 if mode == "geminicli":
                     rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, model_cooldowns, preview
+                               user_email, model_cooldowns, preview, tier
                         FROM {table_name}
                     """)
 
@@ -558,12 +571,13 @@ class PSQLManager:
                             "user_email": row["user_email"],
                             "model_cooldowns": model_cooldowns,
                             "preview": bool(row["preview"]) if row["preview"] is not None else True,
+                            "tier": row["tier"] if row["tier"] is not None else "pro",
                         }
                     return states
                 else:
                     rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, model_cooldowns
+                               user_email, model_cooldowns, tier
                         FROM {table_name}
                     """)
 
@@ -579,6 +593,7 @@ class PSQLManager:
                             "last_success": row["last_success"] or current_time,
                             "user_email": row["user_email"],
                             "model_cooldowns": model_cooldowns,
+                            "tier": row["tier"] if row["tier"] is not None else "pro",
                         }
                     return states
 
@@ -594,7 +609,8 @@ class PSQLManager:
         mode: str = "geminicli",
         error_code_filter: Optional[str] = None,
         cooldown_filter: Optional[str] = None,
-        preview_filter: Optional[str] = None
+        preview_filter: Optional[str] = None,
+        tier_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """获取凭证的摘要信息，支持分页和状态筛选"""
         self._ensure_initialized()
@@ -629,7 +645,7 @@ class PSQLManager:
                 if mode == "geminicli":
                     all_rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, rotation_order, model_cooldowns, preview
+                               user_email, rotation_order, model_cooldowns, preview, tier
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -637,7 +653,7 @@ class PSQLManager:
                 else:
                     all_rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, rotation_order, model_cooldowns
+                               user_email, rotation_order, model_cooldowns, tier
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -684,16 +700,21 @@ class PSQLManager:
                         "user_email": row["user_email"],
                         "rotation_order": row["rotation_order"],
                         "model_cooldowns": active_cooldowns,
+                        "tier": row["tier"] if row["tier"] is not None else "pro",
                     }
 
                     if mode == "geminicli":
                         summary["preview"] = bool(row["preview"]) if row["preview"] is not None else True
 
-                    if mode == "geminicli" and preview_filter:
-                        preview_value = summary.get("preview", True)
-                        if preview_filter == "preview" and not preview_value:
-                            continue
-                        elif preview_filter == "no_preview" and preview_value:
+                        if preview_filter:
+                            preview_value = summary.get("preview", True)
+                            if preview_filter == "preview" and not preview_value:
+                                continue
+                            elif preview_filter == "no_preview" and preview_value:
+                                continue
+
+                    if tier_filter and tier_filter in ("free", "pro", "ultra"):
+                        if summary["tier"] != tier_filter:
                             continue
 
                     if cooldown_filter == "in_cooldown":

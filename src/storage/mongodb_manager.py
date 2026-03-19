@@ -24,6 +24,7 @@ class MongoDBManager:
         "user_email",
         "model_cooldowns",
         "preview",
+        "tier",
     }
 
     @staticmethod
@@ -73,6 +74,9 @@ class MongoDBManager:
             # 创建索引
             await self._create_indexes()
 
+            # 迁移旧文档，补全缺失字段
+            await self._migrate_missing_fields()
+
             # 加载配置到内存
             await self._load_config_cache()
 
@@ -99,24 +103,17 @@ class MongoDBManager:
         geminicli_indexes = [
             # 唯一索引 - 用于所有按文件名的精确查询
             IndexModel([("filename", ASCENDING)], unique=True, name="idx_filename_unique"),
-            
-            # 复合索引1 - 用于 get_next_available_credential
-            # 查询模式: {disabled: False} + 可选 {preview: True/False} + $sample
-            IndexModel(
-                [("disabled", ASCENDING), ("preview", ASCENDING)],
-                name="idx_disabled_preview"
-            ),
-            
-            # 复合索引2 - 用于 get_available_credentials_list
+
+            # 复合索引 - 用于 get_next_available_credential 和 get_available_credentials_list
             # 查询模式: {disabled: False} + sort by rotation_order
             IndexModel(
                 [("disabled", ASCENDING), ("rotation_order", ASCENDING)],
                 name="idx_disabled_rotation"
             ),
-            
+
             # 单字段索引 - 用于 get_credentials_summary 的错误筛选
             IndexModel([("error_codes", ASCENDING)], name="idx_error_codes"),
-            
+
             # 单字段索引 - 用于 get_duplicate_credentials_by_email 的去重查询
             IndexModel([("user_email", ASCENDING)], name="idx_user_email"),
         ]
@@ -126,7 +123,7 @@ class MongoDBManager:
             # 唯一索引
             IndexModel([("filename", ASCENDING)], unique=True, name="idx_filename_unique"),
             
-            # 复合索引 - antigravity 不需要 preview 字段，一个复合索引即可覆盖主要场景
+            # 复合索引 - 查询模式: {disabled: False} + sort by rotation_order
             # 查询模式: {disabled: False} + 可选 sort by rotation_order
             IndexModel(
                 [("disabled", ASCENDING), ("rotation_order", ASCENDING)],
@@ -149,6 +146,25 @@ class MongoDBManager:
             # 如果索引已存在，忽略错误
             if "already exists" not in str(e).lower():
                 log.warning(f"Index creation warning: {e}")
+
+    async def _migrate_missing_fields(self) -> None:
+        """为旧文档补全缺失的字段默认值"""
+        migrations = [
+            # (集合名, 字段名, 默认值)
+            ("credentials", "preview", True),
+            ("credentials", "tier", "pro"),
+            ("antigravity_credentials", "tier", "pro"),
+        ]
+        for collection_name, field, default_value in migrations:
+            try:
+                result = await self._db[collection_name].update_many(
+                    {field: {"$exists": False}},
+                    {"$set": {field: default_value}}
+                )
+                if result.modified_count > 0:
+                    log.info(f"Migrated {result.modified_count} documents in '{collection_name}': set {field}='{default_value}'")
+            except Exception as e:
+                log.error(f"Error migrating field '{field}' in '{collection_name}': {e}")
 
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
@@ -207,9 +223,9 @@ class MongoDBManager:
         """所有未禁用凭证的 Redis Set key"""
         return f"gcli:avail:{mode}"
 
-    def _rk_preview(self, mode: str) -> str:
-        """未禁用且 preview=True 的凭证 Redis Set key（仅 geminicli）"""
-        return f"gcli:preview:{mode}"
+    def _rk_tier(self, mode: str, tier: str) -> str:
+        """按 tier 分桶的未禁用凭证 Redis Set key"""
+        return f"gcli:tier:{mode}:{tier}"
 
     def _rk_cd(self, mode: str, filename: str, escaped_model: str) -> str:
         """模型冷却 Redis key（带 TTL）"""
@@ -227,13 +243,11 @@ class MongoDBManager:
             return
         try:
             collection = self._db[self._get_collection_name(mode)]
-            # 同时投影 model_cooldowns，以便重建冷却 TTL Key
-            projection: Dict[str, Any] = {"filename": 1, "disabled": 1, "model_cooldowns": 1, "_id": 0}
-            if mode == "geminicli":
-                projection["preview"] = 1
+            # 同时投影 model_cooldowns 和 tier，以便重建缓存
+            projection: Dict[str, Any] = {"filename": 1, "disabled": 1, "model_cooldowns": 1, "tier": 1, "_id": 0}
 
             avail: List[str] = []
-            preview: List[str] = []
+            tier_buckets: Dict[str, List[str]] = {}  # tier -> [filename, ...]
             cooldown_entries: List[tuple] = []  # (cd_key, ttl_seconds, value)
             current_time = time.time()
 
@@ -241,8 +255,10 @@ class MongoDBManager:
                 if not doc.get("disabled", False):
                     filename = doc["filename"]
                     avail.append(filename)
-                    if mode == "geminicli" and doc.get("preview", True):
-                        preview.append(filename)
+
+                    # 按 tier 分桶
+                    tier = doc.get("tier") or "pro"
+                    tier_buckets.setdefault(tier, []).append(filename)
 
                     # 收集未过期的模型冷却，重建 Redis TTL Key
                     model_cooldowns = doc.get("model_cooldowns") or {}
@@ -254,16 +270,12 @@ class MongoDBManager:
                                 cooldown_entries.append((cd_key, ttl, str(cooldown_until)))
 
             tmp_avail = self._rk_avail(mode) + ":tmp"
-            tmp_preview = self._rk_preview(mode) + ":tmp"
 
             pipe = self._redis.pipeline()
             # 先写临时 key（此时正式 key 仍完整可用）
             pipe.delete(tmp_avail)
-            pipe.delete(tmp_preview)
             if avail:
                 pipe.sadd(tmp_avail, *avail)
-            if mode == "geminicli" and preview:
-                pipe.sadd(tmp_preview, *preview)
             await pipe.execute()
 
             # RENAME 是原子操作：瞬间切换，不存在空窗
@@ -273,56 +285,77 @@ class MongoDBManager:
             else:
                 pipe2.delete(self._rk_avail(mode))
                 pipe2.delete(tmp_avail)
-            if mode == "geminicli":
-                if preview:
-                    pipe2.rename(tmp_preview, self._rk_preview(mode))
-                else:
-                    pipe2.delete(self._rk_preview(mode))
-                    pipe2.delete(tmp_preview)
             await pipe2.execute()
 
+            # 重建 tier 分桶 Set（原子替换）
+            all_tiers = ("free", "pro", "ultra")
+            pipe3 = self._redis.pipeline()
+            for tier in all_tiers:
+                tier_key = self._rk_tier(mode, tier)
+                tmp_tier_key = tier_key + ":tmp"
+                pipe3.delete(tmp_tier_key)
+                members = tier_buckets.get(tier, [])
+                if members:
+                    pipe3.sadd(tmp_tier_key, *members)
+            await pipe3.execute()
+
+            pipe4 = self._redis.pipeline()
+            for tier in all_tiers:
+                tier_key = self._rk_tier(mode, tier)
+                tmp_tier_key = tier_key + ":tmp"
+                members = tier_buckets.get(tier, [])
+                if members:
+                    pipe4.rename(tmp_tier_key, tier_key)
+                else:
+                    pipe4.delete(tier_key)
+                    pipe4.delete(tmp_tier_key)
+            await pipe4.execute()
+
             # 批量恢复未过期的模型冷却 TTL Key
-            # 这一步必须在重建池之后执行，否则 Redis 重启后冷却 key 丢失，
-            # 导致 Redis 快速路径选出仍处于冷却中的凭证
             if cooldown_entries:
-                pipe3 = self._redis.pipeline()
+                pipe5 = self._redis.pipeline()
                 for cd_key, ttl, value in cooldown_entries:
-                    pipe3.setex(cd_key, ttl, value)
-                await pipe3.execute()
+                    pipe5.setex(cd_key, ttl, value)
+                await pipe5.execute()
 
             log.debug(
-                f"Redis cache rebuilt [{mode}]: {len(avail)} avail, {len(preview)} preview, "
+                f"Redis cache rebuilt [{mode}]: {len(avail)} avail, "
+                f"tiers={{{', '.join(f'{t}:{len(tier_buckets.get(t, []))}' for t in all_tiers)}}}, "
                 f"{len(cooldown_entries)} cooldown key(s) restored"
             )
         except Exception as e:
             log.warning(f"Redis rebuild cache error [{mode}]: {e}")
 
-    async def _redis_add_cred(self, mode: str, filename: str, preview: bool = True) -> None:
-        """将凭证加入 Redis 可用池"""
+    async def _redis_add_cred(self, mode: str, filename: str, tier: str = "pro") -> None:
+        """将凭证加入 Redis 可用池及对应 tier 分桶"""
         if not self._redis_enabled:
             return
         try:
             pipe = self._redis.pipeline()
             pipe.sadd(self._rk_avail(mode), filename)
-            if mode == "geminicli" and preview:
-                pipe.sadd(self._rk_preview(mode), filename)
+            pipe.sadd(self._rk_tier(mode, tier), filename)
             await pipe.execute()
         except Exception as e:
             log.warning(f"Redis add_cred error: {e}")
 
-    async def _redis_remove_cred(self, mode: str, filename: str) -> None:
+    async def _redis_remove_cred(self, mode: str, filename: str, tier: Optional[str] = None) -> None:
         """从 Redis 所有池中移除凭证"""
         if not self._redis_enabled:
             return
         try:
             pipe = self._redis.pipeline()
             pipe.srem(self._rk_avail(mode), filename)
-            pipe.srem(self._rk_preview(mode), filename)
+            if tier:
+                pipe.srem(self._rk_tier(mode, tier), filename)
+            else:
+                # tier 未知时从所有分桶中移除
+                for t in ("free", "pro", "ultra"):
+                    pipe.srem(self._rk_tier(mode, t), filename)
             await pipe.execute()
         except Exception as e:
             log.warning(f"Redis remove_cred error: {e}")
 
-    async def _redis_sync_cred(self, mode: str, filename: str, disabled: bool, preview: bool) -> None:
+    async def _redis_sync_cred(self, mode: str, filename: str, disabled: bool, tier: str = "pro") -> None:
         """根据最新状态同步单个凭证在 Redis 中的集合成员"""
         if not self._redis_enabled:
             return
@@ -330,42 +363,43 @@ class MongoDBManager:
             pipe = self._redis.pipeline()
             if disabled:
                 pipe.srem(self._rk_avail(mode), filename)
-                pipe.srem(self._rk_preview(mode), filename)
+                for t in ("free", "pro", "ultra"):
+                    pipe.srem(self._rk_tier(mode, t), filename)
             else:
                 pipe.sadd(self._rk_avail(mode), filename)
-                if mode == "geminicli":
-                    if preview:
-                        pipe.sadd(self._rk_preview(mode), filename)
-                    else:
-                        pipe.srem(self._rk_preview(mode), filename)
+                pipe.sadd(self._rk_tier(mode, tier), filename)
             await pipe.execute()
         except Exception as e:
             log.warning(f"Redis sync_cred error: {e}")
 
     async def _get_next_available_from_redis(
-        self, mode: str, model_name: Optional[str]
+        self, mode: str, model_name: Optional[str], exclude_free_tier: bool = False
     ) -> Optional[tuple]:
         """
         Redis 快速路径：随机取候选凭证，跳过冷却中的，返回 (filename, credential_data)。
         失败或池为空时返回 None，由调用方降级到 MongoDB。
         """
         try:
-            # 选择候选池
-            if mode == "geminicli" and model_name and "preview" in model_name.lower():
-                pool_key = self._rk_preview(mode)
+            # 选择候选池：需要排除 free tier 时使用 pro/ultra 的并集
+            if exclude_free_tier:
+                pro_members = await self._redis.smembers(self._rk_tier(mode, "pro"))
+                ultra_members = await self._redis.smembers(self._rk_tier(mode, "ultra"))
+                all_candidates = list(pro_members | ultra_members)
+                if not all_candidates:
+                    log.debug(f"[Redis MISS] mode={mode} exclude_free: no non-free creds, fallback to MongoDB")
+                    return None
+                sample_size = min(len(all_candidates), 10)
+                candidates = random.sample(all_candidates, sample_size)
             else:
                 pool_key = self._rk_avail(mode)
-
-            pool_size = await self._redis.scard(pool_key)
-            if pool_size == 0:
-                log.debug(f"[Redis MISS] mode={mode} pool_key={pool_key}: pool empty, fallback to MongoDB")
-                return None
-
-            # 一次取多个随机成员，减少 round-trip
-            sample_size = min(pool_size, 10)
-            candidates = await self._redis.srandmember(pool_key, sample_size)
-            if not candidates:
-                return None
+                pool_size = await self._redis.scard(pool_key)
+                if pool_size == 0:
+                    log.debug(f"[Redis MISS] mode={mode} pool_key={pool_key}: pool empty, fallback to MongoDB")
+                    return None
+                sample_size = min(pool_size, 10)
+                candidates = await self._redis.srandmember(pool_key, sample_size)
+                if not candidates:
+                    return None
 
             # 过滤冷却中的凭证
             if model_name:
@@ -423,32 +457,32 @@ class MongoDBManager:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
-        - 如果提供了 model_name，还会检查模型级冷却和preview状态
+        - 如果提供了 model_name，还会检查模型级冷却
         - 随机选择
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_name: 完整模型名（如 "gemini-2.0-flash-exp", "gemini-2.0-flash-thinking-exp-01-21"）
+            model_name: 完整模型名（如 "gemini-2.0-flash-exp"）
 
         Note:
-            - 对于 geminicli 模式:
-              - 如果模型名包含 "preview": 只能使用 preview=True 的凭证
-              - 如果模型名包含 "flash": 直接混用所有可用凭证，不区分 preview 状态
-              - 如果模型名不包含 "preview" 且不包含 "flash": 优先使用 preview=False 的凭证，没有时才使用 preview=True
-            - 对于 antigravity: 不检查 preview 状态
             - 开启 Redis 时：利用 Redis Set 随机选凭证 + TTL key 判断冷却
             - 未开启 Redis 时：使用 count + random skip + limit(1)
         """
         self._ensure_initialized()
 
-        # Redis 快速路径
+        # Redis 快速路径（需要 tier 或 preview 过滤时跳过，交由 MongoDB 处理）
         if self._redis_enabled:
-            result = await self._get_next_available_from_redis(mode, model_name)
-            if result is not None:
-                return result
-            # result 为 None 有两种可能：池为空或所有候选都冷却中
-            # 后者需降级到 MongoDB 以得到更大的样本空间
-            log.debug(f"[MongoDB fallback] mode={mode} model={model_name}")
+            if mode == "geminicli" and model_name and (
+                "gemini-3.1-pro-preview" in model_name.lower() or "preview" in model_name.lower()
+            ):
+                log.debug(f"[Redis SKIP] preview model requires DB-side filter, fallback to MongoDB")
+            else:
+                result = await self._get_next_available_from_redis(mode, model_name)
+                if result is not None:
+                    return result
+                # result 为 None 有两种可能：池为空或所有候选都冷却中
+                # 后者需降级到 MongoDB 以得到更大的样本空间
+                log.debug(f"[MongoDB fallback] mode={mode} model={model_name}")
 
         try:
             collection_name = self._get_collection_name(mode)
@@ -458,6 +492,14 @@ class MongoDBManager:
             # 构建普通查询（避免 $sample 聚合导致全集合扫描）
             match_query: Dict[str, Any] = {"disabled": False}
 
+            # gemini-3.1-pro-preview 模型只允许非 free tier 凭证
+            if mode == "geminicli" and model_name and "gemini-3.1-pro-preview" in model_name.lower():
+                match_query["tier"] = {"$ne": "free"}
+
+            # preview 模型只允许 preview=True 的凭证
+            if mode == "geminicli" and model_name and "preview" in model_name.lower():
+                match_query["preview"] = True
+
             # 冷却检查：直接用 MongoDB 查询表达，无需 $addFields
             if model_name:
                 escaped_model_name = self._escape_model_name(model_name)
@@ -466,10 +508,6 @@ class MongoDBManager:
                     {field: {"$exists": False}},
                     {field: {"$lte": current_time}},
                 ]
-
-            # geminicli preview 筛选
-            if mode == "geminicli" and model_name and "preview" in model_name.lower():
-                match_query["preview"] = True
 
             # 统计符合条件的凭证总数（走索引，极快）
             count = await collection.count_documents(match_query)
@@ -567,18 +605,17 @@ class MongoDBManager:
                         "last_success": current_ts,
                         "user_email": None,
                         "model_cooldowns": {},
+                        "preview": True,
+                        "tier": "pro",
                         "rotation_order": next_order,
                         "call_count": 0,
                         "created_at": current_ts,
                         "updated_at": current_ts,
                     }
-                    # preview状态只对geminicli模式有效，默认为True
-                    if mode == "geminicli":
-                        new_credential["preview"] = True
 
                     await collection.insert_one(new_credential)
                     # 新凭证插入成功，添加到 Redis 可用池
-                    await self._redis_add_cred(mode, filename, preview=True)
+                    await self._redis_add_cred(mode, filename)
                 except Exception as insert_error:
                     # 处理并发插入导致的重复键错误
                     if "duplicate key" in str(insert_error).lower():
@@ -785,32 +822,13 @@ class MongoDBManager:
             )
             updated_count = result.modified_count + result.matched_count
 
-            # 如果 disabled 或 preview 发生变化，同步 Redis 池成员关系
-            if self._redis_enabled and ("disabled" in valid_updates or "preview" in valid_updates):
-                if "disabled" in valid_updates and valid_updates["disabled"]:
-                    # 直接禁用：从两个集合中移除
+            # 如果 disabled 发生变化，同步 Redis 池成员关系
+            if self._redis_enabled and "disabled" in valid_updates:
+                if valid_updates["disabled"]:
+                    # 直接禁用：从集合中移除
                     await self._redis_remove_cred(mode, filename)
                 else:
-                    # 启用或修改 preview：需知道最新的 disabled + preview 状态
-                    # 从 valid_updates 中取，无则向 MongoDB 查一次
-                    if "disabled" in valid_updates and "preview" in valid_updates:
-                        await self._redis_sync_cred(
-                            mode, filename,
-                            disabled=bool(valid_updates["disabled"]),
-                            preview=bool(valid_updates["preview"]),
-                        )
-                    else:
-                        # 只知部分信息，查一次 MongoDB 获取完整状态
-                        snap = await collection.find_one(
-                            {"filename": filename},
-                            {"disabled": 1, "preview": 1, "_id": 0}
-                        )
-                        if snap:
-                            await self._redis_sync_cred(
-                                mode, filename,
-                                disabled=bool(snap.get("disabled", False)),
-                                preview=bool(snap.get("preview", True)),
-                            )
+                    await self._redis_sync_cred(mode, filename, disabled=False)
 
             return updated_count > 0
 
@@ -848,10 +866,9 @@ class MongoDBManager:
                     "last_success": doc.get("last_success", current_time),
                     "user_email": doc.get("user_email"),
                     "model_cooldowns": model_cooldowns,
+                    "preview": doc.get("preview", True),
+                    "tier": doc.get("tier", "pro"),
                 }
-                # preview状态只对geminicli模式有效
-                if mode == "geminicli":
-                    state["preview"] = doc.get("preview", True)
                 return state
 
             # 返回默认状态
@@ -861,10 +878,9 @@ class MongoDBManager:
                 "last_success": current_time,
                 "user_email": None,
                 "model_cooldowns": {},
+                "preview": True,
+                "tier": "pro",
             }
-            # preview状态只对geminicli模式有效
-            if mode == "geminicli":
-                default_state["preview"] = True
             return default_state
 
         except Exception as e:
@@ -887,11 +903,10 @@ class MongoDBManager:
                 "last_success": 1,
                 "user_email": 1,
                 "model_cooldowns": 1,
+                "preview": 1,
+                "tier": 1,
                 "_id": 0
             }
-            # preview状态只对geminicli模式有效
-            if mode == "geminicli":
-                projection["preview"] = 1
 
             cursor = collection.find({}, projection=projection)
 
@@ -915,10 +930,9 @@ class MongoDBManager:
                     "last_success": doc.get("last_success", time.time()),
                     "user_email": doc.get("user_email"),
                     "model_cooldowns": model_cooldowns,
+                    "preview": doc.get("preview", True),
+                    "tier": doc.get("tier", "pro"),
                 }
-                # preview状态只对geminicli模式有效
-                if mode == "geminicli":
-                    state["preview"] = doc.get("preview", True)
                 states[filename] = state
 
             return states
@@ -935,7 +949,8 @@ class MongoDBManager:
         mode: str = "geminicli",
         error_code_filter: Optional[str] = None,
         cooldown_filter: Optional[str] = None,
-        preview_filter: Optional[str] = None
+        preview_filter: Optional[str] = None,
+        tier_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取凭证的摘要信息（不包含完整凭证数据）- 支持分页和状态筛选
@@ -948,6 +963,7 @@ class MongoDBManager:
             error_code_filter: 错误码筛选（格式如"400"或"403"，筛选包含该错误码的凭证）
             cooldown_filter: 冷却状态筛选（"in_cooldown"=冷却中, "no_cooldown"=未冷却）
             preview_filter: Preview筛选（"preview"=支持preview, "no_preview"=不支持preview，仅geminicli模式有效）
+            tier_filter: tier筛选（"free", "pro", "ultra"）
 
         Returns:
             包含 items（凭证列表）、total（总数）、offset、limit 的字典
@@ -1005,11 +1021,10 @@ class MongoDBManager:
                 "user_email": 1,
                 "rotation_order": 1,
                 "model_cooldowns": 1,
+                "preview": 1,
+                "tier": 1,
                 "_id": 0
             }
-            # preview状态只对geminicli模式有效
-            if mode == "geminicli":
-                projection["preview"] = 1
 
             cursor = collection.find(query, projection=projection).sort("rotation_order", 1)
 
@@ -1035,18 +1050,21 @@ class MongoDBManager:
                     "user_email": doc.get("user_email"),
                     "rotation_order": doc.get("rotation_order", 0),
                     "model_cooldowns": active_cooldowns,
+                    "preview": doc.get("preview", True),
+                    "tier": doc.get("tier", "pro"),
                 }
-                # preview状态只对geminicli模式有效
-                if mode == "geminicli":
-                    summary["preview"] = doc.get("preview", True)
 
-                # 应用 preview 筛选（仅对 geminicli 模式）
                 if mode == "geminicli" and preview_filter:
                     preview_value = summary.get("preview", True)
                     if preview_filter == "preview" and not preview_value:
-                        continue  # 跳过不支持 preview 的凭证
-                    elif preview_filter == "no_preview" and preview_value:
-                        continue  # 跳过支持 preview 的凭证
+                        continue
+                    if preview_filter == "no_preview" and preview_value:
+                        continue
+
+                # 应用tier筛选
+                if tier_filter and tier_filter in ("free", "pro", "ultra"):
+                    if summary["tier"] != tier_filter:
+                        continue
 
                 # 应用冷却筛选
                 if cooldown_filter == "in_cooldown":
