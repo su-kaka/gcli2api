@@ -565,7 +565,7 @@ async def fetch_project_id_and_tier(
             "ws-ai-ultra-business-tier": "ultra",
             "g1-pro-tier": "pro",
             "helium-tier": "pro",
-            "standard-tier": "pro",
+            "standard-tier": "free",
             "free-tier": "free",
         }
 
