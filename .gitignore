@@ -96,4 +96,5 @@ log.txt
 *.temp
 *.bak
 
+.worktrees/
 tools/
