@@ -1,4 +1,4 @@
-full_hash=5ed311ee2795c5fdaffda4b8edfb0f8a6e08adb3
-short_hash=5ed311e
-message=增加tier显示+
-date=2026-03-19 23:30:21 +0800
+full_hash=2f9262880e9b7e2b4118f3fc9f5b435a5c6dc1fb
+short_hash=2f92628
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-03-22 19:07:07 +0800
