@@ -10,7 +10,19 @@ security = HTTPBearer()
 
 # ====================== OAuth Configuration ======================
 
-GEMINICLI_USER_AGENT = "GeminiCLI/0.34.0 (Windows; AMD64)"
+_GEMINICLI_VERSION = "0.34.0"
+_GEMINICLI_PLATFORM = "win32"
+_GEMINICLI_ARCH = "x64"
+_GEMINICLI_SURFACE = "cloud-shell"
+
+def get_geminicli_user_agent(model: str = "") -> str:
+    """生成动态 User-Agent: GeminiCLI/{version}/{model} ({platform}; {arch}; {surface})"""
+    if model:
+        return f"GeminiCLI/{_GEMINICLI_VERSION}/{model} ({_GEMINICLI_PLATFORM}; {_GEMINICLI_ARCH}; {_GEMINICLI_SURFACE})"
+    return f"GeminiCLI/{_GEMINICLI_VERSION} ({_GEMINICLI_PLATFORM}; {_GEMINICLI_ARCH}; {_GEMINICLI_SURFACE})"
+
+# 静态常量
+GEMINICLI_USER_AGENT = get_geminicli_user_agent()
 
 ANTIGRAVITY_USER_AGENT = "antigravity/2.15.8 (Windows; AMD64)"
 
