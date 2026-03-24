@@ -252,7 +252,7 @@ class PSQLManager:
             async with self._pool.acquire() as conn:
                 if mode == "geminicli":
                     tier_clause = ""
-                    if model_name and "gemini-3.1-pro-preview" in model_name.lower():
+                    if model_name and "pro" in model_name.lower():
                         tier_clause = "AND (tier IS NULL OR tier != 'free')"
 
                     rows = await conn.fetch(f"""
