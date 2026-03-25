@@ -440,7 +440,7 @@ async def collect_streaming_response(stream_generator) -> Response:
     )
 
 
-RESOURCE_EXHAUSTED_COOLDOWN_HOURS = 12  # RESOURCE_EXHAUSTED 错误的默认冷却时间（小时）
+RESOURCE_EXHAUSTED_COOLDOWN_HOURS = 4  # RESOURCE_EXHAUSTED 错误的默认冷却时间（小时）
 
 
 def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
@@ -490,7 +490,7 @@ def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
 
                     return reset_dt.astimezone(timezone.utc).timestamp()
 
-        # 如果是 RESOURCE_EXHAUSTED 错误且消息完全匹配，设置默认12小时冷却时间
+        # 如果是 RESOURCE_EXHAUSTED 错误且消息完全匹配，设置默认4小时冷却时间
         if (
             error_obj.get("status") == "RESOURCE_EXHAUSTED"
             and error_obj.get("message") == "Resource has been exhausted (e.g. check quota)."
