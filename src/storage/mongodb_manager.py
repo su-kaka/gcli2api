@@ -2,6 +2,7 @@
 MongoDB 存储管理器
 """
 
+import json
 import os
 import random
 import time
@@ -74,9 +75,6 @@ class MongoDBManager:
             # 创建索引
             await self._create_indexes()
 
-            # 迁移旧文档，补全缺失字段
-            await self._migrate_missing_fields()
-
             # 加载配置到内存
             await self._load_config_cache()
 
@@ -147,25 +145,6 @@ class MongoDBManager:
             if "already exists" not in str(e).lower():
                 log.warning(f"Index creation warning: {e}")
 
-    async def _migrate_missing_fields(self) -> None:
-        """为旧文档补全缺失的字段默认值"""
-        migrations = [
-            # (集合名, 字段名, 默认值)
-            ("credentials", "preview", True),
-            ("credentials", "tier", "pro"),
-            ("antigravity_credentials", "tier", "pro"),
-        ]
-        for collection_name, field, default_value in migrations:
-            try:
-                result = await self._db[collection_name].update_many(
-                    {field: {"$exists": False}},
-                    {"$set": {field: default_value}}
-                )
-                if result.modified_count > 0:
-                    log.info(f"Migrated {result.modified_count} documents in '{collection_name}': set {field}='{default_value}'")
-            except Exception as e:
-                log.error(f"Error migrating field '{field}' in '{collection_name}': {e}")
-
     async def _load_config_cache(self):
         """加载配置到内存缓存（仅在初始化时调用一次）"""
         if self._config_loaded:
@@ -205,11 +184,12 @@ class MongoDBManager:
             self._redis_enabled = True
             log.info("Redis connected, rebuilding credential pool cache...")
 
-            # 并行重建两个 mode 的缓存
+            # 并行重建两个 mode 的缓存及配置缓存
             import asyncio
             await asyncio.gather(
                 self._rebuild_redis_cache("geminicli"),
                 self._rebuild_redis_cache("antigravity"),
+                self._load_config_to_redis(),
             )
             log.info("Redis credential pool cache ready")
         except Exception as e:
@@ -1176,10 +1156,37 @@ class MongoDBManager:
                 "stats": {"total": 0, "normal": 0, "disabled": 0},
             }
 
-    # ============ 配置管理（内存缓存）============
+    # ============ 配置管理（内存缓存 + 可选 Redis）============
+
+    def _rk_config(self, key: str) -> str:
+        """配置项的 Redis key"""
+        return f"gcli:config:{key}"
+
+    def _rk_config_all(self) -> str:
+        """所有配置的 Redis Hash key"""
+        return "gcli:config"
+
+    async def _load_config_to_redis(self) -> None:
+        """将所有配置从 MongoDB 同步到 Redis Hash"""
+        if not self._redis_enabled:
+            return
+        try:
+            config_collection = self._db["config"]
+            cursor = config_collection.find({})
+            mapping = {}
+            async for doc in cursor:
+                mapping[doc["key"]] = json.dumps(doc.get("value"))
+            pipe = self._redis.pipeline()
+            pipe.delete(self._rk_config_all())
+            if mapping:
+                pipe.hset(self._rk_config_all(), mapping=mapping)
+            await pipe.execute()
+            log.debug(f"Synced {len(mapping)} config items to Redis")
+        except Exception as e:
+            log.warning(f"Failed to sync config to Redis: {e}")
 
     async def set_config(self, key: str, value: Any) -> bool:
-        """设置配置（写入数据库 + 更新内存缓存）"""
+        """设置配置（写入数据库；Redis 启用时写 Redis，否则更新内存缓存）"""
         self._ensure_initialized()
 
         try:
@@ -1190,8 +1197,14 @@ class MongoDBManager:
                 upsert=True,
             )
 
-            # 更新内存缓存
-            self._config_cache[key] = value
+            if self._redis_enabled:
+                try:
+                    await self._redis.hset(self._rk_config_all(), key, json.dumps(value))
+                except Exception as e:
+                    log.warning(f"Redis config set error for key={key}: {e}")
+            else:
+                self._config_cache[key] = value
+
             return True
 
         except Exception as e:
@@ -1201,18 +1214,41 @@ class MongoDBManager:
     async def reload_config_cache(self):
         """重新加载配置缓存（在批量修改配置后调用）"""
         self._ensure_initialized()
-        self._config_loaded = False
-        await self._load_config_cache()
+        if self._redis_enabled:
+            await self._load_config_to_redis()
+        else:
+            self._config_loaded = False
+            await self._load_config_cache()
         log.info("Config cache reloaded from database")
 
     async def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置（从内存缓存）"""
+        """获取配置（Redis 启用时从 Redis 读取，否则从内存缓存）"""
         self._ensure_initialized()
+
+        if self._redis_enabled:
+            try:
+                raw = await self._redis.hget(self._rk_config_all(), key)
+                if raw is not None:
+                    return json.loads(raw)
+                return default
+            except Exception as e:
+                log.warning(f"Redis config get error for key={key}: {e}")
+                return default
+
         return self._config_cache.get(key, default)
 
     async def get_all_config(self) -> Dict[str, Any]:
-        """获取所有配置（从内存缓存）"""
+        """获取所有配置（Redis 启用时从 Redis 读取，否则从内存缓存）"""
         self._ensure_initialized()
+
+        if self._redis_enabled:
+            try:
+                raw_map = await self._redis.hgetall(self._rk_config_all())
+                return {k: json.loads(v) for k, v in raw_map.items()}
+            except Exception as e:
+                log.warning(f"Redis config getall error: {e}")
+                return {}
+
         return self._config_cache.copy()
 
     async def delete_config(self, key: str) -> bool:
@@ -1223,8 +1259,14 @@ class MongoDBManager:
             config_collection = self._db["config"]
             result = await config_collection.delete_one({"key": key})
 
-            # 从内存缓存移除
-            self._config_cache.pop(key, None)
+            if self._redis_enabled:
+                try:
+                    await self._redis.hdel(self._rk_config_all(), key)
+                except Exception as e:
+                    log.warning(f"Redis config delete error for key={key}: {e}")
+            else:
+                self._config_cache.pop(key, None)
+
             return result.deleted_count > 0
 
         except Exception as e:
