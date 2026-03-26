@@ -1,4 +1,4 @@
-full_hash=5b73b2efdfae8dea0ff1a39c0163818c871d62e6
-short_hash=5b73b2e
-message=Update google_oauth_api.py
-date=2026-03-26 12:52:07 +0800
+full_hash=20a948f37627a0a8ce6948cc0ed866425de40dc1
+short_hash=20a948f
+message=移除3.0p模型
+date=2026-03-26 19:40:29 +0800
