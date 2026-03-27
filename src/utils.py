@@ -10,7 +10,7 @@ security = HTTPBearer()
 
 # ====================== OAuth Configuration ======================
 
-_GEMINICLI_VERSION = "0.34.0"
+_GEMINICLI_VERSION = "0.35.2"
 _GEMINICLI_PLATFORM = "win32"
 _GEMINICLI_ARCH = "x64"
 _GEMINICLI_SURFACE = "cloud-shell"
