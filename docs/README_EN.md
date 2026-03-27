@@ -6,7 +6,7 @@
 [![License: CNC-1.0](https://img.shields.io/badge/License-CNC--1.0-red.svg)](../LICENSE)
 [![Docker](https://img.shields.io/badge/docker-available-blue.svg)](https://github.com/su-kaka/gcli2api/pkgs/container/gcli2api)
 
-[中文](../README.md) | English
+[中文](../README.md) | English | [日本語](./README_JA.md)
 
 ## 🚀 Quick Deploy
 
