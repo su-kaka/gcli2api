@@ -1,4 +1,4 @@
-full_hash=67c910ae8964ed57c7e8527f7a5bf383dc6ae383
-short_hash=67c910a
-message=Merge pull request #362 from eltociear/add-ja-doc
-date=2026-03-27 14:17:25 +0800
+full_hash=0d699ac7f5982bef0cb4c3bb619451e4ab44ea01
+short_hash=0d699ac
+message=更新 utils.py
+date=2026-03-27 15:11:12 +0800
