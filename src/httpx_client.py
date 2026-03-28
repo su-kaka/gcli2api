@@ -82,6 +82,10 @@ async def post_async(
         return await client.post(url, data=data, json=json, headers=headers)
 
 
+# 调试用：设为 True 时所有流式请求都返回 429
+_MOCK_STREAM_429 = False
+
+
 async def stream_post_async(
     url: str,
     body: Dict[str, Any],
@@ -90,6 +94,16 @@ async def stream_post_async(
     **kwargs,
 ):
     """流式异步POST请求"""
+    if _MOCK_STREAM_429:
+        from fastapi import Response
+        import json
+        log.warning(f"[MOCK] stream_post_async: 返回模拟429错误")
+        yield Response(
+            content=json.dumps({"error": {"code": 429, "message": "mock rate limit", "status": "RESOURCE_EXHAUSTED"}}),
+            status_code=429,
+        )
+        return
+
     async with http_client.get_streaming_client(**kwargs) as client:
         async with client.stream("POST", url, json=body, headers=headers) as r:
             # 错误直接返回
