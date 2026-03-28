@@ -1,4 +1,4 @@
-full_hash=0d699ac7f5982bef0cb4c3bb619451e4ab44ea01
-short_hash=0d699ac
-message=更新 utils.py
-date=2026-03-27 15:11:12 +0800
+full_hash=21edc427140b1e7f12b8fa1adb794450959e8412
+short_hash=21edc42
+message=Update geminicli.py
+date=2026-03-28 18:00:38 +0800
