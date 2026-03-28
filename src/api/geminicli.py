@@ -301,6 +301,19 @@ async def stream_request(
 
             # 统一处理重试
             if need_retry:
+                # 如果已经是最后一次尝试，不再重试，直接返回错误
+                if attempt >= max_retries:
+                    log.error(f"[GEMINICLI STREAM] 达到最大重试次数，返回错误")
+                    if last_error_response:
+                        yield last_error_response
+                    else:
+                        yield Response(
+                            content=json.dumps({"error": "请求失败，所有重试均已耗尽"}),
+                            status_code=429,
+                            media_type="application/json"
+                        )
+                    return
+
                 log.info(f"[GEMINICLI STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
                 # 使用预热的凭证任务,避免等待
