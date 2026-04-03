@@ -40,6 +40,11 @@ from src.converter.fake_stream import (
 
 # 本地模块 - 基础路由工具
 from src.router.hi_check import is_health_check_request, create_health_check_response
+from src.router.stream_passthrough import (
+    build_streaming_response_or_error,
+    prepend_async_item,
+    read_first_async_item,
+)
 
 # 本地模块 - 数据模型
 from src.models import ClaudeRequest, model_to_dict
@@ -149,71 +154,14 @@ async def messages(
 
     # ========== 假流式生成器 ==========
     async def fake_stream_generator():
-        # 发送心跳
-        heartbeat = create_anthropic_heartbeat_chunk()
-        yield f"data: {json.dumps(heartbeat)}\n\n".encode()
+        from src.api.antigravity import non_stream_request
 
-        # 异步发送实际请求
-        async def get_response():
-            from src.api.antigravity import non_stream_request
-            response = await non_stream_request(body=api_request)
-            return response
-
-        # 创建请求任务
-        response_task = create_managed_task(get_response(), name="anthropic_fake_stream_request")
-
-        try:
-            # 每3秒发送一次心跳，直到收到响应
-            while not response_task.done():
-                await asyncio.sleep(3.0)
-                if not response_task.done():
-                    yield f"data: {json.dumps(heartbeat)}\n\n".encode()
-
-            # 获取响应结果
-            response = await response_task
-
-        except asyncio.CancelledError:
-            response_task.cancel()
-            try:
-                await response_task
-            except asyncio.CancelledError:
-                pass
-            raise
-        except Exception as e:
-            response_task.cancel()
-            try:
-                await response_task
-            except asyncio.CancelledError:
-                pass
-            log.error(f"Fake streaming request failed: {e}")
-            raise
+        response = await non_stream_request(body=api_request)
 
         # 检查响应状态码
         if hasattr(response, "status_code") and response.status_code != 200:
-            # 错误响应 - 提取错误信息并以SSE格式返回
             log.error(f"Fake streaming got error response: status={response.status_code}")
-
-            raw = None
-            if hasattr(response, "body") and response.body:
-                raw = response.body.decode('utf-8') if isinstance(response.body, bytes) else response.body
-            elif hasattr(response, "content") and response.content:
-                raw = response.content.decode('utf-8') if isinstance(response.content, bytes) else response.content
-            error_body = raw or ""
-
-            try:
-                error_data = json.loads(error_body)
-                # 转换错误为 Anthropic 格式
-                from src.converter.anthropic2gemini import gemini_to_anthropic_response
-                anthropic_error = gemini_to_anthropic_response(
-                    error_data,
-                    real_model,
-                    response.status_code
-                )
-                yield f"data: {json.dumps(anthropic_error)}\n\n".encode()
-            except Exception:
-                # 如果无法解析为JSON，包装成错误对象
-                yield f"data: {json.dumps({'error': {'code': response.status_code, 'message': error_body or 'upstream error', 'status': 'ERROR'}})}\n\n".encode()
-            yield "data: [DONE]\n\n".encode()
+            yield response
             return
 
         # 处理成功响应 - 提取响应内容
@@ -276,16 +224,33 @@ async def messages(
         from src.api.antigravity import stream_request
         from src.converter.anti_truncation import apply_anti_truncation
         from src.converter.anthropic2gemini import gemini_stream_to_anthropic_stream
+        from fastapi import Response
 
         max_attempts = await get_anti_truncation_max_attempts()
 
         # 首先对payload应用反截断指令
         anti_truncation_payload = apply_anti_truncation(api_request)
 
-        # 定义流式请求函数（返回 StreamingResponse）
+        first_attempt_stream = stream_request(body=anti_truncation_payload, native=False)
+        try:
+            first_chunk = await read_first_async_item(first_attempt_stream)
+        except StopAsyncIteration:
+            return
+
+        if isinstance(first_chunk, Response):
+            yield first_chunk
+            return
+
+        first_attempt_pending = True
+
         async def stream_request_wrapper(payload):
-            # stream_request 返回异步生成器，需要包装成 StreamingResponse
-            stream_gen = stream_request(body=payload, native=False)
+            nonlocal first_attempt_pending
+
+            if first_attempt_pending:
+                first_attempt_pending = False
+                stream_gen = prepend_async_item(first_chunk, first_attempt_stream)
+            else:
+                stream_gen = stream_request(body=payload, native=False)
             return StreamingResponse(stream_gen, media_type="text/event-stream")
 
         # 创建反截断处理器
@@ -320,10 +285,18 @@ async def messages(
 
         # 调用 API 层的流式请求（不使用 native 模式）
         stream_gen = stream_request(body=api_request, native=False)
+        try:
+            first_chunk = await read_first_async_item(stream_gen)
+        except StopAsyncIteration:
+            return
+
+        if isinstance(first_chunk, Response):
+            yield first_chunk
+            return
 
         # 包装流式生成器以处理错误响应
         async def gemini_chunk_wrapper():
-            async for chunk in stream_gen:
+            async for chunk in prepend_async_item(first_chunk, stream_gen):
                 # 检查是否是Response对象（错误情况）
                 if isinstance(chunk, Response):
                     # 错误响应，不进行转换，直接传递
@@ -359,12 +332,12 @@ async def messages(
 
     # ========== 根据模式选择生成器 ==========
     if use_fake_streaming:
-        return StreamingResponse(fake_stream_generator(), media_type="text/event-stream")
+        return await build_streaming_response_or_error(fake_stream_generator())
     elif use_anti_truncation:
         log.info("启用流式抗截断功能")
-        return StreamingResponse(anti_truncation_generator(), media_type="text/event-stream")
+        return await build_streaming_response_or_error(anti_truncation_generator())
     else:
-        return StreamingResponse(normal_stream_generator(), media_type="text/event-stream")
+        return await build_streaming_response_or_error(normal_stream_generator())
 
 
 @router.post("/antigravity/v1/messages/count_tokens")

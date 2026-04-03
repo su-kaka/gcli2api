@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
+from redis.retry import T
 
 from config import get_proxy_config
 from log import log
@@ -83,8 +84,7 @@ async def post_async(
 
 
 # 调试用：设为 True 时所有流式请求都返回 429
-_MOCK_STREAM_429 = False
-
+_MOCK_STREAM_429 = True
 
 async def stream_post_async(
     url: str,
