@@ -1,4 +1,4 @@
-full_hash=0b32ec9cd1a66a17d1ddf7f8c9d17658edf7f803
-short_hash=0b32ec9
-message=Merge pull request #363 from soraalice/fix-tool-args-conversion
-date=2026-03-31 16:59:18 +0800
+full_hash=57e07b49acd5af4b9c0774cc258e2da66b2906c2
+short_hash=57e07b4
+message=修正流式传输错误却200响应的bug
+date=2026-04-03 12:32:10 +0800
