@@ -84,7 +84,7 @@ async def post_async(
 
 
 # 调试用：设为 True 时所有流式请求都返回 429
-_MOCK_STREAM_429 = True
+_MOCK_STREAM_429 = False
 
 async def stream_post_async(
     url: str,

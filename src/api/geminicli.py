@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable, Tuple
 
 from fastapi import Response
 from config import get_code_assist_endpoint, get_auto_ban_error_codes
@@ -80,6 +80,38 @@ async def prepare_request_headers_and_payload(
     }
 
     return headers, final_payload, target_url
+
+
+def _is_retryable_status(status_code: int, disable_error_codes: list[int]) -> bool:
+    """统一判断是否属于可重试状态码。"""
+    return status_code in (429, 503) or status_code in disable_error_codes
+
+
+async def _switch_credential_for_retry(
+    *,
+    next_cred_task: Optional[asyncio.Task],
+    retry_interval: float,
+    refresh_credential_fast: Callable[[], Any],
+    apply_cred_result: Callable[[Tuple[str, Dict[str, Any]]], bool],
+    log_prefix: str,
+) -> Tuple[bool, Optional[asyncio.Task]]:
+    """优先使用预热凭证，失败后退回同步刷新。"""
+    if next_cred_task is not None:
+        try:
+            cred_result = await next_cred_task
+            next_cred_task = None
+            if cred_result and apply_cred_result(cred_result):
+                await asyncio.sleep(retry_interval)
+                return True, next_cred_task
+        except Exception as e:
+            log.warning(f"{log_prefix} 预热凭证任务失败: {e}")
+            next_cred_task = None
+
+    await asyncio.sleep(retry_interval)
+    if await refresh_credential_fast():
+        return True, next_cred_task
+
+    return False, next_cred_task
 
 
 # ==================== 新的流式和非流式请求函数 ====================
@@ -171,6 +203,17 @@ async def stream_request(
         except Exception:
             return None
 
+    def apply_cred_result(cred_result: Tuple[str, Dict[str, Any]]) -> bool:
+        nonlocal current_file, credential_data, auth_headers, final_payload
+        current_file, credential_data = cred_result
+        token = credential_data.get("token") or credential_data.get("access_token", "")
+        project_id = credential_data.get("project_id", "")
+        if not token or not project_id:
+            return False
+        auth_headers["Authorization"] = f"Bearer {token}"
+        final_payload["project"] = project_id
+        return True
+
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
@@ -195,7 +238,7 @@ async def stream_request(
                         error_body = ""
 
                     # 如果错误码是429、503或者在禁用码当中，做好记录后进行重试
-                    if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
+                    if _is_retryable_status(status_code, DISABLE_ERROR_CODES):
                         log.warning(f"[GEMINICLI STREAM] 流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_body[:500] if error_body else '无'}")
 
                         # 解析冷却时间
@@ -316,30 +359,14 @@ async def stream_request(
 
                 log.info(f"[GEMINICLI STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
-                # 使用预热的凭证任务,避免等待
-                if next_cred_task is not None:
-                    try:
-                        cred_result = await next_cred_task
-                        next_cred_task = None  # 重置任务
-
-                        if cred_result:
-                            current_file, credential_data = cred_result
-                            # 使用快速更新方式
-                            token = credential_data.get("token") or credential_data.get("access_token", "")
-                            project_id = credential_data.get("project_id", "")
-                            if token and project_id:
-                                auth_headers["Authorization"] = f"Bearer {token}"
-                                final_payload["project"] = project_id
-                                await asyncio.sleep(retry_interval)
-                                continue  # 重试
-                    except Exception as e:
-                        log.warning(f"[GEMINICLI STREAM] 预热凭证任务失败: {e}")
-                        next_cred_task = None
-
-                # 如果预热的凭证不可用,则同步获取
-                await asyncio.sleep(retry_interval)
-
-                if not await refresh_credential_fast():
+                switched, next_cred_task = await _switch_credential_for_retry(
+                    next_cred_task=next_cred_task,
+                    retry_interval=retry_interval,
+                    refresh_credential_fast=refresh_credential_fast,
+                    apply_cred_result=apply_cred_result,
+                    log_prefix="[GEMINICLI STREAM]",
+                )
+                if not switched:
                     log.error("[GEMINICLI STREAM] 重试时无可用凭证或刷新失败")
                     yield Response(
                         content=json.dumps({"error": "当前无可用凭证"}),
@@ -465,6 +492,17 @@ async def non_stream_request(
         except Exception:
             return None
 
+    def apply_cred_result(cred_result: Tuple[str, Dict[str, Any]]) -> bool:
+        nonlocal current_file, credential_data, auth_headers, final_payload
+        current_file, credential_data = cred_result
+        token = credential_data.get("token") or credential_data.get("access_token", "")
+        project_id = credential_data.get("project_id", "")
+        if not token or not project_id:
+            return False
+        auth_headers["Authorization"] = f"Bearer {token}"
+        final_payload["project"] = project_id
+        return True
+
     for attempt in range(max_retries + 1):
         try:
             response = await post_async(
@@ -513,7 +551,7 @@ async def non_stream_request(
                 pass
 
             # 统一处理所有需要重试的错误码（429、503、禁用码）
-            if status_code == 429 or status_code == 503 or status_code in DISABLE_ERROR_CODES:
+            if _is_retryable_status(status_code, DISABLE_ERROR_CODES):
                 log.warning(f"[NON-STREAM] 非流式请求失败 (status={status_code}), 凭证: {current_file}, 响应: {error_text[:500] if error_text else '无'}")
 
                 # 解析冷却时间
@@ -550,30 +588,14 @@ async def non_stream_request(
                     # 重新获取凭证并重试
                     log.info(f"[NON-STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
-                    # 使用预热的凭证任务,避免等待
-                    if next_cred_task is not None:
-                        try:
-                            cred_result = await next_cred_task
-                            next_cred_task = None  # 重置任务
-
-                            if cred_result:
-                                current_file, credential_data = cred_result
-                                # 使用快速更新方式
-                                token = credential_data.get("token") or credential_data.get("access_token", "")
-                                project_id = credential_data.get("project_id", "")
-                                if token and project_id:
-                                    auth_headers["Authorization"] = f"Bearer {token}"
-                                    final_payload["project"] = project_id
-                                    await asyncio.sleep(retry_interval)
-                                    continue  # 重试
-                        except Exception as e:
-                            log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
-                            next_cred_task = None
-
-                    # 如果预热的凭证不可用,则同步获取
-                    await asyncio.sleep(retry_interval)
-
-                    if not await refresh_credential_fast():
+                    switched, next_cred_task = await _switch_credential_for_retry(
+                        next_cred_task=next_cred_task,
+                        retry_interval=retry_interval,
+                        refresh_credential_fast=refresh_credential_fast,
+                        apply_cred_result=apply_cred_result,
+                        log_prefix="[NON-STREAM]",
+                    )
+                    if not switched:
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
                         return Response(
                             content=json.dumps({"error": "当前无可用凭证"}),
@@ -617,30 +639,14 @@ async def non_stream_request(
                 if attempt < max_retries:
                     log.info(f"[NON-STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
-                    # 使用预热的凭证任务,避免等待
-                    if next_cred_task is not None:
-                        try:
-                            cred_result = await next_cred_task
-                            next_cred_task = None  # 重置任务
-
-                            if cred_result:
-                                current_file, credential_data = cred_result
-                                # 使用快速更新方式
-                                token = credential_data.get("token") or credential_data.get("access_token", "")
-                                project_id = credential_data.get("project_id", "")
-                                if token and project_id:
-                                    auth_headers["Authorization"] = f"Bearer {token}"
-                                    final_payload["project"] = project_id
-                                    await asyncio.sleep(retry_interval)
-                                    continue  # 重试
-                        except Exception as e:
-                            log.warning(f"[NON-STREAM] 预热凭证任务失败: {e}")
-                            next_cred_task = None
-
-                    # 如果预热的凭证不可用,则同步获取
-                    await asyncio.sleep(retry_interval)
-
-                    if not await refresh_credential_fast():
+                    switched, next_cred_task = await _switch_credential_for_retry(
+                        next_cred_task=next_cred_task,
+                        retry_interval=retry_interval,
+                        refresh_credential_fast=refresh_credential_fast,
+                        apply_cred_result=apply_cred_result,
+                        log_prefix="[NON-STREAM]",
+                    )
+                    if not switched:
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
                         return Response(
                             content=json.dumps({"error": "当前无可用凭证"}),
