@@ -1,4 +1,4 @@
-full_hash=0d699ac7f5982bef0cb4c3bb619451e4ab44ea01
-short_hash=0d699ac
-message=更新 utils.py
-date=2026-03-27 15:11:12 +0800
+full_hash=0b32ec9cd1a66a17d1ddf7f8c9d17658edf7f803
+short_hash=0b32ec9
+message=Merge pull request #363 from soraalice/fix-tool-args-conversion
+date=2026-03-31 16:59:18 +0800

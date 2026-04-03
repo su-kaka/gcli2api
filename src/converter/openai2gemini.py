@@ -764,6 +764,10 @@ def convert_tool_message_to_function_response(message, all_messages: List = None
 def _reverse_transform_value(value: Any) -> Any:
     """
     将值转换回原始类型（Gemini 可能将所有值转为字符串）
+
+    仅处理 Gemini 在工具参数中常见的布尔/空值字符串化情况，
+    不再对数字字符串做启发式转换，避免把 schema 声明为 string
+    的参数错误还原成 integer。
     
     参考 worker.mjs 的 reverseTransformValue
     
@@ -785,18 +789,6 @@ def _reverse_transform_value(value: Any) -> Any:
     # null
     if value == 'null':
         return None
-    
-    # 数字（确保字符串确实是纯数字）
-    if value.strip() and not value.startswith('0') and value.replace('.', '', 1).replace('-', '', 1).replace('+', '', 1).isdigit():
-        try:
-            # 尝试转换为数字
-            num_value = float(value)
-            # 如果是整数，返回 int
-            if num_value == int(num_value):
-                return int(num_value)
-            return num_value
-        except ValueError:
-            pass
     
     # 其他情况保持字符串
     return value
