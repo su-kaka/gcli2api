@@ -870,7 +870,7 @@ export COMPATIBILITY_MODE=true
 
 欢迎加入 QQ 群交流讨论！
 
-**QQ 群号：937681997**
+**QQ 群号：1083250744**
 
 <img src="docs/qq群.jpg" width="200" alt="QQ群二维码">
 

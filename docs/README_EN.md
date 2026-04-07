@@ -870,7 +870,7 @@ In this mode, all `system` messages are converted to `user` messages, improving 
 
 Welcome to join the QQ group for discussion!
 
-**QQ Group: 937681997**
+**QQ Group: 1083250744**
 
 <img src="qq群.jpg" width="200" alt="QQ Group QR Code">
 

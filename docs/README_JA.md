@@ -870,7 +870,7 @@ export COMPATIBILITY_MODE=true
 
 QQグループへの参加をお待ちしています！
 
-**QQグループ: 937681997**
+**QQグループ: 1083250744**
 
 <img src="qq群.jpg" width="200" alt="QQグループQRコード">
 
