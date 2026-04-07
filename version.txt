@@ -1,4 +1,4 @@
-full_hash=57e07b49acd5af4b9c0774cc258e2da66b2906c2
-short_hash=57e07b4
-message=修正流式传输错误却200响应的bug
-date=2026-04-03 12:32:10 +0800
+full_hash=6c4a44cb39c475f2124a7e318e650f87f07bcadf
+short_hash=6c4a44c
+message=更新说明
+date=2026-04-07 18:46:26 +0800
