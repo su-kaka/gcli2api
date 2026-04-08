@@ -153,15 +153,13 @@ app.mount("/front", StaticFiles(directory="front"), name="front")
 async def keepalive() -> Response:
     return Response(status_code=200)
 
-async def main():
-    """异步主启动函数"""
-    from hypercorn.asyncio import serve
+def main():
+    """主启动函数"""
     from hypercorn.config import Config
+    from hypercorn.run import run
 
-    # 日志系统现在直接使用环境变量，无需初始化
-    # 从环境变量或配置获取端口和主机
-    port = await get_server_port()
-    host = await get_server_host()
+    port = asyncio.run(get_server_port())
+    host = asyncio.run(get_server_host())
 
     workers = int(os.environ.get("WORKERS", 1))
 
@@ -173,20 +171,20 @@ async def main():
         log.info(f"Worker 数量: {workers}")
     log.info("=" * 60)
 
-    # 配置hypercorn
     config = Config()
     config.bind = [f"{host}:{port}"]
     config.accesslog = "-"
     config.errorlog = "-"
     config.loglevel = "INFO"
     config.workers = workers
+    config.application_path = "web:app"
 
     # 设置连接超时
-    config.keep_alive_timeout = 600  # 10分钟
-    config.read_timeout = 600  # 10分钟读取超时
+    config.keep_alive_timeout = 600
+    config.read_timeout = 600
 
-    await serve(app, config)
+    run(config)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
