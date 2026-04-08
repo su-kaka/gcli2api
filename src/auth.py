@@ -76,12 +76,6 @@ def _prepare_credentials_data(credentials: Credentials, project_id: str, mode: s
     return creds_data
 
 
-def _generate_random_project_id() -> str:
-    """生成随机project_id（antigravity模式使用）"""
-    random_id = uuid.uuid4().hex[:8]
-    return f"projects/random-{random_id}/locations/global"
-
-
 def _cleanup_auth_flow_server(state: str):
     """清理认证流程的服务器资源"""
     if state in auth_flows:
@@ -123,6 +117,7 @@ class _OAuthLibPatcher:
 # 全局状态管理 - 严格限制大小
 auth_flows = {}  # 存储进行中的认证流程
 MAX_AUTH_FLOWS = 20  # 严格限制最大认证流程数
+DEFAULT_PROJECT_ID = "gemini-pro-1751713012-07fc4dfd"
 
 
 def cleanup_auth_flows_for_memory():
@@ -415,11 +410,8 @@ async def complete_auth_flow(
         if not project_id:
             project_id = flow_data.get("project_id")
             if not project_id:
-                return {
-                    "success": False,
-                    "error": "缺少项目ID，请指定项目ID",
-                    "requires_manual_project_id": True,
-                }
+                project_id = DEFAULT_PROJECT_ID
+                log.warning(f"未获取到project_id，使用默认project_id: {project_id}")
 
         flow = flow_data["flow"]
 
@@ -484,20 +476,16 @@ async def complete_auth_flow(
                                     ],
                                 }
                     else:
-                        # 如果无法获取项目列表，提示手动输入
-                        return {
-                            "success": False,
-                            "error": "无法获取您的项目列表，请手动指定项目ID",
-                            "requires_manual_project_id": True,
-                        }
+                        # 如果无法获取项目列表，使用默认project_id
+                        project_id = DEFAULT_PROJECT_ID
+                        flow_data["project_id"] = project_id
+                        log.warning(f"无法获取项目列表，使用默认project_id: {project_id}")
 
                 # 如果仍然没有项目ID，返回错误
                 if not project_id:
-                    return {
-                        "success": False,
-                        "error": "缺少项目ID，请指定项目ID",
-                        "requires_manual_project_id": True,
-                    }
+                    project_id = DEFAULT_PROJECT_ID
+                    flow_data["project_id"] = project_id
+                    log.warning(f"仍未获取到project_id，使用默认project_id: {project_id}")
 
                 # 保存凭证
                 saved_filename = await save_credentials(credentials, project_id)
@@ -609,12 +597,9 @@ async def asyncio_complete_auth_flow(
             log.info("进入project_id检查分支")
             project_id = flow_data.get("project_id")
             if not project_id:
-                log.error("缺少项目ID，返回错误")
-                return {
-                    "success": False,
-                    "error": "缺少项目ID，请指定项目ID",
-                    "requires_manual_project_id": True,
-                }
+                project_id = DEFAULT_PROJECT_ID
+                flow_data["project_id"] = project_id
+                log.warning(f"缺少项目ID，使用默认project_id: {project_id}")
         else:
             log.info(f"使用提供的项目ID: {project_id}")
 
@@ -683,9 +668,8 @@ async def asyncio_complete_auth_flow(
                     if project_id:
                         log.info(f"成功从API获取project_id: {project_id}, tier: {subscription_tier}")
                     else:
-                        log.warning("无法从API获取project_id，回退到随机生成")
-                        project_id = _generate_random_project_id()
-                        log.info(f"生成的随机project_id: {project_id}")
+                        project_id = DEFAULT_PROJECT_ID
+                        log.warning(f"无法从API获取project_id，使用默认project_id: {project_id}")
 
                     # 保存antigravity凭证
                     saved_filename = await save_credentials(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
@@ -763,12 +747,10 @@ async def asyncio_complete_auth_flow(
                                         ],
                                     }
                         else:
-                            # 如果无法获取项目列表，提示手动输入
-                            return {
-                                "success": False,
-                                "error": "无法获取您的项目列表，请手动指定项目ID",
-                                "requires_manual_project_id": True,
-                            }
+                            # 如果无法获取项目列表，使用默认project_id
+                            project_id = DEFAULT_PROJECT_ID
+                            flow_data["project_id"] = project_id
+                            log.warning(f"无法获取项目列表，使用默认project_id: {project_id}")
                 elif project_id:
                     # 如果已经有项目ID（手动提供或环境检测），也尝试启用API服务
                     log.info("正在为已提供的项目ID自动启用必需的API服务...")
@@ -776,11 +758,9 @@ async def asyncio_complete_auth_flow(
 
                 # 如果仍然没有项目ID，返回错误
                 if not project_id:
-                    return {
-                        "success": False,
-                        "error": "缺少项目ID，请指定项目ID",
-                        "requires_manual_project_id": True,
-                    }
+                    project_id = DEFAULT_PROJECT_ID
+                    flow_data["project_id"] = project_id
+                    log.warning(f"仍未获取到project_id，使用默认project_id: {project_id}")
 
                 # 保存凭证
                 saved_filename = await save_credentials(credentials, project_id)
@@ -861,9 +841,8 @@ async def complete_auth_flow_from_callback_url(
                 if project_id:
                     log.info(f"成功从API获取project_id: {project_id}, tier: {subscription_tier}")
                 else:
-                    log.warning("无法从API获取project_id，回退到随机生成")
-                    project_id = _generate_random_project_id()
-                    log.info(f"生成的随机project_id: {project_id}")
+                    project_id = DEFAULT_PROJECT_ID
+                    log.warning(f"无法从API获取project_id，使用默认project_id: {project_id}")
 
                 # 保存antigravity凭证
                 saved_filename = await save_credentials(credentials, project_id, mode="antigravity", subscription_tier=subscription_tier)
@@ -886,6 +865,7 @@ async def complete_auth_flow_from_callback_url(
             # 标准模式的项目ID处理逻辑
             detected_project_id = None
             auto_detected = False
+            subscription_tier = None
 
             if not project_id:
                 # 尝试使用fetch_project_id_and_tier自动获取项目ID
@@ -921,19 +901,14 @@ async def complete_auth_flow_from_callback_url(
                                 )
                                 log.debug(f"其他可用项目: {[p['projectId'] for p in projects[1:]]}")
                         else:
-                            # 没有项目访问权限
-                            return {
-                                "success": False,
-                                "error": "未检测到可访问的项目，请检查权限或手动指定项目ID",
-                                "requires_manual_project_id": True,
-                            }
+                            # 没有项目访问权限，使用默认project_id
+                            detected_project_id = DEFAULT_PROJECT_ID
+                            auto_detected = False
+                            log.warning(f"未检测到可访问项目，使用默认project_id: {detected_project_id}")
                 except Exception as e:
-                    log.warning(f"自动检测项目ID失败: {e}")
-                    return {
-                        "success": False,
-                        "error": f"自动检测项目ID失败: {str(e)}，请手动指定项目ID",
-                        "requires_manual_project_id": True,
-                    }
+                    log.warning(f"自动检测项目ID失败: {e}，使用默认project_id")
+                    detected_project_id = DEFAULT_PROJECT_ID
+                    auto_detected = False
             else:
                 detected_project_id = project_id
 
