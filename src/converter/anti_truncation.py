@@ -189,10 +189,12 @@ class AntiTruncationStreamProcessor:
         original_request_func,
         payload: Dict[str, Any],
         max_attempts: int = 3,
+        enable_prefill_mode: bool = False,
     ):
         self.original_request_func = original_request_func
         self.base_payload = payload.copy()
         self.max_attempts = max_attempts
+        self.enable_prefill_mode = enable_prefill_mode
         # 使用 StringIO 避免字符串拼接的内存问题
         self.collected_content = io.StringIO()
         self.current_attempt = 0
@@ -400,6 +402,13 @@ class AntiTruncationStreamProcessor:
         accumulated_text = self._get_collected_text()
         if accumulated_text:
             new_contents.append({"role": "model", "parts": [{"text": accumulated_text}]})
+
+        # 预填充模式：直接用拼接内容作为末尾 model 预填充，不再增加 user 续写指令
+        if self.enable_prefill_mode:
+            log.debug("Anti-truncation: Using prefill continuation mode (no user continuation prompt)")
+            request_data["contents"] = new_contents
+            continuation_payload["request"] = request_data
+            return continuation_payload
 
         # 构建具体的续写指令，包含前面的内容摘要
         content_summary = ""
@@ -675,7 +684,10 @@ class AntiTruncationStreamProcessor:
 
 
 async def apply_anti_truncation_to_stream(
-    request_func, payload: Dict[str, Any], max_attempts: int = 3
+    request_func,
+    payload: Dict[str, Any],
+    max_attempts: int = 3,
+    enable_prefill_mode: bool = False,
 ) -> StreamingResponse:
     """
     对流式请求应用反截断处理
@@ -684,6 +696,8 @@ async def apply_anti_truncation_to_stream(
         request_func: 原始请求函数
         payload: 请求payload
         max_attempts: 最大续传尝试次数
+        enable_prefill_mode: 是否启用预填充模式。启用后续传请求不再添加 user 续写指令，
+            而是将已收集内容作为末尾 model 内容进行预填充
 
     Returns:
         处理后的StreamingResponse
@@ -694,7 +708,10 @@ async def apply_anti_truncation_to_stream(
 
     # 创建反截断处理器
     processor = AntiTruncationStreamProcessor(
-        lambda p: request_func(p), anti_truncation_payload, max_attempts
+        lambda p: request_func(p),
+        anti_truncation_payload,
+        max_attempts,
+        enable_prefill_mode,
     )
 
     # 返回包装后的流式响应
