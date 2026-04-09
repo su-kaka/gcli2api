@@ -7,9 +7,32 @@ from math import e
 from typing import Any, Dict, Optional
 
 from log import log
-from src.utils import DEFAULT_SAFETY_SETTINGS
 
 # ==================== Gemini API 配置 ====================
+
+# ====================== Model Configuration ======================
+
+# Default Safety Settings for Google API
+DEFAULT_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
+]
+
+LITE_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+]
 
 def prepare_image_generation_request(
     request_body: Dict[str, Any],
@@ -374,11 +397,15 @@ async def normalize_gemini_request(
         # 6. 移除 antigravity 模式不支持的字段
         generation_config.pop("presencePenalty", None)
         generation_config.pop("frequencyPenalty", None)
+        generation_config.pop("stopSequences", None)
 
     # ========== 公共处理 ==========
 
     # 1. 安全设置覆盖
-    result["safetySettings"] = DEFAULT_SAFETY_SETTINGS
+    if "lite" in model.lower():
+        result["safetySettings"] = LITE_SAFETY_SETTINGS
+    else:
+        result["safetySettings"] = DEFAULT_SAFETY_SETTINGS
 
     # 2. 参数范围限制
     if generation_config:
