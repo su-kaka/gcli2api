@@ -1,4 +1,4 @@
-full_hash=c4b464397da3532c8acda18a8df87720a77e3da8
-short_hash=c4b4643
-message=Lite模型安全设置
-date=2026-04-09 21:56:15 +0800
+full_hash=77245dde6bd8063b2fbeb4c90a7eb7a2c0d3ad3c
+short_hash=77245dd
+message=使用预填充优化流式抗截断效果
+date=2026-04-09 22:35:35 +0800
