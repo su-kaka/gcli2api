@@ -1,4 +1,4 @@
-full_hash=e28a1950153821a23eb384ccf9571f9891494437
-short_hash=e28a195
-message=Update web.py
-date=2026-04-08 19:31:02 +0800
+full_hash=c4b464397da3532c8acda18a8df87720a77e3da8
+short_hash=c4b4643
+message=Lite模型安全设置
+date=2026-04-09 21:56:15 +0800
