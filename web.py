@@ -159,35 +159,56 @@ def main():
     from hypercorn.config import Config
     from hypercorn.run import run
 
-    port = asyncio.run(get_server_port())
-    host = asyncio.run(get_server_host())
-
     workers = int(os.environ.get("WORKERS", 1))
 
-    log.info("=" * 60)
-    log.info("启动 GCLI2API")
-    log.info("=" * 60)
-    log.info(f"控制面板: http://127.0.0.1:{port}")
-    if workers > 1:
-        log.info(f"Worker 数量: {workers}")
-    log.info("=" * 60)
+    async def _run():
+        port = await get_server_port()
+        host = await get_server_host()
 
-    config = Config()
-    config.bind = [f"{host}:{port}"]
-    config.accesslog = "-"
-    config.errorlog = "-"
-    config.loglevel = "INFO"
-    config.workers = workers
-    if workers > 1:
-        config.application_path = "web:app"
+        log.info("=" * 60)
+        log.info("启动 GCLI2API")
+        log.info("=" * 60)
+        log.info(f"控制面板: http://127.0.0.1:{port}")
+        if workers > 1:
+            log.info(f"Worker 数量: {workers}")
+        log.info("=" * 60)
 
-    # 设置连接超时
-    config.keep_alive_timeout = 600
-    config.read_timeout = 600
+        config = Config()
+        config.bind = [f"{host}:{port}"]
+        config.accesslog = "-"
+        config.errorlog = "-"
+        config.loglevel = "INFO"
+
+        # 设置连接超时
+        config.keep_alive_timeout = 600
+        config.read_timeout = 600
+
+        await serve(app, config)
 
     if workers == 1:
-        asyncio.run(serve(app, config))
+        asyncio.run(_run())
     else:
+        # 多 worker 模式下 hypercorn run 自行管理进程，先同步获取配置
+        port = int(os.environ.get("PORT", 7861))
+        host = os.environ.get("HOST", "0.0.0.0")
+
+        log.info("=" * 60)
+        log.info("启动 GCLI2API")
+        log.info("=" * 60)
+        log.info(f"控制面板: http://127.0.0.1:{port}")
+        log.info(f"Worker 数量: {workers}")
+        log.info("=" * 60)
+
+        config = Config()
+        config.bind = [f"{host}:{port}"]
+        config.accesslog = "-"
+        config.errorlog = "-"
+        config.loglevel = "INFO"
+        config.workers = workers
+        config.application_path = "web:app"
+        config.keep_alive_timeout = 600
+        config.read_timeout = 600
+
         run(config)
 
 
