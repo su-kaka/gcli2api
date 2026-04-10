@@ -534,8 +534,9 @@ async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str
 async def fetch_project_id_and_tier(
     access_token: str,
     user_agent: str,
-    api_base_url: str
-) -> Tuple[Optional[str], Optional[str]]:
+    api_base_url: str,
+    include_credits: bool = False,
+) -> Tuple[Optional[str], Optional[str]] | Tuple[Optional[str], Optional[str], Optional[int]]:
     """
     从 API 获取 project_id 和订阅等级
 
@@ -545,8 +546,10 @@ async def fetch_project_id_and_tier(
         api_base_url: API base URL (e.g., antigravity or code assist endpoint)
 
     Returns:
-        (project_id, subscription_tier) 元组
+        默认返回 (project_id, subscription_tier)
+        当 include_credits=True 时返回 (project_id, subscription_tier, credit_amount)
         subscription_tier 可能是 "FREE", "PRO", "ULTRA" 或 None
+        credit_amount 为积分数量（整数）或 None
     """
     headers = {
         'User-Agent': user_agent,
@@ -572,11 +575,23 @@ async def fetch_project_id_and_tier(
         return tier_mapping.get(raw_tier.lower(), "pro")
 
     subscription_tier = None
+    credit_amount: Optional[int] = None
 
     # 步骤 1: 尝试 loadCodeAssist
     try:
-        project_id, raw_tier = await _try_load_code_assist(api_base_url, headers)
+        project_id, raw_tier, raw_credit_amount = await _try_load_code_assist(api_base_url, headers)
         subscription_tier = _map_raw_tier(raw_tier)
+
+        if raw_credit_amount is not None:
+            try:
+                credit_amount = int(raw_credit_amount)
+                log.info(
+                    f"[fetch_project_id_and_tier] Found credit_amount: {credit_amount}"
+                )
+            except (TypeError, ValueError):
+                log.warning(
+                    f"[fetch_project_id_and_tier] Invalid credit_amount: {raw_credit_amount}"
+                )
 
         if raw_tier:
             log.info(
@@ -584,6 +599,8 @@ async def fetch_project_id_and_tier(
             )
 
         if project_id:
+            if include_credits:
+                return project_id, subscription_tier, credit_amount
             return project_id, subscription_tier
 
         log.warning("[fetch_project_id_and_tier] loadCodeAssist did not return project_id, falling back to onboardUser")
@@ -596,28 +613,35 @@ async def fetch_project_id_and_tier(
     try:
         project_id = await _try_onboard_user(api_base_url, headers)
         if project_id:
+            if include_credits:
+                return project_id, subscription_tier, credit_amount
             return project_id, subscription_tier
 
         log.error("[fetch_project_id_and_tier] Failed to get project_id from both loadCodeAssist and onboardUser")
+        if include_credits:
+            return None, subscription_tier, credit_amount
         return None, subscription_tier
 
     except Exception as e:
         log.error(f"[fetch_project_id_and_tier] onboardUser failed: {type(e).__name__}: {e}")
         import traceback
         log.debug(f"[fetch_project_id_and_tier] Traceback: {traceback.format_exc()}")
+        if include_credits:
+            return None, subscription_tier, credit_amount
         return None, subscription_tier
 
 
 async def _try_load_code_assist(
     api_base_url: str,
     headers: dict
-) -> Tuple[Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     尝试通过 loadCodeAssist 获取 project_id 和订阅等级
 
     Returns:
-        (project_id, subscription_tier) 元组
+        (project_id, subscription_tier, credit_amount) 元组
         subscription_tier 可能是 "FREE", "PRO", "ULTRA" 或 None
+        credit_amount 为字符串格式积分或 None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
@@ -648,6 +672,7 @@ async def _try_load_code_assist(
         # 提取订阅等级 - 优先使用 paidTier（更准确反映实际权益）
         paid_tier = data.get("paidTier", {})
         current_tier = data.get("currentTier", {})
+        available_credits = paid_tier.get("availableCredits", []) if isinstance(paid_tier, dict) else []
 
         # paidTier.id 优先，然后是 currentTier.id
         subscription_tier = None
@@ -658,6 +683,15 @@ async def _try_load_code_assist(
             subscription_tier = current_tier.get("id")
             log.info(f"[loadCodeAssist] Found currentTier: {subscription_tier}")
 
+        # 提取积分数量（如果返回了 availableCredits）
+        credit_amount = None
+        if isinstance(available_credits, list) and available_credits:
+            first_credit = available_credits[0]
+            if isinstance(first_credit, dict):
+                credit_amount = first_credit.get("creditAmount")
+                if credit_amount is not None:
+                    log.info(f"[loadCodeAssist] Found creditAmount: {credit_amount}")
+
         # 检查是否有 currentTier（表示用户已激活）
         if current_tier:
             log.info("[loadCodeAssist] User is already activated")
@@ -666,13 +700,13 @@ async def _try_load_code_assist(
             project_id = data.get("cloudaicompanionProject")
             if project_id:
                 log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}, tier: {subscription_tier}")
-                return project_id, subscription_tier
+                return project_id, subscription_tier, credit_amount
 
             log.warning("[loadCodeAssist] No project_id in response")
-            return None, subscription_tier
+            return None, subscription_tier, credit_amount
         else:
             log.info("[loadCodeAssist] User not activated yet (no currentTier)")
-            return None, None
+            return None, None, credit_amount
     else:
         log.warning(f"[loadCodeAssist] Failed: HTTP {response.status_code}")
         log.warning(f"[loadCodeAssist] Response body: {response.text[:500]}")

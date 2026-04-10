@@ -1603,11 +1603,14 @@ async function verifyProjectId(filename) {
         if (response.ok && data.success) {
             // 成功时显示绿色成功消息和Project ID
             const tierLine = data.subscription_tier ? `\nTier: ${data.subscription_tier}` : '';
-            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`;
+            const creditLine = data.credit_amount !== undefined && data.credit_amount !== null
+                ? `\n积分: ${data.credit_amount}`
+                : '';
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}${creditLine}\n\n${data.message}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
 
             // 弹出成功提示
-            showMessageModal('检验成功', `✅ 检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`, 'success');
+            showMessageModal('检验成功', `✅ 检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}${creditLine}\n\n${data.message}`, 'success');
 
             await AppState.creds.refresh();
         } else {
@@ -1637,11 +1640,14 @@ async function verifyAntigravityProjectId(filename) {
         if (response.ok && data.success) {
             // 成功时显示绿色成功消息和Project ID
             const tierLine = data.subscription_tier ? `\nTier: ${data.subscription_tier}` : '';
-            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`;
+            const creditLine = data.credit_amount !== undefined && data.credit_amount !== null
+                ? `\n积分: ${data.credit_amount}`
+                : '';
+            const successMsg = `✅ 检验成功！\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}${creditLine}\n\n${data.message}`;
             showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
 
             // 弹出成功提示
-            showMessageModal('检验成功', `✅ Antigravity检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}\n\n${data.message}`, 'success');
+            showMessageModal('检验成功', `✅ Antigravity检验成功！\n\n文件: ${filename}\nProject ID: ${data.project_id}${tierLine}${creditLine}\n\n${data.message}`, 'success');
 
             await AppState.antigravityCreds.refresh();
         } else {
@@ -2114,7 +2120,13 @@ async function batchVerifyProjectIds() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                return { success: true, filename, projectId: data.project_id, message: data.message };
+                return {
+                    success: true,
+                    filename,
+                    projectId: data.project_id,
+                    creditAmount: data.credit_amount,
+                    message: data.message
+                };
             } else {
                 return { success: false, filename, error: data.message || '失败' };
             }
@@ -2134,7 +2146,10 @@ async function batchVerifyProjectIds() {
     results.forEach(result => {
         if (result.success) {
             successCount++;
-            resultMessages.push(`✅ ${result.filename}: ${result.projectId}`);
+            const creditSuffix = result.creditAmount !== undefined && result.creditAmount !== null
+                ? ` (积分: ${result.creditAmount})`
+                : '';
+            resultMessages.push(`✅ ${result.filename}: ${result.projectId}${creditSuffix}`);
         } else {
             failCount++;
             resultMessages.push(`❌ ${result.filename}: ${result.error}`);
@@ -2183,7 +2198,13 @@ async function batchVerifyAntigravityProjectIds() {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                return { success: true, filename, projectId: data.project_id, message: data.message };
+                return {
+                    success: true,
+                    filename,
+                    projectId: data.project_id,
+                    creditAmount: data.credit_amount,
+                    message: data.message
+                };
             } else {
                 return { success: false, filename, error: data.message || '失败' };
             }
@@ -2203,7 +2224,10 @@ async function batchVerifyAntigravityProjectIds() {
     results.forEach(result => {
         if (result.success) {
             successCount++;
-            resultMessages.push(`✅ ${result.filename}: ${result.projectId}`);
+            const creditSuffix = result.creditAmount !== undefined && result.creditAmount !== null
+                ? ` (积分: ${result.creditAmount})`
+                : '';
+            resultMessages.push(`✅ ${result.filename}: ${result.projectId}${creditSuffix}`);
         } else {
             failCount++;
             resultMessages.push(`❌ ${result.filename}: ${result.error}`);

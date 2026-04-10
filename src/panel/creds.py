@@ -565,12 +565,21 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
         api_base_url = await get_code_assist_endpoint()
         user_agent = GEMINICLI_USER_AGENT
 
-    # 重新获取project id
-    project_id, subscription_tier = await fetch_project_id_and_tier(
-        access_token=credentials.access_token,
-        user_agent=user_agent,
-        api_base_url=api_base_url
-    )
+    # 重新获取project id（仅 antigravity 模式请求积分）
+    if mode == "antigravity":
+        project_id, subscription_tier, credit_amount = await fetch_project_id_and_tier(
+            access_token=credentials.access_token,
+            user_agent=user_agent,
+            api_base_url=api_base_url,
+            include_credits=True,
+        )
+    else:
+        project_id, subscription_tier = await fetch_project_id_and_tier(
+            access_token=credentials.access_token,
+            user_agent=user_agent,
+            api_base_url=api_base_url,
+        )
+        credit_amount = None
 
     if project_id:
         credential_data["project_id"] = project_id
@@ -595,13 +604,18 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
 
         log.info(f"检验 {mode} 凭证成功: {filename} - Project ID: {project_id}, Tier: {subscription_tier} - 已解除禁用并清除错误码")
 
-        return JSONResponse(content={
+        response_data = {
             "success": True,
             "filename": filename,
             "project_id": project_id,
             "subscription_tier": subscription_tier,
             "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
-        })
+        }
+
+        if mode == "antigravity" and credit_amount is not None:
+            response_data["credit_amount"] = credit_amount
+
+        return JSONResponse(content=response_data)
     else:
         return JSONResponse(
             status_code=400,
