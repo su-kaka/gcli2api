@@ -26,6 +26,7 @@ class PSQLManager:
         "model_cooldowns",
         "preview",
         "tier",
+        "enable_credit",
     }
 
     def __init__(self):
@@ -110,6 +111,7 @@ class PSQLManager:
 
                 model_cooldowns TEXT DEFAULT '{}',
                 tier TEXT DEFAULT 'pro',
+                enable_credit INTEGER DEFAULT 0,
 
                 rotation_order INTEGER DEFAULT 0,
                 call_count INTEGER DEFAULT 0,
@@ -168,6 +170,7 @@ class PSQLManager:
                 ("user_email", "TEXT"),
                 ("model_cooldowns", "TEXT DEFAULT '{}'"),
                 ("tier", "TEXT DEFAULT 'pro'"),
+                ("enable_credit", "INTEGER DEFAULT 0"),
                 ("rotation_order", "INTEGER DEFAULT 0"),
                 ("call_count", "INTEGER DEFAULT 0"),
                 ("created_at", "DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW())"),
@@ -292,7 +295,7 @@ class PSQLManager:
                     return None
                 else:
                     rows = await conn.fetch(f"""
-                        SELECT filename, credential_data, model_cooldowns
+                        SELECT filename, credential_data, model_cooldowns, enable_credit
                         FROM {table_name}
                         WHERE disabled = 0
                         ORDER BY RANDOM()
@@ -300,14 +303,18 @@ class PSQLManager:
 
                     if not model_name:
                         if rows:
-                            return rows[0]["filename"], json.loads(rows[0]["credential_data"])
+                            credential_data = json.loads(rows[0]["credential_data"])
+                            credential_data["enable_credit"] = bool(rows[0]["enable_credit"])
+                            return rows[0]["filename"], credential_data
                         return None
 
                     for row in rows:
                         model_cooldowns = json.loads(row["model_cooldowns"] or "{}")
                         cd = model_cooldowns.get(model_name)
                         if cd is None or current_time >= cd:
-                            return row["filename"], json.loads(row["credential_data"])
+                            credential_data = json.loads(row["credential_data"])
+                            credential_data["enable_credit"] = bool(row["enable_credit"])
+                            return row["filename"], credential_data
 
                     return None
 
@@ -449,6 +456,8 @@ class PSQLManager:
 
             for key, value in state_updates.items():
                 if key in self.STATE_FIELDS:
+                    if key == "enable_credit" and mode != "antigravity":
+                        continue
                     if key in ("error_codes", "error_messages", "model_cooldowns"):
                         set_clauses.append(f"{key} = ${idx}")
                         values.append(json.dumps(value))
@@ -515,7 +524,7 @@ class PSQLManager:
                     }
                 else:
                     row = await conn.fetchrow(f"""
-                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, tier
+                        SELECT disabled, error_codes, last_success, user_email, model_cooldowns, tier, enable_credit
                         FROM {table_name} WHERE filename = $1
                     """, filename)
 
@@ -527,6 +536,7 @@ class PSQLManager:
                             "user_email": row["user_email"],
                             "model_cooldowns": json.loads(row["model_cooldowns"] or "{}"),
                             "tier": row["tier"] if row["tier"] is not None else "pro",
+                            "enable_credit": bool(row["enable_credit"]) if row["enable_credit"] is not None else False,
                         }
 
                     return {
@@ -536,6 +546,7 @@ class PSQLManager:
                         "user_email": None,
                         "model_cooldowns": {},
                         "tier": "pro",
+                        "enable_credit": False,
                     }
 
         except Exception as e:
@@ -577,7 +588,7 @@ class PSQLManager:
                 else:
                     rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, model_cooldowns, tier
+                               user_email, model_cooldowns, tier, enable_credit
                         FROM {table_name}
                     """)
 
@@ -594,6 +605,7 @@ class PSQLManager:
                             "user_email": row["user_email"],
                             "model_cooldowns": model_cooldowns,
                             "tier": row["tier"] if row["tier"] is not None else "pro",
+                            "enable_credit": bool(row["enable_credit"]) if row["enable_credit"] is not None else False,
                         }
                     return states
 
@@ -653,7 +665,7 @@ class PSQLManager:
                 else:
                     all_rows = await conn.fetch(f"""
                         SELECT filename, disabled, error_codes, last_success,
-                               user_email, rotation_order, model_cooldowns, tier
+                               user_email, rotation_order, model_cooldowns, tier, enable_credit
                         FROM {table_name}
                         {where_clause}
                         ORDER BY rotation_order
@@ -712,6 +724,8 @@ class PSQLManager:
                                 continue
                             elif preview_filter == "no_preview" and preview_value:
                                 continue
+                    else:
+                        summary["enable_credit"] = bool(row["enable_credit"]) if row["enable_credit"] is not None else False
 
                     if tier_filter and tier_filter in ("free", "pro", "ultra"):
                         if summary["tier"] != tier_filter:
@@ -931,6 +945,40 @@ class PSQLManager:
 
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
+            return False
+
+    async def clear_all_model_cooldowns(
+        self,
+        filename: str,
+        mode: str = "geminicli"
+    ) -> bool:
+        """清除某个凭证的所有模型冷却时间"""
+        self._ensure_initialized()
+        filename = os.path.basename(filename)
+
+        try:
+            table_name = self._get_table_name(mode)
+            async with self._pool.acquire() as conn:
+                result = await conn.execute(
+                    f"""
+                    UPDATE {table_name}
+                    SET model_cooldowns = '{{}}',
+                        updated_at = EXTRACT(EPOCH FROM NOW())
+                    WHERE filename = $1
+                    """,
+                    filename,
+                )
+                updated_count = int(result.split()[-1])
+
+            if updated_count == 0:
+                log.warning(f"Credential {filename} not found")
+                return False
+
+            log.debug(f"Cleared all model cooldowns: {filename} (mode={mode})")
+            return True
+
+        except Exception as e:
+            log.error(f"Error clearing all model cooldowns for {filename}: {e}")
             return False
 
     async def record_success(

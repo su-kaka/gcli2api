@@ -168,6 +168,15 @@ async def stream_request(
         "request": body.get("request", {}),
     }
 
+    # 仅当凭证明确开启积分消耗时注入 enabledCreditTypes
+    def apply_enabled_credit_types(cred_data: Dict[str, Any]) -> None:
+        if cred_data.get("enable_credit") is True:
+            final_payload["enabledCreditTypes"] = ["GOOGLE_ONE_AI"]
+        else:
+            final_payload.pop("enabledCreditTypes", None)
+
+    apply_enabled_credit_types(credential_data)
+
     # 3. 调用stream_post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -193,6 +202,7 @@ async def stream_request(
         # 只更新token和project_id,不重建整个headers和payload
         auth_headers["Authorization"] = f"Bearer {access_token}"
         final_payload["project"] = project_id
+        apply_enabled_credit_types(credential_data)
         return True
 
     def apply_cred_result(cred_result: Tuple[str, Dict[str, Any]]) -> bool:
@@ -204,6 +214,7 @@ async def stream_request(
             return False
         auth_headers["Authorization"] = f"Bearer {access_token}"
         final_payload["project"] = project_id
+        apply_enabled_credit_types(credential_data)
         return True
 
     for attempt in range(max_retries + 1):
@@ -450,6 +461,15 @@ async def non_stream_request(
         "request": body.get("request", {}),
     }
 
+    # 仅当凭证明确开启积分消耗时注入 enabledCreditTypes
+    def apply_enabled_credit_types(cred_data: Dict[str, Any]) -> None:
+        if cred_data.get("enable_credit") is True:
+            final_payload["enabledCreditTypes"] = ["GOOGLE_ONE_AI"]
+        else:
+            final_payload.pop("enabledCreditTypes", None)
+
+    apply_enabled_credit_types(credential_data)
+
     # 3. 调用post_async进行请求
     retry_config = await get_retry_config()
     max_retries = retry_config["max_retries"]
@@ -475,6 +495,7 @@ async def non_stream_request(
         # 只更新token和project_id,不重建整个headers和payload
         auth_headers["Authorization"] = f"Bearer {access_token}"
         final_payload["project"] = project_id
+        apply_enabled_credit_types(credential_data)
         return True
 
     def apply_cred_result(cred_result: Tuple[str, Dict[str, Any]]) -> bool:
@@ -486,6 +507,7 @@ async def non_stream_request(
             return False
         auth_headers["Authorization"] = f"Bearer {access_token}"
         final_payload["project"] = project_id
+        apply_enabled_credit_types(credential_data)
         return True
 
     for attempt in range(max_retries + 1):

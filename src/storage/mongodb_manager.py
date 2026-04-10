@@ -26,6 +26,7 @@ class MongoDBManager:
         "model_cooldowns",
         "preview",
         "tier",
+        "enable_credit",
     }
 
     @staticmethod
@@ -444,6 +445,10 @@ class MongoDBManager:
                     cd_key = self._rk_cd(mode, filename, escaped)
                     if not await self._redis.exists(cd_key):
                         credential_data = await self.get_credential(filename, mode)
+                        if mode == "antigravity":
+                            state = await self.get_credential_state(filename, mode)
+                            credential_data = credential_data or {}
+                            credential_data["enable_credit"] = bool(state.get("enable_credit", False))
                         log.debug(f"[Redis HIT] mode={mode} model={model_name} -> {filename}")
                         return filename, credential_data
                 # 所有候选都在冷却中，降级到 MongoDB
@@ -452,6 +457,10 @@ class MongoDBManager:
             else:
                 filename = candidates[0]
                 credential_data = await self.get_credential(filename, mode)
+                if mode == "antigravity":
+                    state = await self.get_credential_state(filename, mode)
+                    credential_data = credential_data or {}
+                    credential_data["enable_credit"] = bool(state.get("enable_credit", False))
                 log.debug(f"[Redis HIT] mode={mode} -> {filename}")
                 return filename, credential_data
         except Exception as e:
@@ -551,12 +560,15 @@ class MongoDBManager:
 
             # 随机偏移 + limit(1)，替代 $sample，避免全集合随机排序
             skip_n = random.randint(0, count - 1)
-            projection = {"filename": 1, "credential_data": 1, "_id": 0}
+            projection = {"filename": 1, "credential_data": 1, "enable_credit": 1, "_id": 0}
             docs = await collection.find(match_query, projection).skip(skip_n).limit(1).to_list(1)
 
             if docs:
                 doc = docs[0]
-                return doc["filename"], doc.get("credential_data")
+                credential_data = doc.get("credential_data") or {}
+                if mode == "antigravity":
+                    credential_data["enable_credit"] = bool(doc.get("enable_credit", False))
+                return doc["filename"], credential_data
 
             return None
 
@@ -647,6 +659,9 @@ class MongoDBManager:
                         "created_at": current_ts,
                         "updated_at": current_ts,
                     }
+
+                    if mode == "antigravity":
+                        new_credential["enable_credit"] = False
 
                     await collection.insert_one(new_credential)
                     # 新凭证插入成功，添加到 Redis 可用池
@@ -846,6 +861,9 @@ class MongoDBManager:
                 k: v for k, v in state_updates.items() if k in self.STATE_FIELDS
             }
 
+            if mode != "antigravity":
+                valid_updates.pop("enable_credit", None)
+
             if not valid_updates:
                 return True
 
@@ -921,6 +939,8 @@ class MongoDBManager:
                     "preview": doc.get("preview", True),
                     "tier": doc.get("tier", "pro"),
                 }
+                if mode == "antigravity":
+                    state["enable_credit"] = doc.get("enable_credit", False)
                 return state
 
             # 返回默认状态
@@ -933,6 +953,8 @@ class MongoDBManager:
                 "preview": True,
                 "tier": "pro",
             }
+            if mode == "antigravity":
+                default_state["enable_credit"] = False
             return default_state
 
         except Exception as e:
@@ -957,6 +979,7 @@ class MongoDBManager:
                 "model_cooldowns": 1,
                 "preview": 1,
                 "tier": 1,
+                "enable_credit": 1,
                 "_id": 0
             }
 
@@ -985,6 +1008,8 @@ class MongoDBManager:
                     "preview": doc.get("preview", True),
                     "tier": doc.get("tier", "pro"),
                 }
+                if mode == "antigravity":
+                    state["enable_credit"] = doc.get("enable_credit", False)
                 states[filename] = state
 
             return states
@@ -1075,6 +1100,7 @@ class MongoDBManager:
                 "model_cooldowns": 1,
                 "preview": 1,
                 "tier": 1,
+                "enable_credit": 1,
                 "_id": 0
             }
 
@@ -1105,6 +1131,9 @@ class MongoDBManager:
                     "preview": doc.get("preview", True),
                     "tier": doc.get("tier", "pro"),
                 }
+
+                if mode == "antigravity":
+                    summary["enable_credit"] = bool(doc.get("enable_credit", False))
 
                 if mode == "geminicli" and preview_filter:
                     preview_value = summary.get("preview", True)
@@ -1399,6 +1428,60 @@ class MongoDBManager:
 
         except Exception as e:
             log.error(f"Error setting model cooldown for {filename}: {e}")
+            return False
+
+    async def clear_all_model_cooldowns(
+        self,
+        filename: str,
+        mode: str = "geminicli"
+    ) -> bool:
+        """
+        清除某个凭证的所有模型冷却时间
+
+        Args:
+            filename: 凭证文件名
+            mode: 凭证模式 ("geminicli" 或 "antigravity")
+
+        Returns:
+            是否成功
+        """
+        self._ensure_initialized()
+
+        filename = os.path.basename(filename)
+
+        try:
+            collection_name = self._get_collection_name(mode)
+            collection = self._db[collection_name]
+
+            doc = await collection.find_one(
+                {"filename": filename},
+                {"model_cooldowns": 1, "_id": 0}
+            )
+            if not doc:
+                log.warning(f"Credential {filename} not found")
+                return False
+
+            model_cooldowns = doc.get("model_cooldowns") or {}
+
+            await collection.update_one(
+                {"filename": filename},
+                {
+                    "$set": {
+                        "model_cooldowns": {},
+                        "updated_at": time.time(),
+                    }
+                }
+            )
+
+            if self._redis_enabled and isinstance(model_cooldowns, dict) and model_cooldowns:
+                redis_keys = [self._rk_cd(mode, filename, escaped_model) for escaped_model in model_cooldowns.keys()]
+                await self._redis.delete(*redis_keys)
+
+            log.debug(f"Cleared all model cooldowns: {filename} (mode={mode})")
+            return True
+
+        except Exception as e:
+            log.error(f"Error clearing all model cooldowns for {filename}: {e}")
             return False
 
     async def record_success(
