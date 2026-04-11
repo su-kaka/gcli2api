@@ -23,7 +23,7 @@ from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER_AGENT
 from src.api.antigravity import fetch_quota_info
 from src.google_oauth_api import Credentials, fetch_project_id_and_tier
-from config import get_code_assist_endpoint, get_antigravity_api_url
+from config import get_code_assist_endpoint
 from .utils import validate_mode
 
 
@@ -559,7 +559,7 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
 
     # 获取API端点和对应的User-Agent
     if mode == "antigravity":
-        api_base_url = await get_antigravity_api_url()
+        api_base_url = await get_code_assist_endpoint()
         user_agent = ANTIGRAVITY_USER_AGENT
     else:
         api_base_url = await get_code_assist_endpoint()
@@ -1453,7 +1453,7 @@ async def test_credential(
         test_model = "gemini-2.5-flash"
 
         if mode == "antigravity":
-            api_base_url = await get_antigravity_api_url()
+            api_base_url = await get_code_assist_endpoint()
             from src.api.antigravity import build_antigravity_headers
             headers = build_antigravity_headers(access_token, test_model)
         else:

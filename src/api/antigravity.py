@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Callable, Tuple
 
 from fastapi import Response
 from config import (
-    get_antigravity_api_url,
+    get_code_assist_endpoint,
     get_antigravity_stream2nostream,
     get_auto_ban_error_codes,
 )
@@ -152,7 +152,7 @@ async def stream_request(
         return
 
     # 2. 构建URL和请求头
-    antigravity_url = await get_antigravity_api_url()
+    antigravity_url = await get_code_assist_endpoint()
     target_url = f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse"
 
     auth_headers = build_antigravity_headers(access_token, model_name)
@@ -445,7 +445,7 @@ async def non_stream_request(
         )
 
     # 2. 构建URL和请求头
-    antigravity_url = await get_antigravity_api_url()
+    antigravity_url = await get_code_assist_endpoint()
     target_url = f"{antigravity_url}/v1internal:generateContent"
 
     auth_headers = build_antigravity_headers(access_token, model_name)
@@ -701,7 +701,7 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
 
     try:
         # 使用 POST 请求获取模型列表
-        antigravity_url = await get_antigravity_api_url()
+        antigravity_url = await get_code_assist_endpoint()
 
         response = await post_async(
             url=f"{antigravity_url}/v1internal:fetchAvailableModels",
@@ -784,7 +784,7 @@ async def fetch_quota_info(access_token: str) -> Dict[str, Any]:
     headers = build_antigravity_headers(access_token)
 
     try:
-        antigravity_url = await get_antigravity_api_url()
+        antigravity_url = await get_code_assist_endpoint()
 
         response = await post_async(
             url=f"{antigravity_url}/v1internal:fetchAvailableModels",

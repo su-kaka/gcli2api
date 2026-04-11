@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
-from config import get_config_value, get_antigravity_api_url, get_code_assist_endpoint
+from config import get_config_value, get_code_assist_endpoint
 from log import log
 
 from .google_oauth_api import (
@@ -659,7 +659,7 @@ async def asyncio_complete_auth_flow(
                 if cred_mode == "antigravity":
                     log.info("Antigravity模式：从API获取project_id...")
                     # 使用API获取project_id
-                    antigravity_url = await get_antigravity_api_url()
+                    antigravity_url = await get_code_assist_endpoint()
                     project_id, subscription_tier = await fetch_project_id_and_tier(
                         credentials.access_token,
                         ANTIGRAVITY_USER_AGENT,
@@ -832,7 +832,7 @@ async def complete_auth_flow_from_callback_url(
             if cred_mode == "antigravity":
                 log.info("Antigravity模式（从回调URL）：从API获取project_id...")
                 # 使用API获取project_id
-                antigravity_url = await get_antigravity_api_url()
+                antigravity_url = await get_code_assist_endpoint()
                 project_id, subscription_tier = await fetch_project_id_and_tier(
                     credentials.access_token,
                     ANTIGRAVITY_USER_AGENT,
