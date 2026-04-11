@@ -1,4 +1,4 @@
-full_hash=3a9a148609029a0920ea1f3e1b47e4e33668cbf9
-short_hash=3a9a148
-message=检验增加积分数量显示
-date=2026-04-10 18:27:21 +0800
+full_hash=649d50970dac2b29d2ab326e3c8066a006ab499f
+short_hash=649d509
+message=增加批量开启积分按钮
+date=2026-04-11 14:50:49 +0800
