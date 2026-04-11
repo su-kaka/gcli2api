@@ -1,4 +1,4 @@
-full_hash=649d50970dac2b29d2ab326e3c8066a006ab499f
-short_hash=649d509
-message=增加批量开启积分按钮
-date=2026-04-11 14:50:49 +0800
+full_hash=e488d1a1945ec64d4b5c2941487b8e30c9f7260c
+short_hash=e488d1a
+message=优化反重力503报错
+date=2026-04-11 17:56:09 +0800
