@@ -11,8 +11,6 @@ project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# 标准库
-import asyncio
 import json
 
 # 第三方库
@@ -263,7 +261,7 @@ async def stream_generate_content(
             stream_request_wrapper,
             anti_truncation_payload,
             max_attempts,
-            enable_prefill_mode=("claude" not in str(api_request.get("model", "")).lower()),
+            enable_prefill_mode=True,
         )
 
         # 迭代 process_stream() 生成器，并展开 response 包装
