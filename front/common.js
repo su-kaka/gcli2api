@@ -258,6 +258,7 @@ function createCredsManager(type) {
             const batchBtnNames = ['Enable', 'Disable', 'Delete', 'Verify', 'Preview'];
             if (this.type === 'antigravity') {
                 batchBtnNames.push('EnableCredit');
+                batchBtnNames.push('DisableCredit');
             }
             const batchBtns = batchBtnNames.map(action =>
                 document.getElementById(this.getElementId(`Batch${action}Btn`))
