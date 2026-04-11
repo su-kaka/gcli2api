@@ -68,7 +68,7 @@
         }
 
         .btn {
-            background-color: #4285f4;
+            background-color: #28a745;
             color: white;
             padding: 14px 20px;
             border: none;
@@ -81,7 +81,7 @@
         }
 
         .btn:hover {
-            background-color: #3367d6;
+            background-color: #218838;
         }
 
         .btn:disabled {
@@ -95,6 +95,14 @@
             width: auto;
             display: inline-block;
             margin: 2px;
+        }
+
+        .btn-small.btn-danger {
+            background-color: #dc3545;
+        }
+
+        .btn-small.btn-danger:hover {
+            background-color: #c82333;
         }
 
         /* 移动端优化的标签页 */
@@ -668,6 +676,12 @@
             cursor: pointer;
             transition: background-color 0.2s;
             white-space: nowrap;
+            background-color: #28a745;
+            color: white;
+        }
+
+        .cred-btn:hover {
+            background-color: #218838;
         }
 
         .cred-btn.enable {
@@ -676,7 +690,7 @@
         }
 
         .cred-btn.disable {
-            background-color: #6c757d;
+            background-color: #28a745;
             color: white;
         }
 
@@ -685,18 +699,22 @@
             color: white;
         }
 
+        .cred-btn.delete:hover {
+            background-color: #c82333;
+        }
+
         .cred-btn.download {
-            background-color: #007bff;
+            background-color: #28a745;
             color: white;
         }
 
         .cred-btn.view {
-            background-color: #17a2b8;
+            background-color: #28a745;
             color: white;
         }
 
         .cred-btn.email {
-            background-color: #17a2b8;
+            background-color: #28a745;
             color: white;
         }
 
@@ -1116,8 +1134,7 @@
                                     placeholder="粘贴完整的回调URL，例如：http://localhost:11451/?state=xxx&code=xxx&scope=xxx..."
                                     style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 4px; font-size: 13px;">
                             </div>
-                            <button class="btn" style="margin-top: 10px; background: #28a745; border-color: #28a745;"
-                                onclick="processCallbackUrl()">
+                            <button class="btn" style="margin-top: 10px;" onclick="processCallbackUrl()">
                                 从回调URL获取凭证
                             </button>
                         </div>
@@ -1257,8 +1274,7 @@
                         <div id="fileList"></div>
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
                             <button class="btn" onclick="uploadFiles()" style="flex: 1;">上传文件</button>
-                            <button class="btn" style="background-color: #6c757d; flex: 1;"
-                                onclick="clearFiles()">清空列表</button>
+                            <button class="btn" style="flex: 1;" onclick="clearFiles()">清空列表</button>
                         </div>
                     </div>
 
@@ -1295,10 +1311,8 @@
                         <h4>选择的文件：</h4>
                         <div id="antigravityFileList"></div>
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <button class="btn" style="background-color: #28a745; flex: 1;"
-                                onclick="uploadAntigravityFiles()">上传文件</button>
-                            <button class="btn" style="background-color: #6c757d; flex: 1;"
-                                onclick="clearAntigravityFiles()">清空列表</button>
+                            <button class="btn" style="flex: 1;" onclick="uploadAntigravityFiles()">上传文件</button>
+                            <button class="btn" style="flex: 1;" onclick="clearAntigravityFiles()">清空列表</button>
                         </div>
                     </div>
 
@@ -1380,10 +1394,8 @@
                 </div>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
-                    <button class="btn btn-small" onclick="refreshCredsStatus()"
-                        style="background-color: #17a2b8;">刷新状态</button>
-                    <button class="btn btn-small" onclick="downloadAllCreds()"
-                        style="background-color: #28a745;">打包下载</button>
+                    <button class="btn btn-small" onclick="refreshCredsStatus()">刷新状态</button>
+                    <button class="btn btn-small" onclick="downloadAllCreds()">打包下载</button>
                 </div>
 
                 <!-- 批量操作控件 -->
@@ -1399,20 +1411,18 @@
                             项</span>
                     </div>
                     <div class="batch-controls-grid">
-                        <button class="btn btn-small" id="batchEnableBtn" onclick="batchAction('enable')" disabled
-                            style="background-color: #28a745;">批量启用</button>
-                        <button class="btn btn-small" id="batchDisableBtn" onclick="batchAction('disable')" disabled
-                            style="background-color: #6c757d;">批量禁用</button>
-                        <button class="btn btn-small" id="batchDeleteBtn" onclick="batchAction('delete')" disabled
-                            style="background-color: #dc3545;">批量删除</button>
-                        <button class="btn btn-small" id="batchVerifyBtn" onclick="batchVerifyProjectIds()" disabled
-                            style="background-color: #ff9800;">批量检验</button>
-                        <button class="btn btn-small" id="batchPreviewBtn" onclick="batchConfigurePreview()" disabled
-                            style="background-color: #9c27b0;">批量设置预览</button>
-                        <button class="btn btn-small" onclick="refreshAllEmails()"
-                            style="background-color: #17a2b8;">刷新所有邮箱</button>
-                        <button class="btn btn-small" onclick="deduplicateByEmail()"
-                            style="background-color: #e91e63;">凭证一键去重</button>
+                        <button class="btn btn-small" id="batchEnableBtn" onclick="batchAction('enable')"
+                            disabled>批量启用</button>
+                        <button class="btn btn-small" id="batchDisableBtn" onclick="batchAction('disable')"
+                            disabled>批量禁用</button>
+                        <button class="btn btn-small btn-danger" id="batchDeleteBtn" onclick="batchAction('delete')"
+                            disabled>批量删除</button>
+                        <button class="btn btn-small" id="batchVerifyBtn" onclick="batchVerifyProjectIds()"
+                            disabled>批量检验</button>
+                        <button class="btn btn-small" id="batchPreviewBtn" onclick="batchConfigurePreview()"
+                            disabled>批量设置预览</button>
+                        <button class="btn btn-small" onclick="refreshAllEmails()">刷新所有邮箱</button>
+                        <button class="btn btn-small" onclick="deduplicateByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1590,27 +1600,19 @@
                     </div>
                     <div class="batch-controls-grid">
                         <button class="btn btn-small" id="antigravityBatchEnableBtn"
-                            onclick="batchAntigravityAction('enable')" disabled
-                            style="background-color: #28a745;">批量启用</button>
+                            onclick="batchAntigravityAction('enable')" disabled>批量启用</button>
                         <button class="btn btn-small" id="antigravityBatchDisableBtn"
-                            onclick="batchAntigravityAction('disable')" disabled
-                            style="background-color: #6c757d;">批量禁用</button>
-                        <button class="btn btn-small" id="antigravityBatchDeleteBtn"
-                            onclick="batchAntigravityAction('delete')" disabled
-                            style="background-color: #dc3545;">批量删除</button>
+                            onclick="batchAntigravityAction('disable')" disabled>批量禁用</button>
+                        <button class="btn btn-small btn-danger" id="antigravityBatchDeleteBtn"
+                            onclick="batchAntigravityAction('delete')" disabled>批量删除</button>
                         <button class="btn btn-small" id="antigravityBatchEnableCreditBtn"
-                            onclick="batchAntigravityAction('enable_credit')" disabled
-                            style="background-color: #20c997;">批量开启积分</button>
+                            onclick="batchAntigravityAction('enable_credit')" disabled>批量开启积分</button>
                         <button class="btn btn-small" id="antigravityBatchDisableCreditBtn"
-                            onclick="batchAntigravityAction('disable_credit')" disabled
-                            style="background-color: #6c757d;">批量关闭积分</button>
+                            onclick="batchAntigravityAction('disable_credit')" disabled>批量关闭积分</button>
                         <button class="btn btn-small" id="antigravityBatchVerifyBtn"
-                            onclick="batchVerifyAntigravityProjectIds()" disabled
-                            style="background-color: #ff9800;">批量检验</button>
-                        <button class="btn btn-small" onclick="refreshAllAntigravityEmails()"
-                            style="background-color: #17a2b8;">刷新所有邮箱</button>
-                        <button class="btn btn-small" onclick="deduplicateAntigravityByEmail()"
-                            style="background-color: #e91e63;">凭证一键去重</button>
+                            onclick="batchVerifyAntigravityProjectIds()" disabled>批量检验</button>
+                        <button class="btn btn-small" onclick="refreshAllAntigravityEmails()">刷新所有邮箱</button>
+                        <button class="btn btn-small" onclick="deduplicateAntigravityByEmail()">凭证一键去重</button>
                     </div>
                 </div>
 
@@ -1764,11 +1766,11 @@
                             <div class="form-group">
                                 <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
                                     <button type="button" class="btn" onclick="useMirrorUrls()"
-                                        style="background-color: #28a745; font-size: 13px; flex: 1; min-width: 120px;">
+                                        style="font-size: 13px; flex: 1; min-width: 120px;">
                                         🚀 镜像网址
                                     </button>
                                     <button type="button" class="btn" onclick="restoreOfficialUrls()"
-                                        style="background-color: #17a2b8; font-size: 13px; flex: 1; min-width: 120px;">
+                                        style="font-size: 13px; flex: 1; min-width: 120px;">
                                         🔄 官方端点
                                     </button>
                                 </div>
@@ -1993,13 +1995,10 @@
                 <p>查看系统实时日志输出，支持日志筛选和自动滚动</p>
 
                 <div style="display: flex; gap: 8px; margin: 15px 0; flex-wrap: wrap;">
-                    <button class="btn btn-small" onclick="connectWebSocket()"
-                        style="background-color: #17a2b8;">连接日志流</button>
-                    <button class="btn btn-small" onclick="disconnectWebSocket()"
-                        style="background-color: #dc3545;">断开连接</button>
-                    <button class="btn btn-small" onclick="downloadLogs()"
-                        style="background-color: #28a745;">下载日志</button>
-                    <button class="btn btn-small" onclick="clearLogs()" style="background-color: #6c757d;">清空日志</button>
+                    <button class="btn btn-small" onclick="connectWebSocket()">连接日志流</button>
+                    <button class="btn btn-small" onclick="disconnectWebSocket()">断开连接</button>
+                    <button class="btn btn-small" onclick="downloadLogs()">下载日志</button>
+                    <button class="btn btn-small" onclick="clearLogs()">清空日志</button>
                 </div>
 
                 <div
