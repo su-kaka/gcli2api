@@ -255,7 +255,11 @@ function createCredsManager(type) {
             const selectedCount = this.selectedFiles.size;
             document.getElementById(this.getElementId('SelectedCount')).textContent = `已选择 ${selectedCount} 项`;
 
-            const batchBtns = ['Enable', 'Disable', 'Delete', 'Verify', 'Preview'].map(action =>
+            const batchBtnNames = ['Enable', 'Disable', 'Delete', 'Verify', 'Preview'];
+            if (this.type === 'antigravity') {
+                batchBtnNames.push('EnableCredit');
+            }
+            const batchBtns = batchBtnNames.map(action =>
                 document.getElementById(this.getElementId(`Batch${action}Btn`))
             );
             batchBtns.forEach(btn => btn && (btn.disabled = selectedCount === 0));
@@ -313,15 +317,22 @@ function createCredsManager(type) {
                 return;
             }
 
-            const actionNames = { enable: '启用', disable: '禁用', delete: '删除' };
+            const actionNames = {
+                enable: '启用',
+                disable: '禁用',
+                delete: '删除',
+                enable_credit: '开启积分',
+                disable_credit: '关闭积分'
+            };
+            const actionLabel = actionNames[action] || action;
             const confirmMsg = action === 'delete'
                 ? `确定要删除选中的 ${selectedFiles.length} 个文件吗？\n注意：此操作不可恢复！`
-                : `确定要${actionNames[action]}选中的 ${selectedFiles.length} 个文件吗？`;
+                : `确定要${actionLabel}选中的 ${selectedFiles.length} 个文件吗？`;
 
             if (!confirm(confirmMsg)) return;
 
             try {
-                showStatus(`正在执行批量${actionNames[action]}操作...`, 'info');
+                showStatus(`正在执行批量${actionLabel}操作...`, 'info');
 
                 const response = await fetch(`${this.getEndpoint('batchAction')}?${this.getModeParam()}`, {
                     method: 'POST',

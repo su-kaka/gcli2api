@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, Optional
 
 import httpx
-from redis.retry import T
 
 from config import get_proxy_config
 from log import log
