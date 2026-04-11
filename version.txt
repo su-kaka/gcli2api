@@ -1,4 +1,4 @@
-full_hash=d18d13c9f5624ab16df385ed0637b8ca36866ff4
-short_hash=d18d13c
-message=增强显示
-date=2026-04-11 21:00:04 +0800
+full_hash=a89888e697a2ee75213c68c3dd6297b3341d101a
+short_hash=a89888e
+message=优化流式抗截断
+date=2026-04-12 00:26:45 +0800
