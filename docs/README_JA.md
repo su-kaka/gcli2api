@@ -14,24 +14,125 @@
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/su-kaka/gcli2api)
 ---
 
-## ⚠️ ライセンスについて
+## インストールガイド
 
-**本プロジェクトはCooperative Non-Commercial License (CNC-1.0) の下でライセンスされています**
+### Termux環境
 
-これは厳格な非商用オープンソースライセンスです。詳細は [LICENSE](../LICENSE) ファイルをご参照ください。
+**初期インストール**
+```bash
+curl -o termux-install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/termux-install.sh" && chmod +x termux-install.sh && ./termux-install.sh
+```
 
-### ✅ 許可される用途:
-- 個人の学習、研究、教育目的
-- 非営利団体での利用
-- オープンソースプロジェクトへの統合（同一ライセンスの遵守が必要）
-- 学術研究および論文発表
+**サービス再起動**
+```bash
+cd gcli2api
+bash termux-start.sh
+```
 
-### ❌ 禁止される用途:
-- あらゆる形態の商用利用
-- 年間売上が100万ドルを超える企業での利用
-- ベンチャーキャピタルの出資を受けた企業または上場企業
-- 有料サービスまたは製品の提供
-- 商業的な競合利用
+### Windows環境
+
+**初期インストール**
+```powershell
+iex (iwr "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/install.ps1" -UseBasicParsing).Content
+```
+
+**サービス再起動**
+`start.bat` をダブルクリックして実行
+
+### Linux環境
+
+**初期インストール**
+```bash
+curl -o install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/install.sh" && chmod +x install.sh && ./install.sh
+```
+
+**サービス再起動**
+```bash
+cd gcli2api
+bash start.sh
+```
+
+### macOS環境
+
+**初期インストール**
+```bash
+curl -o darwin-install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/darwin-install.sh" && chmod +x darwin-install.sh && ./darwin-install.sh
+```
+
+**サービス再起動**
+```bash
+cd gcli2api
+bash start.sh
+```
+
+### Docker環境
+
+**Docker Runコマンド**
+```bash
+# 共通パスワードを使用
+docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
+
+# 個別パスワードを使用
+docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
+```
+
+**Docker Mac**
+```bash
+# 共通パスワードを使用
+docker run -d \
+  --name gcli2api \
+  -p 7861:7861 \
+  -p 8080:8080 \
+  -e PASSWORD=pwd \
+  -e PORT=7861 \
+  -v "$(pwd)/data/creds":/app/creds \
+  ghcr.io/su-kaka/gcli2api:latest
+```
+
+```bash
+# 個別パスワードを使用
+docker run -d \
+--name gcli2api \
+-p 7861:7861 \
+-p 8080:8080 \
+-e API_PASSWORD=api_pwd \
+-e PANEL_PASSWORD=panel_pwd \
+-e PORT=7861 \
+-v $(pwd)/data/creds:/app/creds \
+ghcr.io/su-kaka/gcli2api:latest
+```
+
+**Docker Compose Runコマンド**
+1. 以下の内容を `docker-compose.yml` ファイルとして保存:
+    ```yaml
+    version: '3.8'
+
+    services:
+      gcli2api:
+        image: ghcr.io/su-kaka/gcli2api:latest
+        container_name: gcli2api
+        restart: unless-stopped
+        network_mode: host
+        environment:
+          # 共通パスワードを使用（シンプルなデプロイに推奨）
+          - PASSWORD=pwd
+          - PORT=7861
+          # または個別パスワードを使用（本番環境に推奨）
+          # - API_PASSWORD=your_api_password
+          # - PANEL_PASSWORD=your_panel_password
+        volumes:
+          - ./data/creds:/app/creds
+        healthcheck:
+          test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 40s
+    ```
+2. サービスを起動:
+    ```bash
+    docker-compose up -d
+    ```
 
 ## コア機能
 
@@ -192,129 +293,6 @@
 - システムがモデル名内の機能識別子を自動認識
 - 機能モード切替を透過的に処理
 - 機能の組み合わせ使用に対応
-
-
----
-
-## インストールガイド
-
-### Termux環境
-
-**初期インストール**
-```bash
-curl -o termux-install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/termux-install.sh" && chmod +x termux-install.sh && ./termux-install.sh
-```
-
-**サービス再起動**
-```bash
-cd gcli2api
-bash termux-start.sh
-```
-
-### Windows環境
-
-**初期インストール**
-```powershell
-iex (iwr "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/install.ps1" -UseBasicParsing).Content
-```
-
-**サービス再起動**
-`start.bat` をダブルクリックして実行
-
-### Linux環境
-
-**初期インストール**
-```bash
-curl -o install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/install.sh" && chmod +x install.sh && ./install.sh
-```
-
-**サービス再起動**
-```bash
-cd gcli2api
-bash start.sh
-```
-
-### macOS環境
-
-**初期インストール**
-```bash
-curl -o darwin-install.sh "https://raw.githubusercontent.com/su-kaka/gcli2api/refs/heads/master/darwin-install.sh" && chmod +x darwin-install.sh && ./darwin-install.sh
-```
-
-**サービス再起動**
-```bash
-cd gcli2api
-bash start.sh
-```
-
-### Docker環境
-
-**Docker Runコマンド**
-```bash
-# 共通パスワードを使用
-docker run -d --name gcli2api --network host -e PASSWORD=pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
-
-# 個別パスワードを使用
-docker run -d --name gcli2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/gcli2api:latest
-```
-
-**Docker Mac**
-```bash
-# 共通パスワードを使用
-docker run -d \
-  --name gcli2api \
-  -p 7861:7861 \
-  -p 8080:8080 \
-  -e PASSWORD=pwd \
-  -e PORT=7861 \
-  -v "$(pwd)/data/creds":/app/creds \
-  ghcr.io/su-kaka/gcli2api:latest
-```
-
-```bash
-# 個別パスワードを使用
-docker run -d \
---name gcli2api \
--p 7861:7861 \
--p 8080:8080 \
--e API_PASSWORD=api_pwd \
--e PANEL_PASSWORD=panel_pwd \
--e PORT=7861 \
--v $(pwd)/data/creds:/app/creds \
-ghcr.io/su-kaka/gcli2api:latest
-```
-
-**Docker Compose Runコマンド**
-1. 以下の内容を `docker-compose.yml` ファイルとして保存:
-    ```yaml
-    version: '3.8'
-
-    services:
-      gcli2api:
-        image: ghcr.io/su-kaka/gcli2api:latest
-        container_name: gcli2api
-        restart: unless-stopped
-        network_mode: host
-        environment:
-          # 共通パスワードを使用（シンプルなデプロイに推奨）
-          - PASSWORD=pwd
-          - PORT=7861
-          # または個別パスワードを使用（本番環境に推奨）
-          # - API_PASSWORD=your_api_password
-          # - PANEL_PASSWORD=your_panel_password
-        volumes:
-          - ./data/creds:/app/creds
-        healthcheck:
-          test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-    ```
-2. サービスを起動:
-    ```bash
-    docker-compose up -d
-    ```
 
 ---
 
@@ -758,3 +736,22 @@ QQグループへの参加をお待ちしています！
 - 関連するサービス利用規約および法的規制を遵守すること
 
 プロジェクトの作者は、本プロジェクトの使用から生じるいかなる直接的または間接的な損害についても責任を負いません。
+
+## ⚠️ ライセンスについて
+
+**本プロジェクトはCooperative Non-Commercial License (CNC-1.0) の下でライセンスされています**
+
+これは厳格な非商用オープンソースライセンスです。詳細は [LICENSE](../LICENSE) ファイルをご参照ください。
+
+### ✅ 許可される用途:
+- 個人の学習、研究、教育目的
+- 非営利団体での利用
+- オープンソースプロジェクトへの統合（同一ライセンスの遵守が必要）
+- 学術研究および論文発表
+
+### ❌ 禁止される用途:
+- あらゆる形態の商用利用
+- 年間売上が100万ドルを超える企業での利用
+- ベンチャーキャピタルの出資を受けた企業または上場企業
+- 有料サービスまたは製品の提供
+- 商業的な競合利用
