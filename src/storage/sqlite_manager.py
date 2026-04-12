@@ -896,12 +896,16 @@ class SQLiteManager:
 
                 filter_value = None
                 filter_int = None
+                filter_none = False
                 if error_code_filter and str(error_code_filter).strip().lower() != "all":
-                    filter_value = str(error_code_filter).strip()
-                    try:
-                        filter_int = int(filter_value)
-                    except ValueError:
-                        filter_int = None
+                    if str(error_code_filter).strip().lower() == "none":
+                        filter_none = True
+                    else:
+                        filter_value = str(error_code_filter).strip()
+                        try:
+                            filter_int = int(filter_value)
+                        except ValueError:
+                            filter_int = None
 
                 # 构建WHERE子句
                 where_clause = ""
@@ -947,6 +951,12 @@ class SQLiteManager:
                             }
 
                         error_codes = json.loads(error_codes_json)
+
+                        # 筛选无错误的凭证
+                        if filter_none:
+                            if error_codes:
+                                continue
+
                         if filter_value:
                             match = False
                             for code in error_codes:

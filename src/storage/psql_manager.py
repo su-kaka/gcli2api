@@ -674,12 +674,16 @@ class PSQLManager:
                 # 错误码筛选
                 filter_value = None
                 filter_int = None
+                filter_none = False
                 if error_code_filter and str(error_code_filter).strip().lower() != "all":
-                    filter_value = str(error_code_filter).strip()
-                    try:
-                        filter_int = int(filter_value)
-                    except ValueError:
-                        filter_int = None
+                    if str(error_code_filter).strip().lower() == "none":
+                        filter_none = True
+                    else:
+                        filter_value = str(error_code_filter).strip()
+                        try:
+                            filter_int = int(filter_value)
+                        except ValueError:
+                            filter_int = None
 
                 all_summaries = []
                 for row in all_rows:
@@ -687,6 +691,11 @@ class PSQLManager:
                     model_cooldowns = json.loads(row["model_cooldowns"] or "{}")
                     active_cooldowns = {k: v for k, v in model_cooldowns.items() if v > current_time}
                     error_codes = json.loads(error_codes_json)
+
+                    # 筛选无错误的凭证
+                    if filter_none:
+                        if error_codes:
+                            continue
 
                     if filter_value:
                         match = False

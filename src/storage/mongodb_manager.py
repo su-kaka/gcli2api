@@ -1061,13 +1061,22 @@ class MongoDBManager:
 
             # 错误码筛选 - 兼容存储为数字或字符串的情况
             if error_code_filter and str(error_code_filter).strip().lower() != "all":
-                filter_value = str(error_code_filter).strip()
-                query_values = [filter_value]
-                try:
-                    query_values.append(int(filter_value))
-                except ValueError:
-                    pass
-                query["error_codes"] = {"$in": query_values}
+                if str(error_code_filter).strip().lower() == "none":
+                    # 筛选无错误的凭证：error_codes 为空数组、不存在、或为 null
+                    query["$or"] = [
+                        {"error_codes": {"$exists": False}},
+                        {"error_codes": None},
+                        {"error_codes": []},
+                        {"error_codes": "[]"},
+                    ]
+                else:
+                    filter_value = str(error_code_filter).strip()
+                    query_values = [filter_value]
+                    try:
+                        query_values.append(int(filter_value))
+                    except ValueError:
+                        pass
+                    query["error_codes"] = {"$in": query_values}
 
             # 计算全局统计数据（不受筛选条件影响）
             global_stats = {"total": 0, "normal": 0, "disabled": 0}
