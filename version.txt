@@ -1,4 +1,4 @@
-full_hash=a89888e697a2ee75213c68c3dd6297b3341d101a
-short_hash=a89888e
-message=优化流式抗截断
-date=2026-04-12 00:26:45 +0800
+full_hash=c6301ff584a4181233cfe62da297b46a8c7fa31e
+short_hash=c6301ff
+message=Merge pull request #366 from FloatingDream528/feat/no-error-filter
+date=2026-04-12 10:57:21 +0800
