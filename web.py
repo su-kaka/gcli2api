@@ -179,10 +179,6 @@ def main():
         config.errorlog = "-"
         config.loglevel = "INFO"
 
-        # 设置连接超时
-        config.keep_alive_timeout = 900
-        config.read_timeout = 900
-
         await serve(app, config)
 
     if workers == 1:
