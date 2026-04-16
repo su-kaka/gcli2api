@@ -206,8 +206,6 @@ def main():
         config.loglevel = "INFO"
         config.workers = workers
         config.application_path = "web:app"
-        config.keep_alive_timeout = 900
-        config.read_timeout = 900
 
         run(config)
 
