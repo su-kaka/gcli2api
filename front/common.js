@@ -2861,7 +2861,7 @@ const officialUrls = {
     googleapisProxyUrl: 'https://www.googleapis.com',
     resourceManagerApiUrl: 'https://cloudresourcemanager.googleapis.com',
     serviceUsageApiUrl: 'https://serviceusage.googleapis.com',
-    antigravityApiUrl: 'https://daily-cloudcode-pa.sandbox.googleapis.com'
+    antigravityApiUrl: 'https://daily-cloudcode-pa.googleapis.com'
 };
 
 function useMirrorUrls() {

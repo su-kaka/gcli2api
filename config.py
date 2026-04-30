@@ -432,12 +432,12 @@ async def get_antigravity_api_url() -> str:
 
     Environment variable: ANTIGRAVITY_API_URL
     Database config key: antigravity_api_url
-    Default: https://daily-cloudcode-pa.sandbox.googleapis.com
+    Default: https://daily-cloudcode-pa.googleapis.com
     """
     return str(
         await get_config_value(
             "antigravity_api_url",
-            "https://daily-cloudcode-pa.sandbox.googleapis.com",
+            "https://daily-cloudcode-pa.googleapis.com",
             "ANTIGRAVITY_API_URL",
         )
     )
