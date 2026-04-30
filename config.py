@@ -29,6 +29,7 @@ ENV_MAPPINGS = {
     "GOOGLEAPIS_PROXY_URL": "googleapis_proxy_url",
     "RESOURCE_MANAGER_API_URL": "resource_manager_api_url",
     "SERVICE_USAGE_API_URL": "service_usage_api_url",
+    "ANTIGRAVITY_API_URL": "antigravity_api_url",
     "AUTO_BAN": "auto_ban_enabled",
     "AUTO_BAN_ERROR_CODES": "auto_ban_error_codes",
     "RETRY_429_MAX_RETRIES": "retry_429_max_retries",
@@ -419,6 +420,25 @@ async def get_service_usage_api_url() -> str:
     return str(
         await get_config_value(
             "service_usage_api_url", "https://serviceusage.googleapis.com", "SERVICE_USAGE_API_URL"
+        )
+    )
+
+
+async def get_antigravity_api_url() -> str:
+    """
+    Get Antigravity API URL setting.
+
+    用于Google Antigravity API的URL。
+
+    Environment variable: ANTIGRAVITY_API_URL
+    Database config key: antigravity_api_url
+    Default: https://daily-cloudcode-pa.sandbox.googleapis.com
+    """
+    return str(
+        await get_config_value(
+            "antigravity_api_url",
+            "https://daily-cloudcode-pa.sandbox.googleapis.com",
+            "ANTIGRAVITY_API_URL",
         )
     )
 
