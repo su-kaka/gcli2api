@@ -188,6 +188,24 @@ def is_search_model(model_name: str) -> bool:
     return "-search" in model_name
 
 
+def inject_google_search_tool(request_dict: Dict[str, Any]) -> bool:
+    """
+    向请求的 tools 数组中注入 googleSearch 工具（如果尚未存在）
+
+    Args:
+        request_dict: 请求字典 (会被修改)
+
+    Returns:
+        bool: 是否注入了新工具
+    """
+    result_tools = request_dict.get("tools") or []
+    request_dict["tools"] = result_tools
+    if not any("googleSearch" in tool for tool in result_tools if isinstance(tool, dict)):
+        result_tools.append({"googleSearch": {}})
+        return True
+    return False
+
+
 # ==================== 统一的 Gemini 请求后处理 ====================
 
 def is_thinking_model(model_name: str) -> bool:
@@ -279,10 +297,7 @@ async def normalize_gemini_request(
 
         # 2. 搜索模型添加 Google Search
         if is_search_model(model):
-            result_tools = result.get("tools") or []
-            result["tools"] = result_tools
-            if not any(tool.get("googleSearch") for tool in result_tools if isinstance(tool, dict)):
-                result_tools.append({"googleSearch": {}})
+            inject_google_search_tool(result)
 
         # 3. 模型名称处理
         result["model"] = get_base_model_name(model)
@@ -310,6 +325,12 @@ async def normalize_gemini_request(
             # 调用图片生成专用处理函数
             return prepare_image_generation_request(result, model)
         else:
+            # 2.5. 搜索模型处理 (支持 -search 后缀和 Anthropic web_search 工具)
+            if is_search_model(model):
+                inject_google_search_tool(result)
+                model = model.replace("-search", "")
+                log.debug(f"[ANTIGRAVITY] Stripped -search suffix, model: {model}")
+
             # 3. 思考模型处理
             if is_thinking_model(model) or ("thinkingBudget" in generation_config.get("thinkingConfig", {}) and generation_config["thinkingConfig"]["thinkingBudget"] != 0):
                 # 直接设置 thinkingConfig
