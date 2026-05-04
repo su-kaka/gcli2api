@@ -206,14 +206,22 @@ class GeminiResponse(BaseModel):
 
 # Claude Models
 class ClaudeContentBlock(BaseModel):
-    type: str  # "text", "image", "tool_use", "tool_result"
+    type: str  # "text", "image", "tool_use", "tool_result", "server_tool_use", "web_search_tool_result"
     text: Optional[str] = None
     source: Optional[Dict[str, Any]] = None  # for image type
-    id: Optional[str] = None  # for tool_use
-    name: Optional[str] = None  # for tool_use
-    input: Optional[Dict[str, Any]] = None  # for tool_use
-    tool_use_id: Optional[str] = None  # for tool_result
-    content: Optional[Union[str, List[Dict[str, Any]]]] = None  # for tool_result
+    id: Optional[str] = None  # for tool_use / server_tool_use
+    name: Optional[str] = None  # for tool_use / server_tool_use
+    input: Optional[Dict[str, Any]] = None  # for tool_use / server_tool_use
+    tool_use_id: Optional[str] = None  # for tool_result / web_search_tool_result
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None  # for tool_result / web_search_tool_result
+    # web_search_tool_result 特有字段
+    encrypted_content: Optional[str] = None  # web_search_result 加密内容
+    page_age: Optional[str] = None  # 页面更新时间
+    # text 块引用
+    citations: Optional[List[Dict[str, Any]]] = None  # web_search_result_location
+
+    class Config:
+        extra = "allow"
 
 
 class ClaudeMessage(BaseModel):
@@ -224,7 +232,15 @@ class ClaudeMessage(BaseModel):
 class ClaudeTool(BaseModel):
     name: str
     description: Optional[str] = None
-    input_schema: Dict[str, Any]
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+    type: Optional[str] = None  # "web_search_20250305" / "web_search_20260209" for web search tools
+    max_uses: Optional[int] = None  # web_search max usage limit
+    allowed_domains: Optional[List[str]] = None  # web_search domain allowlist
+    blocked_domains: Optional[List[str]] = None  # web_search domain blocklist
+    user_location: Optional[Dict[str, Any]] = None  # web_search location context
+
+    class Config:
+        extra = "allow"
 
 
 class ClaudeMetadata(BaseModel):
@@ -252,6 +268,7 @@ class ClaudeRequest(BaseModel):
 class ClaudeUsage(BaseModel):
     input_tokens: int
     output_tokens: int
+    server_tool_use: Optional[Dict[str, Any]] = None  # web_search_requests count etc.
 
 
 class ClaudeResponse(BaseModel):
