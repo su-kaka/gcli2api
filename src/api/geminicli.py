@@ -84,7 +84,7 @@ async def prepare_request_headers_and_payload(
 
 def _is_retryable_status(status_code: int, disable_error_codes: list[int]) -> bool:
     """统一判断是否属于可重试状态码。"""
-    return status_code in (429, 503) or status_code in disable_error_codes
+    return status_code in (429, 500, 503) or status_code in disable_error_codes
 
 
 async def _switch_credential_for_retry(
