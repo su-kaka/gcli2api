@@ -766,10 +766,14 @@ async def anthropic_to_gemini_request(payload: Dict[str, Any]) -> Dict[str, Any]
     
     if tools:
         gemini_request["tools"] = tools
-    
+
     # 添加 toolConfig（如果有 tool_choice）
     if tool_config:
         gemini_request["toolConfig"] = tool_config
+
+    # 透传图片生成的 size 参数（如 "1024x1536"）
+    if "size" in payload and payload["size"]:
+        gemini_request["size"] = payload["size"]
 
     return gemini_request
 
