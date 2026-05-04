@@ -1187,6 +1187,10 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     if "tool_choice" in openai_request and openai_request["tool_choice"]:
         gemini_request["toolConfig"] = convert_tool_choice_to_tool_config(openai_request["tool_choice"])
 
+    # 透传图片生成的 size 参数（如 "1024x1536"）
+    if "size" in openai_request and openai_request["size"]:
+        gemini_request["size"] = openai_request["size"]
+
     return gemini_request
 
 
