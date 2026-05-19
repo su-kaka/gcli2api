@@ -1,4 +1,4 @@
-full_hash=ed382998443aa8deb9b5b9087e240ea550d99956
-short_hash=ed38299
-message=Sanitize Anthropic thought signatures before upstream requests
-date=2026-05-20 03:10:31 +0800
+full_hash=14fb6e9317b75f593e5bba49edc9ae5ae81c93c8
+short_hash=14fb6e9
+message=Normalize Gemini thought signatures before upstream requests
+date=2026-05-20 03:12:40 +0800
