@@ -95,7 +95,7 @@ class OpenAIChatCompletionResponse(BaseModel):
     created: int
     model: str
     choices: List[OpenAIChatCompletionChoice]
-    usage: Optional[Dict[str, int]] = None
+    usage: Optional[Dict[str, Any]] = None
     system_fingerprint: Optional[str] = None
 
 
@@ -196,6 +196,8 @@ class GeminiUsageMetadata(BaseModel):
     promptTokenCount: Optional[int] = None
     candidatesTokenCount: Optional[int] = None
     totalTokenCount: Optional[int] = None
+    cachedContentTokenCount: Optional[int] = None
+    thoughtsTokenCount: Optional[int] = None
 
 
 class GeminiResponse(BaseModel):
@@ -252,6 +254,8 @@ class ClaudeRequest(BaseModel):
 class ClaudeUsage(BaseModel):
     input_tokens: int
     output_tokens: int
+    cache_creation_input_tokens: Optional[int] = None
+    cache_read_input_tokens: Optional[int] = None
 
 
 class ClaudeResponse(BaseModel):

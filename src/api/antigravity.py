@@ -4,6 +4,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 """
 
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -69,6 +70,42 @@ def build_antigravity_headers(access_token: str, model_name: str = "") -> Dict[s
             headers['requestType'] = request_type
 
     return headers
+
+
+def _generate_stable_session_id(request_payload: Dict[str, Any]) -> str:
+    contents = request_payload.get("contents")
+    if isinstance(contents, list):
+        for content in contents:
+            if not isinstance(content, dict) or content.get("role") != "user":
+                continue
+            parts = content.get("parts")
+            if not isinstance(parts, list) or not parts:
+                continue
+            first_part = parts[0]
+            if not isinstance(first_part, dict):
+                continue
+            text = first_part.get("text")
+            if isinstance(text, str) and text:
+                digest = hashlib.sha256(text.encode("utf-8")).digest()
+                value = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+                return f"-{value}"
+
+    value = uuid.uuid4().int % 9_000_000_000_000_000_000
+    return f"-{value}"
+
+
+def _ensure_antigravity_session_id(payload: Dict[str, Any], model_name: str) -> None:
+    if "image" in (model_name or "").lower():
+        return
+
+    request_payload = payload.get("request")
+    if not isinstance(request_payload, dict):
+        return
+
+    if request_payload.get("sessionId"):
+        return
+
+    request_payload["sessionId"] = _generate_stable_session_id(request_payload)
 
 
 def _is_retryable_status(status_code: int, disable_error_codes: List[int]) -> bool:
@@ -167,6 +204,7 @@ async def stream_request(
         "project": project_id,
         "request": body.get("request", {}),
     }
+    _ensure_antigravity_session_id(final_payload, model_name)
 
     # 仅当凭证明确开启积分消耗时注入 enabledCreditTypes
     def apply_enabled_credit_types(cred_data: Dict[str, Any]) -> None:
@@ -460,6 +498,7 @@ async def non_stream_request(
         "project": project_id,
         "request": body.get("request", {}),
     }
+    _ensure_antigravity_session_id(final_payload, model_name)
 
     # 仅当凭证明确开启积分消耗时注入 enabledCreditTypes
     def apply_enabled_credit_types(cred_data: Dict[str, Any]) -> None:
