@@ -12,6 +12,7 @@ from pypinyin import Style, lazy_pinyin
 
 from src.converter.thoughtSignature_fix import (
     decode_tool_id_and_signature,
+    is_skip_thought_signature_placeholder,
     SKIP_THOUGHT_SIGNATURE_VALIDATOR,
 )
 from src.converter.utils import merge_system_messages
@@ -1071,7 +1072,11 @@ def extract_tool_calls_from_parts(
             tool_calls.append(tool_call)
 
         # 提取文本内容（排除 thinking tokens）
-        elif "text" in part and not part.get("thought", False):
+        elif (
+            "text" in part
+            and not part.get("thought", False)
+            and not is_skip_thought_signature_placeholder(part)
+        ):
             text_content += part["text"]
 
     return tool_calls, text_content
@@ -1524,7 +1529,11 @@ def convert_gemini_to_openai_response(
                     content_parts.append(f"\n```{label}\n{output}\n```\n")
             
             # 处理 thought（思考内容）
-            elif part.get("thought", False) and "text" in part:
+            elif (
+                part.get("thought", False)
+                and "text" in part
+                and not is_skip_thought_signature_placeholder(part)
+            ):
                 reasoning_parts.append(part["text"])
             
             # 处理普通文本（非思考内容）
@@ -1694,7 +1703,11 @@ def convert_gemini_to_openai_stream(
                     content_parts.append(f"\n```{label}\n{output}\n```\n")
             
             # 处理 thought（思考内容）
-            elif part.get("thought", False) and "text" in part:
+            elif (
+                part.get("thought", False)
+                and "text" in part
+                and not is_skip_thought_signature_placeholder(part)
+            ):
                 reasoning_parts.append(part["text"])
             
             # 处理普通文本（非思考内容）
