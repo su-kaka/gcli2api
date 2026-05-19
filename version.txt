@@ -1,4 +1,4 @@
-full_hash=14fb6e9317b75f593e5bba49edc9ae5ae81c93c8
-short_hash=14fb6e9
-message=Normalize Gemini thought signatures before upstream requests
-date=2026-05-20 03:12:40 +0800
+full_hash=80e13a620a4c7c2b946c9a3c0202abef238eb5f1
+short_hash=80e13a6
+message=Add cache-friendly session routing
+date=2026-05-20 06:05:35 +0800
