@@ -1,4 +1,4 @@
-full_hash=80e13a620a4c7c2b946c9a3c0202abef238eb5f1
-short_hash=80e13a6
-message=Add cache-friendly session routing
-date=2026-05-20 06:05:35 +0800
+full_hash=b1f5fe111033ba940e3150b0a695a6cb0d9521c5
+short_hash=b1f5fe1
+message=Improve cache session routing
+date=2026-05-20 06:12:38 +0800
