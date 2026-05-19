@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,6 +12,10 @@ from log import log
 
 from src.google_oauth_api import Credentials
 from src.storage_adapter import get_storage_adapter
+
+
+SESSION_BINDING_TTL_SECONDS = 3 * 60 * 60
+
 
 class CredentialManager:
     """
@@ -22,6 +27,8 @@ class CredentialManager:
         # 核心状态
         self._initialized = False
         self._storage_adapter = None
+        self._session_bindings: Dict[str, Tuple[str, float]] = {}
+        self._session_lock = asyncio.Lock()
 
         # 并发控制（简化）
         # 后端数据库自行处理并发，credential_manager 不再使用本地锁
@@ -46,8 +53,85 @@ class CredentialManager:
         self._initialized = False
         log.debug("Credential manager closed")
 
+    def _session_binding_key(
+        self, mode: str, model_name: Optional[str], session_key: Optional[str]
+    ) -> Optional[str]:
+        if not session_key:
+            return None
+        return f"{mode}:{model_name or ''}:{session_key}"
+
+    async def _get_session_binding(self, binding_key: str) -> Optional[str]:
+        async with self._session_lock:
+            binding = self._session_bindings.get(binding_key)
+            if not binding:
+                return None
+            filename, expires_at = binding
+            if expires_at <= time.time():
+                self._session_bindings.pop(binding_key, None)
+                return None
+            return filename
+
+    async def _remember_session_binding(self, binding_key: Optional[str], filename: str) -> None:
+        if not binding_key or not filename:
+            return
+        async with self._session_lock:
+            self._session_bindings[binding_key] = (
+                os.path.basename(filename),
+                time.time() + SESSION_BINDING_TTL_SECONDS,
+            )
+
+    async def _forget_session_binding(self, binding_key: Optional[str]) -> None:
+        if not binding_key:
+            return
+        async with self._session_lock:
+            self._session_bindings.pop(binding_key, None)
+
+    async def _get_bound_credential_if_available(
+        self,
+        filename: str,
+        *,
+        mode: str,
+        model_name: Optional[str],
+        exclude_credential: Optional[str],
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        if exclude_credential and os.path.basename(filename) == os.path.basename(exclude_credential):
+            return None
+
+        state = await self._storage_adapter.get_credential_state(filename, mode=mode)
+        if state.get("disabled"):
+            return None
+
+        model_lower = (model_name or "").lower()
+        if model_name:
+            cooldown_until = (state.get("model_cooldowns") or {}).get(model_name)
+            if cooldown_until is not None:
+                try:
+                    if time.time() < float(cooldown_until):
+                        return None
+                except (TypeError, ValueError):
+                    return None
+
+        if mode == "geminicli":
+            if "pro" in model_lower and state.get("tier") == "free":
+                return None
+            if "preview" in model_lower and state.get("preview") is False:
+                return None
+
+        credential_data = await self._storage_adapter.get_credential(filename, mode=mode)
+        if not credential_data:
+            return None
+
+        if mode == "antigravity":
+            credential_data["enable_credit"] = bool(state.get("enable_credit", False))
+
+        return os.path.basename(filename), credential_data
+
     async def get_valid_credential(
-        self, mode: str = "geminicli", model_name: Optional[str] = None
+        self,
+        mode: str = "geminicli",
+        model_name: Optional[str] = None,
+        session_key: Optional[str] = None,
+        exclude_credential: Optional[str] = None,
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
@@ -63,9 +147,35 @@ class CredentialManager:
                        - antigravity: 完整模型名（如 "gemini-2.0-flash-exp"）
         """
         await self._ensure_initialized()
+        binding_key = self._session_binding_key(mode, model_name, session_key)
+
+        if binding_key:
+            bound_filename = await self._get_session_binding(binding_key)
+            if bound_filename:
+                bound_result = await self._get_bound_credential_if_available(
+                    bound_filename,
+                    mode=mode,
+                    model_name=model_name,
+                    exclude_credential=exclude_credential,
+                )
+                if bound_result:
+                    filename, credential_data = bound_result
+                    if await self._should_refresh_token(credential_data):
+                        refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
+                        if refreshed_data:
+                            log.debug(f"Session credential hit after refresh: credential={filename}, mode={mode}")
+                            await self._remember_session_binding(binding_key, filename)
+                            return filename, refreshed_data
+                        await self._forget_session_binding(binding_key)
+                    else:
+                        log.debug(f"Session credential hit: credential={filename}, mode={mode}")
+                        await self._remember_session_binding(binding_key, filename)
+                        return filename, credential_data
+                else:
+                    await self._forget_session_binding(binding_key)
 
         # 最多重试3次
-        max_retries = 3
+        max_retries = 20 if exclude_credential else 3
         for attempt in range(max_retries):
             result = await self._storage_adapter._backend.get_next_available_credential(
                 mode=mode, model_name=model_name
@@ -78,6 +188,8 @@ class CredentialManager:
                 return None
 
             filename, credential_data = result
+            if exclude_credential and os.path.basename(filename) == os.path.basename(exclude_credential):
+                continue
 
             # Token 刷新检查
             if await self._should_refresh_token(credential_data):
@@ -87,6 +199,7 @@ class CredentialManager:
                     # 刷新成功，返回凭证
                     credential_data = refreshed_data
                     log.debug(f"Token刷新成功: {filename} (mode={mode})")
+                    await self._remember_session_binding(binding_key, filename)
                     return filename, credential_data
                 else:
                     # 刷新失败（_refresh_token内部已自动禁用失效凭证）
@@ -95,6 +208,7 @@ class CredentialManager:
                     continue
             else:
                 # Token有效，直接返回
+                await self._remember_session_binding(binding_key, filename)
                 return filename, credential_data
 
         # 重试次数用尽

@@ -23,6 +23,7 @@ from log import log
 
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
+from src.session_affinity import extract_cache_session_key
 
 # 导入共同的基础功能
 from src.api.utils import (
@@ -134,10 +135,11 @@ async def stream_request(
     """
     # 获取有效凭证
     model_name = body.get("model", "")
+    session_key = extract_cache_session_key(body, headers)
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="geminicli", model_name=model_name
+        mode="geminicli", model_name=model_name, session_key=session_key
     )
 
     if not cred_result:
@@ -184,7 +186,8 @@ async def stream_request(
     async def refresh_credential_fast():
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
-            mode="geminicli", model_name=model_name
+            mode="geminicli", model_name=model_name, session_key=session_key,
+            exclude_credential=current_file
         )
         if not cred_result:
             return None
@@ -253,7 +256,8 @@ async def stream_request(
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
-                                    mode="geminicli", model_name=model_name
+                                    mode="geminicli", model_name=model_name,
+                                    session_key=session_key, exclude_credential=current_file
                                 )
                             )
 
@@ -303,7 +307,8 @@ async def stream_request(
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
-                                    mode="geminicli", model_name=model_name
+                                    mode="geminicli", model_name=model_name,
+                                    session_key=session_key, exclude_credential=current_file
                                 )
                             )
 
@@ -425,10 +430,11 @@ async def non_stream_request(
     """
     # 获取有效凭证
     model_name = body.get("model", "")
+    session_key = extract_cache_session_key(body, headers)
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="geminicli", model_name=model_name
+        mode="geminicli", model_name=model_name, session_key=session_key
     )
 
     if not cred_result:
@@ -473,7 +479,8 @@ async def non_stream_request(
     async def refresh_credential_fast():
         nonlocal current_file, credential_data, auth_headers, final_payload
         cred_result = await credential_manager.get_valid_credential(
-            mode="geminicli", model_name=model_name
+            mode="geminicli", model_name=model_name, session_key=session_key,
+            exclude_credential=current_file
         )
         if not cred_result:
             return None
@@ -566,7 +573,8 @@ async def non_stream_request(
                 if next_cred_task is None and attempt < max_retries:
                     next_cred_task = asyncio.create_task(
                         credential_manager.get_valid_credential(
-                            mode="geminicli", model_name=model_name
+                            mode="geminicli", model_name=model_name,
+                            session_key=session_key, exclude_credential=current_file
                         )
                     )
 
@@ -631,7 +639,8 @@ async def non_stream_request(
                 if next_cred_task is None and attempt < max_retries:
                     next_cred_task = asyncio.create_task(
                         credential_manager.get_valid_credential(
-                            mode="geminicli", model_name=model_name
+                            mode="geminicli", model_name=model_name,
+                            session_key=session_key, exclude_credential=current_file
                         )
                     )
 

@@ -16,7 +16,7 @@ import asyncio
 import json
 
 # 第三方库
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 # 本地模块 - 配置和日志
@@ -48,6 +48,7 @@ from src.router.stream_passthrough import (
 
 # 本地模块 - 数据模型
 from src.models import OpenAIChatCompletionRequest, model_to_dict
+from src.session_affinity import extract_cache_session_key
 
 # 本地模块 - 任务管理
 from src.task_manager import create_managed_task
@@ -63,6 +64,7 @@ router = APIRouter()
 @router.post("/v1/chat/completions")
 async def chat_completions(
     openai_request: OpenAIChatCompletionRequest,
+    request: Request,
     token: str = Depends(authenticate_bearer)
 ):
     """
@@ -76,6 +78,7 @@ async def chat_completions(
 
     # 转换为字典
     normalized_dict = model_to_dict(openai_request)
+    cache_session_key = extract_cache_session_key(normalized_dict, request.headers)
 
     # 健康检查
     if is_health_check_request(normalized_dict, format="openai"):
@@ -111,7 +114,8 @@ async def chat_completions(
     # 准备API请求格式 - 提取model并将其他字段放入request中
     api_request = {
         "model": gemini_dict.pop("model"),
-        "request": gemini_dict
+        "request": gemini_dict,
+        "cache_session_key": cache_session_key
     }
 
     # ========== 非流式请求 ==========
