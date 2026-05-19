@@ -1,4 +1,4 @@
-full_hash=c951fe6ae7f9fb00c761c6538cb52e0e4fd97748
-short_hash=c951fe6
-message=Avoid round-tripping thought signatures in OpenAI tools
-date=2026-05-20 03:04:41 +0800
+full_hash=9cd629af6bc2b18e325e548aef7d170601498629
+short_hash=9cd629a
+message=Sanitize OpenAI thought signatures before upstream requests
+date=2026-05-20 03:08:34 +0800
