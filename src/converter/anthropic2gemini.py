@@ -194,6 +194,28 @@ def _anthropic_debug_enabled() -> bool:
     return str(os.getenv("ANTHROPIC_DEBUG", "true")).strip().lower() in _DEBUG_TRUE
 
 
+def _cached_content_token_count(usage_metadata: Any) -> int:
+    if not isinstance(usage_metadata, dict):
+        return 0
+    return int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
+
+
+def _anthropic_usage_from_metadata(usage_metadata: Any) -> Dict[str, int]:
+    if not isinstance(usage_metadata, dict):
+        return {"input_tokens": 0, "output_tokens": 0}
+
+    usage = {
+        "input_tokens": int(usage_metadata.get("promptTokenCount", 0) or 0),
+        "output_tokens": int(usage_metadata.get("candidatesTokenCount", 0) or 0),
+    }
+
+    cached_tokens = _cached_content_token_count(usage_metadata)
+    if cached_tokens > 0:
+        usage["cache_read_input_tokens"] = cached_tokens
+
+    return usage
+
+
 def _is_non_whitespace_text(value: Any) -> bool:
     """
     判断文本是否包含"非空白"内容。
@@ -253,7 +275,7 @@ def clean_json_schema(schema: Any) -> Any:
         "exclusiveMaximum", "exclusiveMinimum", "oneOf", "anyOf", "allOf",
         "const", "additionalItems", "contains", "patternProperties",
         "dependencies", "propertyNames", "if", "then", "else",
-        "contentEncoding", "contentMediaType",
+        "contentEncoding", "contentMediaType", "nullable",
     }
 
     validation_fields = {
@@ -288,8 +310,6 @@ def clean_json_schema(schema: Any) -> Any:
             ]
 
             cleaned[key] = non_null_types[0] if non_null_types else "string"
-            if has_null:
-                cleaned["nullable"] = True
             continue
 
         if key == "description" and validations:
@@ -307,6 +327,25 @@ def clean_json_schema(schema: Any) -> Any:
     # 如果有 properties 但没有显式 type，则补齐为 object
     if "properties" in cleaned and "type" not in cleaned:
         cleaned["type"] = "object"
+
+    if (
+        isinstance(schema.get("properties"), dict)
+        and isinstance(cleaned.get("required"), list)
+    ):
+        nullable_fields = {
+            name
+            for name, prop in schema["properties"].items()
+            if isinstance(prop, dict)
+            and isinstance(prop.get("type"), list)
+            and any(str(t).lower() == "null" for t in prop["type"])
+        }
+        if nullable_fields:
+            cleaned["required"] = [
+                item for item in cleaned["required"]
+                if item not in nullable_fields
+            ]
+            if not cleaned["required"]:
+                cleaned.pop("required", None)
 
     return cleaned
 
@@ -335,7 +374,7 @@ def convert_tools(anthropic_tools: Optional[List[Dict[str, Any]]]) -> Optional[L
                     {
                         "name": name,
                         "description": description,
-                        "parameters": parameters,
+                        "parametersJsonSchema": parameters,
                     }
                 ]
             }
@@ -894,8 +933,7 @@ def gemini_to_anthropic_response(
         stop_reason = "end_turn"
 
     # 提取 token 使用情况
-    input_tokens = usage_metadata.get("promptTokenCount", 0) if isinstance(usage_metadata, dict) else 0
-    output_tokens = usage_metadata.get("candidatesTokenCount", 0) if isinstance(usage_metadata, dict) else 0
+    usage = _anthropic_usage_from_metadata(usage_metadata)
 
     # 构建 Anthropic 响应
     message_id = f"msg_{uuid.uuid4().hex}"
@@ -908,10 +946,7 @@ def gemini_to_anthropic_response(
         "content": content,
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {
-            "input_tokens": int(input_tokens or 0),
-            "output_tokens": int(output_tokens or 0),
-        },
+        "usage": usage,
     }
 
 
@@ -948,6 +983,7 @@ async def gemini_stream_to_anthropic_stream(
     has_tool_use = False
     input_tokens = 0
     output_tokens = 0
+    cached_input_tokens = 0
     finish_reason: Optional[str] = None
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
@@ -966,6 +1002,12 @@ async def gemini_stream_to_anthropic_stream(
         )
         current_block_type = None
         return event
+
+    def _usage_payload() -> Dict[str, int]:
+        usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+        if cached_input_tokens > 0:
+            usage["cache_read_input_tokens"] = cached_input_tokens
+        return usage
 
     # 处理流式数据
     try:
@@ -1017,6 +1059,8 @@ async def gemini_stream_to_anthropic_stream(
                         input_tokens = int(usage.get("promptTokenCount", 0) or 0)
                     if "candidatesTokenCount" in usage:
                         output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
+                    if "cachedContentTokenCount" in usage:
+                        cached_input_tokens = int(usage.get("cachedContentTokenCount", 0) or 0)
 
             # 发送 message_start（仅一次）
             if not message_start_sent:
@@ -1033,7 +1077,7 @@ async def gemini_stream_to_anthropic_stream(
                             "content": [],
                             "stop_reason": None,
                             "stop_sequence": None,
-                            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+                            "usage": _usage_payload(),
                         },
                     },
                 )
@@ -1230,9 +1274,7 @@ async def gemini_stream_to_anthropic_stream(
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                "usage": {
-                    "output_tokens": output_tokens,
-                },
+                "usage": _usage_payload(),
             },
         )
 
@@ -1254,7 +1296,7 @@ async def gemini_stream_to_anthropic_stream(
                         "content": [],
                         "stop_reason": None,
                         "stop_sequence": None,
-                        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+                        "usage": _usage_payload(),
                     },
                 },
             )
