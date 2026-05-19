@@ -8,6 +8,7 @@ from math import e
 from typing import Any, Dict, Optional
 
 from log import log
+from src.converter.thoughtSignature_fix import SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
 # ==================== Gemini API 配置 ====================
 
@@ -278,6 +279,27 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
         normalized_tools.append(normalized_tool)
 
     return normalized_tools
+
+
+def _should_skip_thought_signature(part: Dict[str, Any], model_name: str) -> bool:
+    if "claude" in (model_name or "").lower():
+        return False
+
+    return (
+        "functionCall" in part
+        or "function_call" in part
+        or part.get("thought") is True
+        or "thoughtSignature" in part
+        or "thought_signature" in part
+    )
+
+
+def _normalize_part_thought_signature(part: Dict[str, Any], model_name: str) -> Dict[str, Any]:
+    normalized = part.copy()
+    if _should_skip_thought_signature(normalized, model_name):
+        normalized.pop("thought_signature", None)
+        normalized["thoughtSignature"] = SKIP_THOUGHT_SIGNATURE_VALIDATOR
+    return normalized
 
 
 SUPPORTED_ASPECT_RATIOS = [
@@ -744,7 +766,7 @@ async def normalize_gemini_request(
                     )
                     
                     if has_valid_value:
-                        part = part.copy()
+                        part = _normalize_part_thought_signature(part, model)
 
                         # 修复 text 字段：确保是字符串而不是列表
                         if "text" in part:
