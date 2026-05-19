@@ -1,4 +1,4 @@
-full_hash=9cd629af6bc2b18e325e548aef7d170601498629
-short_hash=9cd629a
-message=Sanitize OpenAI thought signatures before upstream requests
-date=2026-05-20 03:08:34 +0800
+full_hash=ed382998443aa8deb9b5b9087e240ea550d99956
+short_hash=ed38299
+message=Sanitize Anthropic thought signatures before upstream requests
+date=2026-05-20 03:10:31 +0800
