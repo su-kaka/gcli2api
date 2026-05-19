@@ -12,6 +12,7 @@ from pypinyin import Style, lazy_pinyin
 
 from src.converter.thoughtSignature_fix import (
     decode_tool_id_and_signature,
+    is_internal_placeholder_text,
     is_skip_thought_signature_placeholder,
     SKIP_THOUGHT_SIGNATURE_VALIDATOR,
 )
@@ -1072,12 +1073,14 @@ def extract_tool_calls_from_parts(
             tool_calls.append(tool_call)
 
         # 提取文本内容（排除 thinking tokens）
-        elif (
-            "text" in part
-            and not part.get("thought", False)
-            and not is_skip_thought_signature_placeholder(part)
-        ):
-            text_content += part["text"]
+        elif "text" in part and not part.get("thought", False):
+            text = part["text"]
+            if (
+                is_skip_thought_signature_placeholder(part)
+                or is_internal_placeholder_text(text)
+            ):
+                continue
+            text_content += text
 
     return tool_calls, text_content
 
