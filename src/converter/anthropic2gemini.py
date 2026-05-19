@@ -16,6 +16,7 @@ from src.converter.utils import merge_system_messages
 
 from src.converter.thoughtSignature_fix import (
     decode_tool_id_and_signature,
+    is_internal_placeholder_text,
     is_skip_thought_signature_placeholder,
     SKIP_THOUGHT_SIGNATURE_VALIDATOR,
 )
@@ -849,9 +850,13 @@ def gemini_to_anthropic_response(
 
         # 处理文本块
         if "text" in part:
-            if is_skip_thought_signature_placeholder(part):
+            text = part.get("text", "")
+            if (
+                is_skip_thought_signature_placeholder(part)
+                or is_internal_placeholder_text(text)
+            ):
                 continue
-            content.append({"type": "text", "text": part.get("text", "")})
+            content.append({"type": "text", "text": text})
             continue
 
         # 处理工具调用
@@ -1117,7 +1122,10 @@ async def gemini_stream_to_anthropic_stream(
 
                 # 处理文本块
                 if "text" in part:
-                    if is_skip_thought_signature_placeholder(part):
+                    if (
+                        is_skip_thought_signature_placeholder(part)
+                        or is_internal_placeholder_text(part.get("text"))
+                    ):
                         continue
                     text = part.get("text", "")
                     if isinstance(text, str) and not text.strip():
