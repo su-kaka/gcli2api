@@ -3,6 +3,7 @@
 """
 
 import asyncio
+import hashlib
 import os
 import time
 from datetime import datetime, timezone
@@ -59,6 +60,9 @@ class CredentialManager:
         if not session_key:
             return None
         return f"{mode}:{model_name or ''}:{session_key}"
+
+    def _session_log_id(self, binding_key: str) -> str:
+        return hashlib.sha256(binding_key.encode("utf-8")).hexdigest()[:12]
 
     async def _get_session_binding(self, binding_key: str) -> Optional[str]:
         async with self._session_lock:
@@ -126,6 +130,89 @@ class CredentialManager:
 
         return os.path.basename(filename), credential_data
 
+    def _credential_state_allows_model(
+        self,
+        state: Dict[str, Any],
+        *,
+        mode: str,
+        model_name: Optional[str],
+    ) -> bool:
+        if state.get("disabled"):
+            return False
+
+        model_lower = (model_name or "").lower()
+        if model_name:
+            cooldown_until = (state.get("model_cooldowns") or {}).get(model_name)
+            if cooldown_until is not None:
+                try:
+                    if time.time() < float(cooldown_until):
+                        return False
+                except (TypeError, ValueError):
+                    return False
+
+        if mode == "geminicli":
+            if "pro" in model_lower and state.get("tier") == "free":
+                return False
+            if "preview" in model_lower and state.get("preview") is False:
+                return False
+
+        return True
+
+    async def _get_session_routed_credential(
+        self,
+        *,
+        binding_key: str,
+        mode: str,
+        model_name: Optional[str],
+        exclude_credential: Optional[str],
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        states = await self._storage_adapter.get_all_credential_states(mode=mode)
+        if not states:
+            return None
+
+        excluded = os.path.basename(exclude_credential) if exclude_credential else None
+        candidates: List[Tuple[str, Dict[str, Any]]] = []
+
+        for raw_filename, state in states.items():
+            filename = os.path.basename(raw_filename)
+            if excluded and filename == excluded:
+                continue
+            if not self._credential_state_allows_model(
+                state,
+                mode=mode,
+                model_name=model_name,
+            ):
+                continue
+            candidates.append((filename, state))
+
+        if not candidates:
+            return None
+
+        ordered_candidates = sorted(
+            candidates,
+            key=lambda item: hashlib.sha256(
+                f"{binding_key}\0{item[0]}".encode("utf-8")
+            ).digest(),
+            reverse=True,
+        )
+
+        for filename, state in ordered_candidates:
+            credential_data = await self._storage_adapter.get_credential(filename, mode=mode)
+            if not credential_data:
+                continue
+
+            if mode == "antigravity":
+                credential_data["enable_credit"] = bool(state.get("enable_credit", False))
+
+            log.info(
+                "Session route selected: "
+                f"session={self._session_log_id(binding_key)}, "
+                f"credential={filename}, mode={mode}, model={model_name}"
+            )
+            return filename, credential_data
+
+        return None
+
     async def get_valid_credential(
         self,
         mode: str = "geminicli",
@@ -163,16 +250,44 @@ class CredentialManager:
                     if await self._should_refresh_token(credential_data):
                         refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
                         if refreshed_data:
-                            log.debug(f"Session credential hit after refresh: credential={filename}, mode={mode}")
+                            log.info(
+                                "Session route hit after refresh: "
+                                f"session={self._session_log_id(binding_key)}, "
+                                f"credential={filename}, mode={mode}, model={model_name}"
+                            )
                             await self._remember_session_binding(binding_key, filename)
                             return filename, refreshed_data
                         await self._forget_session_binding(binding_key)
                     else:
-                        log.debug(f"Session credential hit: credential={filename}, mode={mode}")
+                        log.info(
+                            "Session route hit: "
+                            f"session={self._session_log_id(binding_key)}, "
+                            f"credential={filename}, mode={mode}, model={model_name}"
+                        )
                         await self._remember_session_binding(binding_key, filename)
                         return filename, credential_data
                 else:
                     await self._forget_session_binding(binding_key)
+
+            routed_result = await self._get_session_routed_credential(
+                binding_key=binding_key,
+                mode=mode,
+                model_name=model_name,
+                exclude_credential=exclude_credential,
+            )
+            if routed_result:
+                filename, credential_data = routed_result
+                if await self._should_refresh_token(credential_data):
+                    log.debug(f"Token needs refresh: {filename} (mode={mode})")
+                    refreshed_data = await self._refresh_token(credential_data, filename, mode=mode)
+                    if refreshed_data:
+                        log.debug(f"Token refreshed: {filename} (mode={mode})")
+                        await self._remember_session_binding(binding_key, filename)
+                        return filename, refreshed_data
+                    await self._forget_session_binding(binding_key)
+                else:
+                    await self._remember_session_binding(binding_key, filename)
+                    return filename, credential_data
 
         # 最多重试3次
         max_retries = 20 if exclude_credential else 3
