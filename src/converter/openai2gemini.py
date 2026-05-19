@@ -1114,6 +1114,37 @@ def extract_images_from_content(content: Any) -> Dict[str, Any]:
 
     return result
 
+
+def _sanitize_openai_roundtrip_signatures(contents: List[Dict[str, Any]]) -> None:
+    """
+    OpenAI-compatible clients may round-trip Gemini thinking signatures through
+    fields we do not fully control. Keep tool calls on the safe bypass sentinel
+    and drop signatures everywhere else to avoid Corrupted thought signature.
+    """
+    for content in contents:
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+
+        for index, part in enumerate(parts):
+            if not isinstance(part, dict):
+                continue
+
+            sanitized_part = part.copy()
+            if "thoughtSignature" in sanitized_part:
+                if "functionCall" in sanitized_part or "function_call" in sanitized_part:
+                    sanitized_part["thoughtSignature"] = SKIP_THOUGHT_SIGNATURE_VALIDATOR
+                else:
+                    sanitized_part.pop("thoughtSignature", None)
+
+            if sanitized_part.get("thought") is True and not sanitized_part.get("thoughtSignature"):
+                sanitized_part.pop("thought", None)
+
+            parts[index] = sanitized_part
+
+
 async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Dict[str, Any]:
     """
     将 OpenAI 格式请求体转换为 Gemini 格式请求体
@@ -1318,6 +1349,7 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
 
     # 循环结束后，flush 剩余的 tool parts（如果消息列表以 tool 消息结尾）
     flush_pending_tool_parts()
+    _sanitize_openai_roundtrip_signatures(contents)
 
     # 构建生成配置
     generation_config = {}
