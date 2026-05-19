@@ -1,4 +1,4 @@
-full_hash=7bc2989df0f1b6e56613b080464a9aadae39b1b6
-short_hash=7bc2989
-message=Fix tool schema and cache usage handling
-date=2026-05-20 02:48:00 +0800
+full_hash=c951fe6ae7f9fb00c761c6538cb52e0e4fd97748
+short_hash=c951fe6
+message=Avoid round-tripping thought signatures in OpenAI tools
+date=2026-05-20 03:04:41 +0800
