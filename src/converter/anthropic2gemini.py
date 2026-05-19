@@ -15,8 +15,8 @@ from log import log
 from src.converter.utils import merge_system_messages
 
 from src.converter.thoughtSignature_fix import (
-    encode_tool_id_with_signature,
-    decode_tool_id_and_signature
+    decode_tool_id_and_signature,
+    SKIP_THOUGHT_SIGNATURE_VALIDATOR,
 )
 
 DEFAULT_TEMPERATURE = 0.4
@@ -455,43 +455,11 @@ def convert_messages_to_contents(
 
                 item_type = item.get("type")
                 if item_type == "thinking":
-                    if not include_thinking:
-                        continue
-
-                    thinking_text = item.get("thinking", "")
-                    if thinking_text is None:
-                        thinking_text = ""
-                    
-                    part: Dict[str, Any] = {
-                        "text": str(thinking_text),
-                        "thought": True,
-                    }
-                    
-                    # 如果有 thoughtsignature 则添加
-                    thoughtsignature = item.get("thoughtSignature")
-                    if thoughtsignature:
-                        part["thoughtSignature"] = thoughtsignature
-                    
-                    parts.append(part)
+                    # 不把客户端回传的 thinking signature 再送给 Google。
+                    # 这些签名很容易在中转/换号/裁剪后变成 Corrupted thought signature。
+                    continue
                 elif item_type == "redacted_thinking":
-                    if not include_thinking:
-                        continue
-
-                    thinking_text = item.get("thinking")
-                    if thinking_text is None:
-                        thinking_text = item.get("data", "")
-                    
-                    part_dict: Dict[str, Any] = {
-                        "text": str(thinking_text or ""),
-                        "thought": True,
-                    }
-                    
-                    # 如果有 thoughtsignature 则添加
-                    thoughtsignature = item.get("thoughtSignature")
-                    if thoughtsignature:
-                        part_dict["thoughtSignature"] = thoughtsignature
-                    
-                    parts.append(part_dict)
+                    continue
                 elif item_type == "text":
                     text = item.get("text", "")
                     if _is_non_whitespace_text(text):
@@ -509,7 +477,7 @@ def convert_messages_to_contents(
                         )
                 elif item_type == "tool_use":
                     encoded_id = item.get("id") or ""
-                    original_id, thoughtsignature = decode_tool_id_and_signature(encoded_id)
+                    original_id, _ = decode_tool_id_and_signature(encoded_id)
 
                     fc_part: Dict[str, Any] = {
                         "functionCall": {
@@ -519,11 +487,7 @@ def convert_messages_to_contents(
                         }
                     }
 
-                    # 如果提取到签名则添加，否则使用占位符以满足 Gemini API 要求
-                    if thoughtsignature:
-                        fc_part["thoughtSignature"] = thoughtsignature
-                    else:
-                        fc_part["thoughtSignature"] = "skip_thought_signature_validator"
+                    fc_part["thoughtSignature"] = SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
                     parts.append(fc_part)
                 elif item_type == "tool_result":
@@ -890,14 +854,10 @@ def gemini_to_anthropic_response(
             has_tool_use = True
             fc = part.get("functionCall", {}) or {}
             original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
-            thoughtsignature = part.get("thoughtSignature")
-            
-            # 对工具调用ID进行签名编码
-            encoded_id = encode_tool_id_with_signature(original_id, thoughtsignature)
             content.append(
                 {
                     "type": "tool_use",
-                    "id": encoded_id,
+                    "id": original_id,
                     "name": fc.get("name") or "",
                     "input": _remove_nulls_for_tool_input(fc.get("args", {}) or {}),
                 }
@@ -1191,15 +1151,14 @@ async def gemini_stream_to_anthropic_stream(
                     has_tool_use = True
                     fc = part.get("functionCall", {}) or {}
                     original_id = fc.get("id") or f"toolu_{uuid.uuid4().hex}"
-                    thoughtsignature = part.get("thoughtSignature")
-                    tool_id = encode_tool_id_with_signature(original_id, thoughtsignature)
+                    tool_id = original_id
                     tool_name = fc.get("name") or ""
                     tool_args = _remove_nulls_for_tool_input(fc.get("args", {}) or {})
 
                     if _anthropic_debug_enabled():
                         log.info(
                             f"[ANTHROPIC][tool_use] 处理工具调用: name={tool_name}, "
-                            f"id={tool_id}, has_signature={thoughtsignature is not None}"
+                            f"id={tool_id}"
                         )
 
                     current_block_index += 1
