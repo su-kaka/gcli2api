@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pypinyin import Style, lazy_pinyin
 
 from src.converter.thoughtSignature_fix import (
-    encode_tool_id_with_signature,
     decode_tool_id_and_signature,
+    SKIP_THOUGHT_SIGNATURE_VALIDATOR,
 )
 from src.converter.utils import merge_system_messages
 
@@ -1052,17 +1052,13 @@ def extract_tool_calls_from_parts(
             function_call = part["functionCall"]
             # 获取原始ID或生成新ID
             original_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:24]}"
-            # 将thoughtSignature编码到ID中以便往返保留
-            signature = part.get("thoughtSignature")
-            encoded_id = encode_tool_id_with_signature(original_id, signature)
-
             # 获取参数并转换类型
             args = function_call.get("args", {})
             # 将字符串类型的值转回原始类型
             args = _reverse_transform_args(args)
 
             tool_call = {
-                "id": encoded_id,
+                "id": original_id,
                 "type": "function",
                 "function": {
                     "name": function_call.get("name", "nameless_function"),
@@ -1156,8 +1152,8 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                 func_name = tc.get("function", {}).get("name") or ""
                 if encoded_id:
                     # 解码获取原始ID和签名
-                    original_id, signature = decode_tool_id_and_signature(encoded_id)
-                    tool_call_mapping[encoded_id] = (func_name, original_id, signature)
+                    original_id, _ = decode_tool_id_and_signature(encoded_id)
+                    tool_call_mapping[encoded_id] = (func_name, original_id, None)
     
     # 构建工具名称到参数 schema 的映射（用于类型修正）
     tool_schemas = {}
@@ -1281,11 +1277,9 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
                         }
                     }
 
-                    # 如果有thoughtSignature则添加，否则使用占位符以满足 Gemini API 要求
-                    if signature:
-                        function_call_part["thoughtSignature"] = signature
-                    else:
-                        function_call_part["thoughtSignature"] = "skip_thought_signature_validator"
+                    # OpenAI/RooCode 中转可能会改写或截断 tool_call_id，真实签名回传后容易触发
+                    # Corrupted thought signature。工具调用使用官方跳过校验占位符更稳。
+                    function_call_part["thoughtSignature"] = SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
                     parts.append(function_call_part)
                 except (json.JSONDecodeError, KeyError) as e:
