@@ -1731,22 +1731,7 @@
                     </p>
                 </div>
 
-                <!-- 状态统计 -->
-                <div class="stats-container" id="antigravityStatsContainer">
-                    <div class="stat-item" style="border-left: 4px solid #007bff;">
-                        <span class="stat-number" id="antigravityStatTotal">0</span>
-                        <span class="stat-label">总计</span>
-                    </div>
-                    <div class="stat-item" style="border-left: 4px solid #28a745;">
-                        <span class="stat-number" id="antigravityStatNormal">0</span>
-                        <span class="stat-label">正常</span>
-                    </div>
-                    <div class="stat-item" style="border-left: 4px solid #6c757d;">
-                        <span class="stat-number" id="antigravityStatDisabled">0</span>
-                        <span class="stat-label">禁用</span>
-                    </div>
-                </div>
-
+                <!-- 总额度统计 -->
                 <div class="quota-summary-card" id="antigravityCreditSummaryCard" aria-expanded="false">
                     <button type="button" class="quota-summary-header" onclick="toggleAntigravityCreditSummary()">
                         <span>
@@ -1777,6 +1762,22 @@
                             <button type="button" class="quota-summary-refresh" id="antigravityCreditSummaryRefreshBtn"
                                 onclick="event.stopPropagation(); refreshAntigravityCreditSummary(false)">手动刷新</button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 状态统计 -->
+                <div class="stats-container" id="antigravityStatsContainer">
+                    <div class="stat-item" style="border-left: 4px solid #007bff;">
+                        <span class="stat-number" id="antigravityStatTotal">0</span>
+                        <span class="stat-label">总计</span>
+                    </div>
+                    <div class="stat-item" style="border-left: 4px solid #28a745;">
+                        <span class="stat-number" id="antigravityStatNormal">0</span>
+                        <span class="stat-label">正常</span>
+                    </div>
+                    <div class="stat-item" style="border-left: 4px solid #6c757d;">
+                        <span class="stat-number" id="antigravityStatDisabled">0</span>
+                        <span class="stat-label">禁用</span>
                     </div>
                 </div>
 
