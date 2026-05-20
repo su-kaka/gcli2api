@@ -1,5 +1,10 @@
 from typing import Any, Dict
 
+from src.converter.thoughtSignature_fix import (
+    is_internal_placeholder_text,
+    is_skip_thought_signature_placeholder,
+)
+
 
 def extract_content_and_reasoning(parts: list) -> tuple:
     """从Gemini响应部件中提取内容和推理内容
@@ -24,8 +29,13 @@ def extract_content_and_reasoning(parts: list) -> tuple:
     images = []
 
     for part in parts:
+        if is_skip_thought_signature_placeholder(part):
+            continue
+
         # 提取文本内容
         text = part.get("text", "")
+        if is_internal_placeholder_text(text):
+            continue
         if text:
             if part.get("thought", False):
                 reasoning_content += text

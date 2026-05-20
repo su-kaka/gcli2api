@@ -5,11 +5,30 @@ thoughtSignature 处理公共模块
 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段。
 """
 
-from typing import Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 # 在工具调用ID中嵌入thoughtSignature的分隔符
 # 这使得签名能够在客户端往返传输中保留，即使客户端会删除自定义字段
 THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
+SKIP_THOUGHT_SIGNATURE_VALIDATOR = "skip_thought_signature_validator"
+SKIP_THOUGHT_SIGNATURE_PLACEHOLDER_TEXT = "..."
+
+
+def is_internal_placeholder_text(text: Any) -> bool:
+    if not isinstance(text, str):
+        return False
+    return text.strip() in (SKIP_THOUGHT_SIGNATURE_PLACEHOLDER_TEXT, "…")
+
+
+def is_skip_thought_signature_placeholder(part: Mapping[str, Any]) -> bool:
+    """Return True for the internal placeholder that should not reach clients."""
+    if not isinstance(part, Mapping):
+        return False
+    if part.get("thoughtSignature") != SKIP_THOUGHT_SIGNATURE_VALIDATOR:
+        return False
+    if "functionCall" in part or "function_call" in part or "functionResponse" in part:
+        return False
+    return is_internal_placeholder_text(part.get("text"))
 
 
 def encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str:
