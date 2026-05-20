@@ -885,6 +885,10 @@ def convert_openai_tools_to_gemini(openai_tools: List, model: str = "") -> List[
 
             if cleaned_params:
                 declaration["parametersJsonSchema"] = cleaned_params
+            elif is_claude_model:
+                declaration["parametersJsonSchema"] = {"type": "object", "properties": {}}
+        elif is_claude_model:
+            declaration["parametersJsonSchema"] = {"type": "object", "properties": {}}
 
         function_declarations.append(declaration)
 
