@@ -1668,6 +1668,10 @@ async function refreshAntigravityCreditSummary(silent = false) {
     }
 }
 
+window.toggleAntigravityCreditSummary = toggleAntigravityCreditSummary;
+window.refreshAntigravityCreditSummary = refreshAntigravityCreditSummary;
+window.startAntigravityCreditSummaryAutoRefresh = startAntigravityCreditSummaryAutoRefresh;
+
 function applyAntigravityStatusFilter() { AppState.antigravityCreds.applyStatusFilter(); }
 function changeAntigravityPage(direction) { AppState.antigravityCreds.changePage(direction); }
 function changeAntigravityPageSize() { AppState.antigravityCreds.changePageSize(); }
