@@ -1,4 +1,4 @@
-full_hash=c2d54b5702ff6be716ef5d6865b0efdc99e26a15
-short_hash=c2d54b5
-message=Merge pull request #374 from kushaldotdev/fix/gemini-schema-ref-validation
-date=2026-05-10 09:03:19 +0800
+full_hash=9cb0487442f5fa4f24a50088bfd361f2fdb964f2
+short_hash=9cb0487
+message=Merge pull request #377 from STA1N156/codex/roocode-newapi-compat
+date=2026-05-20 19:01:35 +0800
