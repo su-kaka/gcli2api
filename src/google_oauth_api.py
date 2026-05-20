@@ -631,6 +631,40 @@ async def fetch_project_id_and_tier(
         return None, subscription_tier
 
 
+async def fetch_credit_amount(
+    access_token: str,
+    user_agent: str,
+    api_base_url: str,
+) -> Optional[int]:
+    """
+    Fetch remaining credits with loadCodeAssist only.
+
+    This is intentionally read-only and does not fall back to onboardUser, so it
+    is safe for background UI refreshes.
+    """
+    headers = {
+        'User-Agent': user_agent,
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip'
+    }
+
+    raw_credit_amount = None
+
+    try:
+        _, _, raw_credit_amount = await _try_load_code_assist(api_base_url, headers)
+        if raw_credit_amount is None:
+            return None
+
+        return int(raw_credit_amount)
+    except (TypeError, ValueError):
+        log.warning(f"[fetch_credit_amount] Invalid credit_amount: {raw_credit_amount}")
+        return None
+    except Exception as e:
+        log.warning(f"[fetch_credit_amount] Failed: {type(e).__name__}: {e}")
+        return None
+
+
 async def _try_load_code_assist(
     api_base_url: str,
     headers: dict

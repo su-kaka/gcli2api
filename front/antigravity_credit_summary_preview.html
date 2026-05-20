@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity 总额度 UI 预览</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #f4f6f8;
+            color: #222;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            margin: 0;
+            padding: 32px 16px;
+        }
+
+        .preview-wrap {
+            margin: 0 auto;
+            max-width: 920px;
+        }
+
+        .preview-title {
+            color: #1f2937;
+            font-size: 18px;
+            font-weight: 700;
+            margin: 0 0 14px;
+        }
+
+        .quota-summary-card {
+            background: #ffffff;
+            border: 1px solid #dce3ea;
+            border-left: 4px solid #17a2b8;
+            border-radius: 8px;
+            margin: 0 0 20px 0;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        .quota-summary-header {
+            width: 100%;
+            border: 0;
+            background: #f8fbfd;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            text-align: left;
+        }
+
+        .quota-summary-title {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .quota-summary-subtitle {
+            display: block;
+            color: #667085;
+            font-size: 12px;
+            margin-top: 3px;
+        }
+
+        .quota-summary-compact {
+            color: #0c5460;
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .quota-summary-toggle {
+            color: #666;
+            font-size: 12px;
+            margin-left: 8px;
+            white-space: nowrap;
+        }
+
+        .quota-summary-body {
+            border-top: 1px solid #edf0f3;
+            display: none;
+            padding: 14px 16px 16px;
+        }
+
+        .quota-summary-card.expanded .quota-summary-body {
+            display: block;
+        }
+
+        .quota-summary-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .quota-summary-metric {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .quota-summary-metric strong {
+            color: #222;
+            display: block;
+            font-size: 22px;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .quota-summary-metric span {
+            color: #667085;
+            display: block;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .quota-model-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .quota-model-item {
+            background: #ffffff;
+            border: 1px solid #edf0f3;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .quota-model-row {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
+        .quota-model-name {
+            color: #333;
+            font-size: 13px;
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .quota-model-percent {
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .quota-model-bar {
+            background: #e9ecef;
+            border-radius: 999px;
+            height: 7px;
+            margin: 8px 0 6px;
+            overflow: hidden;
+        }
+
+        .quota-model-fill {
+            height: 100%;
+            transition: width 0.25s ease;
+        }
+
+        .quota-model-meta {
+            color: #667085;
+            font-size: 12px;
+        }
+
+        .quota-summary-footer {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .quota-summary-meta {
+            color: #667085;
+            font-size: 12px;
+        }
+
+        .quota-summary-refresh {
+            background: #17a2b8;
+            border: 0;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 7px 10px;
+            white-space: nowrap;
+        }
+
+        .quota-summary-refresh:disabled {
+            background: #9ab7c0;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 18px 12px;
+            }
+
+            .quota-summary-header,
+            .quota-summary-footer {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .quota-summary-compact {
+                white-space: normal;
+            }
+
+            .quota-summary-metrics {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="preview-wrap">
+        <h1 class="preview-title">Antigravity 总额度 UI 预览</h1>
+
+        <div class="quota-summary-card" id="antigravityCreditSummaryCard" aria-expanded="false">
+            <button type="button" class="quota-summary-header" onclick="toggleAntigravityCreditSummary()">
+                <span>
+                    <span class="quota-summary-title">Antigravity 总额度</span>
+                    <span class="quota-summary-subtitle">只统计启用凭证，展开可看每个模型额度</span>
+                </span>
+                <span>
+                    <span class="quota-summary-compact" id="antigravityCreditSummaryCompact">128,640 积分 · 启用 8 个</span>
+                    <span class="quota-summary-toggle" id="antigravityCreditSummaryToggleIcon">展开</span>
+                </span>
+            </button>
+            <div class="quota-summary-body" id="antigravityCreditSummaryBody">
+                <div class="quota-summary-metrics">
+                    <div class="quota-summary-metric">
+                        <strong id="antigravityCreditRemainingAmount">128,640</strong>
+                        <span>启用号剩余积分</span>
+                    </div>
+                    <div class="quota-summary-metric">
+                        <strong id="antigravityCreditEnabledAccounts">8</strong>
+                        <span>启用凭证</span>
+                    </div>
+                </div>
+                <div class="quota-model-list" id="antigravityCreditModelList"></div>
+                <div class="quota-summary-footer">
+                    <span class="quota-summary-meta" id="antigravityCreditSummaryMeta">启用 8 个 · 积分数据 8 个 · 额度数据 7 个 · 刷新 16:28:30</span>
+                    <button type="button" class="quota-summary-refresh" id="antigravityCreditSummaryRefreshBtn"
+                        onclick="event.stopPropagation(); refreshAntigravityCreditSummary()">手动刷新</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const demoStates = [
+            {
+                credits: 128640,
+                enabled: 8,
+                creditAccounts: 8,
+                quotaAccounts: 7,
+                failed: 1,
+                models: [
+                    { name: 'gemini-3.5-flash-thinking', percent: 82.4, accounts: 8, exhausted: 0 },
+                    { name: 'gemini-3.5-pro-thinking', percent: 58.6, accounts: 7, exhausted: 1 },
+                    { name: 'gemini-3.5-flash', percent: 91.2, accounts: 8, exhausted: 0 },
+                    { name: 'gemini-3.5-coder', percent: 43.7, accounts: 6, exhausted: 2 }
+                ]
+            },
+            {
+                credits: 98420,
+                enabled: 8,
+                creditAccounts: 8,
+                quotaAccounts: 8,
+                failed: 0,
+                models: [
+                    { name: 'gemini-3.5-flash-thinking', percent: 66.1, accounts: 8, exhausted: 0 },
+                    { name: 'gemini-3.5-pro-thinking', percent: 35.9, accounts: 8, exhausted: 2 },
+                    { name: 'gemini-3.5-flash', percent: 88.8, accounts: 8, exhausted: 0 },
+                    { name: 'gemini-3.5-coder', percent: 54.4, accounts: 8, exhausted: 1 }
+                ]
+            },
+            {
+                credits: 35180,
+                enabled: 5,
+                creditAccounts: 5,
+                quotaAccounts: 5,
+                failed: 0,
+                models: [
+                    { name: 'gemini-3.5-flash-thinking', percent: 24.2, accounts: 5, exhausted: 2 },
+                    { name: 'gemini-3.5-pro-thinking', percent: 12.8, accounts: 5, exhausted: 3 },
+                    { name: 'gemini-3.5-flash', percent: 47.5, accounts: 5, exhausted: 1 },
+                    { name: 'gemini-3.5-coder', percent: 30.1, accounts: 4, exhausted: 1 }
+                ]
+            }
+        ];
+        let demoIndex = 0;
+
+        function formatNumber(value) {
+            return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+        }
+
+        function nowText() {
+            return new Date().toLocaleTimeString('zh-CN', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function quotaColor(percent) {
+            if (percent >= 50) return '#28a745';
+            if (percent >= 20) return '#ffc107';
+            return '#dc3545';
+        }
+
+        function renderModelList(models) {
+            const list = document.getElementById('antigravityCreditModelList');
+            list.innerHTML = models.map(model => {
+                const color = quotaColor(model.percent);
+                return `
+                    <div class="quota-model-item">
+                        <div class="quota-model-row">
+                            <span class="quota-model-name" title="${model.name}">${model.name}</span>
+                            <span class="quota-model-percent" style="color: ${color};">${formatNumber(model.percent)}%</span>
+                        </div>
+                        <div class="quota-model-bar">
+                            <div class="quota-model-fill" style="width: ${model.percent}%; background-color: ${color};"></div>
+                        </div>
+                        <div class="quota-model-meta">覆盖 ${model.accounts} 个启用号 · ${model.exhausted} 个已耗尽</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleAntigravityCreditSummary() {
+            const card = document.getElementById('antigravityCreditSummaryCard');
+            const expanded = !card.classList.contains('expanded');
+            card.classList.toggle('expanded', expanded);
+            card.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            document.getElementById('antigravityCreditSummaryToggleIcon').textContent = expanded ? '收起' : '展开';
+        }
+
+        function applyDemoState(state) {
+            const creditText = formatNumber(state.credits);
+
+            document.getElementById('antigravityCreditRemainingAmount').textContent = creditText;
+            document.getElementById('antigravityCreditEnabledAccounts').textContent = state.enabled;
+            document.getElementById('antigravityCreditSummaryCompact').textContent = `${creditText} 积分 · 启用 ${state.enabled} 个`;
+            document.getElementById('antigravityCreditSummaryMeta').textContent =
+                `启用 ${state.enabled} 个 · 积分数据 ${state.creditAccounts} 个 · 额度数据 ${state.quotaAccounts} 个 · 刷新 ${nowText()}${state.failed ? ` · 失败 ${state.failed} 个` : ''}`;
+
+            renderModelList(state.models);
+        }
+
+        function refreshAntigravityCreditSummary() {
+            const button = document.getElementById('antigravityCreditSummaryRefreshBtn');
+            button.disabled = true;
+            button.textContent = '刷新中...';
+
+            setTimeout(() => {
+                demoIndex = (demoIndex + 1) % demoStates.length;
+                applyDemoState(demoStates[demoIndex]);
+                button.disabled = false;
+                button.textContent = '手动刷新';
+            }, 450);
+        }
+
+        setInterval(() => {
+            applyDemoState(demoStates[demoIndex]);
+        }, 10 * 60 * 1000);
+
+        applyDemoState(demoStates[0]);
+    </script>
+</body>
+
+</html>

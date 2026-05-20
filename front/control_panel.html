@@ -638,6 +638,190 @@
             box-shadow: 0 2px 8px rgba(23, 162, 184, 0.15);
         }
 
+        .quota-summary-card {
+            background: #ffffff;
+            border: 1px solid #dce3ea;
+            border-left: 4px solid #17a2b8;
+            border-radius: 8px;
+            margin: 0 0 20px 0;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        .quota-summary-header {
+            width: 100%;
+            border: 0;
+            background: #f8fbfd;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            text-align: left;
+        }
+
+        .quota-summary-title {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .quota-summary-subtitle {
+            display: block;
+            color: #667085;
+            font-size: 12px;
+            margin-top: 3px;
+        }
+
+        .quota-summary-compact {
+            color: #0c5460;
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .quota-summary-toggle {
+            color: #666;
+            font-size: 12px;
+            margin-left: 8px;
+            white-space: nowrap;
+        }
+
+        .quota-summary-body {
+            border-top: 1px solid #edf0f3;
+            padding: 14px 16px 16px;
+        }
+
+        .quota-summary-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .quota-summary-metric {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .quota-summary-metric strong {
+            color: #222;
+            display: block;
+            font-size: 22px;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .quota-summary-metric span {
+            color: #667085;
+            display: block;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .quota-model-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .quota-model-item {
+            background: #ffffff;
+            border: 1px solid #edf0f3;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .quota-model-row {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
+        .quota-model-name {
+            color: #333;
+            font-size: 13px;
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .quota-model-percent {
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .quota-model-bar {
+            background: #e9ecef;
+            border-radius: 999px;
+            height: 7px;
+            margin: 8px 0 6px;
+            overflow: hidden;
+        }
+
+        .quota-model-fill {
+            height: 100%;
+            transition: width 0.25s ease;
+            width: 0;
+        }
+
+        .quota-model-meta,
+        .quota-model-empty {
+            color: #667085;
+            font-size: 12px;
+        }
+
+        .quota-summary-footer {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .quota-summary-meta {
+            color: #667085;
+            font-size: 12px;
+        }
+
+        .quota-summary-refresh {
+            background: #17a2b8;
+            border: 0;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 7px 10px;
+            white-space: nowrap;
+        }
+
+        .quota-summary-refresh:disabled {
+            background: #9ab7c0;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 640px) {
+            .quota-summary-header,
+            .quota-summary-footer {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .quota-summary-compact {
+                white-space: normal;
+            }
+
+            .quota-summary-metrics {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .manage-actions {
             margin-bottom: 20px;
             display: flex;
@@ -1883,6 +2067,39 @@
                     <div class="stat-item disabled">
                         <span class="stat-number" id="antigravityStatDisabled">0</span>
                         <span class="stat-label">禁用</span>
+                    </div>
+                </div>
+
+                <div class="quota-summary-card" id="antigravityCreditSummaryCard" aria-expanded="false">
+                    <button type="button" class="quota-summary-header" onclick="toggleAntigravityCreditSummary()">
+                        <span>
+                            <span class="quota-summary-title">Antigravity 总额度</span>
+                            <span class="quota-summary-subtitle">只统计启用凭证，展开可看每个模型额度</span>
+                        </span>
+                        <span>
+                            <span class="quota-summary-compact" id="antigravityCreditSummaryCompact">未加载</span>
+                            <span class="quota-summary-toggle" id="antigravityCreditSummaryToggleIcon">展开</span>
+                        </span>
+                    </button>
+                    <div class="quota-summary-body" id="antigravityCreditSummaryBody" style="display: none;">
+                        <div class="quota-summary-metrics">
+                            <div class="quota-summary-metric">
+                                <strong id="antigravityCreditRemainingAmount">--</strong>
+                                <span>启用号剩余积分</span>
+                            </div>
+                            <div class="quota-summary-metric">
+                                <strong id="antigravityCreditEnabledAccounts">0</strong>
+                                <span>启用凭证</span>
+                            </div>
+                        </div>
+                        <div class="quota-model-list" id="antigravityCreditModelList">
+                            <div class="quota-model-empty">暂无分模型额度数据</div>
+                        </div>
+                        <div class="quota-summary-footer">
+                            <span class="quota-summary-meta" id="antigravityCreditSummaryMeta">等待刷新</span>
+                            <button type="button" class="quota-summary-refresh" id="antigravityCreditSummaryRefreshBtn"
+                                onclick="event.stopPropagation(); refreshAntigravityCreditSummary(false)">手动刷新</button>
+                        </div>
                     </div>
                 </div>
 
