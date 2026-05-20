@@ -253,6 +253,8 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
 
         normalized_tool = tool.copy()
         declarations = normalized_tool.get("functionDeclarations")
+        if declarations is None:
+            declarations = normalized_tool.get("function_declarations")
         if isinstance(declarations, list):
             normalized_declarations = []
             for declaration in declarations:
@@ -263,10 +265,13 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
                 normalized_declaration = declaration.copy()
                 if "parametersJsonSchema" in normalized_declaration:
                     schema = normalized_declaration["parametersJsonSchema"]
+                elif "parameters_json_schema" in normalized_declaration:
+                    schema = normalized_declaration.pop("parameters_json_schema", None)
                 else:
                     schema = normalized_declaration.pop("parameters", None)
 
                 normalized_declaration.pop("parameters", None)
+                normalized_declaration.pop("parameters_json_schema", None)
                 if schema not in (None, {}, []):
                     normalized_declaration["parametersJsonSchema"] = _clean_parameters_json_schema(schema)
                 else:
@@ -274,6 +279,7 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
 
                 normalized_declarations.append(normalized_declaration)
 
+            normalized_tool.pop("function_declarations", None)
             normalized_tool["functionDeclarations"] = normalized_declarations
 
         normalized_tools.append(normalized_tool)
@@ -292,7 +298,15 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
             continue
 
         normalized_tool = tool.copy()
+        custom_tool = normalized_tool.get("custom")
+        if isinstance(custom_tool, dict) and "input_schema" not in custom_tool:
+            normalized_custom = custom_tool.copy()
+            normalized_custom["input_schema"] = {"type": "object", "properties": {}}
+            normalized_tool["custom"] = normalized_custom
+
         declarations = normalized_tool.get("functionDeclarations")
+        if declarations is None:
+            declarations = normalized_tool.get("function_declarations")
         if isinstance(declarations, list):
             normalized_declarations = []
             for declaration in declarations:
@@ -300,12 +314,19 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
                     normalized_declarations.append(declaration)
                     continue
                 normalized_declaration = declaration.copy()
+                if (
+                    "parametersJsonSchema" not in normalized_declaration
+                    and "parameters_json_schema" in normalized_declaration
+                ):
+                    normalized_declaration["parametersJsonSchema"] = normalized_declaration.pop("parameters_json_schema")
+
                 if "parametersJsonSchema" not in normalized_declaration:
                     normalized_declaration["parametersJsonSchema"] = {
                         "type": "object",
                         "properties": {},
                     }
                 normalized_declarations.append(normalized_declaration)
+            normalized_tool.pop("function_declarations", None)
             normalized_tool["functionDeclarations"] = normalized_declarations
 
         normalized_tools.append(normalized_tool)
