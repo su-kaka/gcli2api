@@ -33,13 +33,24 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Optional[Dict[str
     if not usage_metadata:
         return None
 
+    prompt_tokens_total = int(usage_metadata.get("promptTokenCount", 0) or 0)
+    cached_tokens = int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
+    prompt_tokens = max(prompt_tokens_total - cached_tokens, 0)
+    completion_tokens = int(usage_metadata.get("candidatesTokenCount", 0) or 0)
+    raw_total_tokens = int(
+        usage_metadata.get(
+            "totalTokenCount",
+            prompt_tokens_total + completion_tokens + int(usage_metadata.get("thoughtsTokenCount", 0) or 0),
+        )
+        or 0
+    )
+
     usage = {
-        "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-        "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-        "total_tokens": usage_metadata.get("totalTokenCount", 0),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": max(raw_total_tokens - cached_tokens, prompt_tokens + completion_tokens),
     }
 
-    cached_tokens = int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
     if cached_tokens > 0:
         usage["prompt_tokens_details"] = {"cached_tokens": cached_tokens}
 
