@@ -281,6 +281,38 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
     return normalized_tools
 
 
+def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
+    if "claude" not in (model_name or "").lower() or not isinstance(tools, list):
+        return tools
+
+    normalized_tools = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            normalized_tools.append(tool)
+            continue
+
+        normalized_tool = tool.copy()
+        declarations = normalized_tool.get("functionDeclarations")
+        if isinstance(declarations, list):
+            normalized_declarations = []
+            for declaration in declarations:
+                if not isinstance(declaration, dict):
+                    normalized_declarations.append(declaration)
+                    continue
+                normalized_declaration = declaration.copy()
+                if "parametersJsonSchema" not in normalized_declaration:
+                    normalized_declaration["parametersJsonSchema"] = {
+                        "type": "object",
+                        "properties": {},
+                    }
+                normalized_declarations.append(normalized_declaration)
+            normalized_tool["functionDeclarations"] = normalized_declarations
+
+        normalized_tools.append(normalized_tool)
+
+    return normalized_tools
+
+
 def _should_skip_thought_signature(part: Dict[str, Any], model_name: str) -> bool:
     if "claude" in (model_name or "").lower():
         return False
@@ -734,6 +766,7 @@ async def normalize_gemini_request(
     # 1. 安全设置覆盖
     if "tools" in result:
         result["tools"] = _normalize_tools_for_internal_api(result.get("tools"))
+        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model)
 
     if "lite" in model.lower():
         result["safetySettings"] = LITE_SAFETY_SETTINGS
