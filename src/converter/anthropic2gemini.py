@@ -206,12 +206,13 @@ def _anthropic_usage_from_metadata(usage_metadata: Any) -> Dict[str, int]:
     if not isinstance(usage_metadata, dict):
         return {"input_tokens": 0, "output_tokens": 0}
 
+    prompt_tokens_total = int(usage_metadata.get("promptTokenCount", 0) or 0)
+    cached_tokens = _cached_content_token_count(usage_metadata)
     usage = {
-        "input_tokens": int(usage_metadata.get("promptTokenCount", 0) or 0),
+        "input_tokens": max(prompt_tokens_total - cached_tokens, 0),
         "output_tokens": int(usage_metadata.get("candidatesTokenCount", 0) or 0),
     }
 
-    cached_tokens = _cached_content_token_count(usage_metadata)
     if cached_tokens > 0:
         usage["cache_read_input_tokens"] = cached_tokens
 
@@ -1026,11 +1027,16 @@ async def gemini_stream_to_anthropic_stream(
                 usage = response["usageMetadata"]
                 if isinstance(usage, dict):
                     if "promptTokenCount" in usage:
-                        input_tokens = int(usage.get("promptTokenCount", 0) or 0)
+                        prompt_tokens_total = int(usage.get("promptTokenCount", 0) or 0)
+                        input_tokens = max(prompt_tokens_total - cached_input_tokens, 0)
                     if "candidatesTokenCount" in usage:
                         output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
                     if "cachedContentTokenCount" in usage:
                         cached_input_tokens = int(usage.get("cachedContentTokenCount", 0) or 0)
+                        input_tokens = max(
+                            int(usage.get("promptTokenCount", 0) or 0) - cached_input_tokens,
+                            0,
+                        )
 
             # 发送 message_start（仅一次）
             if not message_start_sent:
