@@ -39,6 +39,7 @@ ENV_MAPPINGS = {
     "COMPATIBILITY_MODE": "compatibility_mode_enabled",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
     "ANTIGRAVITY_STREAM2NOSTREAM": "antigravity_stream2nostream",
+    "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -352,6 +353,24 @@ async def get_antigravity_stream2nostream() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("antigravity_stream2nostream", True))
+
+
+async def get_antigravity_switch_credential_enabled() -> bool:
+    """
+    Get antigravity switch credential setting.
+
+    控制antigravity在重试时是否切换凭证。
+    禁用时会持续使用当前凭证，直到该凭证对当前模型进入CD或被禁用。
+
+    Environment variable: ANTIGRAVITY_SWITCH_CREDENTIAL
+    Database config key: antigravity_switch_credential_enabled
+    Default: False
+    """
+    env_value = os.getenv("ANTIGRAVITY_SWITCH_CREDENTIAL")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("antigravity_switch_credential_enabled", False))
 
 
 async def get_oauth_proxy_url() -> str:

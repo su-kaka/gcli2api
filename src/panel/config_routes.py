@@ -58,6 +58,7 @@ async def get_config(token: str = Depends(verify_panel_token)):
 
         # Antigravity流式转非流式配置
         current_config["antigravity_stream2nostream"] = await config.get_antigravity_stream2nostream()
+        current_config["antigravity_switch_credential_enabled"] = await config.get_antigravity_switch_credential_enabled()
 
         # 保活配置
         current_config["keepalive_url"] = await config.get_keepalive_url()
@@ -141,6 +142,10 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         if "antigravity_stream2nostream" in new_config:
             if not isinstance(new_config["antigravity_stream2nostream"], bool):
                 raise HTTPException(status_code=400, detail="Antigravity流式转非流式开关必须是布尔值")
+
+        if "antigravity_switch_credential_enabled" in new_config:
+            if not isinstance(new_config["antigravity_switch_credential_enabled"], bool):
+                raise HTTPException(status_code=400, detail="Antigravity切换凭证开关必须是布尔值")
 
         # 验证保活配置
         if "keepalive_url" in new_config:

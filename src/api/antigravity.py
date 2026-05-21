@@ -14,6 +14,7 @@ from fastapi import Response
 from config import (
     get_antigravity_api_url,
     get_antigravity_stream2nostream,
+    get_antigravity_switch_credential_enabled,
     get_auto_ban_error_codes,
 )
 from log import log
@@ -26,6 +27,7 @@ from src.utils import ANTIGRAVITY_USER_AGENT
 # 导入共同的基础功能
 from src.api.utils import (
     handle_error_with_retry,
+    check_should_auto_ban,
     get_retry_config,
     record_api_call_success,
     record_api_call_error,
@@ -262,6 +264,7 @@ async def stream_request(
         Response对象（错误时）或 bytes流/str流（成功时）
     """
     model_name = body.get("model", "")
+    switch_credential_enabled = await get_antigravity_switch_credential_enabled()
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
@@ -361,6 +364,7 @@ async def stream_request(
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
+        should_force_switch = False
 
         try:
             async for chunk in stream_post_async(
@@ -393,8 +397,13 @@ async def stream_request(
                             except Exception:
                                 pass
 
+                        if cooldown_until is not None:
+                            should_force_switch = True
+                        elif await check_should_auto_ban(status_code):
+                            should_force_switch = True
+
                         # 预热下一个凭证
-                        if next_cred_task is None and attempt < max_retries:
+                        if (switch_credential_enabled or should_force_switch) and next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
                                     mode="antigravity", model_name=model_name
@@ -479,21 +488,24 @@ async def stream_request(
             if need_retry:
                 log.info(f"[ANTIGRAVITY STREAM] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
-                switched, next_cred_task = await _switch_credential_for_retry(
-                    next_cred_task=next_cred_task,
-                    retry_interval=retry_interval,
-                    refresh_credential_fast=refresh_credential_fast,
-                    apply_cred_result=apply_cred_result,
-                    log_prefix="[ANTIGRAVITY STREAM]",
-                )
-                if not switched:
-                    log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证或令牌")
-                    yield Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
-                        status_code=500,
-                        media_type="application/json"
+                if switch_credential_enabled or should_force_switch:
+                    switched, next_cred_task = await _switch_credential_for_retry(
+                        next_cred_task=next_cred_task,
+                        retry_interval=retry_interval,
+                        refresh_credential_fast=refresh_credential_fast,
+                        apply_cred_result=apply_cred_result,
+                        log_prefix="[ANTIGRAVITY STREAM]",
                     )
-                    return
+                    if not switched:
+                        log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证或令牌")
+                        yield Response(
+                            content=json.dumps({"error": "当前无可用凭证"}),
+                            status_code=500,
+                            media_type="application/json"
+                        )
+                        return
+                else:
+                    await asyncio.sleep(retry_interval)
                 continue  # 重试
 
         except Exception as e:
@@ -558,6 +570,7 @@ async def non_stream_request(
     log.debug("[ANTIGRAVITY] 使用传统非流式模式")
 
     model_name = body.get("model", "")
+    switch_credential_enabled = await get_antigravity_switch_credential_enabled()
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
@@ -654,6 +667,7 @@ async def non_stream_request(
 
     for attempt in range(max_retries + 1):
         need_retry = False  # 标记是否需要重试
+        should_force_switch = False
         
         try:
             response = await post_async(
@@ -725,8 +739,13 @@ async def non_stream_request(
                         except Exception:
                             pass
 
+                    if cooldown_until is not None:
+                        should_force_switch = True
+                    elif await check_should_auto_ban(status_code):
+                        should_force_switch = True
+
                     # 并行预热下一个凭证,不阻塞当前处理
-                    if next_cred_task is None and attempt < max_retries:
+                    if (switch_credential_enabled or should_force_switch) and next_cred_task is None and attempt < max_retries:
                         next_cred_task = asyncio.create_task(
                             credential_manager.get_valid_credential(
                                 mode="antigravity", model_name=model_name
@@ -767,20 +786,23 @@ async def non_stream_request(
             if need_retry:
                 log.info(f"[ANTIGRAVITY] 重试请求 (attempt {attempt + 2}/{max_retries + 1})...")
 
-                switched, next_cred_task = await _switch_credential_for_retry(
-                    next_cred_task=next_cred_task,
-                    retry_interval=retry_interval,
-                    refresh_credential_fast=refresh_credential_fast,
-                    apply_cred_result=apply_cred_result,
-                    log_prefix="[ANTIGRAVITY]",
-                )
-                if not switched:
-                    log.error("[ANTIGRAVITY] 重试时无可用凭证或令牌")
-                    return Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
-                        status_code=500,
-                        media_type="application/json"
+                if switch_credential_enabled or should_force_switch:
+                    switched, next_cred_task = await _switch_credential_for_retry(
+                        next_cred_task=next_cred_task,
+                        retry_interval=retry_interval,
+                        refresh_credential_fast=refresh_credential_fast,
+                        apply_cred_result=apply_cred_result,
+                        log_prefix="[ANTIGRAVITY]",
                     )
+                    if not switched:
+                        log.error("[ANTIGRAVITY] 重试时无可用凭证或令牌")
+                        return Response(
+                            content=json.dumps({"error": "当前无可用凭证"}),
+                            status_code=500,
+                            media_type="application/json"
+                        )
+                else:
+                    await asyncio.sleep(retry_interval)
                 continue  # 重试
 
         except Exception as e:
