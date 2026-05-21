@@ -1,4 +1,4 @@
-full_hash=9cb0487442f5fa4f24a50088bfd361f2fdb964f2
-short_hash=9cb0487
-message=Merge pull request #377 from STA1N156/codex/roocode-newapi-compat
-date=2026-05-20 19:01:35 +0800
+full_hash=9b8ad0ef5d207083c812d54c5de7f015c8d7b011
+short_hash=9b8ad0e
+message=Merge upstream master into cache routing PR [skip ci]
+date=2026-05-21 14:57:26 +0800
