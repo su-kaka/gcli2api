@@ -8,7 +8,7 @@ import json
 import os
 import time
 import zipfile
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
 from fastapi.responses import JSONResponse
@@ -22,7 +22,7 @@ from src.models import (
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER_AGENT
 from src.api.antigravity import fetch_quota_info
-from src.google_oauth_api import Credentials, fetch_project_id_and_tier
+from src.google_oauth_api import Credentials, fetch_credit_amount, fetch_project_id_and_tier
 from config import get_code_assist_endpoint, get_antigravity_api_url
 from .utils import validate_mode
 
@@ -100,6 +100,42 @@ async def clear_all_model_cooldowns_for_credential(
             log.warning(f"清空模型CD失败或凭证不存在: {filename} (mode={mode})")
     except Exception as e:
         log.warning(f"清空模型CD时出错: {filename} (mode={mode}), error={e}")
+
+
+def _normalize_credit_amount(value: Any) -> Optional[float]:
+    """Return a numeric credit amount when the provider sends one."""
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            return float(str(value).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+
+
+def _average_quota_remaining(models: Dict[str, Any]) -> Optional[float]:
+    """Average model remaining fractions for one credential."""
+    remaining_values: List[float] = []
+
+    for quota_data in models.values():
+        if not isinstance(quota_data, dict):
+            continue
+
+        remaining = quota_data.get("remaining")
+        try:
+            remaining_float = float(remaining)
+        except (TypeError, ValueError):
+            continue
+
+        remaining_values.append(max(0.0, min(1.0, remaining_float)))
+
+    if not remaining_values:
+        return None
+
+    return sum(remaining_values) / len(remaining_values)
 
 
 async def upload_credentials_common(
@@ -1211,6 +1247,218 @@ async def get_credential_quota(
     except Exception as e:
         log.error(f"获取凭证额度失败 {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"获取额度失败: {str(e)}")
+
+
+@router.get("/antigravity-credit-summary")
+async def get_antigravity_credit_summary(
+    token: str = Depends(verify_panel_token),
+):
+    """
+    Return aggregate Antigravity quota and credit data for enabled credentials.
+    """
+    try:
+        storage_adapter = await get_storage_adapter()
+        all_states = await storage_adapter.get_all_credential_states(mode="antigravity")
+        enabled_filenames = [
+            filename
+            for filename, state in all_states.items()
+            if not state.get("disabled", False)
+        ]
+
+        if not enabled_filenames:
+            return JSONResponse(content={
+                "success": True,
+                "enabled_accounts": 0,
+                "checked_accounts": 0,
+                "failed_accounts": 0,
+                "credit_accounts": 0,
+                "quota_accounts": 0,
+                "total_remaining_credits": 0,
+                "remaining_fraction": None,
+                "remaining_percent": None,
+                "model_summaries": [],
+                "updated_at": time.time(),
+                "errors": [],
+            })
+
+        api_base_url = await get_antigravity_api_url()
+        semaphore = asyncio.Semaphore(5)
+
+        async def fetch_one(filename: str) -> Dict[str, Any]:
+            result: Dict[str, Any] = {
+                "filename": os.path.basename(filename),
+                "success": False,
+                "credit_amount": None,
+                "quota_remaining_fraction": None,
+                "quota_model_count": 0,
+                "models": {},
+                "error": None,
+            }
+
+            async with semaphore:
+                try:
+                    credential_data = await storage_adapter.get_credential(
+                        filename, mode="antigravity"
+                    )
+                    if not credential_data:
+                        result["error"] = "credential not found"
+                        return result
+
+                    creds = Credentials.from_dict(credential_data)
+                    token_refreshed = await creds.refresh_if_needed()
+                    updated_data = creds.to_dict()
+
+                    if token_refreshed or updated_data != credential_data:
+                        await storage_adapter.store_credential(
+                            filename, updated_data, mode="antigravity"
+                        )
+                        credential_data = updated_data
+
+                    access_token = (
+                        credential_data.get("access_token")
+                        or credential_data.get("token")
+                        or creds.access_token
+                    )
+                    if not access_token:
+                        result["error"] = "missing access token"
+                        return result
+
+                    quota_info, credit_amount = await asyncio.gather(
+                        fetch_quota_info(access_token),
+                        fetch_credit_amount(
+                            access_token=access_token,
+                            user_agent=ANTIGRAVITY_USER_AGENT,
+                            api_base_url=api_base_url,
+                        ),
+                    )
+
+                    normalized_credit = _normalize_credit_amount(credit_amount)
+                    if normalized_credit is not None:
+                        result["credit_amount"] = normalized_credit
+
+                    if quota_info.get("success"):
+                        models = quota_info.get("models", {}) or {}
+                        result["quota_model_count"] = len(models)
+                        result["quota_remaining_fraction"] = _average_quota_remaining(models)
+
+                        model_entries: Dict[str, Any] = {}
+                        for model_name, quota_data in models.items():
+                            if not isinstance(quota_data, dict):
+                                continue
+
+                            try:
+                                remaining_float = float(quota_data.get("remaining"))
+                            except (TypeError, ValueError):
+                                continue
+
+                            remaining_float = max(0.0, min(1.0, remaining_float))
+                            model_entries[model_name] = {
+                                "remaining_fraction": remaining_float,
+                                "remaining_percent": round(remaining_float * 100, 2),
+                            }
+
+                        result["models"] = model_entries
+                    else:
+                        result["error"] = quota_info.get("error", "quota fetch failed")
+
+                    result["success"] = (
+                        result["credit_amount"] is not None
+                        or result["quota_remaining_fraction"] is not None
+                    )
+                    return result
+
+                except Exception as e:
+                    result["error"] = str(e)
+                    log.warning(
+                        f"[ANTIGRAVITY SUMMARY] Failed to fetch {filename}: {e}"
+                    )
+                    return result
+
+        results = await asyncio.gather(*(fetch_one(filename) for filename in enabled_filenames))
+
+        quota_fractions = [
+            item["quota_remaining_fraction"]
+            for item in results
+            if item.get("quota_remaining_fraction") is not None
+        ]
+        credit_amounts = [
+            item["credit_amount"]
+            for item in results
+            if item.get("credit_amount") is not None
+        ]
+
+        remaining_fraction = (
+            sum(quota_fractions) / len(quota_fractions)
+            if quota_fractions
+            else None
+        )
+        total_remaining_credits = sum(credit_amounts) if credit_amounts else None
+
+        model_buckets: Dict[str, Dict[str, Any]] = {}
+        for item in results:
+            for model_name, model_data in (item.get("models") or {}).items():
+                remaining_fraction = model_data.get("remaining_fraction")
+                if remaining_fraction is None:
+                    continue
+
+                bucket = model_buckets.setdefault(
+                    model_name,
+                    {
+                        "remaining_values": [],
+                    },
+                )
+                bucket["remaining_values"].append(remaining_fraction)
+
+        model_summaries = []
+        for model_name, bucket in model_buckets.items():
+            remaining_values = bucket["remaining_values"]
+            if not remaining_values:
+                continue
+
+            average_remaining = sum(remaining_values) / len(remaining_values)
+            exhausted_accounts = sum(1 for value in remaining_values if value <= 0)
+
+            model_summaries.append({
+                "model": model_name,
+                "account_count": len(remaining_values),
+                "exhausted_accounts": exhausted_accounts,
+                "remaining_fraction": average_remaining,
+                "remaining_percent": round(average_remaining * 100, 2),
+            })
+
+        model_summaries.sort(key=lambda item: (item["remaining_percent"], item["model"]))
+
+        failed_results = [item for item in results if not item.get("success")]
+        errors = [
+            {
+                "filename": item.get("filename"),
+                "error": item.get("error") or "no quota or credit data",
+            }
+            for item in failed_results
+        ][:10]
+
+        return JSONResponse(content={
+            "success": True,
+            "enabled_accounts": len(enabled_filenames),
+            "checked_accounts": len(results),
+            "failed_accounts": len(failed_results),
+            "credit_accounts": len(credit_amounts),
+            "quota_accounts": len(quota_fractions),
+            "total_remaining_credits": total_remaining_credits,
+            "remaining_fraction": remaining_fraction,
+            "remaining_percent": (
+                round(remaining_fraction * 100, 2)
+                if remaining_fraction is not None
+                else None
+            ),
+            "model_summaries": model_summaries,
+            "updated_at": time.time(),
+            "errors": errors,
+        })
+
+    except Exception as e:
+        log.error(f"[ANTIGRAVITY SUMMARY] Failed to build summary: {e}")
+        raise HTTPException(status_code=500, detail=f"获取总额度失败: {str(e)}")
 
 
 @router.post("/configure-preview/{filename}")

@@ -21,6 +21,7 @@ from log import log
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
+from src.session_affinity import extract_cache_session_key
 from src.utils import ANTIGRAVITY_USER_AGENT
 
 # 导入共同的基础功能
@@ -262,10 +263,11 @@ async def stream_request(
         Response对象（错误时）或 bytes流/str流（成功时）
     """
     model_name = body.get("model", "")
+    session_key = extract_cache_session_key(body, headers)
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_name=model_name
+        mode="antigravity", model_name=model_name, session_key=session_key
     )
 
     if not cred_result:
@@ -331,7 +333,8 @@ async def stream_request(
     async def refresh_credential_fast():
         nonlocal current_file, access_token, auth_headers, project_id, final_payload
         cred_result = await credential_manager.get_valid_credential(
-            mode="antigravity", model_name=model_name
+            mode="antigravity", model_name=model_name, session_key=session_key,
+            exclude_credential=current_file
         )
         if not cred_result:
             return None
@@ -397,7 +400,8 @@ async def stream_request(
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
                                 credential_manager.get_valid_credential(
-                                    mode="antigravity", model_name=model_name
+                                    mode="antigravity", model_name=model_name,
+                                    session_key=session_key, exclude_credential=current_file
                                 )
                             )
 
@@ -558,10 +562,11 @@ async def non_stream_request(
     log.debug("[ANTIGRAVITY] 使用传统非流式模式")
 
     model_name = body.get("model", "")
+    session_key = extract_cache_session_key(body, headers)
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_name=model_name
+        mode="antigravity", model_name=model_name, session_key=session_key
     )
 
     if not cred_result:
@@ -625,7 +630,8 @@ async def non_stream_request(
     async def refresh_credential_fast():
         nonlocal current_file, access_token, auth_headers, project_id, final_payload
         cred_result = await credential_manager.get_valid_credential(
-            mode="antigravity", model_name=model_name
+            mode="antigravity", model_name=model_name, session_key=session_key,
+            exclude_credential=current_file
         )
         if not cred_result:
             return None
@@ -729,7 +735,8 @@ async def non_stream_request(
                     if next_cred_task is None and attempt < max_retries:
                         next_cred_task = asyncio.create_task(
                             credential_manager.get_valid_credential(
-                                mode="antigravity", model_name=model_name
+                                mode="antigravity", model_name=model_name,
+                                session_key=session_key, exclude_credential=current_file
                             )
                         )
 

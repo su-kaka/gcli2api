@@ -48,6 +48,7 @@ from src.router.stream_passthrough import (
 
 # 本地模块 - 数据模型
 from src.models import GeminiRequest, model_to_dict
+from src.session_affinity import extract_cache_session_key
 
 # 本地模块 - 任务管理
 from src.task_manager import create_managed_task
@@ -64,6 +65,7 @@ router = APIRouter()
 @router.post("/antigravity/v1/models/{model:path}:generateContent")
 async def generate_content(
     gemini_request: "GeminiRequest",
+    request: Request,
     model: str = Path(..., description="Model name"),
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
@@ -79,6 +81,7 @@ async def generate_content(
 
     # 转换为字典
     normalized_dict = model_to_dict(gemini_request)
+    cache_session_key = extract_cache_session_key(normalized_dict, request.headers)
 
     # 健康检查
     if is_health_check_request(normalized_dict, format="gemini"):
@@ -103,7 +106,8 @@ async def generate_content(
     # 准备API请求格式 - 提取model并将其他字段放入request中
     api_request = {
         "model": normalized_dict.pop("model"),
-        "request": normalized_dict
+        "request": normalized_dict,
+        "cache_session_key": cache_session_key
     }
 
     # 调用 API 层的非流式请求
@@ -130,6 +134,7 @@ async def generate_content(
 @router.post("/antigravity/v1/models/{model:path}:streamGenerateContent")
 async def stream_generate_content(
     gemini_request: GeminiRequest,
+    request: Request,
     model: str = Path(..., description="Model name"),
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
@@ -145,6 +150,7 @@ async def stream_generate_content(
 
     # 转换为字典
     normalized_dict = model_to_dict(gemini_request)
+    cache_session_key = extract_cache_session_key(normalized_dict, request.headers)
 
     # 处理模型名称和功能检测
     use_fake_streaming = is_fake_streaming_model(model)
@@ -164,7 +170,8 @@ async def stream_generate_content(
         # 准备API请求格式 - 提取model并将其他字段放入request中
         api_request = {
             "model": normalized_req.pop("model"),
-            "request": normalized_req
+            "request": normalized_req,
+            "cache_session_key": cache_session_key
         }
 
         response = await non_stream_request(body=api_request)
@@ -229,7 +236,8 @@ async def stream_generate_content(
         # 准备API请求格式 - 提取model并将其他字段放入request中
         api_request = {
             "model": normalized_req.pop("model") if "model" in normalized_req else real_model,
-            "request": normalized_req
+            "request": normalized_req,
+            "cache_session_key": cache_session_key
         }
 
         max_attempts = await get_anti_truncation_max_attempts()
@@ -315,7 +323,8 @@ async def stream_generate_content(
         # 准备API请求格式 - 提取model并将其他字段放入request中
         api_request = {
             "model": normalized_req.pop("model"),
-            "request": normalized_req
+            "request": normalized_req,
+            "cache_session_key": cache_session_key
         }
 
         # 所有流式请求都使用非 native 模式（SSE格式）并展开 response 包装

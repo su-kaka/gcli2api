@@ -37,7 +37,12 @@ const AppState = {
     usageStatsData: {},
 
     // 冷却倒计时
-    cooldownTimerInterval: null
+    cooldownTimerInterval: null,
+
+    // Antigravity total quota UI
+    antigravityCreditSummaryTimer: null,
+    antigravityCreditSummaryLoaded: false,
+    antigravityCreditSummaryLoading: false
 };
 
 // =====================================================================
@@ -1035,7 +1040,10 @@ function switchTab(tabName) {
 // 标签页数据加载（从动画中分离出来）
 function triggerTabDataLoad(tabName) {
     if (tabName === 'manage') AppState.creds.refresh();
-    if (tabName === 'antigravity-manage') AppState.antigravityCreds.refresh();
+    if (tabName === 'antigravity-manage') {
+        AppState.antigravityCreds.refresh();
+        startAntigravityCreditSummaryAutoRefresh(true);
+    }
     if (tabName === 'config') loadConfig();
     if (tabName === 'logs') connectWebSocket();
 }
@@ -1455,7 +1463,215 @@ async function downloadAllCreds() {
 }
 
 // Antigravity凭证管理
-function refreshAntigravityCredsList() { AppState.antigravityCreds.refresh(); }
+function refreshAntigravityCredsList() {
+    AppState.antigravityCreds.refresh();
+    startAntigravityCreditSummaryAutoRefresh(false);
+    refreshAntigravityCreditSummary(true);
+}
+
+function getAntigravityCreditSummaryElement(id) {
+    return document.getElementById(id);
+}
+
+function setAntigravityCreditSummaryText(id, text) {
+    const element = getAntigravityCreditSummaryElement(id);
+    if (element) element.textContent = text;
+}
+
+function formatAntigravityCreditNumber(value) {
+    if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) {
+        return '--';
+    }
+
+    return Number(value).toLocaleString('zh-CN', {
+        maximumFractionDigits: 2
+    });
+}
+
+function formatAntigravityCreditPercent(value) {
+    if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) {
+        return '--%';
+    }
+
+    return `${Number(value).toLocaleString('zh-CN', {
+        maximumFractionDigits: 2
+    })}%`;
+}
+
+function formatAntigravitySummaryTime(timestamp) {
+    if (!timestamp) return '刚刚';
+
+    return new Date(timestamp * 1000).toLocaleTimeString('zh-CN', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+function getAntigravityQuotaColor(percent) {
+    const safePercent = Number(percent);
+    if (safePercent >= 50) return '#28a745';
+    if (safePercent >= 20) return '#ffc107';
+    return '#dc3545';
+}
+
+function renderAntigravityCreditModelList(modelSummaries) {
+    const container = getAntigravityCreditSummaryElement('antigravityCreditModelList');
+    if (!container) return;
+
+    if (!Array.isArray(modelSummaries) || modelSummaries.length === 0) {
+        container.innerHTML = '<div class="quota-model-empty">暂无分模型额度数据</div>';
+        return;
+    }
+
+    container.innerHTML = modelSummaries.map(modelInfo => {
+        const percent = modelInfo.remaining_percent;
+        const safePercent = percent === null || percent === undefined
+            ? 0
+            : Math.max(0, Math.min(100, Number(percent)));
+        const percentText = formatAntigravityCreditPercent(percent);
+        const accountCount = modelInfo.account_count || 0;
+        const exhaustedAccounts = modelInfo.exhausted_accounts || 0;
+        const color = getAntigravityQuotaColor(safePercent);
+        const modelName = escapeHtml(modelInfo.model || 'unknown');
+
+        return `
+            <div class="quota-model-item">
+                <div class="quota-model-row">
+                    <span class="quota-model-name" title="${modelName}">${modelName}</span>
+                    <span class="quota-model-percent" style="color: ${color};">${percentText}</span>
+                </div>
+                <div class="quota-model-bar">
+                    <div class="quota-model-fill" style="width: ${safePercent}%; background-color: ${color};"></div>
+                </div>
+                <div class="quota-model-meta">覆盖 ${accountCount} 个启用号 · ${exhaustedAccounts} 个已耗尽</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateAntigravityCreditSummaryUI(data) {
+    const creditsText = formatAntigravityCreditNumber(data.total_remaining_credits);
+    const enabledAccounts = data.enabled_accounts || 0;
+    const creditAccounts = data.credit_accounts || 0;
+    const quotaAccounts = data.quota_accounts || 0;
+    const failedAccounts = data.failed_accounts || 0;
+
+    setAntigravityCreditSummaryText('antigravityCreditRemainingAmount', creditsText);
+    setAntigravityCreditSummaryText('antigravityCreditEnabledAccounts', enabledAccounts.toString());
+
+    if (enabledAccounts > 0) {
+        setAntigravityCreditSummaryText(
+            'antigravityCreditSummaryCompact',
+            `${creditsText} 积分 · 启用 ${enabledAccounts} 个`
+        );
+    } else {
+        setAntigravityCreditSummaryText('antigravityCreditSummaryCompact', '没有启用凭证');
+    }
+
+    renderAntigravityCreditModelList(data.model_summaries || []);
+
+    const refreshTime = formatAntigravitySummaryTime(data.updated_at);
+    const metaParts = [
+        `启用 ${enabledAccounts} 个`,
+        `积分数据 ${creditAccounts} 个`,
+        `额度数据 ${quotaAccounts} 个`,
+        `刷新 ${refreshTime}`
+    ];
+    if (failedAccounts > 0) metaParts.push(`失败 ${failedAccounts} 个`);
+    setAntigravityCreditSummaryText('antigravityCreditSummaryMeta', metaParts.join(' · '));
+
+    const meta = getAntigravityCreditSummaryElement('antigravityCreditSummaryMeta');
+    if (meta && Array.isArray(data.errors) && data.errors.length > 0) {
+        meta.title = data.errors.map(item => `${item.filename}: ${item.error}`).join('\n');
+    } else if (meta) {
+        meta.removeAttribute('title');
+    }
+
+    AppState.antigravityCreditSummaryLoaded = true;
+}
+
+function setAntigravityCreditSummaryLoading(isLoading) {
+    AppState.antigravityCreditSummaryLoading = isLoading;
+    const refreshBtn = getAntigravityCreditSummaryElement('antigravityCreditSummaryRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.textContent = isLoading ? '刷新中...' : '手动刷新';
+    }
+
+    if (isLoading && !AppState.antigravityCreditSummaryLoaded) {
+        setAntigravityCreditSummaryText('antigravityCreditSummaryCompact', '正在获取...');
+        setAntigravityCreditSummaryText('antigravityCreditSummaryMeta', '正在获取启用凭证额度...');
+    }
+}
+
+function toggleAntigravityCreditSummary() {
+    const body = getAntigravityCreditSummaryElement('antigravityCreditSummaryBody');
+    const card = getAntigravityCreditSummaryElement('antigravityCreditSummaryCard');
+    if (!body || !card) return;
+
+    const shouldOpen = body.style.display !== 'block';
+    body.style.display = shouldOpen ? 'block' : 'none';
+    card.classList.toggle('expanded', shouldOpen);
+    card.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    setAntigravityCreditSummaryText('antigravityCreditSummaryToggleIcon', shouldOpen ? '收起' : '展开');
+
+    if (shouldOpen && !AppState.antigravityCreditSummaryLoaded) {
+        refreshAntigravityCreditSummary(false);
+    }
+}
+
+function startAntigravityCreditSummaryAutoRefresh(fetchNow = false) {
+    const card = getAntigravityCreditSummaryElement('antigravityCreditSummaryCard');
+    if (!card) return;
+
+    if (!AppState.antigravityCreditSummaryTimer) {
+        AppState.antigravityCreditSummaryTimer = setInterval(() => {
+            refreshAntigravityCreditSummary(true);
+        }, 10 * 60 * 1000);
+    }
+
+    if (fetchNow) {
+        refreshAntigravityCreditSummary(true);
+    }
+}
+
+async function refreshAntigravityCreditSummary(silent = false) {
+    const card = getAntigravityCreditSummaryElement('antigravityCreditSummaryCard');
+    if (!card || AppState.antigravityCreditSummaryLoading) return;
+
+    setAntigravityCreditSummaryLoading(true);
+
+    try {
+        const response = await fetch('./creds/antigravity-credit-summary', {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            updateAntigravityCreditSummaryUI(data);
+            if (!silent) showStatus('Antigravity 总额度已刷新', 'success');
+        } else {
+            const errorMsg = data.error || data.detail || '获取总额度失败';
+            setAntigravityCreditSummaryText('antigravityCreditSummaryCompact', '获取失败');
+            setAntigravityCreditSummaryText('antigravityCreditSummaryMeta', errorMsg);
+            if (!silent) showStatus(errorMsg, 'error');
+        }
+    } catch (error) {
+        setAntigravityCreditSummaryText('antigravityCreditSummaryCompact', '获取失败');
+        setAntigravityCreditSummaryText('antigravityCreditSummaryMeta', error.message);
+        if (!silent) showStatus(`获取总额度失败: ${error.message}`, 'error');
+    } finally {
+        setAntigravityCreditSummaryLoading(false);
+    }
+}
+
+window.toggleAntigravityCreditSummary = toggleAntigravityCreditSummary;
+window.refreshAntigravityCreditSummary = refreshAntigravityCreditSummary;
+window.startAntigravityCreditSummaryAutoRefresh = startAntigravityCreditSummaryAutoRefresh;
+
 function applyAntigravityStatusFilter() { AppState.antigravityCreds.applyStatusFilter(); }
 function changeAntigravityPage(direction) { AppState.antigravityCreds.changePage(direction); }
 function changeAntigravityPageSize() { AppState.antigravityCreds.changePageSize(); }
