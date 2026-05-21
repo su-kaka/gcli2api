@@ -1,4 +1,4 @@
-full_hash=9cb0487442f5fa4f24a50088bfd361f2fdb964f2
-short_hash=9cb0487
-message=Merge pull request #377 from STA1N156/codex/roocode-newapi-compat
-date=2026-05-20 19:01:35 +0800
+full_hash=689dc539e986a7f4cce1d9439218bc78abc52138
+short_hash=689dc53
+message=反重力缓存
+date=2026-05-21 20:50:15 +0800
