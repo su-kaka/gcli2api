@@ -18,6 +18,11 @@ from config import (
 )
 from log import log
 
+from src.api.empty_output import (
+    build_empty_model_output_response,
+    is_empty_model_output,
+    stream_chunk_has_visible_output,
+)
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
@@ -364,6 +369,7 @@ async def stream_request(
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
+        buffered_chunks = []
 
         try:
             async for chunk in stream_post_async(
@@ -439,21 +445,29 @@ async def stream_request(
                         return
                 else:
                     # 不是Response，说明是真流，直接yield返回
-                    # 只在第一个chunk时记录成功
-                    if not success_recorded:
-                        await record_api_call_success(
-                            credential_manager, current_file, mode="antigravity", model_name=model_name
-                        )
-                        success_recorded = True
-                        log.debug(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
-
                     # 记录原始chunk内容（用于调试）
                     if isinstance(chunk, bytes):
                         log.debug(f"[ANTIGRAVITY STREAM RAW] chunk(bytes): {chunk}")
                     else:
                         log.debug(f"[ANTIGRAVITY STREAM RAW] chunk(str): {chunk}")
 
-                    yield chunk
+                    # 只在第一个chunk时记录成功
+                    if not success_recorded:
+                        buffered_chunks.append(chunk)
+                        if not stream_chunk_has_visible_output(chunk):
+                            continue
+
+                        await record_api_call_success(
+                            credential_manager, current_file, mode="antigravity", model_name=model_name
+                        )
+                        success_recorded = True
+                        log.debug(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
+
+                        for buffered_chunk in buffered_chunks:
+                            yield buffered_chunk
+                        buffered_chunks = []
+                    else:
+                        yield chunk
 
             # 流式请求完成，检查结果
             if success_recorded:
@@ -472,11 +486,7 @@ async def stream_request(
                     need_retry = True
                 else:
                     log.error(f"[ANTIGRAVITY STREAM] 空回复达到最大重试次数")
-                    yield Response(
-                        content=json.dumps({"error": "服务返回空回复"}),
-                        status_code=500,
-                        media_type="application/json"
-                    )
+                    yield build_empty_model_output_response()
                     return
             
             # 统一处理重试
@@ -673,6 +683,15 @@ async def non_stream_request(
 
             # 成功
             if status_code == 200:
+                if is_empty_model_output(response.content):
+                    log.warning(f"[ANTIGRAVITY] Model returned empty output, credential: {current_file}")
+                    await record_api_call_error(
+                        credential_manager, current_file, 461,
+                        None, mode="antigravity", model_name=model_name,
+                        error_message="可能触发外审导致空回"
+                    )
+                    return build_empty_model_output_response()
+
                 # 检查是否为空回复
                 if not response.content or len(response.content) == 0:
                     log.warning(f"[ANTIGRAVITY] 收到200响应但内容为空，凭证: {current_file}")
@@ -688,11 +707,7 @@ async def non_stream_request(
                         need_retry = True
                     else:
                         log.error(f"[ANTIGRAVITY] 空回复达到最大重试次数")
-                        return Response(
-                            content=json.dumps({"error": "服务返回空回复"}),
-                            status_code=500,
-                            media_type="application/json"
-                        )
+                        return build_empty_model_output_response()
                 else:
                     # 正常响应
                     await record_api_call_success(

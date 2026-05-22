@@ -22,6 +22,11 @@ from config import get_code_assist_endpoint, get_auto_ban_error_codes
 from log import log
 
 from src.credential_manager import credential_manager
+from src.api.empty_output import (
+    build_empty_model_output_response,
+    is_empty_model_output,
+    stream_chunk_has_visible_output,
+)
 from src.httpx_client import stream_post_async, post_async
 from src.session_affinity import extract_cache_session_key
 
@@ -220,6 +225,7 @@ async def stream_request(
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
+        buffered_chunks = []
 
         try:
             async for chunk in stream_post_async(
@@ -334,17 +340,35 @@ async def stream_request(
                     # 不是Response，说明是真流，直接yield返回
                     # 只在第一个chunk时记录成功
                     if not success_recorded:
+                        buffered_chunks.append(chunk)
+                        if not stream_chunk_has_visible_output(chunk):
+                            continue
+
                         await record_api_call_success(
                             credential_manager, current_file, mode="geminicli", model_name=model_name
                         )
                         success_recorded = True
                         log.debug(f"[GEMINICLI STREAM] 开始接收流式响应，模型: {model_name}")
 
-                    yield chunk
+                        for buffered_chunk in buffered_chunks:
+                            yield buffered_chunk
+                        buffered_chunks = []
+                    else:
+                        yield chunk
 
             # 流式请求完成，检查结果
             if success_recorded:
                 log.debug(f"[GEMINICLI STREAM] 流式响应完成，模型: {model_name}")
+                return
+
+            if not need_retry:
+                log.warning(f"[GEMINICLI STREAM] Model returned empty output, credential: {current_file}")
+                await record_api_call_error(
+                    credential_manager, current_file, 461,
+                    None, mode="geminicli", model_name=model_name,
+                    error_message="可能触发外审导致空回"
+                )
+                yield build_empty_model_output_response()
                 return
 
             # 统一处理重试
@@ -523,6 +547,15 @@ async def non_stream_request(
 
             # 成功
             if status_code == 200:
+                if is_empty_model_output(response.content):
+                    log.warning(f"[NON-STREAM] Model returned empty output, credential: {current_file}")
+                    await record_api_call_error(
+                        credential_manager, current_file, 461,
+                        None, mode="geminicli", model_name=model_name,
+                        error_message="可能触发外审导致空回"
+                    )
+                    return build_empty_model_output_response()
+
                 await record_api_call_success(
                     credential_manager, current_file, mode="geminicli", model_name=model_name
                 )

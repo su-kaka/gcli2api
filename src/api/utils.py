@@ -18,6 +18,7 @@ from config import (
     get_retry_429_max_retries,
 )
 from log import log
+from src.api.empty_output import build_empty_model_output_response, is_empty_model_output_payload
 from src.credential_manager import CredentialManager
 
 
@@ -390,11 +391,7 @@ async def collect_streaming_response(stream_generator) -> Response:
     # 如果没有收集到任何数据，返回错误
     if not has_data:
         log.error(f"[STREAM COLLECTOR] No data collected from stream after {line_count} lines")
-        return Response(
-            content=json.dumps({"error": "No data collected from stream"}),
-            status_code=500,
-            media_type="application/json"
-        )
+        return build_empty_model_output_response()
 
     # 组装最终的parts
     final_parts = []
@@ -433,6 +430,10 @@ async def collect_streaming_response(stream_generator) -> Response:
         merged_response = merged_response["response"]
 
     # 返回纯JSON格式
+    if is_empty_model_output_payload(merged_response):
+        log.warning("[STREAM COLLECTOR] Collected stream contains empty model output")
+        return build_empty_model_output_response()
+
     return Response(
         content=json.dumps(merged_response, ensure_ascii=False).encode('utf-8'),
         status_code=200,
