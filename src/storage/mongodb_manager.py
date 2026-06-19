@@ -518,7 +518,7 @@ class MongoDBManager:
         # Redis 快速路径：根据模型名派生过滤标志，直接在 Redis 分桶中筛选
         if self._redis_enabled:
             model_lower = model_name.lower() if model_name else ""
-            exclude_free = mode == "geminicli" and "pro" in model_lower
+            exclude_free = False
             preview_only = mode == "geminicli" and "preview" in model_lower
             result = await self._get_next_available_from_redis(
                 mode, model_name, exclude_free_tier=exclude_free, preview_only=preview_only
@@ -535,10 +535,6 @@ class MongoDBManager:
 
             # 构建普通查询（避免 $sample 聚合导致全集合扫描）
             match_query: Dict[str, Any] = {"disabled": False}
-
-            # pro 模型只允许非 free tier 凭证
-            if mode == "geminicli" and model_name and "pro" in model_name.lower():
-                match_query["tier"] = {"$ne": "free"}
 
             # preview 模型只允许 preview=True 的凭证
             if mode == "geminicli" and model_name and "preview" in model_name.lower():

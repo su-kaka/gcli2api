@@ -393,14 +393,10 @@ class SQLiteManager:
                 current_time = time.time()
 
                 if mode == "geminicli":
-                    tier_clause = ""
-                    if model_name and "pro" in model_name.lower():
-                        tier_clause = "AND (tier IS NULL OR tier != 'free')"
-
                     async with db.execute(f"""
                         SELECT filename, credential_data, model_cooldowns, preview
                         FROM {table_name}
-                        WHERE disabled = 0 {tier_clause}
+                        WHERE disabled = 0
                         ORDER BY RANDOM()
                     """) as cursor:
                         rows = await cursor.fetchall()

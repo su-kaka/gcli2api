@@ -254,14 +254,10 @@ class PSQLManager:
 
             async with self._pool.acquire() as conn:
                 if mode == "geminicli":
-                    tier_clause = ""
-                    if model_name and "pro" in model_name.lower():
-                        tier_clause = "AND (tier IS NULL OR tier != 'free')"
-
                     rows = await conn.fetch(f"""
                         SELECT filename, credential_data, model_cooldowns, preview
                         FROM {table_name}
-                        WHERE disabled = 0 {tier_clause}
+                        WHERE disabled = 0
                         ORDER BY RANDOM()
                     """)
 
