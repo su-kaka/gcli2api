@@ -1,4 +1,4 @@
-full_hash=689dc539e986a7f4cce1d9439218bc78abc52138
-short_hash=689dc53
-message=反重力缓存
-date=2026-05-21 20:50:15 +0800
+full_hash=def2fbf5d704b60fc301fb867b43819f57deeb8a
+short_hash=def2fbf
+message=适应企业版和标准版geminicli
+date=2026-06-19 20:38:24 +0800
