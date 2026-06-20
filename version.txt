@@ -1,4 +1,4 @@
-full_hash=def2fbf5d704b60fc301fb867b43819f57deeb8a
-short_hash=def2fbf
-message=适应企业版和标准版geminicli
-date=2026-06-19 20:38:24 +0800
+full_hash=10ed71fa70d819677b4baf9bc9a3badf57fabf5f
+short_hash=10ed71f
+message=agy请求更新为agy cli模式
+date=2026-06-20 23:46:21 +0800
