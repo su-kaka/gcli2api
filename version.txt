@@ -1,4 +1,4 @@
-full_hash=89cbb5122068d59ea2ab88a24eebb3092591977a
-short_hash=89cbb51
-message=随机指纹提高pvp胜率
-date=2026-06-21 20:57:04 +0800
+full_hash=15096b5d57b1f642b2e2a4c6261a966890cd7ac2
+short_hash=15096b5
+message=修复对话无法进行的bug
+date=2026-06-21 21:08:15 +0800
