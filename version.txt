@@ -1,4 +1,4 @@
-full_hash=4b4e0b5f0a1c2cc202889c28076e64ccec7cfdb5
-short_hash=4b4e0b5
-message=vertex studio匿名渠道支持
-date=2026-06-21 20:21:05 +0800
+full_hash=89cbb5122068d59ea2ab88a24eebb3092591977a
+short_hash=89cbb51
+message=随机指纹提高pvp胜率
+date=2026-06-21 20:57:04 +0800
