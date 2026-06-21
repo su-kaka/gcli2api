@@ -1,4 +1,4 @@
-full_hash=10ed71fa70d819677b4baf9bc9a3badf57fabf5f
-short_hash=10ed71f
-message=agy请求更新为agy cli模式
-date=2026-06-20 23:46:21 +0800
+full_hash=4b4e0b5f0a1c2cc202889c28076e64ccec7cfdb5
+short_hash=4b4e0b5
+message=vertex studio匿名渠道支持
+date=2026-06-21 20:21:05 +0800
