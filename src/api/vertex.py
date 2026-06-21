@@ -39,9 +39,12 @@ CLIENT_VERSION = "boq_cloud-boq-clientweb-vertexaistudio_20260402.09_p0"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
 )
-SEC_CH_UA = '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
+SEC_CH_UA = '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"'
+SEC_CH_UA_FULL_VERSION_LIST = (
+    '"Not;A=Brand";v="8.0.0.0", "Chromium";v="150.0.7871.13", "Google Chrome";v="150.0.7871.13"'
+)
 
 # 正则：从 anchor HTML 提取 base token
 _TOKEN_RE = re.compile(r'id="recaptcha-token"[^>]*value="([^"]+)"')
@@ -72,6 +75,14 @@ def _anchor_headers() -> Dict[str, str]:
         "sec-ch-ua": SEC_CH_UA,
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Windows"',
+        "sec-ch-ua-arch": '"x86"',
+        "sec-ch-ua-bitness": '"64"',
+        "sec-ch-ua-full-version": '"150.0.7871.13"',
+        "sec-ch-ua-full-version-list": SEC_CH_UA_FULL_VERSION_LIST,
+        "sec-ch-ua-platform-version": '"19.0.0"',
+        "sec-ch-ua-model": '""',
+        "sec-ch-ua-wow64": "?0",
+        "sec-ch-ua-form-factors": '"Desktop"',
         "upgrade-insecure-requests": "1",
         "user-agent": USER_AGENT,
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -79,7 +90,7 @@ def _anchor_headers() -> Dict[str, str]:
         "sec-fetch-mode": "navigate",
         "sec-fetch-dest": "iframe",
         "accept-encoding": "gzip, deflate, br",
-        "accept-language": "en-US,en;q=0.9",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
     }
 
 
@@ -88,6 +99,14 @@ def _xhr_headers(content_type: str, accept: str, origin: str, referer: str, site
         "sec-ch-ua": SEC_CH_UA,
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Windows"',
+        "sec-ch-ua-arch": '"x86"',
+        "sec-ch-ua-bitness": '"64"',
+        "sec-ch-ua-full-version": '"150.0.7871.13"',
+        "sec-ch-ua-full-version-list": SEC_CH_UA_FULL_VERSION_LIST,
+        "sec-ch-ua-platform-version": '"19.0.0"',
+        "sec-ch-ua-model": '""',
+        "sec-ch-ua-wow64": "?0",
+        "sec-ch-ua-form-factors": '"Desktop"',
         "user-agent": USER_AGENT,
         "accept": accept,
         "origin": origin,
@@ -96,7 +115,7 @@ def _xhr_headers(content_type: str, accept: str, origin: str, referer: str, site
         "sec-fetch-dest": "empty",
         "referer": referer,
         "accept-encoding": "gzip, deflate, br",
-        "accept-language": "en-US,en;q=0.9",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         "priority": "u=1, i",
     }
     if content_type:
@@ -105,13 +124,19 @@ def _xhr_headers(content_type: str, accept: str, origin: str, referer: str, site
 
 
 def _batch_graphql_headers() -> Dict[str, str]:
-    return _xhr_headers(
+    h = _xhr_headers(
         "application/json",
         "*/*",
         "https://console.cloud.google.com",
         "https://console.cloud.google.com/",
         "cross-site",
     )
+    h["x-goog-authuser"] = "0"
+    h["x-browser-channel"] = "stable"
+    h["x-browser-copyright"] = "Copyright 2026 Google LLC. All Rights Reserved."
+    h["x-browser-year"] = "2026"
+    h["x-goog-ext-353267353-jspb"] = "[null,null,null,194274]"
+    return h
 
 
 # ==================== reCAPTCHA ====================
@@ -121,6 +146,21 @@ async def _fetch_recaptcha_token_once() -> Optional[str]:
     try:
         import wreq
         from wreq.emulation import Emulation
+
+        _EMULATION_POOL = [
+            Emulation.Chrome131, Emulation.Chrome132, Emulation.Chrome133,
+            Emulation.Chrome134, Emulation.Chrome135, Emulation.Chrome136,
+            Emulation.Chrome137, Emulation.Chrome138, Emulation.Chrome139,
+            Emulation.Chrome140, Emulation.Chrome141, Emulation.Chrome142,
+            Emulation.Chrome143, Emulation.Chrome144, Emulation.Chrome145,
+            Emulation.Chrome146, Emulation.Chrome147,
+            Emulation.Edge131, Emulation.Edge134, Emulation.Edge135,
+            Emulation.Edge136, Emulation.Edge137, Emulation.Edge138,
+            Emulation.Edge139, Emulation.Edge140, Emulation.Edge141,
+            Emulation.Edge142, Emulation.Edge143, Emulation.Edge144,
+            Emulation.Edge145, Emulation.Edge146, Emulation.Edge147,
+        ]
+        emulation = random.choice(_EMULATION_POOL)
 
         cb = _random_string(10)
         anchor_url = (
@@ -133,7 +173,7 @@ async def _fetch_recaptcha_token_once() -> Optional[str]:
         anchor_resp = await wreq.get(
             anchor_url,
             headers=_anchor_headers(),
-            emulation=Emulation.Chrome131,
+            emulation=emulation,
         )
         if anchor_resp.status != 200:
             log.warning(f"[VERTEX RECAPTCHA] anchor GET failed: status={anchor_resp.status}")
@@ -171,7 +211,7 @@ async def _fetch_recaptcha_token_once() -> Optional[str]:
             reload_url,
             form=form_data,
             headers=reload_headers,
-            emulation=Emulation.Chrome131,
+            emulation=emulation,
         )
         if reload_resp.status != 200:
             log.warning(f"[VERTEX RECAPTCHA] reload POST failed: status={reload_resp.status}")
