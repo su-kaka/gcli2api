@@ -12,3 +12,4 @@ aiosqlite>=0.20.0
 pypinyin>=0.51.0
 redis>=4.2.0
 asyncpg
+wreq

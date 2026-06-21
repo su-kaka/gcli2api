@@ -31,6 +31,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "redis>=7.2.0",
     "asyncpg>=0.31.0",
+    "wreq>=0.12.0",
 ]
 
 [project.optional-dependencies]

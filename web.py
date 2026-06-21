@@ -26,6 +26,9 @@ from src.router.geminicli.openai import router as geminicli_openai_router
 from src.router.geminicli.gemini import router as geminicli_gemini_router
 from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.router.geminicli.model_list import router as geminicli_model_list_router
+from src.router.vertex.gemini import router as vertex_gemini_router
+from src.router.vertex.openai import router as vertex_openai_router
+from src.router.vertex.model_list import router as vertex_model_list_router
 from src.task_manager import shutdown_all_tasks
 from src.panel import router as panel_router
 from src.keeplive import keepalive_service
@@ -140,6 +143,15 @@ app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthr
 
 # Panel路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(panel_router, prefix="", tags=["Panel Interface"])
+
+# Vertex AI 路由 - Gemini 原生格式
+app.include_router(vertex_gemini_router, prefix="", tags=["Vertex Gemini API"])
+
+# Vertex AI 路由 - OpenAI 兼容格式
+app.include_router(vertex_openai_router, prefix="", tags=["Vertex OpenAI API"])
+
+# Vertex AI 路由 - 模型列表
+app.include_router(vertex_model_list_router, prefix="", tags=["Vertex Model List"])
 
 # 静态文件路由 - 服务docs目录下的文件
 app.mount("/docs", StaticFiles(directory="docs"), name="docs")

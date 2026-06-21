@@ -12,3 +12,4 @@ pypinyin
 aiosqlite
 redis
 asyncpg
+wreq
