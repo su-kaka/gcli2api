@@ -324,7 +324,8 @@ def _fix_thought_signatures(contents: list) -> list:
                 real_id, signature = decode_tool_id_and_signature(raw_id)
                 fc["id"] = real_id
 
-            if not part.get("thoughtSignature"):
+            existing_sig = part.get("thoughtSignature")
+            if not existing_sig or existing_sig == _SKIP_THOUGHT_SENTINEL:
                 part["thoughtSignature"] = signature if signature else _SKIP_THOUGHT_SENTINEL_B64
 
     return contents
