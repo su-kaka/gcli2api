@@ -1,4 +1,4 @@
-full_hash=15096b5d57b1f642b2e2a4c6261a966890cd7ac2
-short_hash=15096b5
-message=修复对话无法进行的bug
-date=2026-06-21 21:08:15 +0800
+full_hash=68bd6b0940396f22d3715ff4a6b278698e7f603b
+short_hash=68bd6b0
+message=适应安卓
+date=2026-06-22 13:39:08 +0800
