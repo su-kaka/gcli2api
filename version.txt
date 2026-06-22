@@ -1,4 +1,4 @@
-full_hash=8831d92e5c85e829b8064fda31718da15039565e
-short_hash=8831d92
-message=gemini-3.1-flash-lite
-date=2026-06-23 01:15:16 +0800
+full_hash=bdc86c2e4fd7b698cacb0e5055fd1d2af6ce46f4
+short_hash=bdc86c2
+message=修复设置预览
+date=2026-06-23 01:56:52 +0800
