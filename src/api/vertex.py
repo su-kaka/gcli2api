@@ -16,6 +16,15 @@ from fastapi import Response
 from log import log
 from src.converter.thoughtSignature_fix import decode_tool_id_and_signature
 
+try:
+    import wreq
+    from wreq.emulation import Emulation
+    WREQ_AVAILABLE = True
+except ImportError:
+    wreq = None
+    Emulation = None
+    WREQ_AVAILABLE = False
+
 
 # ==================== 常量 ====================
 
@@ -143,10 +152,9 @@ def _batch_graphql_headers() -> Dict[str, str]:
 
 async def _fetch_recaptcha_token_once() -> Optional[str]:
     """单次尝试获取 reCAPTCHA token，失败返回 None。"""
+    if not WREQ_AVAILABLE:
+        return None
     try:
-        import wreq
-        from wreq.emulation import Emulation
-
         _EMULATION_POOL = [
             Emulation.Chrome131, Emulation.Chrome132, Emulation.Chrome133,
             Emulation.Chrome134, Emulation.Chrome135, Emulation.Chrome136,
@@ -596,8 +604,13 @@ async def stream_request(
     Yields:
         Response 对象（错误时）或 str/bytes（SSE 格式数据）
     """
-    import wreq
-    from wreq.emulation import Emulation
+    if not WREQ_AVAILABLE:
+        yield Response(
+            content='{"error":{"code":503,"message":"wreq not installed, vertex channel unavailable","status":"UNAVAILABLE"}}',
+            status_code=503,
+            media_type="application/json",
+        )
+        return
 
     model = body.get("model", "")
     gemini_payload = body.get("request", {})
@@ -782,8 +795,12 @@ async def non_stream_request(
 
     body 格式: {"model": str, "request": {...gemini payload...}}
     """
-    import wreq
-    from wreq.emulation import Emulation
+    if not WREQ_AVAILABLE:
+        return Response(
+            content='{"error":{"code":503,"message":"wreq not installed, vertex channel unavailable","status":"UNAVAILABLE"}}',
+            status_code=503,
+            media_type="application/json",
+        )
 
     model = body.get("model", "")
     gemini_payload = body.get("request", {})
