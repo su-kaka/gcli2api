@@ -1,4 +1,4 @@
-full_hash=68bd6b0940396f22d3715ff4a6b278698e7f603b
-short_hash=68bd6b0
-message=适应安卓
-date=2026-06-22 13:39:08 +0800
+full_hash=91adf02962d2526e6bcc9df477285b7bcb14d93c
+short_hash=91adf02
+message=Update creds.py
+date=2026-06-23 00:21:18 +0800
