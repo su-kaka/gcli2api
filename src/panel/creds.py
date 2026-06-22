@@ -1461,7 +1461,7 @@ async def test_credential(
         if mode == "antigravity":
             api_base_url = await get_antigravity_api_url()
             from src.api.antigravity import build_antigravity_headers
-            headers = build_antigravity_headers(access_token, test_model)
+            headers = build_antigravity_headers(access_token)
         else:
             api_base_url = await get_code_assist_endpoint()
             headers = {
