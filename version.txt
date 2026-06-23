@@ -1,4 +1,4 @@
-full_hash=0db225cfd92df4fa1c38ecf0cb30ba02f78d71c8
-short_hash=0db225c
-message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
-date=2026-06-23 02:55:23 +0800
+full_hash=89684908a404d84f99a9dc242546a21f87a78cb0
+short_hash=8968490
+message=Merge pull request #387 from gooose09009/fix/tool-call-content-nesting
+date=2026-06-23 18:26:20 +0800
