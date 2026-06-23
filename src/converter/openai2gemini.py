@@ -1301,8 +1301,26 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
             parts = []
 
             # 如果有文本内容,先添加文本
+            # 注意: content 可能是 str、list（OpenAI content block 格式 [{"type":"text","text":"..."}]）、dict 或 None
+            # 必须解包为纯字符串，否则 text 字段会变成 list，触发 gemini_fix 的 str(dict) 产生嵌套字符串
             if content:
-                parts.append({"text": content})
+                if isinstance(content, list):
+                    for _part in content:
+                        if isinstance(_part, dict):
+                            if _part.get("type") == "text" or "text" in _part:
+                                _t = _part.get("text", "")
+                                if _t:
+                                    parts.append({"text": _t})
+                        elif isinstance(_part, str) and _part:
+                            parts.append({"text": _part})
+                elif isinstance(content, str):
+                    parts.append({"text": content})
+                elif isinstance(content, dict):
+                    _t = content.get("text", "")
+                    if _t:
+                        parts.append({"text": _t})
+                else:
+                    parts.append({"text": str(content)})
 
             # 添加每个工具调用
             for tool_call in tool_calls:
