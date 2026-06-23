@@ -827,8 +827,18 @@ async def normalize_gemini_request(
                             text_value = part["text"]
                             if isinstance(text_value, list):
                                 # 如果是列表，合并为字符串
+                                # 注意: list 中的元素可能是 dict（如 {"type":"text","text":"..."}），不能直接 str(dict)
+                                # 否则会产生 Python repr 字符串 "{'type': 'text', 'text': '...'}"，污染 model 历史
                                 log.warning(f"[GEMINI_FIX] text 字段是列表，自动合并: {text_value}")
-                                part["text"] = " ".join(str(t) for t in text_value if t)
+                                text_parts = []
+                                for t in text_value:
+                                    if isinstance(t, dict) and "text" in t:
+                                        text_parts.append(str(t["text"]))
+                                    elif isinstance(t, str):
+                                        text_parts.append(t)
+                                    elif t is not None:
+                                        text_parts.append(str(t))
+                                part["text"] = " ".join(text_parts)
                             elif isinstance(text_value, str):
                                 # 清理尾随空格
                                 part["text"] = text_value.rstrip()
