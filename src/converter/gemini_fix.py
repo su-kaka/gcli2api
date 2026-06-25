@@ -4,7 +4,6 @@ Gemini Format Utilities - 统一的 Gemini 格式处理和转换工具
 ────────────────────────────────────────────────────────────────
 """
 import json
-from math import e
 from typing import Any, Dict, Optional
 
 from log import log
@@ -299,7 +298,7 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
 
         normalized_tool = tool.copy()
         custom_tool = normalized_tool.get("custom")
-        if isinstance(custom_tool, dict) and "input_schema" not in custom_tool:
+        if isinstance(custom_tool, dict) and not custom_tool.get("input_schema"):
             normalized_custom = custom_tool.copy()
             normalized_custom["input_schema"] = {"type": "object", "properties": {}}
             normalized_tool["custom"] = normalized_custom
