@@ -1,4 +1,4 @@
-full_hash=89684908a404d84f99a9dc242546a21f87a78cb0
-short_hash=8968490
-message=Merge pull request #387 from gooose09009/fix/tool-call-content-nesting
-date=2026-06-23 18:26:20 +0800
+full_hash=8e1be8d49e4325b969e5518f5c60e0277591d6f0
+short_hash=8e1be8d
+message=修复claude格式工具调用问题
+date=2026-06-25 17:31:19 +0800
