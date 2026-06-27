@@ -1,4 +1,4 @@
-full_hash=8e1be8d49e4325b969e5518f5c60e0277591d6f0
-short_hash=8e1be8d
-message=修复claude格式工具调用问题
-date=2026-06-25 17:31:19 +0800
+full_hash=b3165544b116005be0d032baf88da1cf67809073
+short_hash=b316554
+message=Update gemini_fix.py
+date=2026-06-27 08:59:42 +0800
