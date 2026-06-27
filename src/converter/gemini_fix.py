@@ -307,26 +307,25 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
         if declarations is None:
             declarations = normalized_tool.get("function_declarations")
         if isinstance(declarations, list):
-            normalized_declarations = []
             for declaration in declarations:
                 if not isinstance(declaration, dict):
-                    normalized_declarations.append(declaration)
+                    normalized_tools.append({"custom": declaration})
                     continue
-                normalized_declaration = declaration.copy()
-                if (
-                    "parametersJsonSchema" not in normalized_declaration
-                    and "parameters_json_schema" in normalized_declaration
-                ):
-                    normalized_declaration["parametersJsonSchema"] = normalized_declaration.pop("parameters_json_schema")
 
-                if "parametersJsonSchema" not in normalized_declaration:
-                    normalized_declaration["parametersJsonSchema"] = {
-                        "type": "object",
-                        "properties": {},
-                    }
-                normalized_declarations.append(normalized_declaration)
-            normalized_tool.pop("function_declarations", None)
-            normalized_tool["functionDeclarations"] = normalized_declarations
+                schema = (
+                    declaration.get("parametersJsonSchema")
+                    or declaration.get("parameters_json_schema")
+                    or declaration.get("parameters")
+                    or {"type": "object", "properties": {}}
+                )
+
+                custom_entry: Dict[str, Any] = {
+                    "name": declaration.get("name", ""),
+                    "description": declaration.get("description", ""),
+                    "input_schema": schema,
+                }
+                normalized_tools.append({"custom": custom_entry})
+            continue
 
         normalized_tools.append(normalized_tool)
 
