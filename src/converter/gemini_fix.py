@@ -785,7 +785,10 @@ async def normalize_gemini_request(
     # 1. 安全设置覆盖
     if "tools" in result:
         result["tools"] = _normalize_tools_for_internal_api(result.get("tools"))
-        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model)
+        # _ensure_empty_tool_schema_for_claude wraps tools in {"custom": ...} which is
+        # only understood by the GeminiCLI internal API, not Vertex AI (antigravity mode).
+        if mode == "geminicli":
+            result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model)
 
     if "lite" in model.lower():
         result["safetySettings"] = LITE_SAFETY_SETTINGS
