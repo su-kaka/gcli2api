@@ -61,7 +61,8 @@ BASE_MODELS = [
     "gemini-2.5-flash",
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite"
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash"
 ]
 
 
@@ -121,7 +122,7 @@ def get_available_models(router_type: str = "openai") -> List[str]:
                 thinking_suffixes = ["-high", "-medium", "-low", "-minimal"]
             elif "pro" in base_model:
                 # 3-pro-preview: 支持 high/low
-                thinking_suffixes = ["-low"]
+                thinking_suffixes = ["-high", "-low"]
 
         search_suffix = "-search"
 
