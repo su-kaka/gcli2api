@@ -286,75 +286,114 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
     return normalized_tools
 
 
-def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
-    # Google's backend unified REST gateway strictly expects standard functionDeclarations format.
-    # We must NEVER send "custom" tools to the gateway.
-    # However, when translating functionDeclarations to Claude format, the downstream translator
-    # in Google's backend expects the standard Gemini "parameters" field.
-    # If "parameters" is missing (even if parametersJsonSchema is present), the translator
-    # fails to construct "input_schema" for Claude, triggering "tools.0.custom.input_schema: Field required".
-    # Therefore, we normalize all tools to standard functionDeclarations, and ensure ONLY "parameters"
-    # is populated (and parametersJsonSchema is completely removed to avoid conflicting field errors).
+def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str = "geminicli") -> Any:
     if not isinstance(tools, list):
         return tools
 
-    normalized_tools = []
-    for tool in tools:
-        if not isinstance(tool, dict):
-            normalized_tools.append(tool)
-            continue
+    is_claude = "claude" in (model_name or "").lower()
 
-        normalized_tool = tool.copy()
-        
-        # 1. 如果包含 Anthropic 原生的 "custom" 工具格式，将其转换为 Gemini 的 functionDeclarations 格式
-        custom_tool = normalized_tool.get("custom")
-        if isinstance(custom_tool, dict):
-            schema = custom_tool.get("input_schema") or custom_tool.get("inputSchema")
-            if schema in (None, {}, []):
-                schema = {"type": "object", "properties": {}}
-            declaration = {
-                "name": custom_tool.get("name", ""),
-                "description": custom_tool.get("description", ""),
-                "parameters": schema
-            }
-            normalized_tools.append({
-                "functionDeclarations": [declaration]
-            })
-            continue
-
-        # 2. 如果包含标准的 functionDeclarations 格式，确保参数不为空且只使用 parameters 字段
-        declarations = normalized_tool.get("functionDeclarations") or normalized_tool.get("function_declarations")
-        if isinstance(declarations, list):
-            normalized_declarations = []
-            for declaration in declarations:
-                if not isinstance(declaration, dict):
-                    normalized_declarations.append(declaration)
+    if is_claude:
+        # 对于 Claude 模型
+        if mode == "antigravity":
+            # antigravity 通道（Vertex AI）的 Claude 模型不认识 Anthropic 原生的
+            # {"custom": {...}} 包装，仍然使用标准 Gemini functionDeclarations/parametersJsonSchema 格式。
+            normalized_tools = []
+            for tool in tools:
+                if not isinstance(tool, dict):
+                    normalized_tools.append(tool)
                     continue
-                
-                normalized_declaration = declaration.copy()
-                # 兼容不同字段格式并归一化到 parameters
-                schema = (
-                    normalized_declaration.get("parameters")
-                    or normalized_declaration.get("parametersJsonSchema")
-                    or normalized_declaration.get("parameters_json_schema")
-                )
-                
+
+                normalized_tool = tool.copy()
+                declarations = normalized_tool.get("functionDeclarations")
+                if declarations is None:
+                    declarations = normalized_tool.get("function_declarations")
+                if isinstance(declarations, list):
+                    normalized_declarations = []
+                    for declaration in declarations:
+                        if not isinstance(declaration, dict):
+                            normalized_declarations.append(declaration)
+                            continue
+
+                        normalized_declaration = declaration.copy()
+                        schema = (
+                            normalized_declaration.get("parametersJsonSchema")
+                            or normalized_declaration.pop("parameters_json_schema", None)
+                            or normalized_declaration.get("parameters")
+                            or {"type": "object", "properties": {}}
+                        )
+                        normalized_declaration.pop("parameters", None)
+                        normalized_declaration["parametersJsonSchema"] = schema
+                        normalized_declarations.append(normalized_declaration)
+
+                    normalized_tool.pop("function_declarations", None)
+                    normalized_tool["functionDeclarations"] = normalized_declarations
+
+                normalized_tools.append(normalized_tool)
+
+            return normalized_tools
+        else:
+            # geminicli 模式下，直接使用原生 custom 格式或前端发来的格式
+            return tools
+
+    else:
+        # 对于 Gemini 模型，无论是哪种模式，都只使用 parameters，并确保不包含 parametersJsonSchema
+        normalized_tools = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                normalized_tools.append(tool)
+                continue
+
+            normalized_tool = tool.copy()
+            
+            # 1. 如果包含 Anthropic 原生的 "custom" 工具格式，将其转换为 Gemini 的 functionDeclarations 格式
+            custom_tool = normalized_tool.get("custom")
+            if isinstance(custom_tool, dict):
+                schema = custom_tool.get("input_schema") or custom_tool.get("inputSchema")
                 if schema in (None, {}, []):
                     schema = {"type": "object", "properties": {}}
-                
-                # 只保留 parameters 字段，防止与 parametersJsonSchema 冲突
-                normalized_declaration["parameters"] = schema
-                normalized_declaration.pop("parametersJsonSchema", None)
-                normalized_declaration.pop("parameters_json_schema", None)
-                
-                normalized_declarations.append(normalized_declaration)
-                
-            normalized_tool.pop("function_declarations", None)
-            normalized_tool["functionDeclarations"] = normalized_declarations
+                declaration = {
+                    "name": custom_tool.get("name", ""),
+                    "description": custom_tool.get("description", ""),
+                    "parameters": schema
+                }
+                normalized_tools.append({
+                    "functionDeclarations": [declaration]
+                })
+                continue
 
-        normalized_tools.append(normalized_tool)
+            # 2. 如果包含标准的 functionDeclarations 格式，确保参数不为空且只使用 parameters 字段
+            declarations = normalized_tool.get("functionDeclarations") or normalized_tool.get("function_declarations")
+            if isinstance(declarations, list):
+                normalized_declarations = []
+                for declaration in declarations:
+                    if not isinstance(declaration, dict):
+                        normalized_declarations.append(declaration)
+                        continue
+                    
+                    normalized_declaration = declaration.copy()
+                    # 兼容不同字段格式并归一化到 parameters
+                    schema = (
+                        normalized_declaration.get("parameters")
+                        or normalized_declaration.get("parametersJsonSchema")
+                        or normalized_declaration.get("parameters_json_schema")
+                    )
+                    
+                    if schema in (None, {}, []):
+                        schema = {"type": "object", "properties": {}}
+                    
+                    # 只保留 parameters 字段，防止与 parametersJsonSchema 冲突
+                    normalized_declaration["parameters"] = schema
+                    normalized_declaration.pop("parametersJsonSchema", None)
+                    normalized_declaration.pop("parameters_json_schema", None)
+                    
+                    normalized_declarations.append(normalized_declaration)
+                    
+                normalized_tool.pop("function_declarations", None)
+                normalized_tool["functionDeclarations"] = normalized_declarations
 
-    return normalized_tools
+            normalized_tools.append(normalized_tool)
+
+        return normalized_tools
 
 
 def _should_skip_thought_signature(part: Dict[str, Any], model_name: str) -> bool:
@@ -907,9 +946,12 @@ async def normalize_gemini_request(
     # 1. 安全设置覆盖
     if "tools" in result:
         result["tools"] = _normalize_tools_for_internal_api(result.get("tools"))
-        # Ensure all models have valid tool schemas and translate Anthropic-native "custom" tools
-        # to standard Gemini functionDeclarations to avoid validation errors from Google's backend.
-        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model)
+        # 对于 Claude 模型：
+        # - geminicli 内部 API 需要 Anthropic 原生 {"custom": {..., "input_schema": ...}} 格式
+        # - antigravity/Vertex AI 通道需要标准 functionDeclarations/parametersJsonSchema 格式
+        # 对于 Gemini 模型：
+        # - 统一转换为 functionDeclarations 并确保只使用 parameters 字段（移除 parametersJsonSchema 以防报错）
+        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model, mode)
 
     if "lite" in model.lower():
         result["safetySettings"] = LITE_SAFETY_SETTINGS
