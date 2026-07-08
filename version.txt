@@ -1,4 +1,4 @@
-full_hash=2ab2f309de0cb1bc34bdc75ff5519948555d04c2
-short_hash=2ab2f30
-message=Update gemini_fix.py
-date=2026-07-08 16:01:56 +0800
+full_hash=479fe437120e4605064815fd7e5cf0fa84376385
+short_hash=479fe43
+message=Merge pull request #391 from kushaldotdev/fix-antigravity-model-mappings-and-tools
+date=2026-07-09 00:59:56 +0800
