@@ -286,9 +286,49 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
     return normalized_tools
 
 
-def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
+def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str = "geminicli") -> Any:
     if "claude" not in (model_name or "").lower() or not isinstance(tools, list):
         return tools
+
+    # antigravity 通道（Vertex AI）的 Claude 模型不认识 Anthropic 原生的
+    # {"custom": {...}} 包装（会报 "Unknown name \"custom\": Cannot find field"），
+    # 仍然使用标准 Gemini functionDeclarations/parametersJsonSchema 格式，
+    # 这里只需确保 schema 非空即可。
+    if mode == "antigravity":
+        normalized_tools = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                normalized_tools.append(tool)
+                continue
+
+            normalized_tool = tool.copy()
+            declarations = normalized_tool.get("functionDeclarations")
+            if declarations is None:
+                declarations = normalized_tool.get("function_declarations")
+            if isinstance(declarations, list):
+                normalized_declarations = []
+                for declaration in declarations:
+                    if not isinstance(declaration, dict):
+                        normalized_declarations.append(declaration)
+                        continue
+
+                    normalized_declaration = declaration.copy()
+                    schema = (
+                        normalized_declaration.get("parametersJsonSchema")
+                        or normalized_declaration.pop("parameters_json_schema", None)
+                        or normalized_declaration.get("parameters")
+                        or {"type": "object", "properties": {}}
+                    )
+                    normalized_declaration.pop("parameters", None)
+                    normalized_declaration["parametersJsonSchema"] = schema
+                    normalized_declarations.append(normalized_declaration)
+
+                normalized_tool.pop("function_declarations", None)
+                normalized_tool["functionDeclarations"] = normalized_declarations
+
+            normalized_tools.append(normalized_tool)
+
+        return normalized_tools
 
     normalized_tools = []
     for tool in tools:
@@ -785,10 +825,11 @@ async def normalize_gemini_request(
     # 1. 安全设置覆盖
     if "tools" in result:
         result["tools"] = _normalize_tools_for_internal_api(result.get("tools"))
-        # Claude models (both GeminiCLI internal API and Vertex AI / antigravity mode)
-        # expect tools wrapped in Anthropic-native {"custom": {..., "input_schema": ...}}
-        # blocks rather than functionDeclarations/parametersJsonSchema.
-        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model)
+        # GeminiCLI 内部 API 的 Claude 模型需要 Anthropic 原生
+        # {"custom": {..., "input_schema": ...}} 格式；antigravity/Vertex AI
+        # 通道的 Claude 模型则仍使用标准的
+        # functionDeclarations/parametersJsonSchema 格式。
+        result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model, mode)
 
     if "lite" in model.lower():
         result["safetySettings"] = LITE_SAFETY_SETTINGS
