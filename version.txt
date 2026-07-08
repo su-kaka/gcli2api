@@ -1,4 +1,4 @@
-full_hash=f9a51b7e10debd4729ed011a195c9920780de415
-short_hash=f9a51b7
+full_hash=2ab2f309de0cb1bc34bdc75ff5519948555d04c2
+short_hash=2ab2f30
 message=Update gemini_fix.py
-date=2026-07-04 21:15:35 +0800
+date=2026-07-08 16:01:56 +0800
