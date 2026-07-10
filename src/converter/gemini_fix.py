@@ -20,6 +20,11 @@ DEFAULT_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
 ]
 
 LITE_SAFETY_SETTINGS = [
@@ -955,7 +960,7 @@ async def normalize_gemini_request(
         # - 统一转换为 functionDeclarations 并确保只使用 parameters 字段（移除 parametersJsonSchema 以防报错）
         result["tools"] = _ensure_empty_tool_schema_for_claude(result.get("tools"), model, mode)
 
-    if "lite" in model.lower():
+    if "gemini-2.5-flash-lite" in model.lower():
         result["safetySettings"] = LITE_SAFETY_SETTINGS
     else:
         result["safetySettings"] = DEFAULT_SAFETY_SETTINGS
