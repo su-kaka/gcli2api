@@ -298,6 +298,14 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
     is_claude = "claude" in (model_name or "").lower()
 
     if is_claude:
+        # antigravity 通道的 Claude 模型内部会把
+        # functionDeclarations 转换回 Anthropic 原生的 custom.input_schema，
+        # 但只有使用 parametersJsonSchema 字段时该转换才能正确带上 schema；
+        # 使用 parameters 字段会导致转换后 input_schema 缺失，报
+        # "tools.0.custom.input_schema: Field required" 错误。
+        # geminicli 则需要使用 parameters 字段。
+        schema_field = "parametersJsonSchema" if mode == "antigravity" else "parameters"
+
         normalized_tools = []
         for tool in tools:
             if not isinstance(tool, dict):
@@ -305,11 +313,11 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
                 continue
 
             normalized_tool = tool.copy()
-            
+
             schema = {"type": "object", "properties": {}}
             name = ""
             description = ""
-            
+
             # Extract schema from either format
             custom_tool = normalized_tool.get("custom")
             if isinstance(custom_tool, dict):
@@ -321,20 +329,18 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
                 if isinstance(declarations, list) and declarations and isinstance(declarations[0], dict):
                     decl = declarations[0]
                     schema = (
-                        decl.get("parametersJsonSchema") or 
-                        decl.get("parameters_json_schema") or 
+                        decl.get("parametersJsonSchema") or
+                        decl.get("parameters_json_schema") or
                         decl.get("parameters") or schema
                     )
                     name = decl.get("name", "")
                     description = decl.get("description", "")
 
-            # For ALL Claude models, try outputting functionDeclarations with parameters!
-            # If Google's backend expects parameters to translate to input_schema, this will fix the Field required error.
             normalized_tools.append({
                 "functionDeclarations": [{
                     "name": name,
                     "description": description,
-                    "parameters": schema
+                    schema_field: schema
                 }]
             })
 
