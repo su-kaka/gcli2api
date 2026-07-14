@@ -1,4 +1,4 @@
-full_hash=75a768d7983be8dc5b604d4e7fb81c390007e979
-short_hash=75a768d
-message=Update gemini_fix.py
-date=2026-07-12 17:02:34 +0800
+full_hash=28b597bb71dad3cb6be48728c120cb70ef096043
+short_hash=28b597b
+message=Revert "Update gemini_fix.py"
+date=2026-07-14 19:30:31 +0800
