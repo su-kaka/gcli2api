@@ -298,10 +298,6 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
     is_claude = "claude" in (model_name or "").lower()
 
     if is_claude:
-        # Antigravity 外层 API 只接受 functionDeclarations。
-        # Claude 模型会把 parameters 转为 custom.input_schema；使用
-        # parametersJsonSchema 会使内部转换遗漏该字段并被上游拒绝。
-
         normalized_tools = []
         for tool in tools:
             if not isinstance(tool, dict):
@@ -309,11 +305,11 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
                 continue
 
             normalized_tool = tool.copy()
-
+            
             schema = {"type": "object", "properties": {}}
             name = ""
             description = ""
-
+            
             # Extract schema from either format
             custom_tool = normalized_tool.get("custom")
             if isinstance(custom_tool, dict):
@@ -325,13 +321,15 @@ def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str 
                 if isinstance(declarations, list) and declarations and isinstance(declarations[0], dict):
                     decl = declarations[0]
                     schema = (
-                        decl.get("parametersJsonSchema") or
-                        decl.get("parameters_json_schema") or
+                        decl.get("parametersJsonSchema") or 
+                        decl.get("parameters_json_schema") or 
                         decl.get("parameters") or schema
                     )
                     name = decl.get("name", "")
                     description = decl.get("description", "")
 
+            # For ALL Claude models, try outputting functionDeclarations with parameters!
+            # If Google's backend expects parameters to translate to input_schema, this will fix the Field required error.
             normalized_tools.append({
                 "functionDeclarations": [{
                     "name": name,
