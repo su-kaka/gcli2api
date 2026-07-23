@@ -1,4 +1,4 @@
-full_hash=9b879fdaa59fd9c1032b2220f2a0bbb2dc643c6d
-short_hash=9b879fd
-message=Update utils.py
-date=2026-07-21 16:34:51 +0800
+full_hash=d33c5581c6a918ab8a62cc4fadb531d7f788316e
+short_hash=d33c558
+message=Merge pull request #393 from FloatingDream528/fix/antigravity-claude-tool-schema
+date=2026-07-23 12:36:09 +0800
