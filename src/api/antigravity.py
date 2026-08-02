@@ -7,10 +7,7 @@ import asyncio
 import copy
 import hashlib
 import json
-import os
-import time
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Callable, Tuple
 
@@ -42,51 +39,6 @@ from src.api.utils import (
 # 使用全局单例 credential_manager，自动初始化
 
 
-# ==================== 会话状态管理 ====================
-
-SESSION_TTL_SECONDS = 6 * 60 * 60
-MAX_SESSION_STATES = 1024
-_REDIS_KEY_PREFIX = "antigravity:session:"
-
-
-@dataclass
-class AntigravitySessionState:
-    conversation_id: str
-    trajectory_id: str
-    session_id: str
-    step_index: int
-    created_at: float
-    last_used_at: float
-
-
-# 内存回退存储
-_session_states: Dict[str, AntigravitySessionState] = {}
-
-# Redis 客户端（懒初始化，REDIS_URL 存在时使用）
-_redis_client = None
-_redis_checked = False
-
-
-async def _get_redis():
-    """懒初始化 Redis 客户端，REDIS_URL 未设置时返回 None。"""
-    global _redis_client, _redis_checked
-    if _redis_checked:
-        return _redis_client
-    _redis_checked = True
-    redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
-        return None
-    try:
-        import redis.asyncio as aioredis  # type: ignore
-        client = aioredis.from_url(redis_url, decode_responses=True)
-        await client.ping()
-        _redis_client = client
-        log.info("[SESSION] Redis session store enabled")
-    except Exception as e:
-        log.warning(f"[SESSION] Redis unavailable, falling back to in-memory: {e}")
-    return _redis_client
-
-
 def _extract_first_user_text(request_payload: Dict[str, Any]) -> str:
     contents = request_payload.get("contents", [])
     if not isinstance(contents, list):
@@ -103,84 +55,8 @@ def _extract_first_user_text(request_payload: Dict[str, Any]) -> str:
     return ""
 
 
-def _session_key(request_payload: Dict[str, Any], model: str = "") -> str:
-    session_id = request_payload.get("sessionId")
-    if session_id:
-        return f"session:{session_id}"
-    model_prefix = f"model:{model}:" if model else ""
-    first_user_text = _extract_first_user_text(request_payload)
-    if first_user_text:
-        digest = hashlib.sha256(first_user_text.encode("utf-8")).hexdigest()[:32]
-        return f"{model_prefix}text:{digest}"
-    return f"{model_prefix}default"
-
-
-def _prune_session_states(now: float) -> None:
-    expired = [k for k, s in _session_states.items() if now - s.last_used_at > SESSION_TTL_SECONDS]
-    for k in expired:
-        _session_states.pop(k, None)
-    if len(_session_states) <= MAX_SESSION_STATES:
-        return
-    overflow = len(_session_states) - MAX_SESSION_STATES
-    oldest = sorted(_session_states.items(), key=lambda item: item[1].last_used_at)
-    for k, _ in oldest[:overflow]:
-        _session_states.pop(k, None)
-
-
-def _make_new_state(first_user_text: str, now: float) -> AntigravitySessionState:
-    if first_user_text:
-        digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
-        session_id_val = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
-        session_id = f"-{session_id_val}"
-    else:
-        session_id = f"-{uuid.uuid4().int % 9_000_000_000_000_000_000}"
-    return AntigravitySessionState(
-        conversation_id=str(uuid.uuid4()),
-        trajectory_id=str(uuid.uuid4()),
-        session_id=session_id,
-        step_index=1,
-        created_at=now,
-        last_used_at=now,
-    )
-
-
-async def _get_session_state(request_payload: Dict[str, Any], model: str = "") -> AntigravitySessionState:
-    now = time.time()
-    key = _session_key(request_payload, model)
-    first_user_text = _extract_first_user_text(request_payload)
-
-    redis = await _get_redis()
-    if redis is not None:
-        redis_key = f"{_REDIS_KEY_PREFIX}{key}"
-        try:
-            raw = await redis.get(redis_key)
-            if raw:
-                data = json.loads(raw)
-                state = AntigravitySessionState(**data)
-                state.step_index += 1
-                state.last_used_at = now
-            else:
-                state = _make_new_state(first_user_text, now)
-            await redis.set(redis_key, json.dumps(state.__dict__), ex=SESSION_TTL_SECONDS)
-            return state
-        except Exception as e:
-            log.warning(f"[SESSION] Redis error, falling back to memory: {e}")
-
-    # 内存回退
-    _prune_session_states(now)
-    state = _session_states.get(key)
-    if state:
-        state.step_index += 1
-        state.last_used_at = now
-        return state
-    state = _make_new_state(first_user_text, now)
-    _session_states[key] = state
-    return state
-
-
-def _generate_request_id(conversation_id: str, trajectory_id: str, step: int) -> str:
-    unix_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    return f"agent/{conversation_id}/{unix_ms}/{trajectory_id}/{step}"
+def _generate_request_id() -> str:
+    return f"agent/{uuid.uuid4()}"
 
 
 def _build_labels(model: str, trajectory_id: str, step: int) -> Dict[str, str]:
@@ -232,19 +108,24 @@ async def wrap_cli_request(
     返回 (payload, request_id)。
     """
     inner = copy.deepcopy(gemini_request)
+    first_user_text = _extract_first_user_text(inner)
 
     # 移除 safetySettings（CLI 不发送）
     inner.pop("safetySettings", None)
 
-    # 获取/更新会话状态
-    state = await _get_session_state(inner, model)
-
     # 注入 sessionId
-    if not inner.get("sessionId"):
-        inner["sessionId"] = state.session_id
+    session_id = str(inner.get("sessionId") or "").strip()
+    if not session_id:
+        if first_user_text:
+            digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
+            session_id_val = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+            session_id = f"-{session_id_val}"
+        else:
+            session_id = f"-{uuid.uuid4().int % 9_000_000_000_000_000_000}"
+        inner["sessionId"] = session_id
 
     # 注入 labels
-    inner["labels"] = _build_labels(model, state.trajectory_id, state.step_index)
+    inner["labels"] = _build_labels(model, session_id, 1)
 
     # toolConfig 默认 VALIDATED
     tool_config = inner.get("toolConfig") or {}
@@ -253,7 +134,7 @@ async def wrap_cli_request(
     tool_config["functionCallingConfig"] = func_config
     inner["toolConfig"] = tool_config
 
-    request_id = _generate_request_id(state.conversation_id, state.trajectory_id, state.step_index)
+    request_id = _generate_request_id()
 
     payload = {
         "project": project_id,
