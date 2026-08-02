@@ -4,6 +4,7 @@ Antigravity API Client - Handles communication with Google's Antigravity API
 """
 
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -193,6 +194,34 @@ def _build_labels(model: str, trajectory_id: str, step: int) -> Dict[str, str]:
     }
 
 
+def _should_forward_antigravity_header(header_name: str) -> bool:
+    normalized = header_name.strip().lower()
+    if not normalized:
+        return False
+    if normalized.startswith("x-b3-"):
+        return True
+    return normalized in {
+        "accept-language",
+        "traceparent",
+        "tracestate",
+        "x-cloud-trace-context",
+        "x-goog-api-client",
+        "x-goog-request-params",
+        "x-goog-user-project",
+        "x-request-id",
+    }
+
+
+def _sanitize_antigravity_headers(extra_headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+    if not extra_headers:
+        return {}
+    sanitized: Dict[str, str] = {}
+    for key, value in extra_headers.items():
+        if _should_forward_antigravity_header(key):
+            sanitized[key] = value
+    return sanitized
+
+
 async def wrap_cli_request(
     gemini_request: Dict[str, Any],
     model: str,
@@ -202,7 +231,7 @@ async def wrap_cli_request(
     将 Gemini 格式请求包装成 Antigravity CLI 格式。
     返回 (payload, request_id)。
     """
-    inner = dict(gemini_request)
+    inner = copy.deepcopy(gemini_request)
 
     # 移除 safetySettings（CLI 不发送）
     inner.pop("safetySettings", None)
@@ -220,8 +249,7 @@ async def wrap_cli_request(
     # toolConfig 默认 VALIDATED
     tool_config = inner.get("toolConfig") or {}
     func_config = tool_config.get("functionCallingConfig") or {}
-    if "mode" not in func_config:
-        func_config["mode"] = "VALIDATED"
+    func_config["mode"] = "VALIDATED"
     tool_config["functionCallingConfig"] = func_config
     inner["toolConfig"] = tool_config
 
@@ -241,14 +269,21 @@ async def wrap_cli_request(
 
 # ==================== 辅助函数 ====================
 
-def build_antigravity_headers(access_token: str) -> Dict[str, str]:
+def build_antigravity_headers(access_token: str, extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """构建 Antigravity CLI API 请求头。"""
-    return {
+    headers = {
         "User-Agent": ANTIGRAVITY_USER_AGENT,
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
+        "Accept": "*/*",
         "Accept-Encoding": "gzip",
+        "Connection": "close",
     }
+
+    for key, value in _sanitize_antigravity_headers(extra_headers).items():
+        headers.setdefault(key, value)
+
+    return headers
 
 
 def _is_retryable_status(status_code: int, disable_error_codes: List[int]) -> bool:
@@ -335,11 +370,7 @@ async def stream_request(
     antigravity_url = await get_antigravity_api_url()
     target_url = f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse"
 
-    auth_headers = build_antigravity_headers(access_token)
-
-    # 合并自定义headers
-    if headers:
-        auth_headers.update(headers)
+    auth_headers = build_antigravity_headers(access_token, headers)
 
     # 构建 CLI 格式请求体
     inner_request = body.get("request", body)
@@ -614,11 +645,7 @@ async def non_stream_request(
     antigravity_url = await get_antigravity_api_url()
     target_url = f"{antigravity_url}/v1internal:generateContent"
 
-    auth_headers = build_antigravity_headers(access_token)
-
-    # 合并自定义headers
-    if headers:
-        auth_headers.update(headers)
+    auth_headers = build_antigravity_headers(access_token, headers)
 
     # 构建 CLI 格式请求体
     inner_request = body.get("request", body)
