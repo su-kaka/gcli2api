@@ -1,4 +1,4 @@
-full_hash=276a9325a1df753e74ac6a9944a0bd5e3f5ed3c4
-short_hash=276a932
-message=Harden antigravity headers and cooldown logic
-date=2026-08-02 14:08:50 +0800
+full_hash=10b49181bea751b9ea6d5582ea19a9727e368017
+short_hash=10b4918
+message=Update antigravity.py
+date=2026-08-02 14:22:26 +0800
