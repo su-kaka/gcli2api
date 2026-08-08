@@ -105,8 +105,8 @@ async def chat_completions(
     gemini_dict["model"] = real_model
 
     # 规范化 Gemini 请求 (使用 antigravity 模式)
-    from src.converter.gemini_fix import normalize_gemini_request
-    gemini_dict = await normalize_gemini_request(gemini_dict, mode="antigravity")
+    from src.converter.antigravity_fix import normalize_antigravity_request
+    gemini_dict = await normalize_antigravity_request(gemini_dict)
 
     # 准备API请求格式 - 提取model并将其他字段放入request中
     api_request = {
