@@ -720,8 +720,14 @@ async def normalize_antigravity_request(
     model = _normalize_antigravity_request(result, model, generation_config, return_thoughts)
     result["model"] = model
 
-    # 该模型不支持预填充：循环移除末尾的 model 消息，保证以用户消息结尾
-    if "claude-opus-4-6-thinking" in model.lower() or "claude-sonnet-4-6" in model.lower():
+    # 这些模型不支持预填充：循环移除末尾的 model 消息，保证以用户消息结尾
+    no_prefill_models = [
+        "opus",
+        "sonnet",
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+    ]
+    if any(keyword in model.lower() for keyword in no_prefill_models):
         contents = result.get("contents", [])
         removed_count = 0
         while contents and isinstance(contents[-1], dict) and contents[-1].get("role") == "model":
