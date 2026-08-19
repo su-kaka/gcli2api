@@ -599,22 +599,10 @@ def _normalize_antigravity_request(
     # 针对 Gemini 模型：根据思考设置映射至真实的 Antigravity 后端模型 ID
     if "gemini" in model.lower():
 
-        # 对于 Gemini 3/3.5 模型：Antigravity 后端通过模型名确定思考深度，
-        # 不支持 thinkingBudget，但支持 thinkingLevel。
-        # 若用户显式传入了 thinkingLevel，则保留该配置并根据 return_thoughts 决定是否返回思考链；
-        # 否则移除 thinkingConfig 以防止 API 返回参数冲突错误。
+        # 既然 Antigravity 后端是通过模型名来确定思考深度的，
+        # 对于 Gemini 3/3.5 模型必须移除 thinkingConfig 以防止 API 返回参数冲突错误。
         if "gemini-3" in model:
-            thinking_config = generation_config.get("thinkingConfig")
-            if isinstance(thinking_config, dict) and thinking_config.get("thinkingLevel"):
-                # 用户显式指定了思考等级：保留 level，移除冲突的 budget，设置 includeThoughts
-                thinking_config.pop("thinkingBudget", None)
-                thinking_config["includeThoughts"] = return_thoughts
-                log.debug(
-                    f"[ANTIGRAVITY] Gemini 3 模型保留 thinkingLevel={thinking_config.get('thinkingLevel')}, "
-                    f"includeThoughts={return_thoughts}"
-                )
-            else:
-                generation_config.pop("thinkingConfig", None)
+            generation_config.pop("thinkingConfig", None)
         else:
             # 对于 Gemini 2.5 系列，保留 thinkingConfig
             if thinking:
