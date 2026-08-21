@@ -606,10 +606,14 @@ def _normalize_antigravity_request(
             model = "gemini-pro-agent"
             log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
-        # 既然 Antigravity 后端是通过模型名来确定思考深度的，
-        # 对于 Gemini 3/3.5 模型必须移除 thinkingConfig 以防止 API 返回参数冲突错误。
+        # Antigravity uses the Gemini 3.x model route/name to select thinking depth.
+        # Do not send thinkingLevel/thinkingBudget because they can conflict with that route.
+        # Keep includeThoughts so reasoning is still returned to the frontend when enabled.
         if "gemini-3" in original_model.lower():
-            generation_config.pop("thinkingConfig", None)
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config.pop("thinkingBudget", None)
+            thinking_config.pop("thinkingLevel", None)
+            thinking_config["includeThoughts"] = return_thoughts
         else:
             # 对于 Gemini 2.5 系列，保留 thinkingConfig
             if thinking:
