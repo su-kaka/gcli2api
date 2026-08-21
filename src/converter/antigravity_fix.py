@@ -598,10 +598,17 @@ def _normalize_antigravity_request(
 
     # 针对 Gemini 模型：根据思考设置映射至真实的 Antigravity 后端模型 ID
     if "gemini" in model.lower():
+        original_model = model
+
+        # 兼容旧的客户端别名：Antigravity 后端的 Gemini 3.1 Pro High
+        # 实际使用 gemini-pro-agent 作为模型 ID。
+        if model.lower() == "gemini-3.1-pro-high":
+            model = "gemini-pro-agent"
+            log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
         # 既然 Antigravity 后端是通过模型名来确定思考深度的，
         # 对于 Gemini 3/3.5 模型必须移除 thinkingConfig 以防止 API 返回参数冲突错误。
-        if "gemini-3" in model:
+        if "gemini-3" in original_model.lower():
             generation_config.pop("thinkingConfig", None)
         else:
             # 对于 Gemini 2.5 系列，保留 thinkingConfig
