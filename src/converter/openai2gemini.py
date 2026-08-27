@@ -1784,7 +1784,14 @@ def convert_gemini_to_openai_stream(
 
         # 获取 Gemini 的 finishReason
         gemini_finish_reason = candidate.get("finishReason")
-        finish_reason = _map_finish_reason(gemini_finish_reason)
+        # 流式响应中，Gemini 仅在最后一个 chunk 设置 finishReason；
+        # 中间 chunk（思考/工具调用）的 finishReason 为 None，此时必须返回 null，
+        # 否则 OpenAI 兼容客户端（如 DeepSeek Harness）会在第一个 chunk 后提前停止，
+        # 导致只输出思考内容或只返回第一个工具调用就结束。
+        if gemini_finish_reason:
+            finish_reason = _map_finish_reason(gemini_finish_reason)
+        else:
+            finish_reason = None
         
         # 只有在正常停止（STOP）且有工具调用时才设为 tool_calls
         # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_calls 导致循环
