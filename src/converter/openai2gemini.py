@@ -6,6 +6,7 @@ OpenAI Transfer Module - Handles conversion between OpenAI and Gemini API format
 import json
 import time
 import uuid
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pypinyin import Style, lazy_pinyin
@@ -19,6 +20,27 @@ from src.converter.thoughtSignature_fix import (
 from src.converter.utils import merge_system_messages
 
 from log import log
+
+#: 流式响应里每个 response_id 已分配到的工具调用序号。
+#: Gemini 的并行 functionCall 是「一个 chunk 一个 part」，若用 chunk 内 parts
+#: 下标当 OpenAI 的 tool_calls[].index，每个调用都会拿到 0；而按 OpenAI 流式规范
+#: 归并分片的客户端会把它们并进同一个 slot，arguments 拼成 `{"a":1}{"b":2}` 这种
+#: 非法 JSON。这里改按流内递增序号分配。
+_STREAM_TOOL_INDEX: "OrderedDict[str, int]" = OrderedDict()
+
+#: 上限：流被中途放弃（客户端断开、没有带 finishReason 的收尾块）时不会回收，
+#: 用 LRU 淘汰兜底，避免长期运行的实例无界增长。
+_STREAM_TOOL_INDEX_MAX_ENTRIES = 512
+
+
+def _next_stream_tool_call_indices(response_id: str, count: int) -> List[int]:
+    """为本 chunk 内的 count 个工具调用分配连续的流内序号。"""
+    base = _STREAM_TOOL_INDEX.get(response_id, 0)
+    _STREAM_TOOL_INDEX[response_id] = base + count
+    _STREAM_TOOL_INDEX.move_to_end(response_id)
+    while len(_STREAM_TOOL_INDEX) > _STREAM_TOOL_INDEX_MAX_ENTRIES:
+        _STREAM_TOOL_INDEX.popitem(last=False)
+    return list(range(base, base + count))
 
 def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
@@ -1716,6 +1738,14 @@ def convert_gemini_to_openai_stream(
         # 提取工具调用和文本内容 (流式需要 index)
         tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
 
+        # extract_tool_calls_from_parts 给出的 index 是 chunk 内 parts 下标，
+        # 对并行调用恒为 0。改用流内递增序号，客户端才能把它们归并成独立调用。
+        if tool_calls:
+            for tool_call, stream_index in zip(
+                tool_calls, _next_stream_tool_call_indices(response_id, len(tool_calls))
+            ):
+                tool_call["index"] = stream_index
+
         # 提取多种类型的内容
         content_parts = []
         reasoning_parts = []
@@ -1803,6 +1833,10 @@ def convert_gemini_to_openai_stream(
             "delta": delta,
             "finish_reason": finish_reason,
         })
+
+    # 流已收尾，回收该 response_id 占用的工具调用序号
+    if any(choice.get("finish_reason") for choice in choices):
+        _STREAM_TOOL_INDEX.pop(response_id, None)
 
     # 转换 usageMetadata (只在流结束时存在)
     usage = _convert_usage_metadata(gemini_response.get("usageMetadata"))
