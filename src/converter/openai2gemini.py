@@ -1377,8 +1377,52 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
 
                     parts.append(function_call_part)
                 except (json.JSONDecodeError, KeyError) as e:
-                    log.error(f"Failed to parse tool call: {e}")
-                    continue
+                    # 不能直接丢掉这个 functionCall：历史里它后面必然跟着一条
+                    # functionResponse，父调用一消失它就成了孤儿，Gemini 会返回
+                    # 空 candidate（0 completion token、finishReason=STOP）。
+                    # 降级保留：能救出第一个 JSON 对象就用它，否则用空参数。
+                    degraded_name = ""
+                    try:
+                        degraded_name = tool_call["function"]["name"]
+                    except (KeyError, TypeError):
+                        degraded_name = ""
+                    if not degraded_name:
+                        log.error(f"Failed to parse tool call (dropped, no name): {e}")
+                        continue
+
+                    try:
+                        raw_args = tool_call["function"]["arguments"]
+                    except (KeyError, TypeError):
+                        raw_args = ""
+                    degraded_args = {}
+                    if isinstance(raw_args, str) and raw_args:
+                        try:
+                            recovered, _ = json.JSONDecoder().raw_decode(raw_args.lstrip())
+                        except ValueError:
+                            recovered = None
+                        if isinstance(recovered, dict):
+                            degraded_args = recovered
+                    if degraded_args and degraded_name in tool_schemas:
+                        degraded_args = fix_tool_call_args_types(
+                            degraded_args, tool_schemas[degraded_name]
+                        )
+
+                    original_id, _signature = decode_tool_id_and_signature(
+                        tool_call.get("id", "")
+                    )
+                    log.warning(
+                        f"Failed to parse tool call: {e} - keeping degraded functionCall "
+                        f"name={degraded_name} "
+                        f"args={'partial' if degraded_args else 'empty'}"
+                    )
+                    parts.append({
+                        "functionCall": {
+                            "id": original_id,
+                            "name": degraded_name,
+                            "args": degraded_args,
+                        },
+                        "thoughtSignature": SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+                    })
 
             if parts:
                 contents.append({"role": role, "parts": parts})
