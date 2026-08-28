@@ -1,4 +1,4 @@
-full_hash=1b9517bdbae5d23fb8205727001c2ffaf5d1bc2a
-short_hash=1b9517b
-message=Update openai2gemini.py
-date=2026-08-27 11:47:40 +0800
+full_hash=b7c27fc79e295f707f8c049e47b3c2b8f55e75b0
+short_hash=b7c27fc
+message=Update utils.py
+date=2026-08-28 17:38:19 +0800
