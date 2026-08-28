@@ -47,6 +47,7 @@ ENV_MAPPINGS = {
     "PASSWORD": "password",
     "KEEPALIVE_URL": "keepalive_url",
     "KEEPALIVE_INTERVAL": "keepalive_interval",
+    "AUDIO_TRANSCRIPTION_MODEL": "audio_transcription_model",
 }
 
 
@@ -284,6 +285,24 @@ async def get_credentials_dir() -> str:
     Default: ./creds
     """
     return str(await get_config_value("credentials_dir", "./creds", "CREDENTIALS_DIR"))
+
+
+async def get_audio_transcription_model() -> str:
+    """
+    Get the Gemini model used by /v1/audio/transcriptions.
+
+    Applies when the client omits `model` or sends an OpenAI transcription model
+    name (whisper-1, gpt-4o-transcribe, ...), so unmodified OpenAI SDK clients work.
+
+    Environment variable: AUDIO_TRANSCRIPTION_MODEL
+    Database config key: audio_transcription_model
+    Default: gemini-2.5-flash
+    """
+    return str(
+        await get_config_value(
+            "audio_transcription_model", "gemini-2.5-flash", "AUDIO_TRANSCRIPTION_MODEL"
+        )
+    )
 
 
 async def get_code_assist_endpoint() -> str:
