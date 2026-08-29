@@ -1,4 +1,4 @@
-full_hash=b7c27fc79e295f707f8c049e47b3c2b8f55e75b0
-short_hash=b7c27fc
-message=Update utils.py
-date=2026-08-28 17:38:19 +0800
+full_hash=a188d8b96e83fe0256bb9bf2744d4b76d2d53f8c
+short_hash=a188d8b
+message=Merge pull request #406 from jasonhorga/fix/streaming-parallel-tool-call-index
+date=2026-08-29 13:03:33 +0800
