@@ -1,4 +1,4 @@
-full_hash=a188d8b96e83fe0256bb9bf2744d4b76d2d53f8c
-short_hash=a188d8b
-message=Merge pull request #406 from jasonhorga/fix/streaming-parallel-tool-call-index
-date=2026-08-29 13:03:33 +0800
+full_hash=2b18ee40056acfbf7ace7202a8ebdba367e3754e
+short_hash=2b18ee4
+message=Merge pull request #407 from Mer3y1338/fix/streaming-tool-calls-finish-reason
+date=2026-08-30 16:50:08 +0800
