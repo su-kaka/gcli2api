@@ -1458,6 +1458,17 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     flush_pending_tool_parts()
     _sanitize_openai_roundtrip_signatures(contents)
 
+    # 强化修复: 合并相邻相同 role 的 contents (Gemini 强制要求交替角色，避免多轮 tool 后紧跟 user 导致 0-token 空回)
+    merged_contents = []
+    for c in contents:
+        if not c.get("parts"):
+            continue
+        if merged_contents and merged_contents[-1]["role"] == c["role"]:
+            merged_contents[-1]["parts"].extend(c["parts"])
+        else:
+            merged_contents.append(c)
+    contents = merged_contents
+
     # 构建生成配置
     generation_config = {}
     model = openai_request.get("model", "")
@@ -1869,7 +1880,10 @@ def convert_gemini_to_openai_stream(
         
         # 只有在正常停止（STOP）且有工具调用时才设为 tool_calls
         # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_calls 导致循环
-        if tool_calls and gemini_finish_reason == "STOP":
+        # 注意: 流式响应中 tool_calls 通常在前序 chunk，收尾 chunk 的 tool_calls 为空，
+        # 需检查当前流 (response_id) 之前是否分配过工具调用序号 (_STREAM_TOOL_INDEX > 0)。
+        had_tools = bool(tool_calls or _STREAM_TOOL_INDEX.get(response_id, 0) > 0)
+        if had_tools and gemini_finish_reason == "STOP":
             finish_reason = "tool_calls"
 
         choices.append({
