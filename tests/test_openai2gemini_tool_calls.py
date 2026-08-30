@@ -140,3 +140,44 @@ def test_streaming_tool_call_finishes_with_tool_calls_reason():
     assert p2["choices"][0]["finish_reason"] == "tool_calls"
     assert response_id not in _STREAM_TOOL_INDEX
 
+
+def test_convert_openai_request_merges_adjacent_same_role_contents():
+    """测试多轮请求中 tool 响应后紧跟 user 提示时，相邻同 role 的 contents 会被正确合并，满足 Gemini 交替角色要求。"""
+    import asyncio
+    from src.converter.openai2gemini import convert_openai_to_gemini_request
+
+    openai_req = {
+        "model": "gemini-3.5-flash",
+        "messages": [
+            {"role": "user", "content": "第一步"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "terminal", "arguments": "{\"cmd\": \"ls\"}"}
+                    }
+                ]
+            },
+            {"role": "tool", "tool_call_id": "call_1", "name": "terminal", "content": "ok"},
+            {"role": "user", "content": "第二步"}
+        ]
+    }
+
+    result = asyncio.run(convert_openai_to_gemini_request(openai_req))
+    contents = result.get("contents", [])
+
+    # 校验角色必须严格交替
+    for i in range(len(contents) - 1):
+        assert contents[i]["role"] != contents[i+1]["role"], f"检测到连续相同角色: index {i} 和 {i+1} 都是 {contents[i]['role']}"
+
+    # 末尾的 user content 应该合并了 tool 的 functionResponse 和 user 的 text
+    last_user_content = contents[-1]
+    assert last_user_content["role"] == "user"
+    part_types = [list(p.keys())[0] for p in last_user_content["parts"]]
+    assert "functionResponse" in part_types
+    assert "text" in part_types
+
+

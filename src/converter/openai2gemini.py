@@ -1458,6 +1458,17 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
     flush_pending_tool_parts()
     _sanitize_openai_roundtrip_signatures(contents)
 
+    # 强化修复: 合并相邻相同 role 的 contents (Gemini 强制要求交替角色，避免多轮 tool 后紧跟 user 导致 0-token 空回)
+    merged_contents = []
+    for c in contents:
+        if not c.get("parts"):
+            continue
+        if merged_contents and merged_contents[-1]["role"] == c["role"]:
+            merged_contents[-1]["parts"].extend(c["parts"])
+        else:
+            merged_contents.append(c)
+    contents = merged_contents
+
     # 构建生成配置
     generation_config = {}
     model = openai_request.get("model", "")
