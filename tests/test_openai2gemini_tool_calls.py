@@ -110,3 +110,33 @@ def test_unparsable_tool_call_arguments_keep_function_call():
     assert function_calls[0]["name"] == "get_weather"
     # 救出拼接串里的第一个 JSON 对象
     assert function_calls[0]["args"] == {"city": "北京"}
+
+
+def test_streaming_tool_call_finishes_with_tool_calls_reason():
+    """当前序 chunk 产生过 tool_calls，最后一个收尾 chunk (STOP) 的 finish_reason 必须是 tool_calls 而非 stop。"""
+    response_id = "resp-tool-finish"
+    _STREAM_TOOL_INDEX.pop(response_id, None)
+
+    # 第 1 个 chunk: 带 functionCall，finishReason 为 None
+    chunk1 = convert_gemini_to_openai_stream(
+        _chunk("get_weather", {"city": "北京"}),
+        "gemini-3.5-flash",
+        response_id
+    )
+    p1 = json.loads(chunk1[len("data: "):])
+    assert p1["choices"][0]["finish_reason"] is None
+    assert len(p1["choices"][0]["delta"]["tool_calls"]) == 1
+
+    # 第 2 个 chunk (收尾): 不带 parts/tool_calls，携带 finishReason="STOP"
+    stop_chunk = "data: " + json.dumps({
+        "candidates": [{"content": {"role": "model", "parts": []}, "finishReason": "STOP"}]
+    })
+    chunk2 = convert_gemini_to_openai_stream(
+        stop_chunk,
+        "gemini-3.5-flash",
+        response_id
+    )
+    p2 = json.loads(chunk2[len("data: "):])
+    assert p2["choices"][0]["finish_reason"] == "tool_calls"
+    assert response_id not in _STREAM_TOOL_INDEX
+

@@ -1869,7 +1869,10 @@ def convert_gemini_to_openai_stream(
         
         # 只有在正常停止（STOP）且有工具调用时才设为 tool_calls
         # 避免在 SAFETY、MAX_TOKENS 等情况下仍然返回 tool_calls 导致循环
-        if tool_calls and gemini_finish_reason == "STOP":
+        # 注意: 流式响应中 tool_calls 通常在前序 chunk，收尾 chunk 的 tool_calls 为空，
+        # 需检查当前流 (response_id) 之前是否分配过工具调用序号 (_STREAM_TOOL_INDEX > 0)。
+        had_tools = bool(tool_calls or _STREAM_TOOL_INDEX.get(response_id, 0) > 0)
+        if had_tools and gemini_finish_reason == "STOP":
             finish_reason = "tool_calls"
 
         choices.append({
