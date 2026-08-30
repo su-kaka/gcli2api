@@ -1,4 +1,4 @@
-full_hash=2b18ee40056acfbf7ace7202a8ebdba367e3754e
-short_hash=2b18ee4
-message=Merge pull request #407 from Mer3y1338/fix/streaming-tool-calls-finish-reason
-date=2026-08-30 16:50:08 +0800
+full_hash=d609401d1ccfeedbd60e9b8a8dfaac8680b53741
+short_hash=d609401
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-08-30 21:16:44 +0800
