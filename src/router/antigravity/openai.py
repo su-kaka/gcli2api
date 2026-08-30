@@ -90,10 +90,6 @@ async def chat_completions(
     # 获取流式标志
     is_streaming = openai_request.stream
 
-    # 对于抗截断模型的非流式请求，给出警告
-    if use_anti_truncation and not is_streaming:
-        log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
-
     # 更新模型名为真实模型名
     normalized_dict["model"] = real_model
 
@@ -116,7 +112,42 @@ async def chat_completions(
 
     # ========== 非流式请求 ==========
     if not is_streaming:
-        # 调用 API 层的非流式请求
+        if use_anti_truncation:
+            # 抗截断非流式请求：注入合成工具并处理响应
+            from src.converter.anti_truncation import (
+                apply_anti_truncation,
+                extract_synthetic_content_from_response,
+                build_text_chunk_from_synthetic,
+            )
+            from src.api.antigravity import non_stream_request
+
+            anti_truncation_payload = apply_anti_truncation(api_request)
+            response = await non_stream_request(body=anti_truncation_payload)
+
+            status_code = getattr(response, "status_code", 200)
+            if hasattr(response, "body"):
+                response_body = response.body.decode() if isinstance(response.body, bytes) else response.body
+            elif hasattr(response, "content"):
+                response_body = response.content.decode() if isinstance(response.content, bytes) else response.content
+            else:
+                response_body = str(response)
+
+            try:
+                gemini_response = json.loads(response_body)
+            except Exception as e:
+                log.error(f"Failed to parse Gemini response: {e}")
+                raise HTTPException(status_code=500, detail="Response parsing failed")
+
+            # 提取合成工具内容并替换为普通文本
+            synthetic_content, real_calls, found_synthetic = extract_synthetic_content_from_response(gemini_response)
+            if found_synthetic:
+                gemini_response = build_text_chunk_from_synthetic(gemini_response, synthetic_content, real_calls)
+
+            from src.converter.openai2gemini import convert_gemini_to_openai_response
+            openai_response = convert_gemini_to_openai_response(gemini_response, real_model, status_code)
+            return JSONResponse(content=openai_response, status_code=status_code)
+
+        # 普通非流式请求
         from src.api.antigravity import non_stream_request
         response = await non_stream_request(body=api_request)
 
@@ -219,7 +250,7 @@ async def chat_completions(
 
         yield "data: [DONE]\n\n".encode()
 
-    # ========== 流式抗截断生成器 ==========
+    # ========== 抗截断流式生成器 ==========
     async def anti_truncation_generator():
         from src.converter.anti_truncation import AntiTruncationStreamProcessor
         from src.api.antigravity import stream_request
@@ -381,7 +412,7 @@ async def chat_completions(
     if use_fake_streaming:
         return await build_streaming_response_or_error(fake_stream_generator())
     elif use_anti_truncation:
-        log.info("启用流式抗截断功能")
+        log.info("启用抗截断功能")
         return await build_streaming_response_or_error(anti_truncation_generator())
     else:
         return await build_streaming_response_or_error(normal_stream_generator())

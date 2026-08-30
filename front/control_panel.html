@@ -2197,7 +2197,8 @@
 
                             <div class="form-group">
                                 <label>
-                                    <input type="checkbox" id="antigravitySwitchCredentialEnabled" class="config-checkbox" />
+                                    <input type="checkbox" id="antigravitySwitchCredentialEnabled"
+                                        class="config-checkbox" />
                                     Antigravity切换凭证
                                 </label>
                                 <small class="config-note">启用后重试时切换凭证；禁用时保持当前凭证，直到该凭证对当前模型进入CD或被禁用 <span
@@ -2223,9 +2224,9 @@
                                 <div class="config-info">
                                     <strong>注意：</strong>抗截断功能现在通过模型名控制：
                                     <ul style="margin: 5px 0; padding-left: 20px;">
-                                        <li>选择带有 "-流式抗截断" 后缀的模型即可启用</li>
-                                        <li>该功能仅在流式传输时生效</li>
-                                        <li>例如: "gemini-2.5-pro-流式抗截断"</li>
+                                        <li>选择带有 "抗截断/" 前缀的模型即可启用</li>
+                                        <li>流式和非流式请求均有效</li>
+                                        <li>例如: "抗截断/gemini-2.5-pro"</li>
                                     </ul>
                                 </div>
                             </div>

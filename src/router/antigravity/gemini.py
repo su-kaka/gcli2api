@@ -89,10 +89,6 @@ async def generate_content(
     use_anti_truncation = is_anti_truncation_model(model)
     real_model = get_base_model_from_feature_model(model)
 
-    # 对于抗截断模型的非流式请求，给出警告
-    if use_anti_truncation:
-        log.warning("抗截断功能仅在流式传输时有效，非流式请求将忽略此设置")
-
     # 更新模型名为真实模型名
     normalized_dict["model"] = real_model
 
@@ -107,6 +103,36 @@ async def generate_content(
     }
 
     # 调用 API 层的非流式请求
+    if use_anti_truncation:
+        # 抗截断非流式请求：注入合成工具并处理响应
+        from src.converter.anti_truncation import (
+            apply_anti_truncation,
+            extract_synthetic_content_from_response,
+            build_text_chunk_from_synthetic,
+        )
+        from src.api.antigravity import non_stream_request
+
+        anti_truncation_payload = apply_anti_truncation(api_request)
+        response = await non_stream_request(body=anti_truncation_payload)
+
+        try:
+            if response.status_code == 200:
+                response_data = json.loads(response.body if hasattr(response, 'body') else response.content)
+                # 提取合成工具内容并替换为普通文本
+                synthetic_content, real_calls, found_synthetic = extract_synthetic_content_from_response(response_data)
+                if found_synthetic:
+                    response_data = build_text_chunk_from_synthetic(response_data, synthetic_content, real_calls)
+                # 如果有 response 包装，解包装它
+                if "response" in response_data:
+                    unwrapped_data = response_data["response"]
+                    return JSONResponse(content=unwrapped_data)
+                return JSONResponse(content=response_data)
+            return response
+        except Exception as e:
+            log.warning(f"Failed to process anti-truncation response: {e}, returning original response")
+            return response
+
+    # 普通非流式请求
     from src.api.antigravity import non_stream_request
     response = await non_stream_request(body=api_request)
 
@@ -215,7 +241,7 @@ async def stream_generate_content(
 
         yield "data: [DONE]\n\n".encode()
 
-    # ========== 流式抗截断生成器 ==========
+    # ========== 抗截断流式生成器 ==========
     async def anti_truncation_generator():
         from src.converter.antigravity_fix import normalize_antigravity_request
         from src.converter.anti_truncation import AntiTruncationStreamProcessor
@@ -382,7 +408,7 @@ async def stream_generate_content(
     if use_fake_streaming:
         return await build_streaming_response_or_error(fake_stream_generator())
     elif use_anti_truncation:
-        log.info("启用流式抗截断功能")
+        log.info("启用抗截断功能")
         return await build_streaming_response_or_error(anti_truncation_generator())
     else:
         return await build_streaming_response_or_error(normal_stream_generator())
@@ -608,18 +634,18 @@ if __name__ == "__main__":
             print(f"\n总共收到 {chunk_count} 个HTTP chunk")
 
     def test_anti_truncation_stream_request():
-        """测试流式抗截断请求"""
+        """测试抗截断请求"""
         print("\n" + "=" * 80)
-        print("【测试5】流式抗截断请求 (POST /antigravity/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent)")
+        print("【测试5】抗截断请求 (POST /antigravity/v1/models/抗截断/gemini-2.5-flash:streamGenerateContent)")
         print("=" * 80)
         print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
 
-        print("流式抗截断响应数据 (每个chunk):")
+        print("抗截断响应数据 (每个chunk):")
         print("-" * 80)
 
         with client.stream(
             "POST",
-            "/antigravity/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent",
+            "/antigravity/v1/models/抗截断/gemini-2.5-flash:streamGenerateContent",
             json=test_request_body,
             params={"key": test_api_key}
         ) as response:
@@ -672,7 +698,7 @@ if __name__ == "__main__":
         # 测试假流式请求
         test_fake_stream_request()
 
-        # 测试流式抗截断请求
+        # 测试抗截断请求
         test_anti_truncation_stream_request()
 
         print("\n" + "=" * 80)

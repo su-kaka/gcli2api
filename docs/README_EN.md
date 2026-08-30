@@ -285,9 +285,9 @@ All models have 1M context window capacity. Each credential file provides 1000 r
 - **Fake Streaming Mode**: Add `-假流式` suffix to any model name
   - Example: `gemini-2.5-pro-假流式`
   - For scenarios requiring streaming responses but server doesn't support true streaming
-- **Streaming Anti-truncation Mode**: Add `流式抗截断/` prefix to model name
-  - Example: `流式抗截断/gemini-2.5-pro`
-  - Automatically detects response truncation and retries to ensure complete answers
+- **Anti-truncation Mode**: Add `抗截断/` prefix to model name
+  - Example: `抗截断/gemini-2.5-pro`
+  - Uses synthetic tool calls to bypass truncation limits and ensure complete answers (works for both streaming and non-streaming)
 
 ### 🔧 Automatic Model Feature Detection
 - System automatically recognizes feature identifiers in model names
@@ -824,10 +824,10 @@ Response will include separated thinking content:
 }
 ```
 
-**Streaming Anti-truncation Usage**
+**Anti-truncation Usage**
 ```json
 {
-  "model": "流式抗截断/gemini-2.5-pro",
+  "model": "抗截断/gemini-2.5-pro",
   "messages": [
     {"role": "user", "content": "Write a long article"}
   ],
