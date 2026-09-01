@@ -41,8 +41,17 @@
             .ag-safety-disabled { opacity: .55; }
             .ag-safety-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
             .ag-safety-toolbar button { padding: 7px 11px; cursor: pointer; }
+            .ag-safety-search { display: none; gap: 10px; align-items: center; margin: 8px 0 10px; }
+            .ag-safety-search.visible { display: flex; }
+            .ag-safety-search input { flex: 1; min-width: 180px; padding: 7px 9px; border: 1px solid #b0bec5; border-radius: 5px; background: #fff; }
+            .ag-safety-search-count { flex: 0 0 auto; color: #607d8b; font-size: 12px; white-space: nowrap; }
+            .ag-safety-scroll.scrollable { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
+            .ag-safety-scroll.scrollable .ag-safety-head { position: sticky; top: 0; z-index: 2; background: #f7fbff; padding-top: 5px; padding-bottom: 5px; }
+            .ag-safety-search-empty { display: none; color: #78909c; font-size: 12px; padding: 8px 4px; }
             .ag-safety-help { margin-top: 8px; color: #546e7a; font-size: 12px; line-height: 1.5; }
             @media (max-width: 780px) {
+                .ag-safety-scroll.scrollable { max-height: 55vh; }
+                .ag-safety-search.visible { align-items: stretch; }
                 .ag-safety-grid { display: block; }
                 .ag-safety-head { display: none; }
                 .ag-safety-row { display: block; padding: 10px 0; border-top: 1px solid #dbe9f3; }
@@ -90,7 +99,14 @@
                 <small class="config-note">规则按最终发送给 Antigravity 的 canonical model ID 精确匹配。因此抗截断/假流式等本地变体会自动继承同一后端模型的规则。</small>
             </div>
             <div id="antigravitySafetyRulesArea">
-                <div class="ag-safety-grid" id="antigravitySafetyRulesGrid"></div>
+                <div class="ag-safety-search" id="antigravitySafetyRuleSearchBar">
+                    <input type="search" id="antigravitySafetyRuleSearch" placeholder="搜索已添加模型…" autocomplete="off" />
+                    <span class="ag-safety-search-count" id="antigravitySafetyRuleCount"></span>
+                </div>
+                <div class="ag-safety-scroll" id="antigravitySafetyRulesScroll">
+                    <div class="ag-safety-grid" id="antigravitySafetyRulesGrid"></div>
+                </div>
+                <div class="ag-safety-search-empty" id="antigravitySafetySearchEmpty">没有匹配的已添加模型</div>
                 <div class="ag-safety-toolbar">
                     <button type="button" id="addAntigravitySafetyRuleBtn">＋ 添加模型规则</button>
                     <span style="font-size:12px;color:#607d8b;">红色 category = 不发送；模型本身不支持的 category 会默认标红并锁定，手动排除的 category 可再次点击恢复。</span>
@@ -103,6 +119,7 @@
         document.getElementById('antigravitySafetySettingsEnabled').addEventListener('change', refreshEnabledState);
         document.getElementById('antigravitySafetyModelRulesEnabled').addEventListener('change', refreshEnabledState);
         document.getElementById('addAntigravitySafetyRuleBtn').addEventListener('click', addRule);
+        document.getElementById('antigravitySafetyRuleSearch').addEventListener('input', applyRuleSearch);
     }
 
     function isEnvLocked(key) {
@@ -125,12 +142,46 @@
         );
     }
 
+    function applyRuleSearch() {
+        const input = document.getElementById('antigravitySafetyRuleSearch');
+        const count = document.getElementById('antigravitySafetyRuleCount');
+        const empty = document.getElementById('antigravitySafetySearchEmpty');
+        const query = String(input?.value || '').trim().toLowerCase();
+        const rows = Array.from(document.querySelectorAll('#antigravitySafetyRulesGrid [data-rule-row]'));
+        let matched = 0;
+
+        rows.forEach(row => {
+            const searchable = String(row.dataset.search || '').toLowerCase();
+            const visible = !query || searchable.includes(query);
+            if (visible) {
+                row.style.removeProperty('display');
+                matched += 1;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        if (count) count.textContent = query ? `匹配: ${matched} / ${state.rules.length}` : `当前规则: ${state.rules.length}`;
+        if (empty) empty.style.display = state.rules.length && query && matched === 0 ? 'block' : 'none';
+    }
+
     function renderRules() {
         const grid = document.getElementById('antigravitySafetyRulesGrid');
+        const searchBar = document.getElementById('antigravitySafetyRuleSearchBar');
+        const searchInput = document.getElementById('antigravitySafetyRuleSearch');
+        const scroll = document.getElementById('antigravitySafetyRulesScroll');
+        const searchEmpty = document.getElementById('antigravitySafetySearchEmpty');
         if (!grid) return;
+
+        const useCompactList = state.rules.length >= 2;
+        if (searchBar) searchBar.classList.toggle('visible', useCompactList);
+        if (scroll) scroll.classList.toggle('scrollable', useCompactList);
+        if (!useCompactList && searchInput) searchInput.value = '';
+        if (searchEmpty) searchEmpty.style.display = 'none';
 
         if (!state.rules.length) {
             grid.innerHTML = '<div class="ag-safety-empty">暂无模型规则。未匹配模型将使用全局 safetySettings 配置。</div>';
+            applyRuleSearch();
             refreshEnabledState();
             return;
         }
@@ -144,6 +195,8 @@
 
         state.rules.forEach((rule, index) => {
             const model = String(rule.model || '').toLowerCase();
+            const displayLabel = state.modelLabels[model] || model;
+            const searchable = `${model} ${displayLabel}`.toLowerCase();
             const usedElsewhere = selectedModelsExcept(index);
             const currentAvailable = state.models.includes(model);
             const optionModels = currentAvailable || !model ? [...state.models] : [model, ...state.models];
@@ -151,8 +204,8 @@
             const modelOptions = uniqueModels.map(option => {
                 const unavailable = !state.models.includes(option);
                 const disabled = usedElsewhere.has(option);
-                const displayLabel = state.modelLabels[option] || option;
-                return `<option value="${esc(option)}" ${option === model ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(displayLabel)}${unavailable ? ' (当前列表不可用)' : ''}</option>`;
+                const optionLabel = state.modelLabels[option] || option;
+                return `<option value="${esc(option)}" ${option === model ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${esc(optionLabel)}${unavailable ? ' (当前列表不可用)' : ''}</option>`;
             }).join('');
 
             const mode = rule.mode === 'exclude_all' ? 'exclude_all' : 'filter_categories';
@@ -175,7 +228,7 @@
                 : '<span style="font-size:12px;color:#b71c1c;font-weight:700;">整个 safetySettings 字段将被移除</span>';
 
             html += `
-                <div class="ag-safety-row" data-rule-row="${index}">
+                <div class="ag-safety-row" data-rule-row="${index}" data-search="${esc(searchable)}">
                     <div>
                         <select class="config-input ag-safety-model" data-rule-index="${index}">${modelOptions}</select>
                         ${!currentAvailable && model ? '<div class="ag-safety-unavailable">⚠ 当前 fetchAvailableModels 未返回该模型；规则仍会保留。</div>' : ''}
@@ -207,6 +260,7 @@
             button.addEventListener('click', event => deleteRule(Number(event.currentTarget.dataset.ruleIndex)));
         });
 
+        applyRuleSearch();
         refreshEnabledState();
     }
 
