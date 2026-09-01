@@ -2600,48 +2600,49 @@ function payloadInspectorEscapeString(value) {
         .replace(/\\/g, '\\\\')
         .replace(/'/g, "\\'")
         .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
         .replace(/\t/g, '\\t')
         .replace(/\u0008/g, '\\b')
         .replace(/\f/g, '\\f');
 }
 
 function payloadInspectorQuoteString(value, level = 0) {
-    const text = String(value);
-    const wrapWidth = 96;
-    const indent = '  '.repeat(level);
-    const logicalLines = text.split('\n');
-    const fragments = [];
+    const normalized = String(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const wrapWidth = 100;
+    const continuationIndent = '  '.repeat(level + 1);
+    const logicalLines = normalized.split('\n');
+    const isMultiline = logicalLines.length > 1;
+    const codePointLength = Array.from(normalized).length;
 
-    logicalLines.forEach((line, lineIndex) => {
-        const chars = Array.from(line);
-        if (chars.length === 0) {
-            fragments.push({
-                text: '',
-                newline: lineIndex < logicalLines.length - 1
-            });
-            return;
-        }
-
-        for (let start = 0; start < chars.length; start += wrapWidth) {
-            const isLastChunk = start + wrapWidth >= chars.length;
-            fragments.push({
-                text: chars.slice(start, start + wrapWidth).join(''),
-                newline: isLastChunk && lineIndex < logicalLines.length - 1
-            });
-        }
-    });
-
-    if (fragments.length === 0) {
-        fragments.push({ text: '', newline: false });
+    if (!isMultiline && codePointLength <= wrapWidth) {
+        return `'${payloadInspectorEscapeString(normalized)}'`;
     }
 
-    const quoted = fragments.map(fragment => {
-        const escaped = payloadInspectorEscapeString(fragment.text);
-        return `'${escaped}${fragment.newline ? '\\n' : ''}'`;
+    const pieces = [];
+    logicalLines.forEach((logicalLine, lineIndex) => {
+        const codePoints = Array.from(logicalLine);
+        const hasOriginalNewline = lineIndex < logicalLines.length - 1;
+
+        // 末尾空行已经由上一段可见的 \\n 表示，不再额外输出无意义的 ''。
+        if (codePoints.length === 0 && !hasOriginalNewline && lineIndex > 0) return;
+
+        const chunks = [];
+        if (codePoints.length === 0) {
+            chunks.push('');
+        } else {
+            for (let offset = 0; offset < codePoints.length; offset += wrapWidth) {
+                chunks.push(codePoints.slice(offset, offset + wrapWidth).join(''));
+            }
+        }
+
+        chunks.forEach((chunk, chunkIndex) => {
+            const isLastChunkOfLine = chunkIndex === chunks.length - 1;
+            const visibleNewline = hasOriginalNewline && isLastChunkOfLine ? '\\n' : '';
+            pieces.push(`'${payloadInspectorEscapeString(chunk)}${visibleNewline}'`);
+        });
     });
 
-    if (quoted.length === 1) return quoted[0];
-    return quoted.join(` +\n${indent}`);
+    return pieces.join(` +\n${continuationIndent}`);
 }
 
 function payloadInspectorKey(key) {
@@ -2662,12 +2663,12 @@ function payloadInspectorPrimitive(value, level = 0) {
 function payloadInspectorInline(value, depth = 0) {
     if (value === null || typeof value !== 'object') {
         if (typeof value === 'string') {
-            if (value.includes('\n') || Array.from(value).length > 72) return null;
+            if (/[\r\n]/.test(value) || Array.from(value).length > 72) return null;
         }
         return payloadInspectorPrimitive(value, 0);
     }
 
-    if (depth > 3) return null;
+    if (depth >= 3) return null;
 
     if (Array.isArray(value)) {
         if (value.length === 0) return '[]';
