@@ -2995,6 +2995,11 @@ async function saveConfig() {
             keepalive_interval: getInt('keepaliveInterval', 60)
         };
 
+        // Safety 配置与其他设置通过同一个公共保存请求提交。
+        if (window.AntigravitySafetyUI && typeof window.AntigravitySafetyUI.collectConfig === 'function') {
+            Object.assign(config, window.AntigravitySafetyUI.collectConfig());
+        }
+
         const response = await fetch('./config/save', {
             method: 'POST',
             headers: getAuthHeaders(),

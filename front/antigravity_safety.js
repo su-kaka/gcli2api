@@ -336,7 +336,7 @@
         refreshEnabledState();
     }
 
-    function wrapConfigFunctions() {
+    function wrapLoadConfig() {
         if (typeof window.loadConfig === 'function' && !window.loadConfig.__agSafetyWrapped) {
             const originalLoadConfig = window.loadConfig;
             const wrappedLoadConfig = async function (...args) {
@@ -347,39 +347,9 @@
             wrappedLoadConfig.__agSafetyWrapped = true;
             window.loadConfig = wrappedLoadConfig;
         }
-
-        if (typeof window.saveConfig === 'function' && !window.saveConfig.__agSafetyWrapped) {
-            const originalSaveConfig = window.saveConfig;
-            const wrappedSaveConfig = async function (...args) {
-                const previousFetch = window.fetch;
-                window.fetch = function (input, init) {
-                    try {
-                        const url = typeof input === 'string' ? input : input?.url;
-                        if (url === './config/save' && init && typeof init.body === 'string') {
-                            const parsed = JSON.parse(init.body);
-                            if (parsed && parsed.config && typeof parsed.config === 'object') {
-                                Object.assign(parsed.config, collectConfig());
-                                init = { ...init, body: JSON.stringify(parsed) };
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Failed to attach Antigravity safety config:', error);
-                    }
-                    return previousFetch.call(window, input, init);
-                };
-
-                try {
-                    return await originalSaveConfig.apply(this, args);
-                } finally {
-                    window.fetch = previousFetch;
-                }
-            };
-            wrappedSaveConfig.__agSafetyWrapped = true;
-            window.saveConfig = wrappedSaveConfig;
-        }
     }
 
     injectUI();
-    wrapConfigFunctions();
+    wrapLoadConfig();
     window.AntigravitySafetyUI = { state, collectConfig, loadOptionsAndPopulate, renderRules };
 })();
