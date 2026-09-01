@@ -2579,14 +2579,176 @@ async function clearLogs() {
     }
 }
 
+const PAYLOAD_LOG_MARKER = '[PAYLOAD]';
+
+function ensurePayloadLogFilterOption() {
+    const select = document.getElementById('logLevelFilter');
+    if (!select || select.querySelector('option[value="payload"]')) return;
+
+    const option = document.createElement('option');
+    option.value = 'payload';
+    option.textContent = '请求体检查';
+    select.appendChild(option);
+}
+
+function isPayloadLog(logLine) {
+    return String(logLine || '').includes(PAYLOAD_LOG_MARKER);
+}
+
+function payloadInspectorEscapeString(value) {
+    return String(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/\u0008/g, '\\b')
+        .replace(/\f/g, '\\f');
+}
+
+function payloadInspectorQuoteString(value, level = 0) {
+    const text = String(value);
+    const wrapWidth = 96;
+    const indent = '  '.repeat(level);
+    const logicalLines = text.split('\n');
+    const fragments = [];
+
+    logicalLines.forEach((line, lineIndex) => {
+        const chars = Array.from(line);
+        if (chars.length === 0) {
+            fragments.push({
+                text: '',
+                newline: lineIndex < logicalLines.length - 1
+            });
+            return;
+        }
+
+        for (let start = 0; start < chars.length; start += wrapWidth) {
+            const isLastChunk = start + wrapWidth >= chars.length;
+            fragments.push({
+                text: chars.slice(start, start + wrapWidth).join(''),
+                newline: isLastChunk && lineIndex < logicalLines.length - 1
+            });
+        }
+    });
+
+    if (fragments.length === 0) {
+        fragments.push({ text: '', newline: false });
+    }
+
+    const quoted = fragments.map(fragment => {
+        const escaped = payloadInspectorEscapeString(fragment.text);
+        return `'${escaped}${fragment.newline ? '\\n' : ''}'`;
+    });
+
+    if (quoted.length === 1) return quoted[0];
+    return quoted.join(` +\n${indent}`);
+}
+
+function payloadInspectorKey(key) {
+    const text = String(key);
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text)
+        ? text
+        : payloadInspectorQuoteString(text, 0);
+}
+
+function payloadInspectorPrimitive(value, level = 0) {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string') return payloadInspectorQuoteString(value, level);
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return payloadInspectorQuoteString(String(value), level);
+}
+
+function payloadInspectorInline(value, depth = 0) {
+    if (value === null || typeof value !== 'object') {
+        if (typeof value === 'string') {
+            if (value.includes('\n') || Array.from(value).length > 72) return null;
+        }
+        return payloadInspectorPrimitive(value, 0);
+    }
+
+    if (depth > 3) return null;
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        const children = value.map(item => payloadInspectorInline(item, depth + 1));
+        if (children.some(item => item === null)) return null;
+        const rendered = `[ ${children.join(', ')} ]`;
+        return rendered.length <= 110 ? rendered : null;
+    }
+
+    const entries = Object.entries(value);
+    if (entries.length === 0) return '{}';
+    const children = [];
+    for (const [key, item] of entries) {
+        const rendered = payloadInspectorInline(item, depth + 1);
+        if (rendered === null) return null;
+        children.push(`${payloadInspectorKey(key)}: ${rendered}`);
+    }
+    const rendered = `{ ${children.join(', ')} }`;
+    return rendered.length <= 110 ? rendered : null;
+}
+
+function formatPayloadInspectorValue(value, level = 0, forceMultiline = false) {
+    // contents 是对话主结构；即使内容较短，也保持 message/parts 层级展开，便于逐轮阅读。
+    const inline = forceMultiline && value && typeof value === 'object'
+        ? null
+        : payloadInspectorInline(value, 0);
+    if (inline !== null) return inline;
+
+    const indent = '  '.repeat(level);
+    const childIndent = '  '.repeat(level + 1);
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        return '[\n' + value.map(item =>
+            `${childIndent}${formatPayloadInspectorValue(item, level + 1, forceMultiline)}`
+        ).join(',\n') + `\n${indent}]`;
+    }
+
+    if (value && typeof value === 'object') {
+        const entries = Object.entries(value);
+        if (entries.length === 0) return '{}';
+        return '{\n' + entries.map(([key, item]) => {
+            const childForceMultiline = forceMultiline || key === 'contents';
+            return `${childIndent}${payloadInspectorKey(key)}: ${formatPayloadInspectorValue(item, level + 1, childForceMultiline)}`;
+        }).join(',\n') + `\n${indent}}`;
+    }
+
+    return payloadInspectorPrimitive(value, level);
+}
+
+function formatPayloadLogEntry(logLine) {
+    const line = String(logLine || '');
+    const bodyMarker = ' body=';
+    const bodyIndex = line.indexOf(bodyMarker);
+    if (bodyIndex < 0) return line;
+
+    const rawBody = line.slice(bodyIndex + bodyMarker.length);
+    try {
+        const payload = JSON.parse(rawBody);
+        const header = line.slice(0, bodyIndex);
+        return `${header}\n${formatPayloadInspectorValue(payload, 0)}`;
+    } catch (_) {
+        // 若未来日志格式不是合法 JSON，则保留原始请求体，避免隐藏调试信息。
+        return line;
+    }
+}
+
 function filterLogs() {
+    ensurePayloadLogFilterOption();
     const filter = document.getElementById('logLevelFilter').value;
     AppState.currentLogFilter = filter;
 
-    if (filter === 'all') {
-        AppState.filteredLogs = [...AppState.allLogs];
+    if (filter === 'payload') {
+        // 请求体日志仅在“请求体检查”筛选器中显示。
+        AppState.filteredLogs = AppState.allLogs.filter(isPayloadLog);
+    } else if (filter === 'all') {
+        AppState.filteredLogs = AppState.allLogs.filter(log => !isPayloadLog(log));
     } else {
-        AppState.filteredLogs = AppState.allLogs.filter(log => log.toUpperCase().includes(filter));
+        AppState.filteredLogs = AppState.allLogs.filter(
+            log => !isPayloadLog(log) && log.toUpperCase().includes(filter.toUpperCase())
+        );
     }
 
     displayLogs();
@@ -2595,11 +2757,28 @@ function filterLogs() {
 function displayLogs() {
     const logContent = document.getElementById('logContent');
     if (AppState.filteredLogs.length === 0) {
-        logContent.textContent = AppState.currentLogFilter === 'all' ?
-            '暂无日志...' : `暂无${AppState.currentLogFilter}级别的日志...`;
+        if (AppState.currentLogFilter === 'all') {
+            logContent.textContent = '暂无日志...';
+        } else if (AppState.currentLogFilter === 'payload') {
+            logContent.textContent = '暂无请求体记录...';
+        } else {
+            logContent.textContent = `暂无${AppState.currentLogFilter}级别的日志...`;
+        }
     } else {
-        logContent.textContent = AppState.filteredLogs.join('\n');
+        if (AppState.currentLogFilter === 'payload') {
+            logContent.textContent = AppState.filteredLogs
+                .map(formatPayloadLogEntry)
+                .join('\n\n');
+        } else {
+            logContent.textContent = AppState.filteredLogs.join('\n');
+        }
     }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ensurePayloadLogFilterOption);
+} else {
+    ensurePayloadLogFilterOption();
 }
 
 // =====================================================================

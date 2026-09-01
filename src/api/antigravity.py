@@ -117,8 +117,10 @@ async def wrap_cli_request(
     inner = copy.deepcopy(gemini_request)
     first_user_text = _extract_first_user_text(inner)
 
-    # 移除 safetySettings（CLI 不发送）
-    inner.pop("safetySettings", None)
+    # 在最终供应商请求边界决定是否发送 safetySettings。
+    # 默认配置保持历史行为（删除该字段）；启用后才按阈值/模型规则发送。
+    from src.api.antigravity_safety import apply_antigravity_safety_config
+    await apply_antigravity_safety_config(inner, model)
 
     # 注入 sessionId
     session_id = str(inner.get("sessionId") or "").strip()
@@ -190,6 +192,33 @@ def build_antigravity_headers(
 def _is_retryable_status(status_code: int, disable_error_codes: List[int]) -> bool:
     """统一判断是否属于可重试状态码。"""
     return status_code in (429, 503) or status_code in disable_error_codes
+
+
+def _log_outbound_payload(
+    *,
+    transport: str,
+    target_url: str,
+    model_name: str,
+    attempt: int,
+    payload: Dict[str, Any],
+) -> None:
+    """在 HTTP 发送前记录实际 JSON 请求体。
+
+    这里只记录 body，不记录 Authorization 等请求头。调用后同一个 ``payload`` 对象会直接
+    交给 httpx，因此 Payload check 展示的是 safety 规则、project 切换、requestId、labels、
+    toolConfig 等所有修改完成后的真实出站请求体。
+    """
+    try:
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    except Exception as exc:
+        # Payload 日志失败不能阻止真实请求继续发送。
+        log.error(f"[PAYLOAD-ERROR] failed to serialize outbound payload: {exc}")
+        return
+
+    log.info(
+        f"[PAYLOAD] transport={transport} attempt={attempt} model={model_name} "
+        f"url={target_url} body={serialized}"
+    )
 
 
 async def _switch_credential_for_retry(
@@ -284,7 +313,7 @@ async def stream_request(
     retry_interval = retry_config["retry_interval"]
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
-    last_error_response = None  # 记录最后一次的错误响应
+    last_error_response = None  # 记录最后一次错误响应
     next_cred_task = None  # 预热的下一个凭证任务
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
@@ -321,6 +350,14 @@ async def stream_request(
         need_retry = False  # 标记是否需要重试
 
         try:
+            # 在本次实际 HTTP 请求发送前记录最终请求体对象。
+            _log_outbound_payload(
+                transport="stream",
+                target_url=target_url,
+                model_name=model_name,
+                attempt=attempt + 1,
+                payload=final_payload,
+            )
             async for chunk in stream_post_async(
                 url=target_url,
                 body=final_payload,
@@ -560,7 +597,7 @@ async def non_stream_request(
     retry_interval = retry_config["retry_interval"]
 
     DISABLE_ERROR_CODES = await get_auto_ban_error_codes()  # 禁用凭证的错误码
-    last_error_response = None  # 记录最后一次的错误响应
+    last_error_response = None  # 记录最后一次错误响应
     next_cred_task = None  # 预热的下一个凭证任务
 
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
@@ -596,6 +633,14 @@ async def non_stream_request(
         need_retry = False  # 标记是否需要重试
         
         try:
+            # 在本次实际 HTTP 请求发送前记录最终请求体对象。
+            _log_outbound_payload(
+                transport="nonstream",
+                target_url=target_url,
+                model_name=model_name,
+                attempt=attempt + 1,
+                payload=final_payload,
+            )
             response = await post_async(
                 url=target_url,
                 json=final_payload,
