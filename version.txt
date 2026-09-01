@@ -1,4 +1,4 @@
-full_hash=9d6e0accd1758b51bd6e9254f106c28bc8c9b661
-short_hash=9d6e0ac
-message=Revert "新版抗截断"
-date=2026-08-31 08:08:54 +0800
+full_hash=4df63ece72811cc61cc159345dd3cc1acd53e563
+short_hash=4df63ec
+message=ui: 优化 Safety 模型规则列表
+date=2026-09-01 08:48:16 +0000
