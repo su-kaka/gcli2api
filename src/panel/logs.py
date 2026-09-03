@@ -139,10 +139,11 @@ async def websocket_logs(websocket: WebSocket):
                 await websocket.send_text(f"Error reading log file: {e}")
                 log.error(f"WebSocket初始日志读取错误: {e}")
 
-        # 监控日志文件变化
+        # 监控日志文件变化。文件位置按字节记录，避免 UTF-8 多字节字符导致 seek 偏移。
         last_size = os.path.getsize(log_file_path) if os.path.exists(log_file_path) else 0
-        max_read_size = 8192  # 限制单次读取大小为8KB，防止大量日志造成内存激增
+        max_read_size = 8192  # 单次仍限制为8KB，但完整日志行可跨多个读取块累积
         check_interval = 2  # 增加检查间隔，减少CPU和I/O开销
+        pending_bytes = b""  # 超过8KB的 payload 必须等到完整换行后再发送
 
         # 创建后台任务监听客户端断开
         # 即使没有日志更新，receive_text() 也能即时感知断开
@@ -172,52 +173,44 @@ async def websocket_logs(websocket: WebSocket):
                 if os.path.exists(log_file_path):
                     current_size = os.path.getsize(log_file_path)
                     if current_size > last_size:
-                        # 限制读取大小，防止单次读取过多内容
-                        read_size = min(current_size - last_size, max_read_size)
+                        # 快照本轮文件长度，并按8KB块排空新增区域。
+                        # 只向前端发送以 \n 结束的完整物理日志行，避免超长 [PAYLOAD]
+                        # 被拆成半截 JSON，导致实时显示解析失败而只能在刷新后恢复。
+                        snapshot_size = current_size
 
                         try:
-                            # 使用 with 确保文件正确关闭，即使发生异常
-                            with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+                            with open(log_file_path, "rb") as f:
                                 f.seek(last_size)
-                                new_content = f.read(read_size)
-                                # with 退出时自动关闭文件句柄
 
-                                # 处理编码错误的情况
-                                if not new_content:
-                                    last_size = current_size
-                                    continue
+                                while last_size < snapshot_size:
+                                    read_size = min(snapshot_size - last_size, max_read_size)
+                                    chunk = f.read(read_size)
+                                    if not chunk:
+                                        # 不跳过未读字节；下一轮从相同位置继续。
+                                        break
 
-                                # 分行发送，避免发送不完整的行
-                                lines = new_content.splitlines(keepends=True)
-                                if lines:
-                                    # 如果最后一行没有换行符，保留到下次处理
-                                    if not lines[-1].endswith("\n") and len(lines) > 1:
-                                        # 除了最后一行，其他都发送
-                                        for line in lines[:-1]:
-                                            if line.strip():
-                                                await websocket.send_text(line.rstrip())
-                                        # 更新位置，但要退回最后一行的字节数
-                                        last_size += len(new_content.encode("utf-8")) - len(
-                                            lines[-1].encode("utf-8")
-                                        )
-                                    else:
-                                        # 所有行都发送
-                                        for line in lines:
-                                            if line.strip():
-                                                await websocket.send_text(line.rstrip())
-                                        last_size += len(new_content.encode("utf-8"))
-                        except UnicodeDecodeError as e:
-                            # 遇到编码错误时，跳过这部分内容
-                            log.warning(f"WebSocket日志读取编码错误: {e}, 跳过部分内容")
-                            last_size = current_size
+                                    last_size += len(chunk)
+                                    pending_bytes += chunk
+
+                                    complete_lines = pending_bytes.split(b"\n")
+                                    pending_bytes = complete_lines.pop()
+
+                                    for raw_line in complete_lines:
+                                        if raw_line.endswith(b"\r"):
+                                            raw_line = raw_line[:-1]
+                                        line = raw_line.decode("utf-8", errors="replace")
+                                        if line.strip():
+                                            await websocket.send_text(line)
+
                         except Exception as e:
                             await websocket.send_text(f"Error reading new content: {e}")
-                            # 发生其他错误时，重置文件位置
-                            last_size = current_size
+                            # 保留 last_size 与 pending_bytes，让下一轮可继续读取，
+                            # 不因一次读取异常静默跳过 payload 的后半段。
 
-                    # 如果文件被截断（如清空日志），重置位置
+                    # 如果文件被截断（如清空日志），重置位置和未完成行缓存
                     elif current_size < last_size:
                         last_size = 0
+                        pending_bytes = b""
                         await websocket.send_text("--- 日志已清空 ---")
 
         finally:

@@ -22,8 +22,6 @@ router = APIRouter(prefix="/config", tags=["config"])
 async def get_config(token: str = Depends(verify_panel_token)):
     """获取当前配置"""
     try:
-
-
         # 读取当前配置（包括环境变量和TOML文件中的配置）
         current_config = {}
 
@@ -60,6 +58,12 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["antigravity_stream2nostream"] = await config.get_antigravity_stream2nostream()
         current_config["antigravity_switch_credential_enabled"] = await config.get_antigravity_switch_credential_enabled()
 
+        # Antigravity safetySettings兼容性配置
+        current_config["antigravity_safety_settings_enabled"] = await config.get_antigravity_safety_settings_enabled()
+        current_config["antigravity_safety_threshold"] = await config.get_antigravity_safety_threshold()
+        current_config["antigravity_safety_model_rules_enabled"] = await config.get_antigravity_safety_model_rules_enabled()
+        current_config["antigravity_safety_model_rules"] = await config.get_antigravity_safety_model_rules()
+
         # 保活配置
         current_config["keepalive_url"] = await config.get_keepalive_url()
         current_config["keepalive_interval"] = await config.get_keepalive_interval()
@@ -90,11 +94,73 @@ async def get_config(token: str = Depends(verify_panel_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/antigravity-safety-options")
+async def get_antigravity_safety_options(token: str = Depends(verify_panel_token)):
+    """返回用于控制面板的 canonical Antigravity 模型和现有 safety 类别。
+
+    模型列表优先来自 Google fetchAvailableModels。已保存但当前未返回的模型规则
+    仍会保留在 categories_by_model 中，避免临时模型列表变化导致配置被误删。
+    """
+    from src.api.antigravity import fetch_available_models
+    from src.api.antigravity_safety import (
+        canonicalize_model_option,
+        get_existing_safety_categories_for_model,
+        get_all_existing_safety_categories,
+    )
+    from src.converter.antigravity_fix import get_antigravity_safety_display_model
+
+    try:
+        fetched = await fetch_available_models()
+    except Exception as e:
+        log.warning(f"获取Antigravity safety模型选项失败，将保留已保存规则: {e}")
+        fetched = []
+
+    models = []
+    seen = set()
+    for item in fetched:
+        raw_id = item.get("id") if isinstance(item, dict) else ""
+        model_id = canonicalize_model_option(raw_id)
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            models.append(model_id)
+
+    # 已保存的规则不能因为当前 credential/model fetch 暂时不可用而消失。
+    saved_rules = await config.get_antigravity_safety_model_rules()
+    saved_models = []
+    for rule in saved_rules:
+        if not isinstance(rule, dict):
+            continue
+        model_id = canonicalize_model_option(rule.get("model"))
+        if model_id and model_id not in saved_models:
+            saved_models.append(model_id)
+
+    categories_by_model = {}
+    for model_id in [*models, *saved_models]:
+        if model_id not in categories_by_model:
+            categories_by_model[model_id] = get_existing_safety_categories_for_model(model_id)
+
+    # 这里只生成显示名称：反向读取真实聊天路由映射。规则值仍保存
+    # fetchAvailableModels 返回的 canonical provider ID，因此修改聊天路由后，
+    # Safety 面板显示会自动同步，不需要维护第二份硬编码模型映射。
+    model_labels = {
+        model_id: get_antigravity_safety_display_model(model_id)
+        for model_id in [*models, *saved_models]
+    }
+
+    return JSONResponse(
+        content={
+            "models": models,
+            "categories_by_model": categories_by_model,
+            "default_categories": get_all_existing_safety_categories(),
+            "model_labels": model_labels,
+        }
+    )
+
+
 @router.post("/save")
 async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_panel_token)):
     """保存配置"""
     try:
-
         new_config = request.config
 
         log.debug(f"收到的配置数据: {list(new_config.keys())}")
@@ -147,6 +213,35 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
             if not isinstance(new_config["antigravity_switch_credential_enabled"], bool):
                 raise HTTPException(status_code=400, detail="Antigravity切换凭证开关必须是布尔值")
 
+        # Antigravity safetySettings 配置严格验证。
+        if "antigravity_safety_settings_enabled" in new_config:
+            if not isinstance(new_config["antigravity_safety_settings_enabled"], bool):
+                raise HTTPException(status_code=400, detail="Antigravity safetySettings开关必须是布尔值")
+
+        if "antigravity_safety_threshold" in new_config:
+            threshold = str(new_config["antigravity_safety_threshold"] or "").strip().upper()
+            if threshold not in {"OFF", "BLOCK_NONE"}:
+                raise HTTPException(status_code=400, detail="Antigravity safety threshold只能是OFF或BLOCK_NONE")
+            new_config["antigravity_safety_threshold"] = threshold
+
+        if "antigravity_safety_model_rules_enabled" in new_config:
+            if not isinstance(new_config["antigravity_safety_model_rules_enabled"], bool):
+                raise HTTPException(status_code=400, detail="Antigravity safety模型规则开关必须是布尔值")
+
+        if "antigravity_safety_model_rules" in new_config:
+            from src.api.antigravity_safety import (
+                get_all_existing_safety_categories,
+                validate_model_rules,
+            )
+
+            try:
+                new_config["antigravity_safety_model_rules"] = validate_model_rules(
+                    new_config["antigravity_safety_model_rules"],
+                    get_all_existing_safety_categories(),
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
         # 验证保活配置
         if "keepalive_url" in new_config:
             if not isinstance(new_config["keepalive_url"], str):
@@ -188,7 +283,8 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         # 获取环境变量锁定的配置键
         env_locked_keys = get_env_locked_keys()
 
-        # 直接使用存储适配器保存配置
+        # 直接使用存储适配器保存配置。model rules作为单一数组整体替换，
+        # 删除UI行后不会留下额外的blacklist/map/tombstone状态。
         storage_adapter = await get_storage_adapter()
         for key, value in new_config.items():
             if key not in env_locked_keys:

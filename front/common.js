@@ -2579,14 +2579,177 @@ async function clearLogs() {
     }
 }
 
+const PAYLOAD_LOG_MARKER = '[PAYLOAD]';
+
+function ensurePayloadLogFilterOption() {
+    const select = document.getElementById('logLevelFilter');
+    if (!select || select.querySelector('option[value="payload"]')) return;
+
+    const option = document.createElement('option');
+    option.value = 'payload';
+    option.textContent = '请求体检查';
+    select.appendChild(option);
+}
+
+function isPayloadLog(logLine) {
+    return String(logLine || '').includes(PAYLOAD_LOG_MARKER);
+}
+
+function payloadInspectorEscapeString(value) {
+    return String(value)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\t/g, '\\t')
+        .replace(/\u0008/g, '\\b')
+        .replace(/\f/g, '\\f');
+}
+
+function payloadInspectorQuoteString(value, level = 0) {
+    const normalized = String(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const wrapWidth = 100;
+    const continuationIndent = '  '.repeat(level + 1);
+    const logicalLines = normalized.split('\n');
+    const isMultiline = logicalLines.length > 1;
+    const codePointLength = Array.from(normalized).length;
+
+    if (!isMultiline && codePointLength <= wrapWidth) {
+        return `'${payloadInspectorEscapeString(normalized)}'`;
+    }
+
+    const pieces = [];
+    logicalLines.forEach((logicalLine, lineIndex) => {
+        const codePoints = Array.from(logicalLine);
+        const hasOriginalNewline = lineIndex < logicalLines.length - 1;
+
+        // 末尾空行已经由上一段可见的 \\n 表示，不再额外输出无意义的 ''。
+        if (codePoints.length === 0 && !hasOriginalNewline && lineIndex > 0) return;
+
+        const chunks = [];
+        if (codePoints.length === 0) {
+            chunks.push('');
+        } else {
+            for (let offset = 0; offset < codePoints.length; offset += wrapWidth) {
+                chunks.push(codePoints.slice(offset, offset + wrapWidth).join(''));
+            }
+        }
+
+        chunks.forEach((chunk, chunkIndex) => {
+            const isLastChunkOfLine = chunkIndex === chunks.length - 1;
+            const visibleNewline = hasOriginalNewline && isLastChunkOfLine ? '\\n' : '';
+            pieces.push(`'${payloadInspectorEscapeString(chunk)}${visibleNewline}'`);
+        });
+    });
+
+    return pieces.join(` +\n${continuationIndent}`);
+}
+
+function payloadInspectorKey(key) {
+    const text = String(key);
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text)
+        ? text
+        : payloadInspectorQuoteString(text, 0);
+}
+
+function payloadInspectorPrimitive(value, level = 0) {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string') return payloadInspectorQuoteString(value, level);
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return payloadInspectorQuoteString(String(value), level);
+}
+
+function payloadInspectorInline(value, depth = 0) {
+    if (value === null || typeof value !== 'object') {
+        if (typeof value === 'string') {
+            if (/[\r\n]/.test(value) || Array.from(value).length > 72) return null;
+        }
+        return payloadInspectorPrimitive(value, 0);
+    }
+
+    if (depth >= 3) return null;
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        const children = value.map(item => payloadInspectorInline(item, depth + 1));
+        if (children.some(item => item === null)) return null;
+        const rendered = `[ ${children.join(', ')} ]`;
+        return rendered.length <= 110 ? rendered : null;
+    }
+
+    const entries = Object.entries(value);
+    if (entries.length === 0) return '{}';
+    const children = [];
+    for (const [key, item] of entries) {
+        const rendered = payloadInspectorInline(item, depth + 1);
+        if (rendered === null) return null;
+        children.push(`${payloadInspectorKey(key)}: ${rendered}`);
+    }
+    const rendered = `{ ${children.join(', ')} }`;
+    return rendered.length <= 110 ? rendered : null;
+}
+
+function formatPayloadInspectorValue(value, level = 0, forceMultiline = false) {
+    // contents 是对话主结构；即使内容较短，也保持 message/parts 层级展开，便于逐轮阅读。
+    const inline = forceMultiline && value && typeof value === 'object'
+        ? null
+        : payloadInspectorInline(value, 0);
+    if (inline !== null) return inline;
+
+    const indent = '  '.repeat(level);
+    const childIndent = '  '.repeat(level + 1);
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        return '[\n' + value.map(item =>
+            `${childIndent}${formatPayloadInspectorValue(item, level + 1, forceMultiline)}`
+        ).join(',\n') + `\n${indent}]`;
+    }
+
+    if (value && typeof value === 'object') {
+        const entries = Object.entries(value);
+        if (entries.length === 0) return '{}';
+        return '{\n' + entries.map(([key, item]) => {
+            const childForceMultiline = forceMultiline || key === 'contents';
+            return `${childIndent}${payloadInspectorKey(key)}: ${formatPayloadInspectorValue(item, level + 1, childForceMultiline)}`;
+        }).join(',\n') + `\n${indent}}`;
+    }
+
+    return payloadInspectorPrimitive(value, level);
+}
+
+function formatPayloadLogEntry(logLine) {
+    const line = String(logLine || '');
+    const bodyMarker = ' body=';
+    const bodyIndex = line.indexOf(bodyMarker);
+    if (bodyIndex < 0) return line;
+
+    const rawBody = line.slice(bodyIndex + bodyMarker.length);
+    try {
+        const payload = JSON.parse(rawBody);
+        const header = line.slice(0, bodyIndex);
+        return `${header}\n${formatPayloadInspectorValue(payload, 0)}`;
+    } catch (_) {
+        // 若未来日志格式不是合法 JSON，则保留原始请求体，避免隐藏调试信息。
+        return line;
+    }
+}
+
 function filterLogs() {
+    ensurePayloadLogFilterOption();
     const filter = document.getElementById('logLevelFilter').value;
     AppState.currentLogFilter = filter;
 
-    if (filter === 'all') {
-        AppState.filteredLogs = [...AppState.allLogs];
+    if (filter === 'payload') {
+        // 请求体日志仅在“请求体检查”筛选器中显示。
+        AppState.filteredLogs = AppState.allLogs.filter(isPayloadLog);
+    } else if (filter === 'all') {
+        AppState.filteredLogs = AppState.allLogs.filter(log => !isPayloadLog(log));
     } else {
-        AppState.filteredLogs = AppState.allLogs.filter(log => log.toUpperCase().includes(filter));
+        AppState.filteredLogs = AppState.allLogs.filter(
+            log => !isPayloadLog(log) && log.toUpperCase().includes(filter.toUpperCase())
+        );
     }
 
     displayLogs();
@@ -2595,11 +2758,28 @@ function filterLogs() {
 function displayLogs() {
     const logContent = document.getElementById('logContent');
     if (AppState.filteredLogs.length === 0) {
-        logContent.textContent = AppState.currentLogFilter === 'all' ?
-            '暂无日志...' : `暂无${AppState.currentLogFilter}级别的日志...`;
+        if (AppState.currentLogFilter === 'all') {
+            logContent.textContent = '暂无日志...';
+        } else if (AppState.currentLogFilter === 'payload') {
+            logContent.textContent = '暂无请求体记录...';
+        } else {
+            logContent.textContent = `暂无${AppState.currentLogFilter}级别的日志...`;
+        }
     } else {
-        logContent.textContent = AppState.filteredLogs.join('\n');
+        if (AppState.currentLogFilter === 'payload') {
+            logContent.textContent = AppState.filteredLogs
+                .map(formatPayloadLogEntry)
+                .join('\n\n');
+        } else {
+            logContent.textContent = AppState.filteredLogs.join('\n');
+        }
     }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ensurePayloadLogFilterOption);
+} else {
+    ensurePayloadLogFilterOption();
 }
 
 // =====================================================================
@@ -2815,6 +2995,11 @@ async function saveConfig() {
             keepalive_url: getValue('keepaliveUrl'),
             keepalive_interval: getInt('keepaliveInterval', 60)
         };
+
+        // Safety 配置与其他设置通过同一个公共保存请求提交。
+        if (window.AntigravitySafetyUI && typeof window.AntigravitySafetyUI.collectConfig === 'function') {
+            Object.assign(config, window.AntigravitySafetyUI.collectConfig());
+        }
 
         const response = await fetch('./config/save', {
             method: 'POST',

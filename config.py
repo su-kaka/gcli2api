@@ -40,6 +40,9 @@ ENV_MAPPINGS = {
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
     "ANTIGRAVITY_STREAM2NOSTREAM": "antigravity_stream2nostream",
     "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
+    "ANTIGRAVITY_SAFETY_SETTINGS_ENABLED": "antigravity_safety_settings_enabled",
+    "ANTIGRAVITY_SAFETY_THRESHOLD": "antigravity_safety_threshold",
+    "ANTIGRAVITY_SAFETY_MODEL_RULES_ENABLED": "antigravity_safety_model_rules_enabled",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -371,6 +374,44 @@ async def get_antigravity_switch_credential_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("antigravity_switch_credential_enabled", False))
+
+
+async def get_antigravity_safety_settings_enabled() -> bool:
+    """Whether outbound Antigravity inference requests include safetySettings.
+
+    Default is False to preserve the historical gcli2api wire behavior.
+    """
+    env_value = os.getenv("ANTIGRAVITY_SAFETY_SETTINGS_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+    return bool(await get_config_value("antigravity_safety_settings_enabled", False))
+
+
+async def get_antigravity_safety_threshold() -> str:
+    """Return the configured outbound threshold: OFF or BLOCK_NONE.
+
+    BLOCK_NONE is the default because it matches the threshold already present in
+    the repository's DEFAULT_SAFETY_SETTINGS/LITE_SAFETY_SETTINGS constants.
+    """
+    value = await get_config_value(
+        "antigravity_safety_threshold", "BLOCK_NONE", "ANTIGRAVITY_SAFETY_THRESHOLD"
+    )
+    normalized = str(value or "").strip().upper()
+    return normalized if normalized in {"OFF", "BLOCK_NONE"} else "BLOCK_NONE"
+
+
+async def get_antigravity_safety_model_rules_enabled() -> bool:
+    """Whether per-model safety compatibility overrides are active."""
+    env_value = os.getenv("ANTIGRAVITY_SAFETY_MODEL_RULES_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+    return bool(await get_config_value("antigravity_safety_model_rules_enabled", True))
+
+
+async def get_antigravity_safety_model_rules() -> list:
+    """Return the persisted model-rule array without maintaining a second cache."""
+    rules = await get_config_value("antigravity_safety_model_rules", [])
+    return rules if isinstance(rules, list) else []
 
 
 async def get_oauth_proxy_url() -> str:

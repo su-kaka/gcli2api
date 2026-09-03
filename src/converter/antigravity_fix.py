@@ -10,6 +10,45 @@ from typing import Any, Dict, Optional
 from log import log
 from src.converter.thoughtSignature_fix import SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
+# 客户端 Gemini 别名到 Antigravity provider model ID 的唯一映射来源。
+# 聊天请求直接使用该映射；Safety 面板只反向读取它生成显示名称。
+ANTIGRAVITY_CHAT_MODEL_MAP = {
+    "gemini-3.1-pro-high": "gemini-pro-agent",
+}
+
+
+def map_antigravity_chat_model(model: Any) -> str:
+    """将客户端模型名称映射为实际发送给 Antigravity 的 provider model ID。"""
+    value = str(model or "").strip().lower()
+    return ANTIGRAVITY_CHAT_MODEL_MAP.get(value, value)
+
+
+def get_antigravity_safety_display_model(provider_model: Any) -> str:
+    """根据聊天路由映射生成 Safety 面板的模型显示名称。
+
+    该函数只影响显示，规则内部仍保存 provider ID。显示时会移除 ``-high`` 等路由后缀，
+    因此 ``gemini-3.1-pro-high -> gemini-pro-agent`` 会显示为 ``gemini-3.1-pro``。
+    """
+    provider = str(provider_model or "").strip().lower()
+    if not provider:
+        return ""
+
+    alias = next((
+        source
+        for source, target in ANTIGRAVITY_CHAT_MODEL_MAP.items()
+        if str(target or "").strip().lower() == provider
+    ), "")
+    if not alias:
+        return provider
+
+    display = str(alias).strip().lower()
+    for suffix in ("-high", "-low", "-search"):
+        if display.endswith(suffix):
+            display = display[:-len(suffix)]
+            break
+    return display or provider
+
+
 # ==================== Gemini API 配置 ====================
 
 DEFAULT_SAFETY_SETTINGS = [
@@ -600,15 +639,15 @@ def _normalize_antigravity_request(
     if "gemini" in model.lower():
         original_model = model
 
-        # 兼容旧的客户端别名：Antigravity 后端的 Gemini 3.1 Pro High
-        # 实际使用 gemini-pro-agent 作为模型 ID。
-        if model.lower() == "gemini-3.1-pro-high":
-            model = "gemini-pro-agent"
+        # 客户端模型别名统一由 ANTIGRAVITY_CHAT_MODEL_MAP 管理。
+        mapped_model = map_antigravity_chat_model(model)
+        if mapped_model != model.lower():
+            model = mapped_model
             log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
 
-        # Antigravity uses the Gemini 3.x model route/name to select thinking depth.
-        # Do not send thinkingLevel/thinkingBudget because they can conflict with that route.
-        # Keep includeThoughts so reasoning is still returned to the frontend when enabled.
+        # Antigravity 通过 Gemini 3.x 的模型 route/name 决定思考深度。
+        # 不发送 thinkingLevel/thinkingBudget，避免与该路由冲突；保留 includeThoughts，
+        # 以便启用时仍可向前端返回推理内容。
         if "gemini-3" in original_model.lower():
             thinking_config = generation_config.setdefault("thinkingConfig", {})
             thinking_config.pop("thinkingBudget", None)
