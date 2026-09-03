@@ -1,4 +1,4 @@
-full_hash=9d6e0accd1758b51bd6e9254f106c28bc8c9b661
-short_hash=9d6e0ac
-message=Revert "新版抗截断"
-date=2026-08-31 08:08:54 +0800
+full_hash=1a506b1e0b3fa3b5d21512f57d7cdcd77700547d
+short_hash=1a506b1
+message=更新agycli版本
+date=2026-09-03 11:00:45 +0800
