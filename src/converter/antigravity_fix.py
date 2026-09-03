@@ -737,6 +737,7 @@ async def normalize_antigravity_request(
         "sonnet",
         "gemini-3.6-flash",
         "gemini-3.7-flash",
+        "gemini-3.8-flash",
     ]
     if any(keyword in model.lower() for keyword in no_prefill_models):
         contents = result.get("contents", [])
