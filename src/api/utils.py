@@ -5,6 +5,7 @@ Base API Client - 共用的 API 客户端基础功能
 
 import asyncio
 import json
+import math
 import re
 import time
 from datetime import datetime, timezone
@@ -188,13 +189,48 @@ async def record_api_call_error(
         error_message: 错误信息（可选）
     """
     if credential_manager and credential_name:
+        # Antigravity can return a model alias in the request while the 429
+        # metadata contains the canonical model that actually exhausted its
+        # quota.  Prefer the upstream observation so the persisted cooldown
+        # overlays the matching entry in the quota panel.  This also repairs
+        # callers that only passed the reset timestamp and request model.
+        effective_model_name = model_name
+        effective_cooldown_until = cooldown_until
+        if mode.lower() == "antigravity" and status_code == 429 and error_message:
+            try:
+                if isinstance(error_message, str):
+                    error_data = json.loads(error_message)
+                elif isinstance(error_message, (bytes, bytearray)):
+                    error_data = json.loads(error_message.decode("utf-8", errors="replace"))
+                elif isinstance(error_message, dict):
+                    error_data = error_message
+                else:
+                    error_data = None
+                observation = extract_quota_exhaustion(
+                    error_data,
+                    mode=mode,
+                )
+                if observation:
+                    observed_model = observation.get("model")
+                    observed_reset = observation.get("reset_timestamp")
+                    if observed_model:
+                        effective_model_name = observed_model
+                    if observed_reset and (
+                        effective_cooldown_until is None
+                        or observed_reset > effective_cooldown_until
+                    ):
+                        effective_cooldown_until = observed_reset
+            except (TypeError, ValueError, json.JSONDecodeError):
+                # A non-JSON upstream error must still be recorded normally.
+                pass
+
         await credential_manager.record_api_call_result(
             credential_name,
             False,
             status_code,
-            cooldown_until=cooldown_until,
+            cooldown_until=effective_cooldown_until,
             mode=mode,
-            model_name=model_name,
+            model_name=effective_model_name,
             error_message=error_message
         )
 
@@ -445,8 +481,131 @@ async def collect_streaming_response(stream_generator) -> Response:
 
 RESOURCE_EXHAUSTED_COOLDOWN_HOURS = 4  # RESOURCE_EXHAUSTED 错误的默认冷却时间（小时）
 
+_QUOTA_RESET_DELAY_RE = re.compile(
+    r"^\s*(?:(?P<days>\d+(?:\.\d+)?)d)?"
+    r"(?:(?P<hours>\d+(?:\.\d+)?)h)?"
+    r"(?:(?P<minutes>\d+(?:\.\d+)?)m)?"
+    r"(?:(?P<seconds>\d+(?:\.\d+)?)s)?\s*$",
+    re.IGNORECASE,
+)
 
-def parse_quota_reset_timestamp(error_response: dict, mode: str = "geminicli") -> Optional[float]:
+
+def _parse_quota_reset_delay(value: Any, now: Optional[float] = None) -> Optional[float]:
+    """Convert Google's quotaResetDelay value into an absolute timestamp."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    match = _QUOTA_RESET_DELAY_RE.fullmatch(value)
+    if not match or not any(match.groupdict().values()):
+        return None
+
+    try:
+        seconds = (
+            float(match.group("days") or 0) * 86400
+            + float(match.group("hours") or 0) * 3600
+            + float(match.group("minutes") or 0) * 60
+            + float(match.group("seconds") or 0)
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if seconds <= 0 or not math.isfinite(seconds):
+        return None
+    timestamp = (time.time() if now is None else now) + seconds
+    return timestamp if math.isfinite(timestamp) else None
+
+
+def _parse_quota_reset_time(value: Any) -> Optional[float]:
+    """Parse Google's ISO quota reset timestamp as UTC epoch seconds."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        reset_text = value.strip()
+        if reset_text.endswith("Z"):
+            reset_text = reset_text[:-1] + "+00:00"
+        reset_dt = datetime.fromisoformat(reset_text)
+        if reset_dt.tzinfo is None:
+            reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+        return reset_dt.astimezone(timezone.utc).timestamp()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def extract_quota_exhaustion(
+    error_response: dict,
+    mode: str = "geminicli",
+    now: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Extract a confirmed quota exhaustion observation from a Google error."""
+    if not isinstance(error_response, dict):
+        return None
+
+    error_obj = error_response.get("error")
+    if not isinstance(error_obj, dict):
+        return None
+
+    quota_detail = None
+    details = error_obj.get("details", [])
+    if isinstance(details, list):
+        for detail in details:
+            if (
+                isinstance(detail, dict)
+                and str(detail.get("reason", "")).upper() == "QUOTA_EXHAUSTED"
+            ):
+                quota_detail = detail
+                break
+
+    # Antigravity also uses generic RESOURCE_EXHAUSTED responses for failures
+    # that are not quota limits. Only its explicit QUOTA_EXHAUSTED reason is safe.
+    if mode.lower() == "antigravity" and quota_detail is None:
+        return None
+
+    if quota_detail is None and error_obj.get("status") != "RESOURCE_EXHAUSTED":
+        return None
+
+    metadata = quota_detail.get("metadata", {}) if quota_detail else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    reset_timestamp = _parse_quota_reset_time(metadata.get("quotaResetTimeStamp"))
+    if reset_timestamp is None:
+        reset_timestamp = _parse_quota_reset_delay(metadata.get("quotaResetDelay"), now=now)
+
+    if reset_timestamp is None:
+        message = str(error_obj.get("message", ""))
+        delay_match = re.search(r"Resets\s+in\s+([0-9dhms.]+)", message, re.IGNORECASE)
+        if delay_match:
+            reset_timestamp = _parse_quota_reset_delay(delay_match.group(1), now=now)
+
+    if reset_timestamp is None:
+        # RATE_LIMIT_EXCEEDED messages: "Your quota will reset after 6s." / "6h 30m 15s."
+        message = str(error_obj.get("message", ""))
+        will_reset_match = re.search(r"Your quota will reset after (.+?)\.", message)
+        if will_reset_match:
+            compact_delay = will_reset_match.group(1).strip().replace(" ", "")
+            reset_timestamp = _parse_quota_reset_delay(compact_delay, now=now)
+
+    if reset_timestamp is None and (
+        quota_detail is not None
+        or error_obj.get("message") == "Resource has been exhausted (e.g. check quota)."
+    ):
+        reset_timestamp = (time.time() if now is None else now) + (
+            RESOURCE_EXHAUSTED_COOLDOWN_HOURS * 3600
+        )
+
+    model = metadata.get("model")
+    return {
+        "model": model.strip() if isinstance(model, str) else None,
+        "reset_timestamp": reset_timestamp,
+        "reason": "QUOTA_EXHAUSTED" if quota_detail is not None else "RESOURCE_EXHAUSTED",
+        "explicit": quota_detail is not None,
+    }
+
+
+def parse_quota_reset_timestamp(
+    error_response: dict,
+    mode: str = "geminicli",
+    now: Optional[float] = None,
+) -> Optional[float]:
     """
     从Google API错误响应中提取quota重置时间戳
 
@@ -475,58 +634,7 @@ def parse_quota_reset_timestamp(error_response: dict, mode: str = "geminicli") -
       }
     }
     """
-    try:
-        error_obj = error_response.get("error", {})
-
-        if mode.lower() == "antigravity" and error_obj.get("status") == "RESOURCE_EXHAUSTED":
-            return None
-
-        details = error_obj.get("details", [])
-
-        for detail in details:
-            if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
-
-                if reset_timestamp_str:
-                    if reset_timestamp_str.endswith("Z"):
-                        reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
-
-                    reset_dt = datetime.fromisoformat(reset_timestamp_str)
-                    if reset_dt.tzinfo is None:
-                        reset_dt = reset_dt.replace(tzinfo=timezone.utc)
-
-                    return reset_dt.astimezone(timezone.utc).timestamp()
-
-        # 解析消息中的 "Your quota will reset after Xs" / "Xh Ym Zs" 格式（RATE_LIMIT_EXCEEDED）
-        message = error_obj.get("message", "")
-        reset_match = re.search(r"Your quota will reset after (.+?)\.", message)
-        if reset_match:
-            duration_str = reset_match.group(1).strip()
-            unit_to_seconds = {
-                "s": 1,
-                "m": 60,
-                "h": 3600,
-                "d": 86400,
-            }
-            # 匹配所有 "数值+单位" 片段，支持 "6s"、"6h 30m 15s" 等组合格式
-            parts = re.findall(r"(\d+)([smhd])", duration_str)
-            if parts:
-                cooldown_seconds = sum(
-                    int(value) * unit_to_seconds[unit] for value, unit in parts
-                )
-                if cooldown_seconds > 0:
-                    cooldown_until = time.time() + cooldown_seconds
-                    return cooldown_until
-
-        # 如果是 RESOURCE_EXHAUSTED 错误且消息完全匹配，设置默认4小时冷却时间
-        if (
-            error_obj.get("status") == "RESOURCE_EXHAUSTED"
-            and error_obj.get("message") == "Resource has been exhausted (e.g. check quota)."
-        ):
-            cooldown_until = time.time() + RESOURCE_EXHAUSTED_COOLDOWN_HOURS * 3600
-            return cooldown_until
-
+    observation = extract_quota_exhaustion(error_response, mode=mode, now=now)
+    if observation is None:
         return None
-
-    except Exception:
-        return None
+    return observation.get("reset_timestamp")

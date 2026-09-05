@@ -275,11 +275,8 @@ async def create_auth_url(
             redirect_uri=callback_url,
         )
 
-        # 生成状态标识符，包含用户会话信息
-        if user_session:
-            state = f"{user_session}_{str(uuid.uuid4())}"
-        else:
-            state = str(uuid.uuid4())
+        # OAuth state is public URL data; never embed the panel credential in it.
+        state = str(uuid.uuid4())
 
         # 生成认证URL
         auth_url = flow.get_auth_url(state=state)
