@@ -1863,17 +1863,31 @@ async function toggleAntigravityQuotaDetails(pathId) {
                                 </h4>
                                 <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">文件: ${filename}</div>
                             </div>
+                            ${data.observedExhausted ? `
+                                <div style="margin: 0 0 12px; padding: 9px 11px; border-left: 4px solid #dc3545; background: #fff5f5; color: #842029; font-size: 12px;">
+                                    最近一次真实调用已确认部分模型额度耗尽；下方 0% 与重置时间优先采用 429 响应，而不是远端额度列表的错误百分比。
+                                </div>
+                            ` : ''}
+                            ${data.warning ? `
+                                <div style="margin: 0 0 12px; padding: 9px 11px; border-left: 4px solid #ffc107; background: #fffbea; color: #664d03; font-size: 12px;">
+                                    ${escapeHtml(String(data.warning))}
+                                </div>
+                            ` : ''}
                             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
                         `;
 
                         for (const [modelName, quotaData] of Object.entries(models)) {
                             // 后端返回的是剩余比例 (0-1)，不是绝对数量
-                            const remainingFraction = quotaData.remaining || 0;
+                            const rawRemainingFraction = Number(quotaData.remaining);
+                            const remainingFraction = Number.isFinite(rawRemainingFraction)
+                                ? Math.min(1, Math.max(0, rawRemainingFraction))
+                                : 0;
                             const resetTime = quotaData.resetTime || 'N/A';
 
                             // 计算已使用百分比（1 - 剩余比例）
                             const usedPercentage = Math.round((1 - remainingFraction) * 100);
                             const remainingPercentage = Math.round(remainingFraction * 100);
+                            const observedExhausted = quotaData.observedExhausted === true;
 
                             // 根据使用情况选择颜色
                             let percentageColor = '#28a745'; // 绿色：使用少
@@ -1895,6 +1909,7 @@ async function toggleAntigravityQuotaDetails(pathId) {
                                         <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
                                     </div>
                                     <div style="font-size: 10px; color: #666; text-align: right;">
+                                        ${observedExhausted ? '<span style="color: #dc3545; font-weight: bold; margin-right: 6px;">429实测耗尽</span>' : ''}
                                         ${resetTime !== 'N/A' ? '🔄 ' + resetTime : ''}
                                     </div>
                                 </div>

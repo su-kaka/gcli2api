@@ -5,9 +5,11 @@
 import asyncio
 import io
 import json
+import math
 import os
 import time
 import zipfile
+from datetime import datetime, timedelta, timezone
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
@@ -22,6 +24,7 @@ from src.models import (
 from src.storage_adapter import get_storage_adapter
 from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER_AGENT
 from src.api.antigravity import fetch_quota_info
+from src.api.utils import extract_quota_exhaustion
 from src.google_oauth_api import Credentials, fetch_project_id_and_tier, get_user_projects, select_default_project, enable_required_apis
 from config import get_code_assist_endpoint, get_antigravity_api_url
 from .utils import validate_mode
@@ -34,6 +37,264 @@ router = APIRouter(prefix="/creds", tags=["credentials"])
 # =============================================================================
 # 工具函数 (Helper Functions)
 # =============================================================================
+
+
+def _is_validation_required(error_text: str) -> bool:
+    """Return whether Google rejected the account at the eligibility layer."""
+    if not error_text:
+        return False
+
+    try:
+        error_data = json.loads(error_text)
+        details = error_data.get("error", {}).get("details", [])
+        return any(
+            isinstance(detail, dict) and detail.get("reason") == "VALIDATION_REQUIRED"
+            for detail in details
+        )
+    except (AttributeError, TypeError, ValueError):
+        return "VALIDATION_REQUIRED" in error_text
+
+
+def _format_quota_reset(reset_timestamp: float) -> tuple[str, str]:
+    """Return the panel display time and canonical UTC time for a reset."""
+    reset_utc = datetime.fromtimestamp(reset_timestamp, timezone.utc)
+    reset_beijing = reset_utc + timedelta(hours=8)
+    return reset_beijing.strftime("%m-%d %H:%M"), reset_utc.isoformat().replace("+00:00", "Z")
+
+
+def _coerce_reset_timestamp(value: Any) -> float | None:
+    """Convert a persisted cooldown value to a finite Unix timestamp."""
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return timestamp if math.isfinite(timestamp) and timestamp > 0 else None
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            timestamp = float(text)
+        except ValueError:
+            try:
+                iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+                parsed = datetime.fromisoformat(iso_text)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                timestamp = parsed.astimezone(timezone.utc).timestamp()
+            except (TypeError, ValueError, OverflowError):
+                return None
+        return timestamp if math.isfinite(timestamp) and timestamp > 0 else None
+
+    if isinstance(value, dict):
+        for key in ("reset_timestamp", "resetTimeRaw", "resetTime", "expiresAt"):
+            timestamp = _coerce_reset_timestamp(value.get(key))
+            if timestamp is not None:
+                return timestamp
+
+    return None
+
+
+def _normalise_model_cooldowns(raw_cooldowns: Any) -> dict[str, float]:
+    """Keep only usable model cooldowns from any storage backend."""
+    if not isinstance(raw_cooldowns, dict):
+        return {}
+
+    normalised: dict[str, float] = {}
+    for raw_model, raw_reset in raw_cooldowns.items():
+        if not isinstance(raw_model, str) or not raw_model.strip():
+            continue
+        reset_timestamp = _coerce_reset_timestamp(raw_reset)
+        if reset_timestamp is not None:
+            normalised[raw_model.strip()] = reset_timestamp
+    return normalised
+
+
+def _iter_stored_error_payloads(raw_value: Any, depth: int = 0):
+    """Yield JSON error payloads from dict/list/string storage variants."""
+    if depth > 5 or raw_value is None:
+        return
+
+    if isinstance(raw_value, (bytes, bytearray)):
+        try:
+            raw_value = raw_value.decode("utf-8", errors="replace")
+        except Exception:
+            return
+
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if not text:
+            return
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            return
+        yield from _iter_stored_error_payloads(parsed, depth + 1)
+        return
+
+    if isinstance(raw_value, dict):
+        # A complete Google error response should be yielded as-is.
+        if isinstance(raw_value.get("error"), dict):
+            yield raw_value
+            return
+        for key, value in raw_value.items():
+            # Status-keyed maps use keys such as "429".  Scanning all nested
+            # values also handles MongoDB/legacy list-shaped error fields.
+            if str(key) == "429" or isinstance(value, (dict, list, tuple, str, bytes, bytearray)):
+                yield from _iter_stored_error_payloads(value, depth + 1)
+        return
+
+    if isinstance(raw_value, (list, tuple)):
+        for value in raw_value:
+            yield from _iter_stored_error_payloads(value, depth + 1)
+
+
+def _overlay_observed_quota(
+    models: dict,
+    model_cooldowns: dict,
+    now: float | None = None,
+) -> dict:
+    """Overlay confirmed, unexpired 429 observations on upstream quota data."""
+    merged = {
+        model_name: dict(model_data) if isinstance(model_data, dict) else {}
+        for model_name, model_data in (models or {}).items()
+    }
+    current_time = time.time() if now is None else now
+
+    for model_name, raw_reset in _normalise_model_cooldowns(model_cooldowns).items():
+        reset_timestamp = _coerce_reset_timestamp(raw_reset)
+        if reset_timestamp is None:
+            continue
+        if reset_timestamp <= current_time:
+            continue
+
+        model_quota = merged.get(model_name, {})
+        upstream_remaining = model_quota.get("remaining")
+        try:
+            reset_time, reset_time_raw = _format_quota_reset(reset_timestamp)
+        except (OverflowError, OSError, ValueError, TypeError):
+            log.warning(
+                f"跳过无法格式化的模型额度冷却: model={model_name}, "
+                f"reset={raw_reset!r}"
+            )
+            continue
+        model_quota.update({
+            "remaining": 0.0,
+            "resetTime": reset_time,
+            "resetTimeRaw": reset_time_raw,
+            "observedExhausted": True,
+            "source": "observed_429",
+        })
+        if upstream_remaining is not None:
+            model_quota["upstreamRemaining"] = upstream_remaining
+        merged[model_name] = model_quota
+
+    return merged
+
+
+async def _get_observed_quota_cooldowns(
+    storage_adapter: Any,
+    filename: str,
+    mode: str,
+) -> dict:
+    """Load active cooldowns and recover one from the latest stored 429."""
+    cooldowns: dict[str, float] = {}
+    try:
+        state = await storage_adapter.get_credential_state(filename, mode=mode)
+        if isinstance(state, dict):
+            cooldowns = _normalise_model_cooldowns(state.get("model_cooldowns"))
+    except Exception as exc:
+        # Quota display should still work from the upstream endpoint when the
+        # optional local state is temporarily unavailable.
+        log.warning(f"读取凭证额度冷却失败 {filename}: {exc}")
+
+    backend = getattr(storage_adapter, "_backend", None)
+    get_errors = getattr(backend, "get_credential_errors", None)
+    if not callable(get_errors):
+        return cooldowns
+
+    try:
+        error_info = await get_errors(filename, mode=mode)
+    except Exception as exc:
+        log.warning(f"读取凭证429记录失败 {filename}: {exc}")
+        return cooldowns
+
+    if not isinstance(error_info, dict):
+        return cooldowns
+
+    # Prefer the structured error map, but accept legacy list-shaped values
+    # and a complete payload stored directly in error_info.
+    error_values = [error_info.get("error_messages"), error_info]
+    now = time.time()
+    set_cooldown = getattr(backend, "set_model_cooldown", None)
+    for raw_value in error_values:
+        for error_data in _iter_stored_error_payloads(raw_value):
+            try:
+                observation = extract_quota_exhaustion(error_data, mode=mode, now=now)
+            except (TypeError, ValueError, OverflowError) as exc:
+                log.debug(f"解析已保存429记录失败 {filename}: {exc}")
+                continue
+
+            if not observation:
+                continue
+
+            model_name = observation.get("model")
+            reset_timestamp = _coerce_reset_timestamp(observation.get("reset_timestamp"))
+            if not model_name or reset_timestamp is None or reset_timestamp <= now:
+                continue
+
+            existing_reset = _coerce_reset_timestamp(cooldowns.get(model_name)) or 0.0
+            if reset_timestamp <= existing_reset:
+                continue
+
+            cooldowns[model_name] = reset_timestamp
+            if callable(set_cooldown):
+                try:
+                    stored = await set_cooldown(
+                        filename,
+                        model_name,
+                        reset_timestamp,
+                        mode=mode,
+                    )
+                    if stored is False:
+                        log.debug(f"恢复额度冷却未写回存储: {filename}, model={model_name}")
+                except Exception as exc:
+                    # The in-memory overlay remains useful even if persistence
+                    # is temporarily unavailable.
+                    log.warning(f"写回额度冷却失败 {filename}, model={model_name}: {exc}")
+            log.info(
+                f"从已记录的429恢复模型额度冷却: {filename}, "
+                f"model={model_name}"
+            )
+
+    return cooldowns
+
+
+async def _probe_antigravity_credential(access_token: str, project_id: str):
+    """Run the same minimal wrapped request used by the Antigravity API path."""
+    from src.api.antigravity import build_antigravity_headers, wrap_cli_request
+    from src.httpx_client import post_async
+
+    test_model = "gemini-2.5-flash"
+    request = {
+        "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+        "generationConfig": {"maxOutputTokens": 1},
+    }
+    payload, _request_id = await wrap_cli_request(request, test_model, project_id)
+    headers = build_antigravity_headers(access_token, model_name=test_model)
+    api_base_url = await get_antigravity_api_url()
+
+    return await post_async(
+        url=f"{api_base_url}/v1internal:generateContent",
+        json=payload,
+        headers=headers,
+        timeout=30.0,
+    )
 
 
 async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
@@ -593,10 +854,66 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
     if project_id or subscription_tier:
         await storage_adapter.store_credential(filename, credential_data, mode=mode)
 
+        if mode == "antigravity":
+            if not project_id:
+                await storage_adapter.update_credential_state(filename, {
+                    "disabled": True,
+                    "tier": subscription_tier,
+                }, mode=mode)
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "filename": filename,
+                        "project_id": None,
+                        "subscription_tier": subscription_tier,
+                        "project_verified": False,
+                        "inference_verified": False,
+                        "message": "已识别订阅等级，但没有可用于模型调用的Project ID，凭据保持禁用",
+                    },
+                )
+
+            probe_response = await _probe_antigravity_credential(
+                credentials.access_token,
+                project_id,
+            )
+            probe_status = probe_response.status_code
+            if probe_status not in (200, 429):
+                error_text = getattr(probe_response, "text", "")
+                validation_required = _is_validation_required(error_text)
+                await storage_adapter.update_credential_state(filename, {
+                    "disabled": True,
+                    "tier": subscription_tier,
+                    "error_codes": [probe_status],
+                    "error_messages": {
+                        str(probe_status): error_text or f"HTTP {probe_status}"
+                    },
+                }, mode=mode)
+                log.warning(
+                    f"检验 antigravity 凭证未通过真实调用: {filename} - "
+                    f"status={probe_status}, validation_required={validation_required}"
+                )
+
+                response_data = {
+                    "success": False,
+                    "filename": filename,
+                    "project_id": project_id,
+                    "subscription_tier": subscription_tier,
+                    "project_verified": True,
+                    "inference_verified": False,
+                    "validation_required": validation_required,
+                    "message": "项目和订阅已识别，但实际模型调用失败，凭据已保持禁用",
+                    "error": error_text,
+                }
+                if credit_amount is not None:
+                    response_data["credit_amount"] = credit_amount
+                return JSONResponse(status_code=probe_status, content=response_data)
+
         # 检验成功后自动解除禁用状态并清除错误码
         state_update = {
             "disabled": False,
-            "error_codes": []
+            "error_codes": [],
+            "error_messages": {},
         }
 
         # 同步更新状态表中的 tier 字段
@@ -615,7 +932,13 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
             "filename": filename,
             "project_id": project_id,
             "subscription_tier": subscription_tier,
-            "message": "检验成功！Project ID已更新，已解除禁用状态并清除错误码，403错误应该已恢复"
+            "project_verified": True,
+            "inference_verified": mode == "antigravity",
+            "message": (
+                "检验成功！Project ID和实际模型调用均已通过，凭据已启用"
+                if mode == "antigravity"
+                else "检验成功！Project ID已更新，凭据已启用"
+            )
         }
 
         if mode == "antigravity" and credit_amount is not None:
@@ -1193,16 +1516,41 @@ async def get_credential_quota(
         if not access_token:
             raise HTTPException(status_code=400, detail="凭证中没有访问令牌")
 
+        # 真实调用的明确 QUOTA_EXHAUSTED 比 fetchAvailableModels 的百分比更可靠。
+        observed_cooldowns = await _get_observed_quota_cooldowns(
+            storage_adapter,
+            filename,
+            mode,
+        )
+
         # 获取额度信息
         quota_info = await fetch_quota_info(access_token)
 
         if quota_info.get("success"):
+            models = _overlay_observed_quota(
+                quota_info.get("models", {}),
+                observed_cooldowns,
+            )
             return JSONResponse(content={
                 "success": True,
                 "filename": filename,
-                "models": quota_info.get("models", {})
+                "models": models,
+                "observedExhausted": any(
+                    model.get("observedExhausted")
+                    for model in models.values()
+                    if isinstance(model, dict)
+                ),
             })
         else:
+            observed_models = _overlay_observed_quota({}, observed_cooldowns)
+            if observed_models:
+                return JSONResponse(content={
+                    "success": True,
+                    "filename": filename,
+                    "models": observed_models,
+                    "observedExhausted": True,
+                    "warning": quota_info.get("error", "远端额度接口暂时不可用"),
+                })
             return JSONResponse(
                 status_code=400,
                 content={
@@ -1508,11 +1856,7 @@ async def test_credential(
         # 对于 antigravity 模式，只使用 gemini-2.5-flash
         test_model = "gemini-2.5-flash"
 
-        if mode == "antigravity":
-            api_base_url = await get_antigravity_api_url()
-            from src.api.antigravity import build_antigravity_headers
-            headers = build_antigravity_headers(access_token)
-        else:
+        if mode != "antigravity":
             api_base_url = await get_code_assist_endpoint()
             headers = {
                 "Authorization": f"Bearer {access_token}",
@@ -1521,32 +1865,42 @@ async def test_credential(
             }
 
         # 第一次测试：使用 gemini-2.5-flash
-        response = await post_async(
-            url=f"{api_base_url}/v1internal:generateContent",
-            json={
-                "model": test_model,
-                "project": project_id,
-                "request": {
-                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
-                    "generationConfig": {"maxOutputTokens": 1}
-                }
-            },
-            headers=headers,
-            timeout=30.0
-        )
+        if mode == "antigravity":
+            response = await _probe_antigravity_credential(access_token, project_id)
+        else:
+            response = await post_async(
+                url=f"{api_base_url}/v1internal:generateContent",
+                json={
+                    "model": test_model,
+                    "project": project_id,
+                    "request": {
+                        "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                        "generationConfig": {"maxOutputTokens": 1}
+                    }
+                },
+                headers=headers,
+                timeout=30.0
+            )
 
         # 返回实际的状态码和详细信息
         status_code = response.status_code
 
         if status_code == 200 or status_code == 429:
             log.info(f"凭证测试成功: {filename} (mode={mode}, model={test_model}, status={status_code})")
+            success_state = {"disabled": False}
+            if status_code == 200:
+                success_state.update({
+                    "error_codes": [],
+                    "error_messages": {},
+                })
+            await storage_adapter.update_credential_state(
+                filename,
+                success_state,
+                mode=mode,
+            )
+
             # 测试成功时清除错误状态
             if status_code == 200:
-                await storage_adapter.update_credential_state(filename, {
-                    "error_codes": [],
-                    "error_messages": {}
-                }, mode=mode)
-
                 # 如果是 geminicli 模式且第一次测试成功，继续测试 gemini-3-flash-preview
                 if mode == "geminicli":
                     preview_model = "gemini-3-flash-preview"
@@ -1611,12 +1965,26 @@ async def test_credential(
                 error_messages = {str(status_code): error_text if error_text else f"HTTP {status_code}"}
 
                 # 更新状态
-                await storage_adapter.update_credential_state(filename, {
+                state_update = {
                     "error_codes": error_codes,
                     "error_messages": error_messages
-                }, mode=mode)
+                }
+                validation_required = (
+                    mode == "antigravity" and _is_validation_required(error_text)
+                )
+                if validation_required:
+                    state_update["disabled"] = True
 
-                log.info(f"已保存测试错误信息: {filename} - 错误码 {status_code}")
+                await storage_adapter.update_credential_state(
+                    filename,
+                    state_update,
+                    mode=mode,
+                )
+
+                log.info(
+                    f"已保存测试错误信息: {filename} - 错误码 {status_code}, "
+                    f"validation_required={validation_required}"
+                )
             except Exception as e:
                 log.error(f"保存测试错误信息失败: {e}")
 
@@ -1630,6 +1998,7 @@ async def test_credential(
                 "status_code": status_code,
                 "message": f"测试失败: HTTP {status_code}",
                 "error": error_text,
+                "validation_required": _is_validation_required(error_text),
                 "filename": filename
             }
         )
