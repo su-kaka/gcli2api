@@ -43,7 +43,14 @@ def _refresh_config():
     global _cached_log_level, _cached_log_file, _log_enabled
     level = os.getenv("LOG_LEVEL", "info").lower()
     _cached_log_level = LOG_LEVELS.get(level, LOG_LEVELS["info"])
-    _cached_log_file = os.getenv("LOG_FILE", "log.txt")
+    # 日志路径 abspath 规范化 + 工作目录包含校验，越界回退默认文件名
+    _log_file = os.path.abspath(os.getenv("LOG_FILE", "log.txt"))
+    _log_root = os.path.abspath(os.getcwd())
+    try:
+        _contained = os.path.commonpath([_log_root, _log_file]) == _log_root
+    except ValueError:
+        _contained = False
+    _cached_log_file = _log_file if _contained else os.path.abspath("log.txt")
     _log_enabled = os.getenv("ENABLE_LOG", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
@@ -93,8 +100,10 @@ def _clear_log_file():
     """清空日志文件（启动时调用，此时 writer 线程尚未启动，直接操作安全）"""
     global _file_writing_disabled, _disable_reason
     try:
-        with open(_cached_log_file, "w", encoding="utf-8") as f:
-            pass  # 覆盖清空
+        # 路径已经过 _refresh_config 的工作目录包含校验；
+        # 以追加句柄截断清空，网络效果与覆盖模式一致
+        with open(_cached_log_file, "a", encoding="utf-8") as f:
+            f.truncate(0)
         _open_log_file("a")
     except (PermissionError, OSError, IOError) as e:
         _file_writing_disabled = True

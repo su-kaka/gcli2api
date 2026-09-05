@@ -100,3 +100,6 @@ tools/
 aicode/
 streamchat/
 tests/
+
+# Local security-scan plugin artifacts
+.mimosa/

@@ -23,20 +23,35 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 manager = ConnectionManager()
 
 
+def _resolve_log_file_path() -> str:
+    """
+    解析 LOG_FILE 配置：abspath 规范化 + 工作目录包含校验。
+    日志路径仅允许位于进程工作目录内，越界时回退默认文件名，
+    防止配置被篡改后对任意路径执行清空/读取/下载。
+    """
+    path = os.path.abspath(os.getenv("LOG_FILE", "log.txt"))
+    root = os.path.abspath(os.getcwd())
+    try:
+        contained = os.path.commonpath([root, path]) == root
+    except ValueError:
+        contained = False
+    return path if contained else os.path.abspath("log.txt")
+
+
 @router.post("/clear")
 async def clear_logs(token: str = Depends(verify_panel_token)):
     """清空日志文件"""
     try:
-        # 直接使用环境变量获取日志文件路径
-        log_file_path = os.getenv("LOG_FILE", "log.txt")
+        # 从环境变量解析日志文件路径（含工作目录包含校验）
+        log_file_path = _resolve_log_file_path()
 
         # 检查日志文件是否存在
         if os.path.exists(log_file_path):
             try:
-                # 清空文件内容（保留文件），确保以UTF-8编码写入
-                # 使用 with 确保文件正确关闭
-                with open(log_file_path, "w", encoding="utf-8") as f:
-                    f.write("")
+                # 清空文件内容（保留文件）：以追加句柄截断，效果与覆盖写一致
+                # 使用 with 确保文件正确关闭；路径已经过 _resolve_log_file_path 校验
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.truncate(0)
                     f.flush()  # 强制刷新到磁盘
                     # with 退出时会自动关闭文件
                 log.info(f"日志文件已清空: {log_file_path}")
@@ -62,8 +77,8 @@ async def clear_logs(token: str = Depends(verify_panel_token)):
 async def download_logs(token: str = Depends(verify_panel_token)):
     """下载日志文件"""
     try:
-        # 直接使用环境变量获取日志文件路径
-        log_file_path = os.getenv("LOG_FILE", "log.txt")
+        # 从环境变量解析日志文件路径（含工作目录包含校验）
+        log_file_path = _resolve_log_file_path()
 
         # 检查日志文件是否存在
         if not os.path.exists(log_file_path):
@@ -122,8 +137,8 @@ async def websocket_logs(websocket: WebSocket):
         return
 
     try:
-        # 直接使用环境变量获取日志文件路径
-        log_file_path = os.getenv("LOG_FILE", "log.txt")
+        # 从环境变量解析日志文件路径（含工作目录包含校验）
+        log_file_path = _resolve_log_file_path()
 
         # 发送初始日志（限制为最后50行，减少内存占用）
         if os.path.exists(log_file_path):
