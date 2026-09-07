@@ -217,7 +217,10 @@ async def parse_and_log_cooldown(
     """
     try:
         error_data = json.loads(error_text)
-        cooldown_until = parse_quota_reset_timestamp(error_data, mode=mode)
+        if mode.lower() == "antigravity":
+            cooldown_until = parse_antigravity_quota_reset_timestamp(error_data)
+        else:
+            cooldown_until = parse_quota_reset_timestamp(error_data)
         if cooldown_until:
             log.info(
                 f"[{mode.upper()}] 检测到quota冷却时间: "
@@ -446,9 +449,9 @@ async def collect_streaming_response(stream_generator) -> Response:
 RESOURCE_EXHAUSTED_COOLDOWN_HOURS = 4  # RESOURCE_EXHAUSTED 错误的默认冷却时间（小时）
 
 
-def parse_quota_reset_timestamp(error_response: dict, mode: str = "geminicli") -> Optional[float]:
+def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
     """
-    从Google API错误响应中提取quota重置时间戳
+    从Google API错误响应中提取quota重置时间戳（geminicli 模式）
 
     Args:
         error_response: Google API返回的错误响应字典
@@ -477,9 +480,6 @@ def parse_quota_reset_timestamp(error_response: dict, mode: str = "geminicli") -
     """
     try:
         error_obj = error_response.get("error", {})
-
-        if mode.lower() == "antigravity" and error_obj.get("status") == "RESOURCE_EXHAUSTED":
-            return None
 
         details = error_obj.get("details", [])
 
@@ -525,6 +525,104 @@ def parse_quota_reset_timestamp(error_response: dict, mode: str = "geminicli") -
         ):
             cooldown_until = time.time() + RESOURCE_EXHAUSTED_COOLDOWN_HOURS * 3600
             return cooldown_until
+
+        return None
+
+    except Exception:
+        return None
+
+
+def parse_antigravity_quota_reset_timestamp(error_response: dict) -> Optional[float]:
+    """
+    从 Antigravity API 429 错误响应中提取quota重置时间戳
+
+    解析优先级：
+    1. ErrorInfo.metadata.quotaResetTimeStamp（绝对时间戳，最精确）
+    2. ErrorInfo.metadata.quotaResetDelay（相对时长，如 "154h21m14.468080073s"）
+    3. RetryInfo.retryDelay（纯秒数，如 "555674.468080073s"）
+
+    Args:
+        error_response: Antigravity API返回的错误响应字典
+
+    Returns:
+        Unix时间戳（秒），如果无法解析则返回None（不设置冷却，由重试逻辑切换凭证）
+
+    示例错误响应:
+    {
+      "error": {
+        "code": 429,
+        "message": "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 154h21m14s.",
+        "status": "RESOURCE_EXHAUSTED",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "QUOTA_EXHAUSTED",
+            "metadata": {
+              "quotaResetDelay": "154h21m14.468080073s",
+              "quotaResetTimeStamp": "2026-09-10T01:29:45Z"
+            }
+          },
+          {
+            "@type": "type.googleapis.com/google.rpc.RetryInfo",
+            "retryDelay": "555674.468080073s"
+          }
+        ]
+      }
+    }
+    """
+    try:
+        error_obj = error_response.get("error", {})
+        details = error_obj.get("details", [])
+
+        error_info_metadata: Optional[dict] = None
+        retry_delay_str: Optional[str] = None
+
+        for detail in details:
+            detail_type = detail.get("@type", "")
+            if detail_type == "type.googleapis.com/google.rpc.ErrorInfo":
+                error_info_metadata = detail.get("metadata", {})
+            elif detail_type == "type.googleapis.com/google.rpc.RetryInfo":
+                retry_delay_str = detail.get("retryDelay")
+
+        # 优先级1: quotaResetTimeStamp（绝对时间戳）
+        if error_info_metadata:
+            reset_timestamp_str = error_info_metadata.get("quotaResetTimeStamp")
+            if reset_timestamp_str:
+                if reset_timestamp_str.endswith("Z"):
+                    reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
+
+                reset_dt = datetime.fromisoformat(reset_timestamp_str)
+                if reset_dt.tzinfo is None:
+                    reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+
+                return reset_dt.astimezone(timezone.utc).timestamp()
+
+        unit_to_seconds = {
+            "s": 1,
+            "m": 60,
+            "h": 3600,
+            "d": 86400,
+        }
+
+        # 优先级2: quotaResetDelay（相对时长，支持小数秒，如 "154h21m14.468080073s"）
+        if error_info_metadata:
+            reset_delay_str = error_info_metadata.get("quotaResetDelay")
+            if reset_delay_str:
+                parts = re.findall(r"(\d+(?:\.\d+)?)([smhd])", reset_delay_str)
+                if parts:
+                    cooldown_seconds = sum(
+                        float(value) * unit_to_seconds[unit] for value, unit in parts
+                    )
+                    if cooldown_seconds > 0:
+                        return time.time() + cooldown_seconds
+
+        # 优先级3: RetryInfo.retryDelay（纯秒数，如 "555674.468080073s"）
+        if retry_delay_str:
+            delay_match = re.match(r"^(\d+(?:\.\d+)?)s$", retry_delay_str.strip())
+            if delay_match:
+                cooldown_seconds = float(delay_match.group(1))
+                if cooldown_seconds > 0:
+                    return time.time() + cooldown_seconds
 
         return None
 
