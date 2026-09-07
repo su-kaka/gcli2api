@@ -1,5 +1,7 @@
 # Credential files - should never be committed
 *.json
+!install-gcli2api.sh
+!uninstall-gcli2api.sh
 !package.json
 !package-lock.json
 !tsconfig.json

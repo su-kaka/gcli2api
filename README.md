@@ -1,5 +1,130 @@
 # GeminiCLI to API
 
+> 本仓库维护版：`qingan123/gcli2api`
+>
+> 支持 Gemini CLI / Antigravity，包含改进后的 Antigravity 流式抗截断续写逻辑。
+
+## ⚡ 一键部署（推荐）
+
+Linux / macOS / WSL：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qingan123/gcli2api/master/install-gcli2api.sh | bash
+```
+
+默认配置：
+
+- 部署目录：`~/gcli2api`
+- 端口：`7861`
+- 默认密码：`584248`
+- 容器启动后会自动检查 `/antigravity/v1/models`
+
+自定义密码、端口和目录：
+
+```bash
+PASSWORD='你的密码' PORT=7861 GCLI2API_DIR=/opt/gcli2api \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/qingan123/gcli2api/master/install-gcli2api.sh)"
+```
+
+## 🧹 一键卸载
+
+默认卸载容器和服务，但保留凭证数据：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qingan123/gcli2api/master/uninstall-gcli2api.sh | bash
+```
+
+卸载并删除部署目录、凭证和全部数据：
+
+```bash
+REMOVE_DATA=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/qingan123/gcli2api/master/uninstall-gcli2api.sh)"
+```
+
+## 🔌 API 接口
+
+公网部署后，将下面的 `HOST` 替换为服务器公网 IP 或域名：
+
+```text
+HOST=http://你的公网IP:7861
+API_BASE=$HOST/antigravity/v1
+PASSWORD=584248
+```
+
+### Antigravity OpenAI 兼容接口（推荐）
+
+模型列表：
+
+```http
+GET $API_BASE/models
+Authorization: Bearer 584248
+```
+
+聊天接口：
+
+```http
+POST $API_BASE/chat/completions
+Authorization: Bearer 584248
+Content-Type: application/json
+```
+
+请求示例：
+
+```bash
+curl "$API_BASE/chat/completions" \
+  -H "Authorization: Bearer 584248" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": false
+  }'
+```
+
+### 抗截断请求
+
+抗截断仅对流式请求启用，模型名前加 `抗截断/`：
+
+```bash
+curl "$API_BASE/chat/completions" \
+  -H "Authorization: Bearer 584248" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "抗截断/gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "写一篇长文章"}],
+    "stream": true
+  }'
+```
+
+### Antigravity Gemini 原生接口
+
+```http
+POST $API_BASE/models/{model}:generateContent
+Authorization: Bearer 584248
+Content-Type: application/json
+```
+
+### Antigravity Claude 兼容接口
+
+```http
+POST $API_BASE/messages
+Authorization: Bearer 584248
+Content-Type: application/json
+```
+
+### Gemini CLI 接口
+
+如果上传的是 Gemini CLI 凭证而不是 Antigravity 凭证，使用：
+
+```text
+http://你的公网IP:7861/v1
+```
+
+Antigravity 凭证必须使用：
+
+```text
+http://你的公网IP:7861/antigravity/v1
+```
+
 **将 GeminiCLI 和 Antigravity 转换为 OpenAI 、GEMINI 和 Claude API 兼容接口**
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
