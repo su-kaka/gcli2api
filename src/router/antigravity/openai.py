@@ -259,7 +259,9 @@ async def chat_completions(
             stream_request_wrapper,
             anti_truncation_payload,
             max_attempts,
-            enable_prefill_mode=("claude" not in str(api_request.get("model", "")).lower()),
+            # Antigravity may ignore model prefill and finish immediately. Use an
+            # explicit continuation user message so plain-text fallback can resume.
+            enable_prefill_mode=False,
         )
 
         # 转换为 OpenAI 格式
