@@ -646,7 +646,7 @@ async def _try_load_code_assist(
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
         "metadata": {
-            "ideType": "ANTIGRAVITY"
+            "ideType": "IDE_UNSPECIFIED"
         }
     }
 
@@ -738,7 +738,7 @@ async def _try_onboard_user(
     request_body = {
         "tierId": tier_id,
         "metadata": {
-            "ideType": "ANTIGRAVITY",
+            "ideType": "IDE_UNSPECIFIED",
             "platform": "PLATFORM_UNSPECIFIED",
             "pluginType": "GEMINI"
         }
@@ -815,7 +815,7 @@ async def _get_onboard_tier(
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
     request_body = {
         "metadata": {
-            "ideType": "ANTIGRAVITY",
+            "ideType": "IDE_UNSPECIFIED",
             "platform": "PLATFORM_UNSPECIFIED",
             "pluginType": "GEMINI"
         }
