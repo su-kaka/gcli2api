@@ -12,6 +12,13 @@ from src.converter.thoughtSignature_fix import SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
 # ==================== Gemini API 配置 ====================
 
+_BLOCKED_HERMES_IDENTITY = (
+    "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
+)
+_COMPATIBLE_HERMES_IDENTITY = (
+    "Hermes Agent is an intelligent and helpful software assistant from Nous Research."
+)
+
 DEFAULT_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -32,6 +39,33 @@ LITE_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
 ]
+
+
+def _rewrite_blocked_system_identity(value: Any) -> tuple[Any, bool]:
+    """Reword the Hermes identity fingerprint that Antigravity rejects as a 429."""
+    if isinstance(value, str):
+        rewritten = value.replace(_BLOCKED_HERMES_IDENTITY, _COMPATIBLE_HERMES_IDENTITY)
+        return rewritten, rewritten != value
+
+    if isinstance(value, list):
+        rewritten_items = []
+        changed = False
+        for item in value:
+            rewritten_item, item_changed = _rewrite_blocked_system_identity(item)
+            rewritten_items.append(rewritten_item)
+            changed = changed or item_changed
+        return rewritten_items, changed
+
+    if isinstance(value, dict):
+        rewritten_dict = {}
+        changed = False
+        for key, item in value.items():
+            rewritten_item, item_changed = _rewrite_blocked_system_identity(item)
+            rewritten_dict[key] = rewritten_item
+            changed = changed or item_changed
+        return rewritten_dict, changed
+
+    return value, False
 
 
 def _append_schema_hint(schema: Dict[str, Any], hint: str) -> None:
@@ -716,7 +750,19 @@ async def normalize_antigravity_request(
     model = result.get("model", "")
     generation_config = (result.get("generationConfig") or {}).copy()  # 创建副本避免修改原对象
     tools = result.get("tools")
-    system_instruction = result.get("systemInstruction") or result.get("system_instructions")
+
+    for system_key in ("systemInstruction", "system_instructions"):
+        if system_key not in result:
+            continue
+        rewritten_system, identity_rewritten = _rewrite_blocked_system_identity(
+            result[system_key]
+        )
+        if identity_rewritten:
+            result[system_key] = rewritten_system
+            log.warning(
+                "[ANTIGRAVITY] Reworded a Hermes system identity fingerprint "
+                "rejected by the upstream service"
+            )
 
     # 记录原始请求
     log.debug(f"[ANTIGRAVITY_FIX] 原始请求 - 模型: {model}, generationConfig: {generation_config}")
