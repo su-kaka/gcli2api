@@ -10,11 +10,6 @@ security = HTTPBearer()
 
 # ====================== OAuth Configuration ======================
 
-_GEMINICLI_VERSION = "0.55.1"
-_GEMINICLI_PLATFORM = "win32"
-_GEMINICLI_ARCH = "x64"
-_GEMINICLI_SURFACE = "cloud-shell"
-
 def get_geminicli_user_agent(model: str = "") -> str:
     """生成动态 User-Agent: GeminiCLI/{version}/{model} ({platform}; {arch}; {surface})"""
     if model:
