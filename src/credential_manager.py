@@ -47,7 +47,8 @@ class CredentialManager:
         log.debug("Credential manager closed")
 
     async def get_valid_credential(
-        self, mode: str = "geminicli", model_name: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None,
+        sticky_file: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
@@ -61,6 +62,9 @@ class CredentialManager:
                                    - 包含 "preview" 的模型只能使用 preview=True 的凭证
                                    - 不包含 "preview" 的模型优先使用 preview=False 的凭证
                        - antigravity: 完整模型名（如 "gemini-2.0-flash-exp"）
+            sticky_file: 优先返回的凭证文件名（会话粘性）。仅当该凭证当前可用
+                         （未禁用、未冷却、符合preview要求）时生效，否则退化为
+                         普通随机选择；不绕过任何可用性检查。
         """
         await self._ensure_initialized()
 
@@ -68,7 +72,7 @@ class CredentialManager:
         max_retries = 3
         for attempt in range(max_retries):
             result = await self._storage_adapter._backend.get_next_available_credential(
-                mode=mode, model_name=model_name
+                mode=mode, model_name=model_name, preferred_filename=sticky_file
             )
 
             # 如果没有可用凭证，直接返回None
@@ -475,6 +479,57 @@ class CredentialManager:
         # 默认认为是临时错误（如网络问题），不应封禁凭证
         log.debug("未匹配到明确的永久失效模式，判定为临时错误")
         return False
+
+class StickySessionStore:
+    """
+    会话粘性绑定：session指纹 -> 凭证文件名（进程内存储）。
+
+    目的：让同一场对话固定落在同一个上游账号上。既提高上游上下文缓存命中，
+    也避免同一场对话的请求在多个账号间漂移（sessionId 跨账号复用）。
+
+    不持久化、不参与任何可用性判断——粘性命中只是"优先"，凭证是否真正可用
+    仍由存储层的常规检查（disabled/冷却/preview）决定。
+    """
+
+    def __init__(self, ttl_seconds: float = 1800.0, max_entries: int = 2048):
+        self._ttl = ttl_seconds
+        self._max_entries = max_entries
+        self._lock = asyncio.Lock()
+        # key -> (credential_file, expires_at)
+        self._bindings: Dict[str, Tuple[str, float]] = {}
+
+    async def get(self, session_key: str) -> Optional[str]:
+        """查绑定；过期或无绑定返回 None"""
+        if not session_key:
+            return None
+        async with self._lock:
+            entry = self._bindings.get(session_key)
+            if entry is None:
+                return None
+            credential_file, expires_at = entry
+            if time.time() >= expires_at:
+                del self._bindings[session_key]
+                return None
+            return credential_file
+
+    async def bind(self, session_key: str, credential_file: str) -> None:
+        """写入/刷新绑定；超容量时先清过期项，仍超则淘汰最先过期的项"""
+        if not session_key or not credential_file:
+            return
+        async with self._lock:
+            now = time.time()
+            if len(self._bindings) >= self._max_entries:
+                for key in [k for k, (_, exp) in self._bindings.items() if now >= exp]:
+                    del self._bindings[key]
+            while len(self._bindings) >= self._max_entries:
+                oldest_key = min(self._bindings, key=lambda k: self._bindings[k][1])
+                del self._bindings[oldest_key]
+            self._bindings[session_key] = (credential_file, now + self._ttl)
+
+
+# 全局粘性会话存储（各 API 模块直接导入使用）
+sticky_session_store = StickySessionStore()
+
 
 class _CredentialManagerSingleton:
     """单例包装器，支持懒加载和自动初始化"""
