@@ -24,10 +24,12 @@ from src.router.antigravity.openai import router as antigravity_openai_router
 from src.router.antigravity.gemini import router as antigravity_gemini_router
 from src.router.antigravity.anthropic import router as antigravity_anthropic_router
 from src.router.antigravity.model_list import router as antigravity_model_list_router
+from src.router.antigravity.audio import router as antigravity_audio_router
 from src.router.geminicli.openai import router as geminicli_openai_router
 from src.router.geminicli.gemini import router as geminicli_gemini_router
 from src.router.geminicli.anthropic import router as geminicli_anthropic_router
 from src.router.geminicli.model_list import router as geminicli_model_list_router
+from src.router.geminicli.audio import router as geminicli_audio_router
 from src.task_manager import shutdown_all_tasks
 from src.panel import router as panel_router
 from src.keeplive import keepalive_service
@@ -202,6 +204,9 @@ app.include_router(geminicli_gemini_router, prefix="", tags=["Geminicli Gemini A
 # Geminicli模型列表路由 - 处理Gemini格式的模型列表请求
 app.include_router(geminicli_model_list_router, prefix="", tags=["Geminicli Model List"])
 
+# Geminicli音频转录路由 - OpenAI 格式的语音转文字接口
+app.include_router(geminicli_audio_router, prefix="", tags=["Geminicli Audio API"])
+
 # Antigravity路由 - 处理OpenAI格式请求并转换为Antigravity API
 app.include_router(antigravity_openai_router, prefix="", tags=["Antigravity OpenAI API"])
 
@@ -210,6 +215,9 @@ app.include_router(antigravity_gemini_router, prefix="", tags=["Antigravity Gemi
 
 # Antigravity模型列表路由 - 处理Gemini格式的模型列表请求
 app.include_router(antigravity_model_list_router, prefix="", tags=["Antigravity Model List"])
+
+# Antigravity音频转录路由 - OpenAI 格式的语音转文字接口
+app.include_router(antigravity_audio_router, prefix="", tags=["Antigravity Audio API"])
 
 # Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
