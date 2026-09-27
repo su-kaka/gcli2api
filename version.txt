@@ -1,4 +1,4 @@
-full_hash=46e0b42a9d359b2f06aa1f02b73dc413f5d8ff10
-short_hash=46e0b42
-message=优化抗截断
-date=2026-09-14 22:42:06 +0800
+full_hash=d8f4a59c873c350b659ca21b5ab5959ab105fde7
+short_hash=d8f4a59
+message=Update utils.py
+date=2026-09-27 16:00:09 +0800
