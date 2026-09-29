@@ -146,11 +146,13 @@ async def perform_update(token: str = Depends(verify_panel_token)):
             f"bash -s -- {shlex.quote(project_root)} {shlex.quote(sys.executable)}"
         )
 
-    subprocess.Popen(["bash", "-c", cmd], start_new_session=True, cwd=project_root)
+    log.info(f"启动更新脚本: {cmd}")
+    proc = subprocess.Popen(["bash", "-c", cmd], start_new_session=True, cwd=project_root)
+    log.info(f"更新脚本 PID: {proc.pid}，日志: {os.path.join(project_root, 'update.log')}")
 
     async def _exit():
         await asyncio.sleep(0.5)
-        log.info("更新脚本已启动，当前服务即将退出...")
+        log.info("当前服务即将退出，等待更新脚本完成重启...")
         os.kill(os.getpid(), signal.SIGTERM)
 
     asyncio.create_task(_exit())
