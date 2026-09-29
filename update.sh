@@ -2,13 +2,14 @@
 # 自动更新脚本 - 由 /version/update API 触发，在独立进程中执行
 # 用法: bash update.sh <project_dir> <python_bin>
 
-PROJECT_DIR="${1}"
+PROJECT_DIR="${1:-$(pwd)}"
 PYTHON_BIN="${2:-python}"
-LOG_FILE="${PROJECT_DIR}/update.log"
-
-log() { echo "[update] $(date '+%H:%M:%S') $*" | tee -a "$LOG_FILE"; }
 
 cd "$PROJECT_DIR" || { echo "无法进入目录: $PROJECT_DIR"; exit 1; }
+
+# cd 成功后再定义日志路径（避免 PROJECT_DIR 为空时写入根目录）
+LOG_FILE="update.log"
+log() { echo "[update] $(date '+%H:%M:%S') $*" | tee -a "$LOG_FILE"; }
 
 # 清空上次日志
 > "$LOG_FILE"
