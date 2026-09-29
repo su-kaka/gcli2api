@@ -1,4 +1,4 @@
-full_hash=d5c6447fa07bf6582dd66e3821b694d85a9403c3
-short_hash=d5c6447
-message=fix: resolve log path when PROJECT_DIR is empty or missing
-date=2026-09-29 11:39:08 +0000
+full_hash=868eaf0e652792d790137bd6763acfedc24378ec
+short_hash=868eaf0
+message=fix: improve Python env handling in update.sh
+date=2026-09-29 11:53:14 +0000
