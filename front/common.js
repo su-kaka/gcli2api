@@ -3134,18 +3134,20 @@ async function checkForUpdates() {
                 // 检查更新失败
                 showStatus(`检查更新失败: ${data.update_error || '未知错误'}`, 'error');
             } else if (data.has_update === true) {
-                // 有更新
-                const updateMsg = `发现新版本！\n当前: v${data.version}\n最新: v${data.latest_version}\n\n更新内容: ${data.latest_message || '无'}`;
-                showStatus(updateMsg.replace(/\n/g, ' '), 'warning');
+                // 有更新 - 按钮变为"立即更新"入口
+                const updateMsg = `发现新版本！当前: v${data.version}  最新: v${data.latest_version}  更新内容: ${data.latest_message || '无'}`;
+                showStatus(updateMsg, 'warning');
 
-                // 更新按钮样式
                 checkBtn.style.backgroundColor = '#ffc107';
-                checkBtn.textContent = '有新版本';
+                checkBtn.textContent = '立即更新';
+                checkBtn.disabled = false;
+                checkBtn.onclick = () => performUpdate(data);
 
                 setTimeout(() => {
                     checkBtn.style.backgroundColor = '#17a2b8';
                     checkBtn.textContent = originalText;
-                }, 5000);
+                    checkBtn.onclick = null;
+                }, 30000);
             } else if (data.has_update === false) {
                 // 已是最新
                 showStatus('已是最新版本！', 'success');
@@ -3171,6 +3173,52 @@ async function checkForUpdates() {
         checkBtn.disabled = false;
         if (checkBtn.textContent === '检查中...') {
             checkBtn.textContent = originalText;
+        }
+    }
+}
+
+async function performUpdate(versionData) {
+    const confirmMsg = versionData
+        ? `Confirm update from v${versionData.version} to v${versionData.latest_version}?\n\nThe service will restart automatically (approx. 15–60 seconds).`
+        : 'Confirm update and restart service?';
+    if (!confirm(confirmMsg)) return;
+
+    const checkBtn = document.getElementById('checkUpdateBtn');
+    if (checkBtn) {
+        checkBtn.textContent = '更新中...';
+        checkBtn.disabled = true;
+        checkBtn.onclick = null;
+    }
+    showStatus('正在拉取最新代码，服务即将重启，请稍候...', 'info');
+
+    try {
+        const response = await fetch('./version/update', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showStatus('更新成功！服务正在重启，15 秒后自动刷新页面...', 'success');
+            setTimeout(() => window.location.reload(), 15000);
+        } else if (data.docker) {
+            showStatus(data.error.replace(/\n/g, ' | '), 'warning');
+            if (checkBtn) {
+                checkBtn.textContent = '检查更新';
+                checkBtn.disabled = false;
+            }
+        } else {
+            showStatus(`更新失败: ${data.error}`, 'error');
+            if (checkBtn) {
+                checkBtn.textContent = '检查更新';
+                checkBtn.disabled = false;
+            }
+        }
+    } catch (error) {
+        showStatus(`更新请求失败: ${error.message}`, 'error');
+        if (checkBtn) {
+            checkBtn.textContent = '检查更新';
+            checkBtn.disabled = false;
         }
     }
 }

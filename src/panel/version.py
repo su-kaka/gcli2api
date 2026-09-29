@@ -2,12 +2,18 @@
 版本信息路由模块 - 处理 /version/* 相关的HTTP请求
 """
 
+import asyncio
 import os
+import shlex
+import signal
+import subprocess
+import sys
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from log import log
+from src.utils import verify_panel_token
 
 
 # 创建路由器
@@ -105,3 +111,47 @@ async def get_version_info(check_update: bool = False):
             "success": False,
             "error": str(e)
         })
+
+
+# ──────────────────────────────────────────────
+# 自动更新
+# ──────────────────────────────────────────────
+
+# 本地 update.sh 不存在时的兜底地址（原仓库）
+_DEFAULT_UPDATER_URL = "https://raw.githubusercontent.com/su-kaka/gcli2api/master/update.sh"
+
+
+@router.post("/update")
+async def perform_update(token: str = Depends(verify_panel_token)):
+    if os.path.exists("/.dockerenv"):
+        return JSONResponse({
+            "success": False,
+            "docker": True,
+            "error": (
+                "Docker 环境不支持自动更新。\n"
+                "请在宿主机执行：docker compose pull && docker compose up -d"
+            ),
+        })
+
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    local_script = os.path.join(project_root, "update.sh")
+
+    # 优先用本地 update.sh（fork 用户推送自己的版本后自动生效）
+    # 不存在则从默认地址下载
+    if os.path.exists(local_script):
+        cmd = f"bash {shlex.quote(local_script)} {shlex.quote(project_root)} {shlex.quote(sys.executable)}"
+    else:
+        cmd = (
+            f"curl -fsSL {_DEFAULT_UPDATER_URL} | "
+            f"bash -s -- {shlex.quote(project_root)} {shlex.quote(sys.executable)}"
+        )
+
+    subprocess.Popen(["bash", "-c", cmd], start_new_session=True, cwd=project_root)
+
+    async def _exit():
+        await asyncio.sleep(0.5)
+        log.info("更新脚本已启动，当前服务即将退出...")
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_exit())
+    return JSONResponse({"success": True, "message": "正在更新，完成后服务将自动重启（通常需要 15-60 秒）"})
