@@ -674,23 +674,6 @@ def _normalize_antigravity_request(
     if "claude" in model.lower():
         original_model = model
         model_lower = model.lower()
-
-        if "claude-opus-5-5" in model_lower or "claude-sonnet-5-5" in model_lower:
-            # Claude 5.5 model IDs are already returned by Antigravity,
-            # so keep them unchanged.
-            pass
-        elif "opus" in model_lower:
-            model = "claude-opus-4-6-thinking"
-        elif "sonnet" in model_lower:
-            model = "claude-sonnet-4-6"
-        elif "haiku" in model_lower:
-            model = "gemini-2.5-flash"
-        else:
-            model = "claude-sonnet-4-6"
-
-        if original_model != model:
-            log.debug(f"[ANTIGRAVITY] 映射模型: {original_model} -> {model}")
-
     return model
 
 
