@@ -672,17 +672,20 @@ def _normalize_antigravity_request(
                         break
 
     if "claude" in model.lower():
-        # 2. Claude 模型关键词映射
-        # 使用关键词匹配而不是精确匹配，更灵活地处理各种变体
         original_model = model
-        if "opus" in model.lower():
+        model_lower = model.lower()
+
+        if "claude-opus-5-5" in model_lower or "claude-sonnet-5-5" in model_lower:
+            # Claude 5.5 model IDs are already returned by Antigravity,
+            # so keep them unchanged.
+            pass
+        elif "opus" in model_lower:
             model = "claude-opus-4-6-thinking"
-        elif "sonnet" in model.lower():
+        elif "sonnet" in model_lower:
             model = "claude-sonnet-4-6"
-        elif "haiku" in model.lower():
+        elif "haiku" in model_lower:
             model = "gemini-2.5-flash"
-        elif "claude" in model.lower():
-            # Claude 模型兜底：如果包含 claude 但不是 opus/sonnet/haiku
+        else:
             model = "claude-sonnet-4-6"
 
         if original_model != model:
