@@ -671,8 +671,8 @@ def _normalize_antigravity_request(
                             log.debug(f"[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
                         break
 
-    #实测Antigravity 现在已经返回真实模型 ID，因此这里可以直接保留原始 model ID，
-    #无需再根据 opus / sonnet 等关键词把 Claude 模型强制映射到硬编码的某个固定版本。
+    #实测 Antigravity 现在已经返回真实模型 ID，因此这里可以直接保留原始 model ID，
+    #无需再根据 opus / sonnet 等关键词把 Claude 模型强制映射到某个固定版本。
     return model
 
 
