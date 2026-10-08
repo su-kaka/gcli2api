@@ -310,7 +310,11 @@ def _deep_copy_anti_truncation_payload(payload: Dict[str, Any]) -> Dict[str, Any
 
 
 class AntiTruncationStreamProcessor:
-    """反截断流式处理器 - 基于合成工具调用"""
+    """反截断流式处理器 - 基于合成工具调用
+
+    模型未走合成工具、直接输出普通文本时，文本 chunk 实时透传给客户端
+    （不再整流缓冲等待），仅在流末统一补发 finishReason 收尾，尽量避免等待。
+    """
 
     def __init__(
         self,
@@ -327,6 +331,9 @@ class AntiTruncationStreamProcessor:
         self.enable_prefill_mode = enable_prefill_mode
         self.collected_content = io.StringIO()
         self.current_attempt = 0
+        # 整个请求期间是否有文本实时透传给客户端
+        # （异常兜底时判断 salvaged 文本是否已发过，避免重发）
+        self.forwarded_any_text = False
 
     def _get_collected_text(self) -> str:
         """获取收集的文本内容"""
@@ -354,8 +361,11 @@ class AntiTruncationStreamProcessor:
             # 每轮流内状态：初始化放在 try 之外，流中断的异常路径需要访问
             found_synthetic = False
             has_real_tool_calls = False
-            side_buffer = io.StringIO()  # 暂存普通文本（防拼接）
+            # 收集已实时透传给客户端的普通文本（供续传历史 / 异常抢救使用）
+            side_buffer = io.StringIO()
             last_finish_reason: Optional[str] = None
+            # finishReason 是否已透传给客户端（避免收尾时重复补发）
+            finish_reason_forwarded = False
 
             try:
                 response = await self.original_request_func(current_payload)
@@ -421,9 +431,12 @@ class AntiTruncationStreamProcessor:
                                     "Anti-truncation: Stream complete with synthetic tool call",
                                     flush=True,
                                 )
-                                yield line
                                 side_buffer.close()
                                 self._clear_content()
+                                if not finish_reason_forwarded:
+                                    # 流未自然收尾：补发 finishReason 让客户端正常结束
+                                    yield self._build_finish_reason_chunk()
+                                yield line
                                 return
                             else:
                                 print(
@@ -447,11 +460,14 @@ class AntiTruncationStreamProcessor:
 
                         if chunk_has_synthetic:
                             found_synthetic = True
-                            # 防拼接：丢弃之前暂存的普通文本
+                            # 实时透传模式下 side_buffer 中的文本已发给客户端，
+                            # 若模型先输出普通文本又转用合成工具，则视为内容冲突，
+                            # 丢弃已透传的普通文本并输出告警（客户端会看到合成工具内容）
                             if side_buffer.getvalue():
                                 print(
-                                    "Anti-truncation: Discarding side-buffered text "
-                                    "(content conflict with synthetic tool)",
+                                    "Anti-truncation: Model output plain text before "
+                                    "synthetic tool call, synthetic content wins "
+                                    "(forwarded text conflicts and is dropped)",
                                     flush=True,
                                 )
                                 side_buffer.close()
@@ -469,9 +485,21 @@ class AntiTruncationStreamProcessor:
                             )
                             yield f"data: {json_str}\n\n".encode("utf-8")
 
+                            # 替换后的 chunk 保留原 finishReason（若有），
+                            # 已随上面的 yield 透传，标记避免收尾重复补发
+                            chunk_finish = self._get_finish_reason(data)
+                            if chunk_finish:
+                                last_finish_reason = chunk_finish
+                                finish_reason_forwarded = True
+
                         elif real_calls:
                             # 真实工具调用，原样透传
                             has_real_tool_calls = True
+                            chunk_finish = self._get_finish_reason(data)
+                            if chunk_finish:
+                                last_finish_reason = chunk_finish
+                                # 原样透传的 chunk 自带 finishReason
+                                finish_reason_forwarded = True
                             yield line
 
                         else:
@@ -482,6 +510,7 @@ class AntiTruncationStreamProcessor:
                                 # 但需清空其中的 text 避免重复内容；纯 text 内容 chunk 丢弃（防拼接）
                                 if self._has_finish_reason(data):
                                     last_finish_reason = self._get_finish_reason(data)
+                                    finish_reason_forwarded = True
                                     stripped = self._strip_text_parts(data)
                                     json_str = json.dumps(
                                         stripped, separators=(",", ":"), ensure_ascii=False
@@ -489,14 +518,32 @@ class AntiTruncationStreamProcessor:
                                     yield f"data: {json_str}\n\n".encode("utf-8")
                                 continue
                             else:
-                                # 暂存到 side buffer，等待看是否有合成工具调用
+                                # 模型未走合成工具、直接输出普通文本：
+                                # 实时透传给客户端（避免整流缓冲等待）
                                 text = self._extract_text_from_chunk(data)
                                 if text:
                                     side_buffer.write(text)
+                                    self.forwarded_any_text = True
+                                    if self._has_finish_reason(data):
+                                        # 文本与 finishReason 同 chunk：透传剥离
+                                        # finishReason 后的文本，收尾信号由流结束
+                                        # 逻辑统一决定补发
+                                        stripped = self._strip_finish_reason(data)
+                                        json_str = json.dumps(
+                                            stripped, separators=(",", ":"), ensure_ascii=False
+                                        )
+                                        yield f"data: {json_str}\n\n".encode("utf-8")
+                                    else:
+                                        # 纯文本内容 chunk：原样透传
+                                        yield line
                                 chunk_finish = self._get_finish_reason(data)
                                 if chunk_finish:
                                     last_finish_reason = chunk_finish
-                                # 暂时不透传，等流结束时决定
+                                    # 收尾控制信号先暂扣，流结束后决定续传或补发
+                                    continue
+                                if not text:
+                                    # 无文本无工具调用的空 chunk：透传（usage 等）
+                                    yield line
                                 continue
 
                     else:
@@ -511,6 +558,9 @@ class AntiTruncationStreamProcessor:
                     # 成功收到合成工具调用
                     print("Anti-truncation: Found synthetic tool call, output complete", flush=True)
                     self._clear_content()
+                    if not finish_reason_forwarded:
+                        # 流未自然收尾（无 finishReason chunk）：补发收尾信号
+                        yield self._build_finish_reason_chunk()
                     yield b"data: [DONE]\n\n"
                     return
 
@@ -520,33 +570,18 @@ class AntiTruncationStreamProcessor:
                     print(
                         f"Anti-truncation: Stream ended with STOP without synthetic tool call "
                         f"(text length: {len(side_text)}), treating as complete",
-                        flush=True,
-                    )
-                    if side_text:
-                        # 输出暂存文本（正常情况下模型守规矩时不会走到这里）
-                        self._append_content(side_text)
-                        fallback_chunk = self._build_fallback_text_chunk(side_text)
-                        if fallback_chunk:
-                            yield fallback_chunk
+                        flush=True)
+                    # 文本已实时透传，仅需补发被暂扣的 finishReason 收尾 chunk
+                    if not finish_reason_forwarded:
+                        yield self._build_finish_reason_chunk(last_finish_reason)
                     self._clear_content()
-                    # 补发 finishReason 收尾 chunk（Gemini 客户端靠它判断流正常结束）
-                    yield self._build_finish_reason_chunk()
                     yield b"data: [DONE]\n\n"
                     return
 
                 # 未收到合成工具调用
                 if side_text:
-                    # 有普通文本作为 fallback，输出它
-                    print(
-                        f"Anti-truncation: No synthetic tool call, "
-                        f"using side-buffered text as fallback (length: {len(side_text)})",
-                        flush=True,
-                    )
+                    # 有普通文本：已实时透传给客户端，无需再补发
                     self._append_content(side_text)
-                    # 构建一个包含 side buffer 文本的 chunk 输出
-                    fallback_chunk = self._build_fallback_text_chunk(side_text)
-                    if fallback_chunk:
-                        yield fallback_chunk
 
                 # 触发续传
                 if self.current_attempt < self.max_attempts:
@@ -561,6 +596,9 @@ class AntiTruncationStreamProcessor:
                     continue
                 else:
                     print("Anti-truncation: Max attempts reached, ending stream", flush=True)
+                    # 达到重试上限：补发 finishReason 收尾，让客户端正常结束
+                    if side_text and not finish_reason_forwarded:
+                        yield self._build_finish_reason_chunk(last_finish_reason or "STOP")
                     self._clear_content()
                     yield b"data: [DONE]\n\n"
                     return
@@ -568,10 +606,17 @@ class AntiTruncationStreamProcessor:
             except Exception as e:
                 print(f"Anti-truncation error in attempt {self.current_attempt}: {str(e)}", flush=True)
 
-                # 异常中断：把本轮已暂存的文本并入收集器，作为续传历史
+                # 异常中断：把本轮已收到的文本并入收集器，作为续传历史
                 # （否则续传请求不知道模型已输出到哪，可能从头重复输出）
-                interrupted_text = side_buffer.getvalue()
-                side_buffer.close()
+                try:
+                    interrupted_text = side_buffer.getvalue()
+                except ValueError:
+                    # 正常路径已 close 后又抛错：文本此前已并入收集器
+                    interrupted_text = ""
+                try:
+                    side_buffer.close()
+                except ValueError:
+                    pass
                 if interrupted_text:
                     print(
                         f"Anti-truncation: Stream interrupted, salvaging "
@@ -581,10 +626,19 @@ class AntiTruncationStreamProcessor:
                     self._append_content(interrupted_text)
 
                 if self.current_attempt >= self.max_attempts:
-                    # 重试额度用尽：把已收到的内容（含残文）作为 fallback 输出，尽量不浪费
+                    # 重试额度用尽：已实时透传的文本不重复输出，仅补收尾信号
                     salvaged = self._get_collected_text()
                     self._clear_content()
-                    if salvaged:
+                    if salvaged and self.forwarded_any_text:
+                        print(
+                            f"Anti-truncation: Max attempts reached after error, "
+                            f"salvaged text already forwarded (length: {len(salvaged)})",
+                            flush=True,
+                        )
+                        if not finish_reason_forwarded:
+                            yield self._build_finish_reason_chunk(last_finish_reason or "STOP")
+                    elif salvaged:
+                        # 未透传过的内容（如合成工具收集的部分）：作为 fallback 输出
                         print(
                             f"Anti-truncation: Max attempts reached after error, "
                             f"yielding salvaged text (length: {len(salvaged)})",
@@ -717,6 +771,29 @@ class AntiTruncationStreamProcessor:
             modified_content = content.copy()
             modified_content["parts"] = new_parts
             modified_candidate["content"] = modified_content
+            modified_candidates.append(modified_candidate)
+
+        modified_inner["candidates"] = modified_candidates
+        if has_wrapper:
+            result = data.copy()
+            result["response"] = modified_inner
+            return result
+        return modified_inner
+
+    @staticmethod
+    def _strip_finish_reason(data: Dict[str, Any]) -> Dict[str, Any]:
+        """移除 chunk 中所有 candidate 的 finishReason（保留 text part 供透传）。"""
+        has_wrapper = "response" in data
+        inner = data["response"] if has_wrapper else data
+
+        modified_inner = inner.copy()
+        modified_candidates = []
+        for candidate in inner.get("candidates", []):
+            if not isinstance(candidate, dict) or "finishReason" not in candidate:
+                modified_candidates.append(candidate)
+                continue
+            modified_candidate = candidate.copy()
+            modified_candidate.pop("finishReason", None)
             modified_candidates.append(modified_candidate)
 
         modified_inner["candidates"] = modified_candidates
