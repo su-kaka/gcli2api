@@ -1,4 +1,4 @@
-full_hash=868eaf0e652792d790137bd6763acfedc24378ec
-short_hash=868eaf0
-message=fix: improve Python env handling in update.sh
-date=2026-09-29 11:53:14 +0000
+full_hash=91815708a58e55c5a6d9f781e2e749e5b86be64e
+short_hash=9181570
+message=Merge branch 'master' into master
+date=2026-10-09 08:28:10 +0800
