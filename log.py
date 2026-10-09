@@ -283,6 +283,11 @@ class Logger:
     def critical(self, message: str):
         _log("critical", message)
 
+    def is_enabled_for(self, level: str) -> bool:
+        """检查指定级别是否启用"""
+        level_val = LOG_LEVELS.get(level.lower())
+        return _log_enabled and level_val is not None and level_val >= _cached_log_level
+
     def get_current_level(self) -> str:
         current_level = _get_current_log_level()
         for name, value in LOG_LEVELS.items():
