@@ -582,7 +582,16 @@ def _clean_schema_for_gemini(schema: Any, root_schema: Optional[Dict[str, Any]] 
     # 10. 去重 required 数组
     if "required" in result and isinstance(result["required"], list):
         result["required"] = list(dict.fromkeys(result["required"]))  # 保持顺序去重
-    
+
+    # Gemini OpenAPI 规范要求：enum 元素必须为 TYPE_STRING
+    if "enum" in result:
+        enum_val = result.get("enum")
+        if isinstance(enum_val, list):
+            if result.get("type") == "BOOLEAN" or any(isinstance(x, bool) for x in enum_val):
+                result.pop("enum", None)
+            else:
+                result["enum"] = [str(x) for x in enum_val]
+
     return result
 
 
@@ -768,6 +777,15 @@ def _clean_schema_for_parameters_json_schema(
             result["required"] = required
         else:
             result.pop("required", None)
+
+    # Gemini OpenAPI 规范要求：enum 元素必须为 TYPE_STRING
+    if "enum" in result:
+        enum_val = result.get("enum")
+        if isinstance(enum_val, list):
+            if result.get("type") == "boolean" or any(isinstance(x, bool) for x in enum_val):
+                result.pop("enum", None)
+            else:
+                result["enum"] = [str(x) for x in enum_val]
 
     return result
 

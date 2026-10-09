@@ -181,3 +181,35 @@ def test_convert_openai_request_merges_adjacent_same_role_contents():
     assert "text" in part_types
 
 
+
+
+def test_clean_schema_removes_boolean_enum_and_stringifies_enum():
+    """测试 Gemini schema 清洗：移除 boolean 类型的 enum，并将非字符串 enum 转换为字符串"""
+    from src.converter.openai2gemini import (
+        _clean_schema_for_gemini,
+        _clean_schema_for_parameters_json_schema,
+    )
+
+    schema_params = {
+        "type": "object",
+        "properties": {
+            "is_active": {"type": "boolean", "enum": [True, False]},
+            "status_code": {"type": "integer", "enum": [200, 404, 500]},
+            "tag": {"type": "string", "enum": ["a", "b"]},
+        },
+    }
+    cleaned_params = _clean_schema_for_parameters_json_schema(schema_params)
+    assert "enum" not in cleaned_params["properties"]["is_active"]
+    assert cleaned_params["properties"]["status_code"]["enum"] == ["200", "404", "500"]
+    assert cleaned_params["properties"]["tag"]["enum"] == ["a", "b"]
+
+    schema_gemini = {
+        "type": "object",
+        "properties": {
+            "flag": {"type": "boolean", "enum": [True, False]},
+            "code": {"type": "integer", "enum": [1, 2]},
+        },
+    }
+    cleaned_gemini = _clean_schema_for_gemini(schema_gemini)
+    assert "enum" not in cleaned_gemini["properties"]["flag"]
+    assert cleaned_gemini["properties"]["code"]["enum"] == ["1", "2"]
