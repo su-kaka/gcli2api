@@ -1,4 +1,4 @@
-full_hash=44a9b2626539fffdc2ffe9749c9bbcd9fa702c7a
-short_hash=44a9b26
-message=Update anti_truncation.py
-date=2026-10-08 17:31:27 +0800
+full_hash=6d9bf5bc8c628543748fe2c8b55e1eeb7f62c857
+short_hash=6d9bf5b
+message=Merge pull request #419 from FloatingDream528/fix-gemini-schema-enum-type-string
+date=2026-10-09 08:15:43 +0800
