@@ -158,6 +158,21 @@ ghcr.io/su-kaka/gcli2api:latest
   - Claude 格式端点：`/antigravity/v1/messages`
   - 支持所有 Antigravity 模型（Claude、Gemini 等）
   - 自动模型名称映射和思维模式检测
+- **音频转录端点**：`/v1/audio/transcriptions` 和 `/antigravity/v1/audio/transcriptions`
+  - 兼容 OpenAI Whisper 接口（`multipart/form-data`），可直接对接 OpenAI SDK
+  - 表单字段：`file`（必填）、`model`、`prompt`、`language`、`response_format`、`temperature`
+  - 支持的音频格式：mp3、wav、m4a/aac、ogg/opus、flac、aiff（Gemini 内联音频限制，单文件最大 15MB）
+  - `response_format` 支持 `json`（默认）和 `text`；`verbose_json`/`srt`/`vtt` 需要时间戳，暂不支持
+  - 客户端传入 `whisper-1`、`gpt-4o-transcribe` 等 OpenAI 模型名或不传 `model` 时，
+    自动改用 `AUDIO_TRANSCRIPTION_MODEL` 指定的 Gemini 模型（默认 `gemini-2.5-flash`）
+
+```bash
+curl -X POST "http://127.0.0.1:7861/antigravity/v1/audio/transcriptions" \
+  -H "Authorization: Bearer $API_PASSWORD" \
+  -F "file=@speech.mp3" \
+  -F "model=gemini-2.5-flash"
+# {"text":"..."}
+```
 
 ### 🔐 认证和安全管理
 
