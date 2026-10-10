@@ -497,21 +497,24 @@ class MongoDBManager:
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, mode: str = "geminicli", model_name: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None,
+        preferred_filename: Optional[str] = None
     ) -> Optional[tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
         - 如果提供了 model_name，还会检查模型级冷却
         - 随机选择
+        - 如果提供了 preferred_filename，在该凭证同样满足以上条件时优先返回
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
             model_name: 完整模型名（如 "gemini-2.0-flash-exp"）
+            preferred_filename: 优先选择的凭证文件名（会话粘性），不绕过任何过滤
 
         Note:
-            - 开启 Redis 时：利用 Redis Set 随机选凭证 + TTL key 判断冷却
-            - 未开启 Redis 时：使用 count + random skip + limit(1)
+            - 开启 Redis 时：利用 Redis Set 随机选凭证 + TTL key 判断冷却（不支持粘性优先）
+            - 未开启 Redis 时：优先精确匹配 preferred_filename，否则 count + random skip + limit(1)
         """
         self._ensure_initialized()
 
@@ -549,6 +552,19 @@ class MongoDBManager:
                     {field: {"$lte": current_time}},
                 ]
 
+            projection = {"filename": 1, "credential_data": 1, "enable_credit": 1, "_id": 0}
+
+            # 会话粘性：先精确查 preferred_filename（同样满足 disabled/冷却/preview 过滤）
+            if preferred_filename:
+                doc = await collection.find_one(
+                    {**match_query, "filename": preferred_filename}, projection
+                )
+                if doc:
+                    credential_data = doc.get("credential_data") or {}
+                    if mode == "antigravity":
+                        credential_data["enable_credit"] = bool(doc.get("enable_credit", False))
+                    return doc["filename"], credential_data
+
             # 统计符合条件的凭证总数（走索引，极快）
             count = await collection.count_documents(match_query)
             if count == 0:
@@ -556,7 +572,6 @@ class MongoDBManager:
 
             # 随机偏移 + limit(1)，替代 $sample，避免全集合随机排序
             skip_n = random.randint(0, count - 1)
-            projection = {"filename": 1, "credential_data": 1, "enable_credit": 1, "_id": 0}
             docs = await collection.find(match_query, projection).skip(skip_n).limit(1).to_list(1)
 
             if docs:

@@ -131,20 +131,38 @@ class SQLiteManager:
                         log.debug(f"Table {table_name} does not exist, will be created")
                         continue
 
-                # 获取现有列
-                async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
+                # 获取现有列（PRAGMA 不支持参数绑定，按白名单表名以字面量分支选取）
+                async with db.execute(
+                    "PRAGMA table_info(credentials)" if table_name == "credentials" else
+                    "PRAGMA table_info(antigravity_credentials)"
+                ) as cursor:
                     existing_columns = {row[1] for row in await cursor.fetchall()}
 
-                # 添加缺失的列
+                # 添加缺失的列：各列 DDL 以字面量逐一内联（表名经 _get_table_name 白名单替换）
                 added_count = 0
-                for col_name, col_def in columns:
-                    if col_name not in existing_columns:
-                        try:
-                            await db.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
-                            log.info(f"Added missing column {table_name}.{col_name}")
-                            added_count += 1
-                        except Exception as e:
-                            log.error(f"Failed to add column {table_name}.{col_name}: {e}")
+                for col_name, _col_def in columns:
+                    if col_name in existing_columns:
+                        continue
+                    try:
+                        await db.execute((
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN disabled INTEGER DEFAULT 0" if col_name == "disabled" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN error_codes TEXT DEFAULT '[]'" if col_name == "error_codes" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN error_messages TEXT DEFAULT '[]'" if col_name == "error_messages" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN last_success REAL" if col_name == "last_success" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN user_email TEXT" if col_name == "user_email" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN model_cooldowns TEXT DEFAULT '{}'" if col_name == "model_cooldowns" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN preview INTEGER DEFAULT 1" if col_name == "preview" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN tier TEXT DEFAULT 'pro'" if col_name == "tier" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN enable_credit INTEGER DEFAULT 0" if col_name == "enable_credit" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN rotation_order INTEGER DEFAULT 0" if col_name == "rotation_order" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN call_count INTEGER DEFAULT 0" if col_name == "call_count" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN created_at REAL DEFAULT (unixepoch())" if col_name == "created_at" else
+                            "ALTER TABLE __TABLE_NAME__ ADD COLUMN updated_at REAL DEFAULT (unixepoch())"
+                        ).replace("__TABLE_NAME__", table_name))
+                        added_count += 1
+                        log.info(f"Added missing column {table_name}.{col_name}")
+                    except Exception as e:
+                        log.error(f"Failed to add column {table_name}.{col_name}: {e}")
 
                 if added_count > 0:
                     log.info(f"Table {table_name}: added {added_count} missing column(s)")
@@ -373,32 +391,35 @@ class SQLiteManager:
     # ============ SQL 方法 ============
 
     async def get_next_available_credential(
-        self, mode: str = "geminicli", model_name: Optional[str] = None
+        self, mode: str = "geminicli", model_name: Optional[str] = None,
+        preferred_filename: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         随机获取一个可用凭证（负载均衡）
         - 未禁用
         - 如果提供了 model_name，还会检查模型级冷却和preview状态
         - 随机选择
+        - 如果提供了 preferred_filename，在该凭证同样满足以上条件时优先返回
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
             model_name: 完整模型名（如 "gemini-2.0-flash-exp", "gemini-3-flash-preview"）
+            preferred_filename: 优先选择的凭证文件名（会话粘性），仅影响排序，不绕过任何过滤
         """
         self._ensure_initialized()
 
         try:
-            table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 current_time = time.time()
 
+                # SQL 按 mode 使用固定字符串（表名对应 _get_table_name 白名单），值全部参数绑定
                 if mode == "geminicli":
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT filename, credential_data, model_cooldowns, preview
-                        FROM {table_name}
+                        FROM credentials
                         WHERE disabled = 0
-                        ORDER BY RANDOM()
-                    """) as cursor:
+                        ORDER BY CASE WHEN filename = ? THEN 0 ELSE 1 END, RANDOM()
+                    """, (preferred_filename,)) as cursor:
                         rows = await cursor.fetchall()
 
                         if not model_name:
@@ -438,12 +459,12 @@ class SQLiteManager:
 
                         return None
                 else:
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT filename, credential_data, model_cooldowns, enable_credit
-                        FROM {table_name}
+                        FROM antigravity_credentials
                         WHERE disabled = 0
-                        ORDER BY RANDOM()
-                    """) as cursor:
+                        ORDER BY CASE WHEN filename = ? THEN 0 ELSE 1 END, RANDOM()
+                    """, (preferred_filename,)) as cursor:
                         rows = await cursor.fetchall()
 
                         if not model_name:
@@ -504,34 +525,34 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 检查凭证是否存在
-                async with db.execute(f"""
+                async with db.execute("""
                     SELECT disabled, error_codes, last_success, user_email,
                            rotation_order, call_count
-                    FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                    FROM __TABLE_NAME__ WHERE filename = ?
+                """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                     existing = await cursor.fetchone()
 
                 if existing:
                     # 更新现有凭证（保留状态）
-                    await db.execute(f"""
-                        UPDATE {table_name}
+                    await db.execute("""
+                        UPDATE __TABLE_NAME__
                         SET credential_data = ?,
                             updated_at = unixepoch()
                         WHERE filename = ?
-                    """, (json.dumps(credential_data), filename))
+                    """.replace("__TABLE_NAME__", table_name), (json.dumps(credential_data), filename))
                 else:
                     # 插入新凭证
-                    async with db.execute(f"""
-                        SELECT COALESCE(MAX(rotation_order), -1) + 1 FROM {table_name}
-                    """) as cursor:
+                    async with db.execute("""
+                        SELECT COALESCE(MAX(rotation_order), -1) + 1 FROM __TABLE_NAME__
+                    """.replace("__TABLE_NAME__", table_name)) as cursor:
                         row = await cursor.fetchone()
                         next_order = row[0]
 
-                    await db.execute(f"""
-                        INSERT INTO {table_name}
+                    await db.execute("""
+                        INSERT INTO __TABLE_NAME__
                         (filename, credential_data, rotation_order, last_success)
                         VALUES (?, ?, ?, ?)
-                    """, (filename, json.dumps(credential_data), next_order, time.time()))
+                    """.replace("__TABLE_NAME__", table_name), (filename, json.dumps(credential_data), next_order, time.time()))
 
                 await db.commit()
                 log.debug(f"Stored credential: {filename} (mode={mode})")
@@ -552,9 +573,9 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
-                async with db.execute(f"""
-                    SELECT credential_data FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                async with db.execute("""
+                    SELECT credential_data FROM __TABLE_NAME__ WHERE filename = ?
+                """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                     row = await cursor.fetchone()
                     if row:
                         return json.loads(row[0])
@@ -572,9 +593,9 @@ class SQLiteManager:
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                async with db.execute(f"""
-                    SELECT filename FROM {table_name} ORDER BY rotation_order
-                """) as cursor:
+                async with db.execute("""
+                    SELECT filename FROM __TABLE_NAME__ ORDER BY rotation_order
+                """.replace("__TABLE_NAME__", table_name)) as cursor:
                     rows = await cursor.fetchall()
                     return [row[0] for row in rows]
 
@@ -593,9 +614,9 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配删除
-                result = await db.execute(f"""
-                    DELETE FROM {table_name} WHERE filename = ?
-                """, (filename,))
+                result = await db.execute("""
+                    DELETE FROM __TABLE_NAME__ WHERE filename = ?
+                """.replace("__TABLE_NAME__", table_name), (filename,))
                 deleted_count = result.rowcount
 
                 await db.commit()
@@ -686,10 +707,10 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
                 if mode == "geminicli":
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT disabled, error_codes, last_success, user_email, model_cooldowns, preview, tier
-                        FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                        FROM __TABLE_NAME__ WHERE filename = ?
+                    """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                         row = await cursor.fetchone()
 
                         if row:
@@ -717,10 +738,10 @@ class SQLiteManager:
                     }
                 else:
                     # antigravity 模式
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT disabled, error_codes, last_success, user_email, model_cooldowns, tier, enable_credit
-                        FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                        FROM __TABLE_NAME__ WHERE filename = ?
+                    """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                         row = await cursor.fetchone()
 
                         if row:
@@ -759,11 +780,11 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 if mode == "geminicli":
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT filename, disabled, error_codes, last_success,
                                user_email, model_cooldowns, preview, tier
-                        FROM {table_name}
-                    """) as cursor:
+                        FROM __TABLE_NAME__
+                    """.replace("__TABLE_NAME__", table_name)) as cursor:
                         rows = await cursor.fetchall()
 
                         states = {}
@@ -795,11 +816,11 @@ class SQLiteManager:
                         return states
                 else:
                     # antigravity 模式
-                    async with db.execute(f"""
+                    async with db.execute("""
                         SELECT filename, disabled, error_codes, last_success,
                                user_email, model_cooldowns, tier, enable_credit
-                        FROM {table_name}
-                    """) as cursor:
+                        FROM __TABLE_NAME__
+                    """.replace("__TABLE_NAME__", table_name)) as cursor:
                         rows = await cursor.fetchall()
 
                         states = {}
@@ -870,9 +891,9 @@ class SQLiteManager:
             async with aiosqlite.connect(self._db_path) as db:
                 # 先计算全局统计数据（不受筛选条件影响）
                 global_stats = {"total": 0, "normal": 0, "disabled": 0}
-                async with db.execute(f"""
-                    SELECT disabled, COUNT(*) FROM {table_name} GROUP BY disabled
-                """) as stats_cursor:
+                async with db.execute("""
+                    SELECT disabled, COUNT(*) FROM __TABLE_NAME__ GROUP BY disabled
+                """.replace("__TABLE_NAME__", table_name)) as stats_cursor:
                     stats_rows = await stats_cursor.fetchall()
                     for disabled, count in stats_rows:
                         global_stats["total"] += count
@@ -1057,11 +1078,11 @@ class SQLiteManager:
 
             async with aiosqlite.connect(self._db_path) as db:
                 # 查询所有凭证的文件名和邮箱（不加载完整凭证数据）
-                query = f"""
+                query = """
                     SELECT filename, user_email
-                    FROM {table_name}
+                    FROM __TABLE_NAME__
                     ORDER BY filename
-                """
+                """.replace("__TABLE_NAME__", table_name)
 
                 async with db.execute(query) as cursor:
                     rows = await cursor.fetchall()
@@ -1194,9 +1215,9 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 精确匹配
-                async with db.execute(f"""
-                    SELECT error_codes, error_messages FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                async with db.execute("""
+                    SELECT error_codes, error_messages FROM __TABLE_NAME__ WHERE filename = ?
+                """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                     row = await cursor.fetchone()
 
                     if row:
@@ -1254,9 +1275,9 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 获取当前的 model_cooldowns
-                async with db.execute(f"""
-                    SELECT model_cooldowns FROM {table_name} WHERE filename = ?
-                """, (filename,)) as cursor:
+                async with db.execute("""
+                    SELECT model_cooldowns FROM __TABLE_NAME__ WHERE filename = ?
+                """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                     row = await cursor.fetchone()
 
                     if not row:
@@ -1272,12 +1293,12 @@ class SQLiteManager:
                         model_cooldowns[model_name] = cooldown_until
 
                     # 写回数据库
-                    await db.execute(f"""
-                        UPDATE {table_name}
+                    await db.execute("""
+                        UPDATE __TABLE_NAME__
                         SET model_cooldowns = ?,
                             updated_at = unixepoch()
                         WHERE filename = ?
-                    """, (json.dumps(model_cooldowns), filename))
+                    """.replace("__TABLE_NAME__", table_name), (json.dumps(model_cooldowns), filename))
                     await db.commit()
 
                     log.debug(f"Set model cooldown: {filename}, model_name={model_name}, cooldown_until={cooldown_until}")
@@ -1300,12 +1321,12 @@ class SQLiteManager:
         try:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
-                result = await db.execute(f"""
-                    UPDATE {table_name}
-                    SET model_cooldowns = '{{}}',
+                result = await db.execute("""
+                    UPDATE __TABLE_NAME__
+                    SET model_cooldowns = '{}',
                         updated_at = unixepoch()
                     WHERE filename = ?
-                """, (filename,))
+                """.replace("__TABLE_NAME__", table_name), (filename,))
                 updated_count = result.rowcount
                 await db.commit()
 
@@ -1339,31 +1360,31 @@ class SQLiteManager:
             table_name = self._get_table_name(mode)
             async with aiosqlite.connect(self._db_path) as db:
                 # 条件写入：只有 error_codes 非空时才触发
-                await db.execute(f"""
-                    UPDATE {table_name}
+                await db.execute("""
+                    UPDATE __TABLE_NAME__
                     SET last_success = unixepoch(),
                         error_codes   = '[]',
-                        error_messages = '{{}}',
+                        error_messages = '{}',
                         updated_at    = unixepoch()
                     WHERE filename = ?
                       AND (error_codes IS NOT NULL AND error_codes != '[]' AND error_codes != '')
-                """, (filename,))
+                """.replace("__TABLE_NAME__", table_name), (filename,))
 
                 # 条件删除模型冷却：只有模型键存在时才写入
                 if model_name:
-                    async with db.execute(f"""
-                        SELECT model_cooldowns FROM {table_name} WHERE filename = ?
-                    """, (filename,)) as cursor:
+                    async with db.execute("""
+                        SELECT model_cooldowns FROM __TABLE_NAME__ WHERE filename = ?
+                    """.replace("__TABLE_NAME__", table_name), (filename,)) as cursor:
                         row = await cursor.fetchone()
                         if row:
                             cooldowns = json.loads(row[0] or '{}')
                             if model_name in cooldowns:
                                 cooldowns.pop(model_name)
-                                await db.execute(f"""
-                                    UPDATE {table_name}
+                                await db.execute("""
+                                    UPDATE __TABLE_NAME__
                                     SET model_cooldowns = ?, updated_at = unixepoch()
                                     WHERE filename = ?
-                                """, (json.dumps(cooldowns), filename))
+                                """.replace("__TABLE_NAME__", table_name), (json.dumps(cooldowns), filename))
 
                 await db.commit()
 

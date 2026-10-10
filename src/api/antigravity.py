@@ -19,7 +19,7 @@ from config import (
 )
 from log import log
 
-from src.credential_manager import credential_manager
+from src.credential_manager import credential_manager, sticky_session_store
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
 from src.utils import ANTIGRAVITY_USER_AGENT
@@ -53,6 +53,24 @@ def _extract_first_user_text(request_payload: Dict[str, Any]) -> str:
             if isinstance(part, dict) and part.get("text"):
                 return str(part["text"])
     return ""
+
+
+def _session_fingerprint(request_payload: Dict[str, Any]) -> Optional[str]:
+    """
+    派生会话指纹，用作粘性选号的 key。
+    派生规则与 wrap_cli_request 的 sessionId 一致：优先用请求自带的 sessionId，
+    否则按首条用户消息哈希——客户端每轮携带完整历史时，首条用户消息跨轮稳定。
+    无稳定信号时返回 None，该请求退化为普通随机选号。
+    """
+    session_id = str(request_payload.get("sessionId") or "").strip()
+    if session_id:
+        return session_id
+    first_user_text = _extract_first_user_text(request_payload)
+    if first_user_text:
+        digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
+        session_id_val = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+        return f"-{session_id_val}"
+    return None
 
 
 def _generate_request_id() -> str:
@@ -239,9 +257,17 @@ async def stream_request(
     """
     model_name = body.get("model", "")
 
+    # 0. 会话粘性：派生指纹并查找该会话上次使用的凭证
+    session_fp = _session_fingerprint(body.get("request", body))
+    sticky_file = None
+    if session_fp:
+        sticky_file = await sticky_session_store.get(session_fp)
+        if sticky_file:
+            log.debug(f"[ANTIGRAVITY STREAM] 会话粘性命中: {sticky_file}")
+
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_name=model_name
+        mode="antigravity", model_name=model_name, sticky_file=sticky_file
     )
 
     if not cred_result:
@@ -267,6 +293,10 @@ async def stream_request(
             media_type="application/json"
         )
         return
+
+    # 记录/刷新会话粘性绑定（后续换号时会在重试处刷新）
+    if session_fp:
+        await sticky_session_store.bind(session_fp, current_file)
 
     # 2. 构建URL和请求头
     antigravity_url = await get_antigravity_api_url()
@@ -452,6 +482,9 @@ async def stream_request(
                         media_type="application/json"
                     )
                     return
+                # 换号成功，把会话粘性绑定刷新到新凭证，避免下一轮又切回出错账号
+                if session_fp:
+                    await sticky_session_store.bind(session_fp, current_file)
                 continue  # 重试
 
         except Exception as e:
@@ -517,9 +550,17 @@ async def non_stream_request(
 
     model_name = body.get("model", "")
 
+    # 0. 会话粘性：派生指纹并查找该会话上次使用的凭证
+    session_fp = _session_fingerprint(body.get("request", body))
+    sticky_file = None
+    if session_fp:
+        sticky_file = await sticky_session_store.get(session_fp)
+        if sticky_file:
+            log.debug(f"[ANTIGRAVITY] 会话粘性命中: {sticky_file}")
+
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(
-        mode="antigravity", model_name=model_name
+        mode="antigravity", model_name=model_name, sticky_file=sticky_file
     )
 
     if not cred_result:
@@ -543,6 +584,10 @@ async def non_stream_request(
             status_code=500,
             media_type="application/json"
         )
+
+    # 记录/刷新会话粘性绑定（后续换号时会在重试处刷新）
+    if session_fp:
+        await sticky_session_store.bind(session_fp, current_file)
 
     # 2. 构建URL和请求头
     antigravity_url = await get_antigravity_api_url()
@@ -720,6 +765,9 @@ async def non_stream_request(
                         status_code=500,
                         media_type="application/json"
                     )
+                # 换号成功，把会话粘性绑定刷新到新凭证，避免下一轮又切回出错账号
+                if session_fp:
+                    await sticky_session_store.bind(session_fp, current_file)
                 continue  # 重试
 
         except Exception as e:
