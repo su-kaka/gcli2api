@@ -1,23 +1,34 @@
 """
 Antigravity Format Utilities - 独立的 Antigravity 请求处理和转换工具
-从 gemini_fix.py 中拆分出来，专供 src/router/antigravity 使用
 
 设计要点:
-  * 每个模型在 MODEL_PROFILES 里有独立的一行配置 (后端模型 ID / 思考方式 / 是否禁预填充)
-  * 不在表内的模型走关键词兜底 (_fallback_profile)，行为与旧版关键词逻辑一致
+  * 每个模型家族在 resolve_profile 里有独立的一行配置 (后端模型 ID / 思考方式 / 是否禁预填充)
   * 不修改调用方传入的 request (generationConfig / thinkingConfig / contents 均先复制)
 ────────────────────────────────────────────────────────────────
 """
+import copy
+import hashlib
 import json
-import uuid
 import re
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from log import log
 from src.converter.thoughtSignature_fix import SKIP_THOUGHT_SIGNATURE_VALIDATOR
 
-# ==================== Gemini API 配置 ====================
+# ==================== 常量配置 ====================
+
+# 图片生成基础模型名（上游变更时仅需改这里）
+IMAGE_BASE_MODEL = "gemini-3.1-flash-image"
+
+# 图片生成支持的宽高比
+SUPPORTED_ASPECT_RATIOS = [
+    (1, 1), (2, 3), (3, 2), (3, 4), (4, 3),
+    (4, 5), (5, 4), (9, 16), (16, 9), (21, 9),
+]
+
+# ==================== Gemini API 安全配置 ====================
 
 DEFAULT_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
@@ -474,12 +485,6 @@ def _ensure_tool_call_ids(contents: Any, model_name: str) -> Any:
     return result
 
 
-SUPPORTED_ASPECT_RATIOS = [
-    (1, 1), (2, 3), (3, 2), (3, 4), (4, 3),
-    (4, 5), (5, 4), (9, 16), (16, 9), (21, 9),
-]
-
-
 def _parse_size_to_image_config(size_str: str) -> Dict[str, str]:
     """
     解析用户传入的 size 参数为 Gemini imageConfig 参数
@@ -538,13 +543,6 @@ def prepare_image_generation_request(
     1. size 参数: 如 "1024x1536"，自动计算 aspectRatio 和 imageSize
     2. 模型名后缀: 如 -4k, -2k, -16x9, -1x1
     3. 默认值: 不设置额外参数
-
-    Args:
-        request_body: 原始请求体
-        model: 模型名称
-
-    Returns:
-        处理后的请求体
     """
     request_body = request_body.copy()
     model_lower = model.lower()
@@ -553,7 +551,6 @@ def prepare_image_generation_request(
     size_str = request_body.pop("size", None)
     if size_str:
         image_config = _parse_size_to_image_config(size_str)
-        log.debug(f"[IMAGE] 从 size 参数 '{size_str}' 解析: {image_config}")
     else:
         # 从模型名后缀解析
         image_size = "4K" if "-4k" in model_lower else "2K" if "-2k" in model_lower else None
@@ -573,7 +570,7 @@ def prepare_image_generation_request(
         if image_size:
             image_config["imageSize"] = image_size
 
-    request_body["model"] = "gemini-3.1-flash-image"  # 统一使用基础模型名
+    request_body["model"] = IMAGE_BASE_MODEL  # 统一使用基础模型名
     request_body["generationConfig"] = {
         "candidateCount": 1,
         "imageConfig": image_config
@@ -610,13 +607,13 @@ def resolve_profile(model: str) -> ModelProfile:
     """
     按关键词匹配模型，自上而下第一个命中的规则生效:
 
-      image                  图片生成，走独立路径
-      claude (haiku)         映射到 gemini-2.5-flash
-      claude (opus)          映射到 claude-opus-4-6-thinking
-      claude (其他)          映射到 claude-sonnet-4-6；不支持预填充
-      gemini-3* / *-agent    思考深度由模型 ID (-low/-medium/-high/-tiered/-extra-low) 决定
-      gemini (其他, 2.5 等)  名字含 think 才发 thinkingBudget
-      其他                   原样透传
+      image 图片生成，走独立路径
+      claude-opus-4-6   映射到 claude-opus-4-6-thinking
+      claude-sonnet-4-6-thinking    映射到 claude-sonnet-4-6；不支持预填充
+      claude (其他)  原样透传；不支持预填充
+      gemini-3* / *-agent   思考深度由模型 ID (-low/-medium/-high/-tiered/-extra-low) 决定
+      gemini (其他, 2.5 等) 名字含 think 才发 thinkingBudget
+      其他  原样透传
     """
     model = model or ""
     lower = model.lower()
@@ -626,9 +623,11 @@ def resolve_profile(model: str) -> ModelProfile:
         return ModelProfile("image", model)
 
     if "claude" in lower:
-        if "haiku" in lower:
-            return ModelProfile("gemini25", "gemini-2.5-flash", think)
-        upstream = "claude-opus-4-6-thinking" if "opus" in lower else "claude-sonnet-4-6"
+        upstream = model
+        if "claude-opus-4-6" in lower:
+            upstream = "claude-opus-4-6-thinking"
+        elif "claude-sonnet-4-6-thinking" in lower:
+            upstream = "claude-sonnet-4-6"
         return ModelProfile("claude", upstream, think, no_prefill=True)
 
     if "gemini-3" in lower or lower.endswith("-agent"):
@@ -683,23 +682,15 @@ def _clean_contents(contents: List[Any], model_name: str) -> List[Any]:
             if not isinstance(part, dict):
                 continue
 
-            # thought 字段可以为空，其余字段至少要有一个非空值
-            has_valid_value = any(
-                value not in (None, "", {}, [])
-                for key, value in part.items()
-                if key != "thought"
-            )
-            if not has_valid_value:
-                log.warning(f"[ANTIGRAVITY_FIX] 移除空的或无效的 part: {part}")
-                continue
-
-            part = _normalize_part_thought_signature(part, model_name)
-
+            # 必须先归一化 text（rstrip 可能把 "\n" 之类削成 ""）再做有效性校验，
+            # 否则纯空白 text 先通过校验、后变空串，发给上游会转成缺少 text 字段的
+            # text 块（Claude 报 messages.N.content.M.text.text: Field required）
             if "text" in part:
+                part = part.copy()  # copy-on-write，避免原地修改调用方的 contents
                 text_value = part["text"]
                 if isinstance(text_value, list):
                     # 元素可能是 {"type":"text","text":"..."}，不能直接 str(dict)，否则会污染 model 历史
-                    log.warning(f"[ANTIGRAVITY_FIX] text 字段是列表，自动合并: {text_value}")
+                    print(f"[ANTIGRAVITY_FIX] text 字段是列表，自动合并: {text_value}", flush=True)
                     text_parts = []
                     for t in text_value:
                         if isinstance(t, dict) and "text" in t:
@@ -712,8 +703,24 @@ def _clean_contents(contents: List[Any], model_name: str) -> List[Any]:
                 elif isinstance(text_value, str):
                     part["text"] = text_value.rstrip()
                 else:
-                    log.warning(f"[ANTIGRAVITY_FIX] text 字段类型异常 ({type(text_value)}), 转为字符串: {text_value}")
+                    print(f"[ANTIGRAVITY_FIX] text 字段类型异常 ({type(text_value)}), 转为字符串: {text_value}", flush=True)
                     part["text"] = str(text_value)
+
+                if part["text"] == "":
+                    # part 还有其他有效字段（如 functionCall）时仅去掉 text 字段
+                    part.pop("text", None)
+
+            # thought 字段可以为空，其余字段至少要有一个非空值
+            has_valid_value = any(
+                value not in (None, "", {}, [])
+                for key, value in part.items()
+                if key != "thought"
+            )
+            if not has_valid_value:
+                print(f"[ANTIGRAVITY_FIX] 移除空的或无效的 part: {part}", flush=True)
+                continue
+
+            part = _normalize_part_thought_signature(part, model_name)
 
             valid_parts.append(part)
 
@@ -722,7 +729,7 @@ def _clean_contents(contents: List[Any], model_name: str) -> List[Any]:
             cleaned_content["parts"] = valid_parts
             cleaned_contents.append(cleaned_content)
         else:
-            log.warning(f"[ANTIGRAVITY_FIX] 跳过没有有效 parts 的 content: {content.get('role')}")
+            print(f"[ANTIGRAVITY_FIX] 跳过没有有效 parts 的 content: {content.get('role')}", flush=True)
     return cleaned_contents
 
 
@@ -751,7 +758,7 @@ def _prepare_claude_history(contents: List[Any], generation_config: Dict[str, An
         for content in contents
     )
     if has_tool_calls:
-        log.warning("[ANTIGRAVITY] 检测到工具调用（MCP场景），移除 thinkingConfig 避免失效")
+        print("[ANTIGRAVITY] 检测到工具调用（MCP场景），移除 thinkingConfig 避免失效", flush=True)
         generation_config.pop("thinkingConfig", None)
         return contents
 
@@ -764,7 +771,6 @@ def _prepare_claude_history(contents: List[Any], generation_config: Dict[str, An
             if not (isinstance(first, dict) and ("thought" in first or "thoughtSignature" in first)):
                 thinking_part = {"text": "...", "thoughtSignature": _CLAUDE_THINKING_SIGNATURE}
                 contents[i] = {**content, "parts": [thinking_part] + list(parts)}
-                log.debug("[ANTIGRAVITY] 已在最后一个 assistant 消息开头插入思考块（含跳过验证签名）")
             break
     return contents
 
@@ -778,7 +784,7 @@ async def normalize_antigravity_request(
     规范化 Antigravity 请求
 
     处理逻辑:
-    1. 按模型名取 profile (精确匹配 -> 关键词兜底)
+    1. 按模型名取 profile (关键词匹配)
     2. 图片模型走独立路径
     3. 模型映射 + thinkingConfig (按 profile.thinking)
     4. contents 清理 -> 预填充处理 -> Claude 专属处理 -> 工具调用 id
@@ -791,15 +797,13 @@ async def normalize_antigravity_request(
     Returns:
         规范化后的请求
     """
-    from config import get_return_thoughts_to_frontend
-
     result = request.copy()
     model = result.get("model", "")
     generation_config = (result.get("generationConfig") or {}).copy()
 
-    log.debug(f"[ANTIGRAVITY_FIX] 原始请求 - 模型: {model}, generationConfig: {generation_config}")
+    # 项目固定为 True（原版从 config 读取 return_thoughts，本项目无此配置项）
+    return_thoughts = True
 
-    return_thoughts = await get_return_thoughts_to_frontend()
     profile = resolve_profile(model)
 
     # 图片模型走独立的图片生成处理路径
@@ -807,8 +811,6 @@ async def normalize_antigravity_request(
         return prepare_image_generation_request(result, model)
 
     upstream = profile.upstream
-    if upstream != model:
-        log.debug(f"[ANTIGRAVITY] 映射模型: {model} -> {upstream}")
     result["model"] = upstream
 
     # ========== 1. 思考设置 ==========
@@ -821,7 +823,7 @@ async def normalize_antigravity_request(
         if profile.no_prefill:
             contents, removed = _strip_trailing_model_turns(contents)
             if removed:
-                log.warning(f"[ANTIGRAVITY] {upstream} 不支持预填充，移除了 {removed} 条末尾 model 消息")
+                print(f"[ANTIGRAVITY] {upstream} 不支持预填充，移除了 {removed} 条末尾 model 消息", flush=True)
 
         if profile.family == "claude":
             contents = _prepare_claude_history(contents, generation_config)
@@ -847,3 +849,180 @@ async def normalize_antigravity_request(
         result["generationConfig"] = generation_config
 
     return result
+
+
+# ==================== 请求构建 & Antigravity payload 准备 ====================
+
+
+def build_gemini_request(
+    model: str,
+    contents: Any,
+    generation_config: Optional[Dict[str, Any]] = None,
+    system_instruction: Optional[Dict[str, Any]] = None,
+    tools: Optional[list] = None,
+    tool_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    构建 Gemini 请求格式（按需添加可选字段）。
+
+    采用“存在才添加”而非“先全量再排除”的策略，避免把 None/空字段
+    透传给上游导致不必要的校验问题。
+    """
+    gemini_request: Dict[str, Any] = {
+        "model": model,
+        "contents": contents,
+        "generationConfig": generation_config or {},
+    }
+    if system_instruction:
+        gemini_request["systemInstruction"] = system_instruction
+    if tools:
+        gemini_request["tools"] = tools
+    if tool_config:
+        gemini_request["toolConfig"] = tool_config
+    return gemini_request
+
+
+def _extract_first_user_text(request_payload: Dict[str, Any]) -> str:
+    contents = request_payload.get("contents", [])
+    if not isinstance(contents, list):
+        return ""
+    for content in contents:
+        if not isinstance(content, dict) or content.get("role") != "user":
+            continue
+        parts = content.get("parts", [])
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if isinstance(part, dict) and part.get("text"):
+                return str(part["text"])
+    return ""
+
+
+def _generate_stable_session_id(request_payload: Dict[str, Any]) -> str:
+    first_user_text = _extract_first_user_text(request_payload)
+    if first_user_text:
+        digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
+        value = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+        return f"-{value}"
+
+    value = uuid.uuid4().int % 9_000_000_000_000_000_000
+    return f"-{value}"
+
+
+def _ensure_antigravity_session_id(payload: Dict[str, Any], model_name: str) -> None:
+    if "image" in (model_name or "").lower():
+        return
+
+    request_payload = payload.get("request")
+    if not isinstance(request_payload, dict):
+        return
+
+    if request_payload.get("sessionId"):
+        return
+
+    request_payload["sessionId"] = _generate_stable_session_id(request_payload)
+
+
+def _build_labels(model_name: str, trajectory_id: str, step: int) -> Dict[str, str]:
+    used_claude = "claude" in (model_name or "").lower()
+    return {
+        "last_step_index": str(step),
+        "model_enum": model_name or "",
+        "trajectory_id": trajectory_id,
+        "used_claude": str(used_claude).lower(),
+        "used_claude_conservative": str(used_claude).lower(),
+    }
+
+
+def prepare_antigravity_payload(payload: Dict[str, Any], model_name: str) -> Dict[str, Any]:
+    """
+    对 Antigravity 上游 payload 做最终的格式准备：
+    - 设置 userAgent / requestType / requestId
+    - 确保 sessionId / labels
+    - 移除 safetySettings（由 normalize 阶段统一覆盖）
+    - 规范化 toolConfig
+    """
+    payload = copy.deepcopy(payload)
+    if "image" in (model_name or "").lower():
+        payload["requestType"] = "image_gen"
+        payload.setdefault(
+            "requestId",
+            f"image_gen/{int(datetime.now(timezone.utc).timestamp() * 1000)}/{uuid.uuid4()}/12",
+        )
+    else:
+        payload["requestType"] = "agent"
+        trajectory_id = str(uuid.uuid4())
+        step = 1
+        payload.setdefault(
+            "requestId",
+            f"agent/{uuid.uuid4()}/{int(datetime.now(timezone.utc).timestamp() * 1000)}/{trajectory_id}/{step}",
+        )
+
+    request_payload = payload.get("request")
+    if not isinstance(request_payload, dict):
+        return payload
+
+    _ensure_antigravity_session_id(payload, model_name)
+    request_payload.pop("safetySettings", None)
+
+    if "image" not in (model_name or "").lower() and not request_payload.get("labels"):
+        request_payload["labels"] = _build_labels(
+            model_name,
+            str(request_payload.get("sessionId") or trajectory_id),
+            step,
+        )
+
+    # tools 已在 normalize_antigravity_request 阶段统一规范化，此处不再重复处理
+
+    if "image" not in (model_name or "").lower():
+        tool_config = request_payload.get("toolConfig")
+        if not isinstance(tool_config, dict):
+            tool_config = {}
+            request_payload["toolConfig"] = tool_config
+
+        function_config = tool_config.get("functionCallingConfig")
+        if not isinstance(function_config, dict):
+            function_config = {}
+            tool_config["functionCallingConfig"] = function_config
+
+        function_config["mode"] = "VALIDATED"
+
+    return payload
+
+
+async def build_antigravity_payload(
+    model: str,
+    contents: Any,
+    generation_config: Optional[Dict[str, Any]] = None,
+    system_instruction: Optional[Dict[str, Any]] = None,
+    tools: Optional[list] = None,
+    tool_config: Optional[Dict[str, Any]] = None,
+    *,
+    project_id: str = "",
+    enable_credit: bool = False,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    一站式构建 Antigravity 上游 payload。
+
+    串联三个步骤：
+      build_gemini_request → normalize_antigravity_request → prepare_antigravity_payload
+    并合并 client 侧 build_request_payload 的 project / enableCreditTypes 逻辑。
+
+    Returns:
+        (final_model, payload) — 最终模型名（经过映射）与可直接发送的上游 payload。
+    """
+    gemini_request = build_gemini_request(
+        model, contents, generation_config, system_instruction, tools, tool_config
+    )
+    normalized = await normalize_antigravity_request(gemini_request)
+    final_model = normalized.pop("model")
+
+    payload: Dict[str, Any] = {
+        "model": final_model,
+        "project": project_id,
+        "request": normalized,
+    }
+    if enable_credit:
+        payload["enabledCreditTypes"] = ["GOOGLE_ONE_AI"]
+
+    return final_model, prepare_antigravity_payload(payload, final_model)
