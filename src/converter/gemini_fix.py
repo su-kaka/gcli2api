@@ -314,8 +314,7 @@ async def normalize_gemini_request(
     model = result.get("model", "")
     generation_config = (result.get("generationConfig") or {}).copy()
 
-    if log.is_enabled_for("debug"):
-        log.debug(f"[GEMINI_FIX] 原始请求 - 模型: {model}, mode: {mode}, generationConfig: {generation_config}")
+    log.debug(f"[GEMINI_FIX] 原始请求 - 模型: {model}, mode: {mode}, generationConfig: {generation_config}")
 
     base_model, suffix_effort, search = parse_model_name(model)
     profile = MODEL_PROFILES.get(base_model)
