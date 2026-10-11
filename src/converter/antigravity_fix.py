@@ -2,7 +2,8 @@
 Antigravity Format Utilities - 独立的 Antigravity 请求处理和转换工具
 
 设计要点:
-  * 每个模型家族在 resolve_profile 里有独立的一行配置 (后端模型 ID / 思考方式 / 是否禁预填充)
+  * 每个模型家族在 resolve_profile 里有独立的一行配置 (后端模型 ID / 思考方式)
+  * 所有模型统一禁用预填充 (请求不能以 model 消息结尾)
   * 不修改调用方传入的 request (generationConfig / thinkingConfig / contents 均先复制)
 ────────────────────────────────────────────────────────────────
 """
@@ -591,16 +592,12 @@ class ModelProfile:
     upstream: str                   # 实际发给 Antigravity 后端的模型 ID
     thinking: str = "none"          # "route" | "budget" | "none"，见 _apply_thinking
     thinking_budget: int = 1024     # 仅 thinking == "budget" 时使用
-    no_prefill: bool = False        # True: 请求不能以 model 消息结尾
 
 
 # 精确别名: 客户端模型名 -> 后端真实 ID
 _UPSTREAM_ALIASES = {
     "gemini-3.1-pro-high": "gemini-pro-agent",
 }
-
-# 不支持预填充的 Gemini 3.x Flash (3.5 / 3.6 / 3.7 / 3.8)
-_NO_PREFILL_GEMINI3 = re.compile(r"gemini-3\.[5-8]-flash")
 
 
 def resolve_profile(model: str) -> ModelProfile:
@@ -609,11 +606,13 @@ def resolve_profile(model: str) -> ModelProfile:
 
       image 图片生成，走独立路径
       claude-opus-4-6   映射到 claude-opus-4-6-thinking
-      claude-sonnet-4-6-thinking    映射到 claude-sonnet-4-6；不支持预填充
-      claude (其他)  原样透传；不支持预填充
+      claude-sonnet-4-6-thinking    映射到 claude-sonnet-4-6
+      claude (其他)  原样透传
       gemini-3* / *-agent   思考深度由模型 ID (-low/-medium/-high/-tiered/-extra-low) 决定
       gemini (其他, 2.5 等) 名字含 think 才发 thinkingBudget
       其他  原样透传
+
+    所有模型统一禁用预填充（见 normalize_antigravity_request）。
     """
     model = model or ""
     lower = model.lower()
@@ -628,14 +627,13 @@ def resolve_profile(model: str) -> ModelProfile:
             upstream = "claude-opus-4-6-thinking"
         elif "claude-sonnet-4-6-thinking" in lower:
             upstream = "claude-sonnet-4-6"
-        return ModelProfile("claude", upstream, think, no_prefill=True)
+        return ModelProfile("claude", upstream, think)
 
     if "gemini-3" in lower or lower.endswith("-agent"):
         return ModelProfile(
             "gemini3",
             _UPSTREAM_ALIASES.get(lower, model),
             "route",
-            no_prefill=bool(_NO_PREFILL_GEMINI3.search(lower)),
         )
 
     if "gemini" in lower:
@@ -820,10 +818,10 @@ async def normalize_antigravity_request(
     if "contents" in result:
         contents = _clean_contents(result["contents"], upstream)
 
-        if profile.no_prefill:
-            contents, removed = _strip_trailing_model_turns(contents)
-            if removed:
-                print(f"[ANTIGRAVITY] {upstream} 不支持预填充，移除了 {removed} 条末尾 model 消息", flush=True)
+        # 所有模型统一禁用预填充
+        contents, removed = _strip_trailing_model_turns(contents)
+        if removed:
+            print(f"[ANTIGRAVITY] {upstream} 不支持预填充，移除了 {removed} 条末尾 model 消息", flush=True)
 
         if profile.family == "claude":
             contents = _prepare_claude_history(contents, generation_config)
