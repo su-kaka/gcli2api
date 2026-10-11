@@ -1,4 +1,4 @@
-full_hash=a66c80d4ba0bdd959e6f45a475473d7491d56b18
-short_hash=a66c80d
-message=Update gemini_fix.py
-date=2026-10-11 11:30:49 +0800
+full_hash=dcc3de15274c3c4ca05caef0c2cafbaa37dcf60f
+short_hash=dcc3de1
+message=更新agycli版本号
+date=2026-10-11 11:39:11 +0800
