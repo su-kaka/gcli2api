@@ -196,25 +196,26 @@ def _anthropic_debug_enabled() -> bool:
     return str(os.getenv("ANTHROPIC_DEBUG", "true")).strip().lower() in _DEBUG_TRUE
 
 
-def _cached_content_token_count(usage_metadata: Any) -> int:
-    if not isinstance(usage_metadata, dict):
-        return 0
-    return int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
-
-
-def _anthropic_usage_from_metadata(usage_metadata: Any) -> Dict[str, int]:
+def _anthropic_usage_from_metadata(usage_metadata: Any) -> Dict[str, Any]:
     if not isinstance(usage_metadata, dict):
         return {"input_tokens": 0, "output_tokens": 0}
 
     prompt_tokens_total = int(usage_metadata.get("promptTokenCount", 0) or 0)
-    cached_tokens = _cached_content_token_count(usage_metadata)
-    usage = {
+    cached_tokens = int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
+    reasoning_tokens = int(usage_metadata.get("thoughtsTokenCount", 0) or 0)
+    usage: Dict[str, Any] = {
         "input_tokens": max(prompt_tokens_total - cached_tokens, 0),
-        "output_tokens": int(usage_metadata.get("candidatesTokenCount", 0) or 0),
+        "output_tokens": (
+            int(usage_metadata.get("candidatesTokenCount", 0) or 0)
+            + reasoning_tokens
+        ),
     }
 
     if cached_tokens > 0:
         usage["cache_read_input_tokens"] = cached_tokens
+
+    if reasoning_tokens > 0:
+        usage["output_tokens_details"] = {"thinking_tokens": reasoning_tokens}
 
     return usage
 
@@ -954,6 +955,9 @@ async def gemini_stream_to_anthropic_stream(
     has_tool_use = False
     input_tokens = 0
     output_tokens = 0
+    prompt_tokens_total = 0
+    candidates_tokens = 0
+    reasoning_tokens = 0
     cached_input_tokens = 0
     finish_reason: Optional[str] = None
 
@@ -974,10 +978,12 @@ async def gemini_stream_to_anthropic_stream(
         current_block_type = None
         return event
 
-    def _usage_payload() -> Dict[str, int]:
-        usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    def _usage_payload(include_output_details: bool = False) -> Dict[str, Any]:
+        usage: Dict[str, Any] = {"input_tokens": input_tokens, "output_tokens": output_tokens}
         if cached_input_tokens > 0:
             usage["cache_read_input_tokens"] = cached_input_tokens
+        if include_output_details and reasoning_tokens > 0:
+            usage["output_tokens_details"] = {"thinking_tokens": reasoning_tokens}
         return usage
 
     # 处理流式数据
@@ -1028,15 +1034,14 @@ async def gemini_stream_to_anthropic_stream(
                 if isinstance(usage, dict):
                     if "promptTokenCount" in usage:
                         prompt_tokens_total = int(usage.get("promptTokenCount", 0) or 0)
-                        input_tokens = max(prompt_tokens_total - cached_input_tokens, 0)
                     if "candidatesTokenCount" in usage:
-                        output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
+                        candidates_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
+                    if "thoughtsTokenCount" in usage:
+                        reasoning_tokens = int(usage.get("thoughtsTokenCount", 0) or 0)
                     if "cachedContentTokenCount" in usage:
                         cached_input_tokens = int(usage.get("cachedContentTokenCount", 0) or 0)
-                        input_tokens = max(
-                            int(usage.get("promptTokenCount", 0) or 0) - cached_input_tokens,
-                            0,
-                        )
+                    input_tokens = max(prompt_tokens_total - cached_input_tokens, 0)
+                    output_tokens = candidates_tokens + reasoning_tokens
 
             # 发送 message_start（仅一次）
             if not message_start_sent:
@@ -1256,7 +1261,7 @@ async def gemini_stream_to_anthropic_stream(
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                "usage": _usage_payload(),
+                "usage": _usage_payload(include_output_details=True),
             },
         )
 
