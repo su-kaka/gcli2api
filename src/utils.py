@@ -19,8 +19,8 @@ def get_geminicli_user_agent(model: str = "") -> str:
 # 静态常量
 GEMINICLI_USER_AGENT = get_geminicli_user_agent()
 
-# Antigravity CLI 客户端仿真常量
-ANTIGRAVITY_VERSION = "2.23.0"
+# Antigravity 客户端仿真常量
+ANTIGRAVITY_VERSION = "2.23.1"
 ANTIGRAVITY_PLATFORM = "darwin/arm64"
 ANTIGRAVITY_USER_AGENT = f"antigravity/hub/{ANTIGRAVITY_VERSION} {ANTIGRAVITY_PLATFORM}"
 
