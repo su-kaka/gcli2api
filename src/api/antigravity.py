@@ -8,16 +8,18 @@ import copy
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Callable, Tuple
 
 from fastapi import Response
 from config import (
-    get_antigravity_api_url,
     get_antigravity_stream2nostream,
     get_auto_ban_error_codes,
 )
 from log import log
+
+# Antigravity API 固定端点
+CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com"
 
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
@@ -269,8 +271,7 @@ async def stream_request(
         return
 
     # 2. 构建URL和请求头
-    antigravity_url = await get_antigravity_api_url()
-    target_url = f"{antigravity_url}/v1internal:streamGenerateContent?alt=sse"
+    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:streamGenerateContent?alt=sse"
 
     auth_headers = build_antigravity_headers(access_token, headers, model_name)
 
@@ -545,8 +546,7 @@ async def non_stream_request(
         )
 
     # 2. 构建URL和请求头
-    antigravity_url = await get_antigravity_api_url()
-    target_url = f"{antigravity_url}/v1internal:generateContent"
+    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:generateContent"
 
     auth_headers = build_antigravity_headers(access_token, headers, model_name)
 
@@ -782,10 +782,8 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
 
     try:
         # 使用 POST 请求获取模型列表
-        antigravity_url = await get_antigravity_api_url()
-
         response = await post_async(
-            url=f"{antigravity_url}/v1internal:fetchAvailableModels",
+            url=f"{CODE_ASSIST_ENDPOINT}/v1internal:fetchAvailableModels",
             json={},  # 空的请求体
             headers=headers
         )
@@ -840,82 +838,148 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
         return []
 
 
-async def fetch_quota_info(access_token: str) -> Dict[str, Any]:
+async def fetch_quota_info(access_token: str, project_id: str = "") -> Dict[str, Any]:
     """
-    获取指定凭证的额度信息
-    
+    获取指定凭证的额度信息（使用 retrieveUserQuotaSummary 获取 weekly+5h 分组配额）
+
     Args:
         access_token: Antigravity 访问令牌
-        
+        project_id: 凭证对应的项目 ID
+
     Returns:
         包含额度信息的字典，格式为：
         {
             "success": True/False,
             "models": {
-                "model_name": {
+                "bucket_id": {
                     "remaining": 0.95,
                     "resetTime": "12-20 10:30",
-                    "resetTimeRaw": "2025-12-20T02:30:00Z"
+                    "resetTimeRaw": "2025-12-20T02:30:00Z",
+                    "resetDays": 5,
+                    "window": "weekly",
+                    "group": "gemini 3 pro"
                 }
             },
+            "minResetDays": 5,
+            "accountTier": "pro"/"normal",
+            "isPro": True/False,
+            "quotaGroups": [...],
+            "source": "retrieveUserQuotaSummary",
             "error": "错误信息" (仅在失败时)
         }
     """
 
     headers = build_antigravity_headers(access_token, model_name="agent")
 
-    try:
-        antigravity_url = await get_antigravity_api_url()
+    url = f"{CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuotaSummary"
+    payload: Dict[str, Any] = {}
+    if project_id:
+        payload["project"] = project_id
 
+    log.info(f"[ANTIGRAVITY QUOTA] fetch_quota_info: project={project_id}, url={url}")
+
+    try:
         response = await post_async(
-            url=f"{antigravity_url}/v1internal:fetchAvailableModels",
-            json={},
+            url=url,
+            json=payload,
             headers=headers,
             timeout=30.0
         )
 
-        if response.status_code == 200:
-            data = response.json()
-            log.debug(f"[ANTIGRAVITY QUOTA] Raw response: {json.dumps(data, ensure_ascii=False)[:500]}")
+        if response.status_code != 200:
+            error_text = response.text[:500]
+            log.error(f"[ANTIGRAVITY QUOTA] fetch_quota_info 失败: {response.status_code} - {error_text}")
+            return {"success": False, "error": f"API返回错误: {response.status_code} - {error_text}"}
 
-            quota_info = {}
+        data = response.json()
+        log.debug(f"[ANTIGRAVITY QUOTA] Raw response: {json.dumps(data, ensure_ascii=False)[:500]}")
 
-            if 'models' in data and isinstance(data['models'], dict):
-                for model_id, model_data in data['models'].items():
-                    if isinstance(model_data, dict) and 'quotaInfo' in model_data:
-                        quota = model_data['quotaInfo']
-                        remaining = quota.get('remainingFraction', 0)
-                        reset_time_raw = quota.get('resetTime', '')
+        # 解析分组配额（weekly + 5h 双窗口）
+        quota_groups: List[Dict[str, Any]] = []
+        for g in data.get("groups", []):
+            buckets = []
+            for b in g.get("buckets", []):
+                buckets.append({
+                    "bucketId": b.get("bucketId", ""),
+                    "displayName": b.get("displayName", ""),
+                    "window": b.get("window", ""),
+                    "resetTime": b.get("resetTime", ""),
+                    "remainingFraction": b.get("remainingFraction", 0),
+                    "description": b.get("description"),
+                })
+            quota_groups.append({
+                "displayName": g.get("displayName", ""),
+                "description": g.get("description"),
+                "buckets": buckets,
+            })
 
-                        # 转换为北京时间
-                        reset_time_beijing = 'N/A'
-                        if reset_time_raw:
-                            try:
-                                utc_date = datetime.fromisoformat(reset_time_raw.replace('Z', '+00:00'))
-                                # 转换为北京时间 (UTC+8)
-                                from datetime import timedelta
-                                beijing_date = utc_date + timedelta(hours=8)
-                                reset_time_beijing = beijing_date.strftime('%m-%d %H:%M')
-                            except Exception as e:
-                                log.warning(f"[ANTIGRAVITY QUOTA] Failed to parse reset time: {e}")
+        # 从分组配额中推断账号类型和重置天数
+        min_reset_days = None
+        for group in quota_groups:
+            for bucket in group.get("buckets", []):
+                reset_time = bucket.get("resetTime", "")
+                if reset_time:
+                    try:
+                        reset_dt = datetime.fromisoformat(reset_time.replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc)
+                        delta = reset_dt - now
+                        reset_days = max(0, delta.days)
+                        if min_reset_days is None or reset_days < min_reset_days:
+                            min_reset_days = reset_days
+                    except Exception:
+                        pass
 
-                        quota_info[model_id] = {
-                            "remaining": remaining,
-                            "resetTime": reset_time_beijing,
-                            "resetTimeRaw": reset_time_raw
-                        }
+        # 判断账号类型: 根据 weekly 窗口重置周期推断
+        is_pro = min_reset_days is not None and min_reset_days <= 1
+        account_tier = "pro" if is_pro else "normal"
 
-            return {
-                "success": True,
-                "models": quota_info
-            }
-        else:
-            log.error(f"[ANTIGRAVITY QUOTA] Failed to fetch quota ({response.status_code}): {response.text[:500]}")
-            return {
-                "success": False,
-                "error": f"API返回错误: {response.status_code}"
-            }
+        # 构建配额映射（从分组数据展开，兼容旧格式）
+        quota_info: Dict[str, Dict[str, Any]] = {}
+        for group in quota_groups:
+            group_name = group.get("displayName", "").lower()
+            for bucket in group.get("buckets", []):
+                bucket_id = bucket.get("bucketId", "")
+                remaining = bucket.get("remainingFraction", 0)
+                reset_time = bucket.get("resetTime", "")
+                window = bucket.get("window", "")
 
+                # 转换为北京时间
+                reset_time_beijing = 'N/A'
+                reset_days = None
+                if reset_time:
+                    try:
+                        utc_date = datetime.fromisoformat(reset_time.replace('Z', '+00:00'))
+                        # 转换为北京时间 (UTC+8)
+                        beijing_date = utc_date + timedelta(hours=8)
+                        reset_time_beijing = beijing_date.strftime('%m-%d %H:%M')
+                        now = datetime.now(timezone.utc)
+                        delta = utc_date - now
+                        reset_days = max(0, delta.days)
+                    except Exception as e:
+                        log.warning(f"[ANTIGRAVITY QUOTA] Failed to parse reset time: {e}")
+
+                quota_info[bucket_id] = {
+                    "remaining": remaining,
+                    "resetTime": reset_time_beijing,
+                    "resetTimeRaw": reset_time,
+                    "resetDays": reset_days,
+                    "window": window,
+                    "group": group_name,
+                }
+
+        log.info(
+            f"[ANTIGRAVITY QUOTA] 解析到 {len(quota_groups)} 个分组, "
+            f"{len(quota_info)} 个配额桶, tier={account_tier}"
+        )
+        return {
+            "success": True,
+            "models": quota_info,
+            "minResetDays": min_reset_days,
+            "accountTier": account_tier,
+            "isPro": is_pro,
+            "quotaGroups": quota_groups,
+            "source": "retrieveUserQuotaSummary",
+        }
     except Exception as e:
         import traceback
         log.error(f"[ANTIGRAVITY QUOTA] Failed to fetch quota: {e}")

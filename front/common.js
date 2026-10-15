@@ -1855,53 +1855,122 @@ async function toggleAntigravityQuotaDetails(pathId) {
                             </div>
                         `;
                     } else {
+                        // antigravity 分组配额（retrieveUserQuotaSummary）带 window/group 字段
+                        const isGrouped = Object.values(models).some(q => q.window || q.group);
+
                         let quotaHTML = `
-                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px 8px 0 0; margin: -10px -10px 15px -10px;">
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 15px; border-radius: 8px 8px 0 0; margin: -10px -10px 15px -10px;">
                                 <h4 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
                                     <span style="font-size: 20px;">📊</span>
-                                    <span>额度信息详情</span>
+                                    <span>额度信息</span>
                                 </h4>
-                                <div style="font-size: 12px; opacity: 0.9; margin-top: 5px;">文件: ${filename}</div>
+                                <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">文件: ${filename}</div>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
                         `;
 
-                        for (const [modelName, quotaData] of Object.entries(models)) {
-                            // 后端返回的是剩余比例 (0-1)，不是绝对数量
-                            const remainingFraction = quotaData.remaining || 0;
-                            const resetTime = quotaData.resetTime || 'N/A';
+                        if (isGrouped) {
+                            // 分组显示名：gemini models → Gemini，claude and gpt models → Claude / GPT
+                            const prettyGroup = (g) => {
+                                const s = (g || '').toLowerCase();
+                                if (s.includes('gemini')) return 'Gemini';
+                                if (s.includes('claude') || s.includes('gpt')) return 'Claude / GPT';
+                                return g || '其他';
+                            };
+                            // 窗口显示名：weekly → 周额度，5h → 5小时
+                            const prettyWindow = (w) => {
+                                const s = (w || '').toLowerCase();
+                                if (s.includes('week')) return '周额度';
+                                if (s.includes('5h') || s.includes('five') || s.includes('pt5')) return '5小时';
+                                return w || '';
+                            };
 
-                            // 计算已使用百分比（1 - 剩余比例）
-                            const usedPercentage = Math.round((1 - remainingFraction) * 100);
-                            const remainingPercentage = Math.round(remainingFraction * 100);
+                            // 按组聚合
+                            const groups = new Map();
+                            for (const quotaData of Object.values(models)) {
+                                const g = quotaData.group || '其他';
+                                if (!groups.has(g)) groups.set(g, []);
+                                groups.get(g).push(quotaData);
+                            }
 
-                            // 根据使用情况选择颜色
-                            let percentageColor = '#28a745'; // 绿色：使用少
-                            if (usedPercentage >= 90) percentageColor = '#dc3545'; // 红色：使用多
-                            else if (usedPercentage >= 70) percentageColor = '#ffc107'; // 黄色：使用较多
-                            else if (usedPercentage >= 50) percentageColor = '#17a2b8'; // 蓝色：使用中等
+                            const groupColors = ['#667eea', '#f59e0b', '#10b981', '#ef4444'];
+                            let colorIdx = 0;
+                            for (const [groupName, buckets] of groups) {
+                                // 周额度排前面，5小时在后
+                                const weeklyFirst = (q) => (q.window || '').toLowerCase().includes('week') ? 0 : 1;
+                                buckets.sort((a, b) => weeklyFirst(a) - weeklyFirst(b));
 
-                            quotaHTML += `
-                                <div style="background: white; border-left: 4px solid ${percentageColor}; border-radius: 4px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                        <div style="font-weight: bold; color: #333; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px;" title="${modelName} - 剩余${remainingPercentage}% - ${resetTime}">
-                                            ${modelName}
+                                quotaHTML += `
+                                    <div style="background: white; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 10px;">
+                                        <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #333; font-size: 13px; margin-bottom: 10px;">
+                                            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${groupColors[colorIdx % groupColors.length]};"></span>
+                                            ${prettyGroup(groupName)}
                                         </div>
-                                        <div style="font-size: 13px; font-weight: bold; color: ${percentageColor}; white-space: nowrap;">
-                                            ${remainingPercentage}%
+                                `;
+
+                                buckets.forEach((quotaData, idx) => {
+                                    const remainingFraction = quotaData.remaining || 0;
+                                    const resetTime = (quotaData.resetTime && quotaData.resetTime !== 'N/A') ? quotaData.resetTime : '';
+                                    const usedPercentage = Math.round((1 - remainingFraction) * 100);
+                                    const remainingPercentage = Math.round(remainingFraction * 100);
+
+                                    let barColor = '#28a745';
+                                    if (usedPercentage >= 90) barColor = '#dc3545';
+                                    else if (usedPercentage >= 70) barColor = '#ffc107';
+                                    else if (usedPercentage >= 50) barColor = '#17a2b8';
+
+                                    quotaHTML += `
+                                        <div style="display: flex; align-items: center; gap: 8px;${idx < buckets.length - 1 ? ' margin-bottom: 10px;' : ''}">
+                                            <span style="font-size: 11px; color: #555; width: 52px; flex-shrink: 0;">${prettyWindow(quotaData.window)}</span>
+                                            <div style="flex: 1; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;">
+                                                <div style="width: ${usedPercentage}%; height: 100%; background-color: ${barColor}; transition: width 0.3s ease;"></div>
+                                            </div>
+                                            <span style="font-size: 12px; font-weight: bold; color: ${barColor}; width: 38px; text-align: right;">${remainingPercentage}%</span>
+                                            <span style="font-size: 10px; color: #999; width: 88px; text-align: right; flex-shrink: 0;">${resetTime ? '🔄 ' + resetTime : ''}</span>
+                                        </div>
+                                    `;
+                                });
+
+                                quotaHTML += '</div>';
+                                colorIdx++;
+                            }
+                        } else {
+                            // 平铺展示（旧格式，按模型）
+                            quotaHTML += '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">';
+
+                            for (const [modelName, quotaData] of Object.entries(models)) {
+                                const remainingFraction = quotaData.remaining || 0;
+                                const resetTime = quotaData.resetTime || 'N/A';
+                                const usedPercentage = Math.round((1 - remainingFraction) * 100);
+                                const remainingPercentage = Math.round(remainingFraction * 100);
+
+                                let percentageColor = '#28a745';
+                                if (usedPercentage >= 90) percentageColor = '#dc3545';
+                                else if (usedPercentage >= 70) percentageColor = '#ffc107';
+                                else if (usedPercentage >= 50) percentageColor = '#17a2b8';
+
+                                quotaHTML += `
+                                    <div style="background: white; border-left: 4px solid ${percentageColor}; border-radius: 4px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                            <div style="font-weight: bold; color: #333; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px;" title="${modelName} - 剩余${remainingPercentage}% - ${resetTime}">
+                                                ${modelName}
+                                            </div>
+                                            <div style="font-size: 13px; font-weight: bold; color: ${percentageColor}; white-space: nowrap;">
+                                                ${remainingPercentage}%
+                                            </div>
+                                        </div>
+                                        <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
+                                            <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
+                                        </div>
+                                        <div style="font-size: 10px; color: #666; text-align: right;">
+                                            ${resetTime !== 'N/A' ? '🔄 ' + resetTime : ''}
                                         </div>
                                     </div>
-                                    <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
-                                        <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
-                                    </div>
-                                    <div style="font-size: 10px; color: #666; text-align: right;">
-                                        ${resetTime !== 'N/A' ? '🔄 ' + resetTime : ''}
-                                    </div>
-                                </div>
-                            `;
+                                `;
+                            }
+
+                            quotaHTML += '</div>';
                         }
 
-                        quotaHTML += '</div>';
                         contentDiv.innerHTML = quotaHTML;
                     }
 

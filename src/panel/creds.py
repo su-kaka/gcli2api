@@ -1194,14 +1194,19 @@ async def get_credential_quota(
             raise HTTPException(status_code=400, detail="凭证中没有访问令牌")
 
         # 获取额度信息
-        quota_info = await fetch_quota_info(access_token)
+        quota_info = await fetch_quota_info(access_token, credential_data.get("project_id", ""))
 
         if quota_info.get("success"):
-            return JSONResponse(content={
+            result = {
                 "success": True,
                 "filename": filename,
                 "models": quota_info.get("models", {})
-            })
+            }
+            # 透传 retrieveUserQuotaSummary 的分组配额附加信息
+            for extra_key in ("minResetDays", "accountTier", "isPro", "quotaGroups", "source"):
+                if extra_key in quota_info:
+                    result[extra_key] = quota_info[extra_key]
+            return JSONResponse(content=result)
         else:
             return JSONResponse(
                 status_code=400,
