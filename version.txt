@@ -1,4 +1,4 @@
-full_hash=4dc1a7dc6d1a3738798e17991891df613d98855c
-short_hash=4dc1a7d
-message=Update utils.py
-date=2026-10-14 14:09:11 +0800
+full_hash=b6cf613c730bdccbe7709a7d5954c0b401994cd5
+short_hash=b6cf613
+message=更新周限额
+date=2026-10-15 12:44:51 +0800
