@@ -51,16 +51,12 @@ class CredentialManager:
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         获取有效的凭证 - 随机负载均衡版
-        每次随机选择一个可用的凭证（未禁用、未冷却、符合preview要求）
+        每次随机选择一个可用的凭证（未禁用、未冷却）
         如果刷新失败会自动禁用失效凭证并重试获取下一个可用凭证
 
         Args:
             mode: 凭证模式 ("geminicli" 或 "antigravity")
-            model_name: 完整模型名，用于模型级冷却检查和preview筛选
-                       - geminicli: 完整模型名
-                                   - 包含 "preview" 的模型只能使用 preview=True 的凭证
-                                   - 不包含 "preview" 的模型优先使用 preview=False 的凭证
-                       - antigravity: 完整模型名（如 "gemini-2.0-flash-exp"）
+            model_name: 完整模型名，用于模型级冷却检查
         """
         await self._ensure_initialized()
 

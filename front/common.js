@@ -57,7 +57,6 @@ function createCredsManager(type) {
         currentStatusFilter: 'all',
         currentErrorCodeFilter: 'all',
         currentCooldownFilter: 'all',
-        currentPreviewFilter: 'all',
         currentTierFilter: 'all',
         statsData: { total: 0, normal: 0, disabled: 0 },
 
@@ -104,10 +103,9 @@ function createCredsManager(type) {
                 const offset = (this.currentPage - 1) * this.pageSize;
                 const errorCodeFilter = this.currentErrorCodeFilter || 'all';
                 const cooldownFilter = this.currentCooldownFilter || 'all';
-                const previewFilter = this.currentPreviewFilter || 'all';
                 const tierFilter = this.currentTierFilter || 'all';
                 const response = await fetch(
-                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&preview_filter=${previewFilter}&tier_filter=${tierFilter}&${this.getModeParam()}`,
+                    `${this.getEndpoint('status')}?offset=${offset}&limit=${this.pageSize}&status_filter=${this.currentStatusFilter}&error_code_filter=${errorCodeFilter}&cooldown_filter=${cooldownFilter}&tier_filter=${tierFilter}&${this.getModeParam()}`,
                     { headers: getAuthHeaders() }
                 );
 
@@ -125,7 +123,6 @@ function createCredsManager(type) {
                             },
                             user_email: item.user_email,
                             model_cooldowns: item.model_cooldowns || {},
-                            preview: item.preview,
                             tier: item.tier || 'pro',
                             enable_credit: !!item.enable_credit
                         };
@@ -240,11 +237,9 @@ function createCredsManager(type) {
             this.currentStatusFilter = document.getElementById(this.getElementId('StatusFilter')).value;
             const errorCodeFilterEl = document.getElementById(this.getElementId('ErrorCodeFilter'));
             const cooldownFilterEl = document.getElementById(this.getElementId('CooldownFilter'));
-            const previewFilterEl = document.getElementById(this.getElementId('PreviewFilter'));
             const tierFilterEl = document.getElementById(this.getElementId('TierFilter'));
             this.currentErrorCodeFilter = errorCodeFilterEl ? errorCodeFilterEl.value : 'all';
             this.currentCooldownFilter = cooldownFilterEl ? cooldownFilterEl.value : 'all';
-            this.currentPreviewFilter = previewFilterEl ? previewFilterEl.value : 'all';
             this.currentTierFilter = tierFilterEl ? tierFilterEl.value : 'all';
             this.currentPage = 1;
             this.refresh();
@@ -255,7 +250,7 @@ function createCredsManager(type) {
             const selectedCount = this.selectedFiles.size;
             document.getElementById(this.getElementId('SelectedCount')).textContent = `已选择 ${selectedCount} 项`;
 
-            const batchBtnNames = ['Enable', 'Disable', 'Delete', 'Verify', 'Preview'];
+            const batchBtnNames = ['Enable', 'Disable', 'Delete', 'Verify'];
             if (this.type === 'antigravity') {
                 batchBtnNames.push('EnableCredit');
                 batchBtnNames.push('DisableCredit');
@@ -654,15 +649,6 @@ function createCredCard(credInfo, manager) {
         statusBadges += '<span class="status-badge" style="background-color: #28a745; color: white;">无错误</span>';
     }
 
-    // Preview状态显示 (仅对geminicli模式显示)
-    if (managerType !== 'antigravity' && credInfo.preview !== undefined) {
-        if (credInfo.preview) {
-            statusBadges += '<span class="status-badge" style="background-color: #28a745; color: white;" title="该凭证支持Preview模型">Preview: ON</span>';
-        } else {
-            statusBadges += '<span class="status-badge" style="background-color: #8aa5a2; color: white;" title="该凭证不支持Preview模型">Preview: OFF</span>';
-        }
-    }
-
     // tier 状态显示 (geminicli 和 antigravity 都显示)
     const tier = (credInfo.tier || 'pro').toString().toLowerCase();
     const tierLabel = tier.toUpperCase();
@@ -723,7 +709,6 @@ function createCredCard(credInfo, manager) {
             ? `<button class="cred-btn" data-filename="${filename}" data-action="disable_credit" title="关闭该凭证的Credit模式">关闭 Credit</button>`
             : `<button class="cred-btn" data-filename="${filename}" data-action="enable_credit" title="开启该凭证的Credit模式">开启 Credit</button>`
         ) : ''}
-        ${managerType !== 'antigravity' ? `<button class="cred-btn" onclick="configurePreviewChannel('${filename}')" title="配置Preview通道，启用实验性功能">设置预览</button>` : ''}
         <button class="cred-btn" onclick="verify${managerType === 'antigravity' ? 'Antigravity' : ''}ProjectId('${filename}')" title="重新获取Project ID，可恢复403错误">检验</button>
         <button class="cred-btn" onclick="test${managerType === 'antigravity' ? 'Antigravity' : ''}Credential('${filename}')" title="测试凭证是否可用">消息测试</button>
         <button class="cred-btn" onclick="toggle${managerType === 'antigravity' ? 'Antigravity' : ''}ErrorDetails('${pathId}')" title="查看该凭证的详细报错信息">查看报错</button>
@@ -1771,50 +1756,6 @@ async function testAntigravityCredential(filename) {
     }
 }
 
-async function configurePreviewChannel(filename) {
-    try {
-        // 显示加载状态
-        showStatus('🔧 正在配置Preview通道，请稍候...', 'info');
-
-        const response = await fetch(`./creds/configure-preview/${encodeURIComponent(filename)}`, {
-            method: 'POST',
-            headers: getAuthHeaders()
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            // 配置成功
-            const successMsg = `✅ 配置成功！\n文件: ${filename}\n状态: ${data.message}`;
-            showStatus(successMsg.replace(/\n/g, '<br>'), 'success');
-            showMessageModal('Preview通道配置成功', `✅ Preview通道配置成功！\n\n文件: ${filename}\n\n${data.message}\n\nSetting ID: ${data.setting_id || 'N/A'}\nBinding ID: ${data.binding_id || 'N/A'}`, 'success');
-
-            // 刷新凭证列表
-            await AppState.creds.refresh();
-        } else {
-            // 配置失败
-            const errorMsg = data.message || '配置失败';
-            const errorDetail = data.error || '';
-            const step = data.step || '';
-
-            let alertMsg = `❌ Preview通道配置失败\n\n文件: ${filename}\n\n${errorMsg}`;
-            if (step) {
-                alertMsg += `\n失败步骤: ${step}`;
-            }
-            if (errorDetail) {
-                alertMsg += `\n\n错误详情: ${errorDetail}`;
-            }
-
-            showStatus(`❌ ${errorMsg}`, 'error');
-            showMessageModal('Preview通道配置失败', alertMsg, 'error');
-        }
-    } catch (error) {
-        const errorMsg = `配置Preview通道失败: ${error.message}`;
-        showStatus(`❌ ${errorMsg}`, 'error');
-        showMessageModal('配置Preview通道失败', `❌ ${errorMsg}`, 'error');
-    }
-}
-
 async function toggleAntigravityQuotaDetails(pathId) {
     const quotaDetails = document.getElementById('quota-' + pathId);
     if (!quotaDetails) return;
@@ -2332,89 +2273,6 @@ async function batchVerifyAntigravityProjectIds() {
 
     console.log(summary);
 }
-
-async function batchConfigurePreview() {
-    const selectedFiles = Array.from(AppState.creds.selectedFiles);
-    if (selectedFiles.length === 0) {
-        showStatus('❌ 请先选择要配置Preview的凭证', 'error');
-        showMessageModal('提示', '请先选择要配置Preview的凭证', 'error');
-        return;
-    }
-
-    if (!confirm(`确定要为 ${selectedFiles.length} 个凭证批量设置Preview通道吗？\n\n将并行配置以加快速度。`)) {
-        return;
-    }
-
-    showStatus(`🔧 正在为 ${selectedFiles.length} 个凭证配置Preview通道，请稍候...`, 'info');
-
-    // 并行执行所有配置请求
-    const promises = selectedFiles.map(async (filename) => {
-        try {
-            const response = await fetch(`./creds/configure-preview/${encodeURIComponent(filename)}`, {
-                method: 'POST',
-                headers: getAuthHeaders()
-            });
-            const data = await response.json();
-
-            if (response.ok && data.success) {
-                return {
-                    success: true,
-                    filename,
-                    message: data.message,
-                    setting_id: data.setting_id,
-                    binding_id: data.binding_id
-                };
-            } else {
-                return {
-                    success: false,
-                    filename,
-                    error: data.message || '配置失败',
-                    step: data.step,
-                    errorDetail: data.error
-                };
-            }
-        } catch (error) {
-            return { success: false, filename, error: error.message };
-        }
-    });
-
-    // 等待所有请求完成
-    const results = await Promise.all(promises);
-
-    // 统计结果
-    let successCount = 0;
-    let failCount = 0;
-    const resultMessages = [];
-
-    results.forEach(result => {
-        if (result.success) {
-            successCount++;
-            resultMessages.push(`✅ ${result.filename}: ${result.message || '配置成功'}`);
-        } else {
-            failCount++;
-            const errorMsg = result.step ? `${result.error} (步骤: ${result.step})` : result.error;
-            resultMessages.push(`❌ ${result.filename}: ${errorMsg}`);
-        }
-    });
-
-    await AppState.creds.refresh();
-
-    const summary = `批量配置Preview通道完成！\n\n成功: ${successCount} 个\n失败: ${failCount} 个\n总计: ${selectedFiles.length} 个\n\n详细结果:\n${resultMessages.join('\n')}`;
-
-    if (failCount === 0) {
-        showStatus(`✅ 全部配置成功！成功配置 ${successCount}/${selectedFiles.length} 个凭证的Preview通道`, 'success');
-        showMessageModal('批量配置Preview通道完成', summary, 'success');
-    } else if (successCount === 0) {
-        showStatus(`❌ 全部配置失败！失败 ${failCount}/${selectedFiles.length} 个凭证`, 'error');
-        showMessageModal('批量配置Preview通道完成', summary, 'error');
-    } else {
-        showStatus(`⚠️ 批量配置完成：成功 ${successCount}/${selectedFiles.length} 个，失败 ${failCount} 个`, 'info');
-        showMessageModal('批量配置Preview通道完成', summary, 'info');
-    }
-
-    console.log(summary);
-}
-
 
 async function refreshAllEmails() {
     if (!confirm('确定要刷新所有凭证的用户邮箱吗？这可能需要一些时间。')) return;

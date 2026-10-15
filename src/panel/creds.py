@@ -232,7 +232,7 @@ async def upload_credentials_common(
 
 async def get_creds_status_common(
     offset: int, limit: int, status_filter: str, mode: str = "geminicli",
-    error_code_filter: str = None, cooldown_filter: str = None, preview_filter: str = None, tier_filter: str = None
+    error_code_filter: str = None, cooldown_filter: str = None, tier_filter: str = None
 ) -> JSONResponse:
     """获取凭证文件状态的通用函数"""
     mode = validate_mode(mode)
@@ -245,8 +245,6 @@ async def get_creds_status_common(
         raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
         raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
-    if preview_filter and preview_filter not in ["all", "preview", "no_preview"]:
-        raise HTTPException(status_code=400, detail="preview_filter 只能是 all、preview 或 no_preview")
     if tier_filter and tier_filter not in ["all", "free", "pro", "ultra"]:
         raise HTTPException(status_code=400, detail="tier_filter 只能是 all、free、pro 或 ultra")
 
@@ -264,7 +262,6 @@ async def get_creds_status_common(
         mode=mode,
         error_code_filter=error_code_filter if error_code_filter and error_code_filter != "all" else None,
         cooldown_filter=cooldown_filter if cooldown_filter and cooldown_filter != "all" else None,
-        preview_filter=preview_filter if preview_filter and preview_filter != "all" else None,
         tier_filter=tier_filter if tier_filter and tier_filter != "all" else None
     )
 
@@ -281,9 +278,7 @@ async def get_creds_status_common(
             "tier": summary.get("tier", "pro"),
         }
 
-        if mode == "geminicli":
-            cred_info["preview"] = summary.get("preview", True)
-        else:
+        if mode != "geminicli":
             cred_info["enable_credit"] = summary.get("enable_credit", False)
 
         creds_list.append(cred_info)
@@ -602,10 +597,6 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
         # 同步更新状态表中的 tier 字段
         state_update["tier"] = subscription_tier
 
-        # 如果是 geminicli 模式，直接设置 preview=True
-        if mode == "geminicli":
-            state_update["preview"] = True
-
         await storage_adapter.update_credential_state(filename, state_update, mode=mode)
 
         log.info(f"检验 {mode} 凭证成功: {filename} - Project ID: {project_id}, Tier: {subscription_tier} - 已解除禁用并清除错误码")
@@ -663,7 +654,6 @@ async def get_creds_status(
     status_filter: str = "all",
     error_code_filter: str = "all",
     cooldown_filter: str = "all",
-    preview_filter: str = "all",
     tier_filter: str = "all",
     mode: str = "geminicli"
 ):
@@ -676,7 +666,6 @@ async def get_creds_status(
         status_filter: 状态筛选（all=全部, enabled=仅启用, disabled=仅禁用）
         error_code_filter: 错误码筛选（all=全部, 或具体错误码如"400", "403"）
         cooldown_filter: 冷却状态筛选（all=全部, in_cooldown=冷却中, no_cooldown=未冷却）
-        preview_filter: Preview筛选（all=全部, preview=支持preview, no_preview=不支持preview，仅geminicli模式有效）
         tier_filter: tier筛选（all=全部, free/pro/ultra）
         mode: 凭证模式（geminicli 或 antigravity）
 
@@ -689,7 +678,6 @@ async def get_creds_status(
             offset, limit, status_filter, mode=mode,
             error_code_filter=error_code_filter,
             cooldown_filter=cooldown_filter,
-            preview_filter=preview_filter,
             tier_filter=tier_filter
         )
     except HTTPException:
@@ -745,9 +733,7 @@ async def get_cred_detail(
             "model_cooldowns": file_status.get("model_cooldowns", {}),
         }
 
-        if mode == "geminicli":
-            result["preview"] = file_status.get("preview", True)
-        else:
+        if mode != "geminicli":
             result["enable_credit"] = file_status.get("enable_credit", False)
 
         if backend_type == "file" and os.path.exists(filename):
@@ -1224,234 +1210,6 @@ async def get_credential_quota(
         raise HTTPException(status_code=500, detail=f"获取额度失败: {str(e)}")
 
 
-@router.post("/configure-preview/{filename}")
-async def configure_preview_channel(
-    filename: str,
-    token: str = Depends(verify_panel_token),
-    mode: str = "geminicli"
-):
-    """
-    为 geminicli 凭证配置 preview 通道
-
-    通过调用 Google Cloud API 设置 release_channel 为 EXPERIMENTAL
-
-    Args:
-        filename: 凭证文件名
-        mode: 凭证模式（仅支持 geminicli）
-
-    Returns:
-        配置结果信息
-    """
-    try:
-        mode = validate_mode(mode)
-
-        # 只支持 geminicli 模式
-        if mode != "geminicli":
-            raise HTTPException(
-                status_code=400,
-                detail="配置 preview 通道仅支持 geminicli 模式"
-            )
-
-        # 验证文件名
-        if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="无效的文件名")
-
-        storage_adapter = await get_storage_adapter()
-
-        # 获取凭证数据
-        credential_data = await storage_adapter.get_credential(filename, mode=mode)
-        if not credential_data:
-            raise HTTPException(status_code=404, detail="凭证不存在")
-
-        # 创建凭证对象并刷新 token（如果需要）
-        credentials = Credentials.from_dict(credential_data)
-        token_refreshed = await credentials.refresh_if_needed()
-
-        if token_refreshed:
-            log.info(f"Token已自动刷新: {filename}")
-            credential_data = credentials.to_dict()
-            await storage_adapter.store_credential(filename, credential_data, mode=mode)
-
-        # 获取 access_token 和 project_id
-        access_token = credential_data.get("access_token") or credential_data.get("token")
-        project_id = credential_data.get("project_id", "")
-
-        if not access_token:
-            raise HTTPException(status_code=400, detail="凭证中没有访问令牌")
-        if not project_id:
-            raise HTTPException(status_code=400, detail="凭证中没有项目ID")
-
-        # 调用 Google Cloud API 配置 preview 通道
-        # 根据文档，需要两个步骤：
-        # 1. 创建 Release Channel Setting (EXPERIMENTAL)
-        # 2. 创建 Setting Binding (绑定到目标项目)
-        from src.httpx_client import post_async
-        import uuid
-
-        # 生成唯一的 ID
-        setting_id = f"preview-setting-{uuid.uuid4().hex[:8]}"
-        binding_id = f"preview-binding-{uuid.uuid4().hex[:8]}"
-
-        base_url = f"https://cloudaicompanion.googleapis.com/v1/projects/{project_id}/locations/global"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-
-        log.info(f"开始配置 preview 通道: {filename} (project_id={project_id})")
-
-        # 步骤 1: 创建 Release Channel Setting
-        setting_url = f"{base_url}/releaseChannelSettings"
-        setting_response = await post_async(
-            url=setting_url,
-            json={"release_channel": "EXPERIMENTAL"},
-            headers=headers,
-            params={"release_channel_setting_id": setting_id},
-            timeout=30.0
-        )
-
-        setting_status = setting_response.status_code
-
-        # 调用 Google Cloud API 配置 preview 通道
-        # 根据文档，需要两个步骤：
-        # 1. 创建 Release Channel Setting (EXPERIMENTAL)
-        # 2. 创建 Setting Binding (绑定到目标项目)
-        from src.httpx_client import post_async, get_async
-        import uuid
-
-        # 生成唯一的 ID
-        setting_id = f"preview-setting-{uuid.uuid4().hex[:8]}"
-        binding_id = f"preview-binding-{uuid.uuid4().hex[:8]}"
-
-        base_url = f"https://cloudaicompanion.googleapis.com/v1/projects/{project_id}/locations/global"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-
-        log.info(f"开始配置 preview 通道: {filename} (project_id={project_id})")
-
-        # 步骤 1: 创建 Release Channel Setting
-        setting_url = f"{base_url}/releaseChannelSettings"
-        setting_response = await post_async(
-            url=setting_url,
-            json={"release_channel": "EXPERIMENTAL"},
-            headers=headers,
-            params={"release_channel_setting_id": setting_id},
-            timeout=30.0
-        )
-
-        setting_status = setting_response.status_code
-
-        if setting_status == 200 or setting_status == 201:
-            log.info(f"步骤 1/2: Release Channel Setting 创建成功 (setting_id={setting_id})")
-        elif setting_status == 409:
-            # Setting 已存在，需要 LIST 获取真实的 setting_id，否则 Step 2 的 URL 会用错误的 ID
-            log.info(f"步骤 1/2: Release Channel Setting 已存在，正在获取已有 setting_id...")
-            list_response = await get_async(
-                url=setting_url,
-                headers=headers,
-                timeout=30.0
-            )
-            if list_response.status_code == 200:
-                try:
-                    list_data = list_response.json()
-                    settings = list_data.get("releaseChannelSettings", [])
-                    if settings:
-                        existing_name = settings[0].get("name", "")
-                        setting_id = existing_name.split("/")[-1]
-                        log.info(f"步骤 1/2: 获取到已有 setting_id={setting_id}")
-                    else:
-                        log.warning(f"步骤 1/2: LIST 返回空列表，保持随机 setting_id")
-                except Exception as e:
-                    log.warning(f"步骤 1/2: 解析 LIST 响应失败: {e}，保持随机 setting_id")
-            else:
-                log.warning(f"步骤 1/2: LIST 请求失败 (status={list_response.status_code})，保持随机 setting_id")
-        else:
-            # 步骤 1 失败
-            error_text = setting_response.text if hasattr(setting_response, 'text') else ""
-            log.error(f"步骤 1/2 失败: {filename} - Status: {setting_status}, Error: {error_text}")
-
-            return JSONResponse(
-                status_code=setting_status,
-                content={
-                    "success": False,
-                    "filename": filename,
-                    "preview": False,
-                    "message": f"创建 Release Channel Setting 失败: HTTP {setting_status}",
-                    "error": error_text,
-                    "step": "create_setting"
-                }
-            )
-
-        # 步骤 2: 创建 Setting Binding (绑定到当前项目)
-        binding_url = f"{base_url}/releaseChannelSettings/{setting_id}/settingBindings"
-        binding_response = await post_async(
-            url=binding_url,
-            json={
-                "target": f"projects/{project_id}",
-                "product": "GEMINI_CODE_ASSIST"
-            },
-            headers=headers,
-            params={"setting_binding_id": binding_id},
-            timeout=30.0
-        )
-
-        binding_status = binding_response.status_code
-
-        if binding_status == 200 or binding_status == 201:
-            await storage_adapter.update_credential_state(filename, {
-                "preview": True
-            }, mode=mode)
-
-            log.info(f"步骤 2/2: Setting Binding 创建成功 - Preview 通道配置完成: {filename}")
-
-            return JSONResponse(content={
-                "success": True,
-                "filename": filename,
-                "preview": True,
-                "message": "Preview 通道配置成功，已将 preview 属性设置为 true",
-                "setting_id": setting_id,
-                "binding_id": binding_id
-            })
-        elif binding_status == 409:
-            # Binding 已存在，说明已经配置过了
-            await storage_adapter.update_credential_state(filename, {
-                "preview": True
-            }, mode=mode)
-
-            log.info(f"步骤 2/2: Setting Binding 已存在 - Preview 通道已配置: {filename}")
-
-            return JSONResponse(content={
-                "success": True,
-                "filename": filename,
-                "preview": True,
-                "message": "Preview 通道配置已存在，已将 preview 属性设置为 true"
-            })
-        else:
-            # 步骤 2 失败
-            error_text = binding_response.text if hasattr(binding_response, 'text') else ""
-            log.error(f"步骤 2/2 失败: {filename} - Status: {binding_status}, Error: {error_text}")
-
-            return JSONResponse(
-                status_code=binding_status,
-                content={
-                    "success": False,
-                    "filename": filename,
-                    "preview": False,
-                    "message": f"创建 Setting Binding 失败: HTTP {binding_status}",
-                    "error": error_text,
-                    "step": "create_binding"
-                }
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"配置 preview 通道失败 {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"配置失败: {str(e)}")
-
-
 @router.post("/test/{filename}")
 async def test_credential(
     filename: str,
@@ -1509,8 +1267,7 @@ async def test_credential(
             raise HTTPException(status_code=400, detail="凭证中没有项目ID")
 
         # 根据模式选择 API 端点和请求头
-        # 对于 geminicli 模式，使用两次测试：gemini-2.5-flash 和 gemini-3-flash-preview
-        # 对于 antigravity 模式，只使用 gemini-2.5-flash
+        # 使用 gemini-2.5-flash 进行测试
         test_model = "gemini-2.5-flash"
 
         if mode == "antigravity":
@@ -1551,46 +1308,6 @@ async def test_credential(
                     "error_codes": [],
                     "error_messages": {}
                 }, mode=mode)
-
-                # 如果是 geminicli 模式且第一次测试成功，继续测试 gemini-3-flash-preview
-                if mode == "geminicli":
-                    preview_model = "gemini-3-flash-preview"
-                    log.info(f"开始测试 preview 模型: {filename} (model={preview_model})")
-
-                    try:
-                        preview_response = await post_async(
-                            url=f"{api_base_url}/v1internal:generateContent",
-                            json={
-                                "model": preview_model,
-                                "project": project_id,
-                                "request": {
-                                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
-                                    "generationConfig": {"maxOutputTokens": 1}
-                                }
-                            },
-                            headers=headers,
-                            timeout=30.0
-                        )
-
-                        preview_status = preview_response.status_code
-
-                        if preview_status == 200 or preview_status == 429:
-                            # preview 模型测试成功，设置 preview=True
-                            log.info(f"Preview 模型测试成功: {filename} (status={preview_status})")
-                            await storage_adapter.update_credential_state(filename, {
-                                "preview": True
-                            }, mode=mode)
-                        elif preview_status == 404:
-                            # preview 模型返回 404，说明不支持，设置 preview=False
-                            log.warning(f"Preview 模型不支持: {filename} (status=404)")
-                            await storage_adapter.update_credential_state(filename, {
-                                "preview": False
-                            }, mode=mode)
-                        else:
-                            # 其他错误，保持默认 preview 状态
-                            log.warning(f"Preview 模型测试失败: {filename} (status={preview_status})")
-                    except Exception as e:
-                        log.error(f"Preview 模型测试异常: {filename} - {e}")
 
             # 返回成功响应
             return JSONResponse(
