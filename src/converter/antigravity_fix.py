@@ -3,14 +3,15 @@ Antigravity Format Utilities - 独立的 Antigravity 请求处理和转换工具
 
 设计要点:
   * 每个模型家族在 resolve_profile 里有独立的一行配置 (后端模型 ID / 思考方式)
-  * 所有模型统一禁用预填充 (请求不能以 model 消息结尾)
+  * 所有模型禁用预填充 (profile.no_prefill 恒为 True)
   * 不修改调用方传入的 request (generationConfig / thinkingConfig / contents 均先复制)
 ────────────────────────────────────────────────────────────────
+按项目要求:
+- 使用 print 输出 warning/error，去掉 debug 日志
 """
 import copy
 import hashlib
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -588,15 +589,16 @@ def prepare_image_generation_request(
 
 @dataclass(frozen=True)
 class ModelProfile:
-    family: str                     # "gemini3" | "gemini25" | "claude" | "image" | "other"
+    family: str                     # "gemini4" | "gemini3" | "claude" | "image" | "other"
     upstream: str                   # 实际发给 Antigravity 后端的模型 ID
     thinking: str = "none"          # "route" | "budget" | "none"，见 _apply_thinking
     thinking_budget: int = 1024     # 仅 thinking == "budget" 时使用
+    no_prefill: bool = True         # 所有模型禁用预填充
 
 
 # 精确别名: 客户端模型名 -> 后端真实 ID
-_UPSTREAM_ALIASES = {
-    "gemini-3.1-pro-high": "gemini-pro-agent",
+_UPSTREAM_ALIASES: Dict[str, str] = {
+    # gemini-3.1-pro-* 已从上游模型列表下线，别名已删除
 }
 
 
@@ -605,14 +607,13 @@ def resolve_profile(model: str) -> ModelProfile:
     按关键词匹配模型，自上而下第一个命中的规则生效:
 
       image 图片生成，走独立路径
+      claude-opus-5-5 / claude-sonnet-5-5   思考强度由模型 ID 后缀决定，原样透传
       claude-opus-4-6   映射到 claude-opus-4-6-thinking
       claude-sonnet-4-6-thinking    映射到 claude-sonnet-4-6
       claude (其他)  原样透传
+      gemini-4*             (如 gemini-4-argon-low/-medium/-high) 思考深度由模型 ID 后缀决定，原样透传
       gemini-3* / *-agent   思考深度由模型 ID (-low/-medium/-high/-tiered/-extra-low) 决定
-      gemini (其他, 2.5 等) 名字含 think 才发 thinkingBudget
-      其他  原样透传
-
-    所有模型统一禁用预填充（见 normalize_antigravity_request）。
+      其他  名字含 think 才发 thinkingBudget，原样透传
     """
     model = model or ""
     lower = model.lower()
@@ -622,6 +623,11 @@ def resolve_profile(model: str) -> ModelProfile:
         return ModelProfile("image", model)
 
     if "claude" in lower:
+        # Opus 5.5 / Sonnet 5.5: 思考强度由模型 ID 后缀 (-low/-high 等) 决定，原样透传
+        normalized = lower.replace(".", "-")
+        if "claude-opus-5-5" in normalized or "claude-sonnet-5-5" in normalized:
+            return ModelProfile("claude", model, "route")
+
         upstream = model
         if "claude-opus-4-6" in lower:
             upstream = "claude-opus-4-6-thinking"
@@ -629,15 +635,11 @@ def resolve_profile(model: str) -> ModelProfile:
             upstream = "claude-sonnet-4-6"
         return ModelProfile("claude", upstream, think)
 
-    if "gemini-3" in lower or lower.endswith("-agent"):
-        return ModelProfile(
-            "gemini3",
-            _UPSTREAM_ALIASES.get(lower, model),
-            "route",
-        )
+    if "gemini-4" in lower:
+        return ModelProfile("gemini4", _UPSTREAM_ALIASES.get(lower, model), "route")
 
-    if "gemini" in lower:
-        return ModelProfile("gemini25", model, think)
+    if "gemini-3" in lower or lower.endswith("-agent"):
+        return ModelProfile("gemini3", _UPSTREAM_ALIASES.get(lower, model), "route")
 
     return ModelProfile("other", model, think)
 
@@ -818,10 +820,10 @@ async def normalize_antigravity_request(
     if "contents" in result:
         contents = _clean_contents(result["contents"], upstream)
 
-        # 所有模型统一禁用预填充
-        contents, removed = _strip_trailing_model_turns(contents)
-        if removed:
-            print(f"[ANTIGRAVITY] {upstream} 不支持预填充，移除了 {removed} 条末尾 model 消息", flush=True)
+        if profile.no_prefill:
+            contents, removed = _strip_trailing_model_turns(contents)
+            if removed:
+                print(f"[ANTIGRAVITY] {upstream} 禁用预填充，移除了 {removed} 条末尾 model 消息", flush=True)
 
         if profile.family == "claude":
             contents = _prepare_claude_history(contents, generation_config)
@@ -850,6 +852,8 @@ async def normalize_antigravity_request(
 
 
 # ==================== 请求构建 & Antigravity payload 准备 ====================
+# 以下函数原位于 app/services/antigravity_client.py，属于纯格式转换职责，
+# 现统一下沉到 converter 层，client 只保留 HTTP/流式/心跳逻辑。
 
 
 def build_gemini_request(
@@ -997,14 +1001,13 @@ async def build_antigravity_payload(
     tool_config: Optional[Dict[str, Any]] = None,
     *,
     project_id: str = "",
-    enable_credit: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     """
     一站式构建 Antigravity 上游 payload。
 
     串联三个步骤：
       build_gemini_request → normalize_antigravity_request → prepare_antigravity_payload
-    并合并 client 侧 build_request_payload 的 project / enableCreditTypes 逻辑。
+    并合并 client 侧 build_request_payload 的 project 逻辑。
 
     Returns:
         (final_model, payload) — 最终模型名（经过映射）与可直接发送的上游 payload。
@@ -1020,7 +1023,5 @@ async def build_antigravity_payload(
         "project": project_id,
         "request": normalized,
     }
-    if enable_credit:
-        payload["enabledCreditTypes"] = ["GOOGLE_ONE_AI"]
 
     return final_model, prepare_antigravity_payload(payload, final_model)
