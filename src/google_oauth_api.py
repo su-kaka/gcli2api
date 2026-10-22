@@ -148,7 +148,7 @@ class Credentials:
             client_id=data.get("client_id"),
             client_secret=data.get("client_secret"),
             expires_at=expires_at,
-            project_id=data.get("project_id"),
+            project_id=data.get("project_id") or data.get("quota_project_id") or data.get("project"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -323,7 +323,7 @@ class ServiceAccount:
         return cls(
             email=data["client_email"],
             private_key=data["private_key"],
-            project_id=data.get("project_id"),
+            project_id=data.get("project_id") or data.get("quota_project_id") or data.get("project"),
             scopes=scopes,
         )
 
@@ -536,6 +536,7 @@ async def fetch_project_id_and_tier(
     user_agent: str,
     api_base_url: str,
     include_credits: bool = False,
+    project_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]] | Tuple[Optional[str], Optional[str], Optional[int]]:
     """
     从 API 获取 project_id 和订阅等级
@@ -544,6 +545,8 @@ async def fetch_project_id_and_tier(
         access_token: Google OAuth access token
         user_agent: User-Agent header
         api_base_url: API base URL (e.g., antigravity or code assist endpoint)
+        include_credits: 是否返回积分数量
+        project_id: 已知或预设的 GCP project_id（用于企业/GCP Code Assist 许可证账号）
 
     Returns:
         默认返回 (project_id, subscription_tier)
@@ -567,6 +570,7 @@ async def fetch_project_id_and_tier(
             "g1-ultra-tier": "ultra",
             "ws-ai-ultra-business-tier": "ultra",
             "g1-pro-tier": "pro",
+            "gcp-standard-tier": "pro",
             "helium-tier": "pro",
             "standard-tier": "pro",
             "free-tier": "free",
@@ -574,34 +578,66 @@ async def fetch_project_id_and_tier(
 
         return tier_mapping.get(raw_tier.lower(), "pro")
 
+    def _parse_credit_amount(raw_credit_amount: Optional[str]) -> Optional[int]:
+        if raw_credit_amount is None:
+            return None
+        try:
+            amount = int(raw_credit_amount)
+            log.info(f"[fetch_project_id_and_tier] Found credit_amount: {amount}")
+            return amount
+        except (TypeError, ValueError):
+            log.warning(f"[fetch_project_id_and_tier] Invalid credit_amount: {raw_credit_amount}")
+            return None
+
     subscription_tier = None
     credit_amount: Optional[int] = None
+    hint_project_id = (project_id or "").strip() or None
 
     # 步骤 1: 尝试 loadCodeAssist
     try:
-        project_id, raw_tier, raw_credit_amount = await _try_load_code_assist(api_base_url, headers)
+        resolved_project_id, raw_tier, raw_credit_amount = await _try_load_code_assist(
+            api_base_url, headers, project_id=hint_project_id
+        )
         subscription_tier = _map_raw_tier(raw_tier)
-
-        if raw_credit_amount is not None:
-            try:
-                credit_amount = int(raw_credit_amount)
-                log.info(
-                    f"[fetch_project_id_and_tier] Found credit_amount: {credit_amount}"
-                )
-            except (TypeError, ValueError):
-                log.warning(
-                    f"[fetch_project_id_and_tier] Invalid credit_amount: {raw_credit_amount}"
-                )
+        credit_amount = _parse_credit_amount(raw_credit_amount)
 
         if raw_tier:
             log.info(
                 f"[fetch_project_id_and_tier] Raw tier '{raw_tier}' mapped to '{subscription_tier}'"
             )
 
-        if project_id:
+        # 对于分配了 GCP/企业许可证 (userDefinedCloudaicompanionProject=true) 的账号，
+        # 未携带 project_id 调用 loadCodeAssist 时不会返回 cloudaicompanionProject。
+        # 此时尝试通过 Resource Manager 获取用户的活跃 GCP 项目并重试一次 loadCodeAssist。
+        if not resolved_project_id and not hint_project_id:
+            try:
+                user_projects = await get_user_projects(Credentials(access_token=access_token))
+                if user_projects:
+                    hint_project_id = (
+                        user_projects[0].get("projectId")
+                        if len(user_projects) == 1
+                        else await select_default_project(user_projects)
+                    )
+                    if hint_project_id:
+                        log.info(
+                            f"[fetch_project_id_and_tier] Retrying loadCodeAssist with user project: {hint_project_id}"
+                        )
+                        resolved_project_id, retry_raw_tier, retry_credit = await _try_load_code_assist(
+                            api_base_url, headers, project_id=hint_project_id
+                        )
+                        if retry_raw_tier:
+                            subscription_tier = _map_raw_tier(retry_raw_tier)
+                        if retry_credit is not None:
+                            credit_amount = _parse_credit_amount(retry_credit)
+            except Exception as proj_err:
+                log.warning(
+                    f"[fetch_project_id_and_tier] Failed to auto-detect GCP project for loadCodeAssist: {proj_err}"
+                )
+
+        if resolved_project_id:
             if include_credits:
-                return project_id, subscription_tier, credit_amount
-            return project_id, subscription_tier
+                return resolved_project_id, subscription_tier, credit_amount
+            return resolved_project_id, subscription_tier
 
         log.warning("[fetch_project_id_and_tier] loadCodeAssist did not return project_id, falling back to onboardUser")
 
@@ -611,11 +647,13 @@ async def fetch_project_id_and_tier(
 
     # 步骤 2: 回退到 onboardUser
     try:
-        project_id = await _try_onboard_user(api_base_url, headers)
-        if project_id:
+        resolved_project_id = await _try_onboard_user(
+            api_base_url, headers, project_id=hint_project_id
+        )
+        if resolved_project_id:
             if include_credits:
-                return project_id, subscription_tier, credit_amount
-            return project_id, subscription_tier
+                return resolved_project_id, subscription_tier, credit_amount
+            return resolved_project_id, subscription_tier
 
         log.error("[fetch_project_id_and_tier] Failed to get project_id from both loadCodeAssist and onboardUser")
         if include_credits:
@@ -633,7 +671,8 @@ async def fetch_project_id_and_tier(
 
 async def _try_load_code_assist(
     api_base_url: str,
-    headers: dict
+    headers: dict,
+    project_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     尝试通过 loadCodeAssist 获取 project_id 和订阅等级
@@ -644,11 +683,15 @@ async def _try_load_code_assist(
         credit_amount 为字符串格式积分或 None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
-    request_body = {
-        "metadata": {
-            "ideType": "ANTIGRAVITY"
-        }
+    metadata: Dict[str, Any] = {
+        "ideType": "ANTIGRAVITY"
     }
+    request_body: Dict[str, Any] = {
+        "metadata": metadata
+    }
+    if project_id:
+        request_body["cloudaicompanionProject"] = project_id
+        metadata["duetProject"] = project_id
 
     log.debug(f"[loadCodeAssist] Fetching project_id from: {request_url}")
     log.debug(f"[loadCodeAssist] Request body: {request_body}")
@@ -696,17 +739,18 @@ async def _try_load_code_assist(
         if current_tier:
             log.info("[loadCodeAssist] User is already activated")
 
-            # 使用服务器返回的 project_id
-            project_id = data.get("cloudaicompanionProject")
-            if project_id:
-                log.info(f"[loadCodeAssist] Successfully fetched project_id: {project_id}, tier: {subscription_tier}")
-                return project_id, subscription_tier, credit_amount
+            # 优先使用服务器返回的 project_id；
+            # 若账号为 userDefinedCloudaicompanionProject=true（如企业/GCP 标准版许可证），回退使用传入的 project_id
+            resolved_project_id = data.get("cloudaicompanionProject") or project_id
+            if resolved_project_id:
+                log.info(f"[loadCodeAssist] Successfully fetched project_id: {resolved_project_id}, tier: {subscription_tier}")
+                return resolved_project_id, subscription_tier, credit_amount
 
             log.warning("[loadCodeAssist] No project_id in response")
             return None, subscription_tier, credit_amount
         else:
             log.info("[loadCodeAssist] User not activated yet (no currentTier)")
-            return None, None, credit_amount
+            return None, subscription_tier, credit_amount
     else:
         log.warning(f"[loadCodeAssist] Failed: HTTP {response.status_code}")
         log.warning(f"[loadCodeAssist] Response body: {response.text[:500]}")
@@ -715,7 +759,8 @@ async def _try_load_code_assist(
 
 async def _try_onboard_user(
     api_base_url: str,
-    headers: dict
+    headers: dict,
+    project_id: Optional[str] = None,
 ) -> Optional[str]:
     """
     尝试通过 onboardUser 获取 project_id（长时间运行操作，需要轮询）
@@ -726,7 +771,7 @@ async def _try_onboard_user(
     request_url = f"{api_base_url.rstrip('/')}/v1internal:onboardUser"
 
     # 首先需要获取用户的 tier 信息
-    tier_id = await _get_onboard_tier(api_base_url, headers)
+    tier_id = await _get_onboard_tier(api_base_url, headers, project_id=project_id)
     if not tier_id:
         log.error("[onboardUser] Failed to determine user tier")
         return None
@@ -734,15 +779,19 @@ async def _try_onboard_user(
     log.info(f"[onboardUser] User tier: {tier_id}")
 
     # 构造 onboardUser 请求
-    # 注意：FREE tier 不应该包含 cloudaicompanionProject
-    request_body = {
-        "tierId": tier_id,
-        "metadata": {
-            "ideType": "ANTIGRAVITY",
-            "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
-        }
+    # 注意：FREE tier 不应该包含 cloudaicompanionProject，其他 tier 需携带自定义 project_id
+    metadata: Dict[str, Any] = {
+        "ideType": "ANTIGRAVITY",
+        "platform": "PLATFORM_UNSPECIFIED",
+        "pluginType": "GEMINI"
     }
+    request_body: Dict[str, Any] = {
+        "tierId": tier_id,
+        "metadata": metadata,
+    }
+    if project_id and tier_id.lower() != "free-tier":
+        request_body["cloudaicompanionProject"] = project_id
+        metadata["duetProject"] = project_id
 
     log.debug(f"[onboardUser] Request URL: {request_url}")
     log.debug(f"[onboardUser] Request body: {request_body}")
@@ -778,15 +827,16 @@ async def _try_onboard_user(
                 project_obj = response_data.get("cloudaicompanionProject", {})
 
                 if isinstance(project_obj, dict):
-                    project_id = project_obj.get("id")
+                    resolved_project_id = project_obj.get("id")
                 elif isinstance(project_obj, str):
-                    project_id = project_obj
+                    resolved_project_id = project_obj
                 else:
-                    project_id = None
+                    resolved_project_id = None
 
-                if project_id:
-                    log.info(f"[onboardUser] Successfully fetched project_id: {project_id}")
-                    return project_id
+                resolved_project_id = resolved_project_id or project_id
+                if resolved_project_id:
+                    log.info(f"[onboardUser] Successfully fetched project_id: {resolved_project_id}")
+                    return resolved_project_id
                 else:
                     log.warning("[onboardUser] Operation completed but no project_id in response")
                     return None
@@ -804,7 +854,8 @@ async def _try_onboard_user(
 
 async def _get_onboard_tier(
     api_base_url: str,
-    headers: dict
+    headers: dict,
+    project_id: Optional[str] = None,
 ) -> Optional[str]:
     """
     从 loadCodeAssist 响应中获取用户应该注册的 tier
@@ -813,13 +864,17 @@ async def _get_onboard_tier(
         tier_id (如 "FREE", "STANDARD", "LEGACY") 或 None
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:loadCodeAssist"
-    request_body = {
-        "metadata": {
-            "ideType": "ANTIGRAVITY",
-            "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI"
-        }
+    metadata: Dict[str, Any] = {
+        "ideType": "ANTIGRAVITY",
+        "platform": "PLATFORM_UNSPECIFIED",
+        "pluginType": "GEMINI"
     }
+    request_body: Dict[str, Any] = {
+        "metadata": metadata
+    }
+    if project_id:
+        request_body["cloudaicompanionProject"] = project_id
+        metadata["duetProject"] = project_id
 
     log.debug(f"[_get_onboard_tier] Fetching tier info from: {request_url}")
 

@@ -165,6 +165,14 @@ async def upload_credentials_common(
                 content_str = file_data["content"]
                 credential_data = json.loads(content_str)
 
+                if isinstance(credential_data, dict) and not credential_data.get("project_id"):
+                    fallback_project_id = (
+                        credential_data.get("quota_project_id")
+                        or credential_data.get("project")
+                    )
+                    if fallback_project_id:
+                        credential_data["project_id"] = fallback_project_id
+
                 # 根据凭证类型调用不同的添加方法
                 if mode == "antigravity":
                     await credential_manager.add_antigravity_credential(filename, credential_data)
@@ -540,6 +548,14 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
     if not credential_data:
         raise HTTPException(status_code=404, detail="凭证不存在")
 
+    # 保留凭证中已有的 project_id（优先用于企业/GCP Code Assist 许可证校验）
+    existing_project_id = (
+        credential_data.get("project_id")
+        or credential_data.get("quota_project_id")
+        or credential_data.get("project")
+        or ""
+    ).strip() or None
+
     # 创建凭证对象
     credentials = Credentials.from_dict(credential_data)
 
@@ -549,7 +565,9 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
     # 如果token被刷新了，更新存储
     if token_refreshed:
         log.info(f"Token已自动刷新: {filename} (mode={mode})")
-        credential_data = credentials.to_dict()
+        credential_data.update(credentials.to_dict())
+        if credential_data.get("access_token"):
+            credential_data["token"] = credential_data["access_token"]
         await storage_adapter.store_credential(filename, credential_data, mode=mode)
 
     # 重新获取project id（仅 antigravity 模式请求积分）
@@ -561,19 +579,35 @@ async def verify_credential_project_common(filename: str, mode: str = "geminicli
             user_agent=user_agent,
             api_base_url=api_base_url,
             include_credits=True,
+            project_id=existing_project_id,
         )
     else:
-        # geminicli 模式：通过项目列表获取 project_id
+        # geminicli 模式：优先保留凭证已有的 project_id，缺失时再通过项目列表获取
         credit_amount = None
         subscription_tier = None
-        user_projects = await get_user_projects(credentials)
-        if user_projects:
-            if len(user_projects) == 1:
-                project_id = user_projects[0].get("projectId")
-            else:
-                project_id = await select_default_project(user_projects)
-        else:
-            project_id = None
+        project_id = existing_project_id
+
+        if not project_id:
+            user_projects = await get_user_projects(credentials)
+            if user_projects:
+                if len(user_projects) == 1:
+                    project_id = user_projects[0].get("projectId")
+                else:
+                    project_id = await select_default_project(user_projects)
+
+        # 通过 loadCodeAssist / onboardUser 校验或激活项目许可证并同步订阅等级
+        try:
+            code_assist_url = await get_code_assist_endpoint()
+            ca_project_id, subscription_tier = await fetch_project_id_and_tier(
+                access_token=credentials.access_token,
+                user_agent=GEMINICLI_USER_AGENT,
+                api_base_url=code_assist_url,
+                project_id=project_id,
+            )
+            if ca_project_id:
+                project_id = ca_project_id
+        except Exception as e:
+            log.warning(f"通过 Code Assist 校验项目失败: {e}")
 
         if project_id:
             log.info(f"正在为项目 {project_id} 启用必需的API服务...")
