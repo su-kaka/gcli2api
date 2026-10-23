@@ -19,7 +19,7 @@ export default function OAuth() {
     setCredsContent("");
 
     try {
-      const res = await api.post("/auth/start", { mode: "antigravity" });
+      const res = await api.post("/auth/start", {});
       setAuthUrl(res.data.auth_url);
       setMessage({ type: "info", text: "已生成认证链接，请在新窗口完成 Google 授权" });
     } catch (err) {
@@ -35,7 +35,7 @@ export default function OAuth() {
   const fetchCredentials = async () => {
     setFetching(true);
     try {
-      const res = await api.post("/auth/callback", { mode: "antigravity" });
+      const res = await api.post("/auth/callback", {});
       setCredsContent(JSON.stringify(res.data.credentials, null, 2));
       setMessage({
         type: "success",
@@ -60,7 +60,6 @@ export default function OAuth() {
     try {
       const res = await api.post("/auth/callback-url", {
         callback_url: callbackUrl.trim(),
-        mode: "antigravity",
       });
       setCredsContent(JSON.stringify(res.data.credentials, null, 2));
       setMessage({

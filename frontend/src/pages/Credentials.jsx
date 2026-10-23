@@ -14,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Modal from "../components/Modal";
 import Select from "../components/Select";
 import api from "../api";
 
@@ -54,7 +55,6 @@ export default function Credentials() {
           error_code_filter: errorCodeFilter,
           cooldown_filter: cooldownFilter,
           tier_filter: tierFilter,
-          mode: "antigravity",
         },
       });
       setItems(res.data.items);
@@ -72,9 +72,8 @@ export default function Credentials() {
     fetchCreds();
   }, [fetchCreds]);
 
-  const showMessage = useCallback((type, text) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 5000);
+  const showMessage = useCallback((type, text, title) => {
+    setMessage({ type, text, title: title || (type === "success" ? "操作成功" : type === "error" ? "操作失败" : "提示") });
   }, []);
 
   const setBusy = (email, busy) => {
@@ -89,7 +88,7 @@ export default function Credentials() {
   const doAction = async (email, action) => {
     setBusy(email, true);
     try {
-      const res = await api.post("/creds/action", { filename: email, action }, { params: { mode: "antigravity" } });
+      const res = await api.post("/creds/action", { email, action });
       showMessage("success", res.data.message);
       fetchCreds();
     } catch (err) {
@@ -103,11 +102,10 @@ export default function Credentials() {
     if (selected.size === 0) return;
     setBusy("__batch__", true);
     try {
-      const res = await api.post(
-        "/creds/batch-action",
-        { action, filenames: Array.from(selected) },
-        { params: { mode: "antigravity" } }
-      );
+      const res = await api.post("/creds/batch-action", {
+        action,
+        emails: Array.from(selected),
+      });
       showMessage(res.data.errors?.length ? "error" : "success", res.data.message);
       fetchCreds();
     } catch (err) {
@@ -120,20 +118,23 @@ export default function Credentials() {
   const verifyProject = async (email) => {
     setBusy(email, true);
     try {
-      const res = await api.post(`/creds/verify-project/${encodeURIComponent(email)}`, null, {
-        params: { mode: "antigravity" },
-      });
+      const res = await api.post(`/creds/verify-project/${encodeURIComponent(email)}`);
       if (res.data.success) {
         showMessage(
           "success",
-          `检验成功: Project=${res.data.project_id}, Tier=${res.data.subscription_tier}`
+          `Project=${res.data.project_id}, Tier=${res.data.subscription_tier}`,
+          `检验成功: ${email}`
         );
       } else {
-        showMessage("error", res.data.message || "检验失败");
+        showMessage("error", res.data.message || res.data.error || "检验失败", `检验失败: ${email}`);
       }
       fetchCreds();
     } catch (err) {
-      showMessage("error", err.response?.data?.detail || "检验失败");
+      showMessage(
+        "error",
+        err.response?.data?.detail || err.response?.data?.error || err.response?.data?.message || "检验失败",
+        `检验失败: ${email}`
+      );
     } finally {
       setBusy(email, false);
     }
@@ -142,15 +143,25 @@ export default function Credentials() {
   const testCredential = async (email) => {
     setBusy(email, true);
     try {
-      await api.post(`/creds/test/${encodeURIComponent(email)}`, null, {
-        params: { mode: "antigravity" },
-      });
-      showMessage("success", "凭证测试通过");
+      const res = await api.post(`/creds/test/${encodeURIComponent(email)}`);
+      // 200 = 可用；429 = 限流但有效
+      showMessage(
+        "success",
+        res.data.message || (res.status === 429 ? "凭证被限流（429）但有效" : "凭证测试通过"),
+        `测试成功: ${email}`
+      );
       fetchCreds();
     } catch (err) {
+      const data = err.response?.data || {};
       const status = err.response?.status;
-      const detail = err.response?.data?.detail || err.response?.data?.message || "测试失败";
-      showMessage(status === 429 ? "info" : "error", `HTTP ${status}: ${detail}`);
+      // 透明透传上游错误：优先后端返回的 error 原文
+      const upstreamError = data.error || data.detail || data.message || "测试失败";
+      showMessage(
+        status === 429 ? "info" : "error",
+        `HTTP ${status}\n${upstreamError}`,
+        `测试失败: ${email}`
+      );
+      fetchCreds();
     } finally {
       setBusy(email, false);
     }
@@ -159,9 +170,7 @@ export default function Credentials() {
   const fetchQuota = async (email) => {
     setBusy(email, true);
     try {
-      const res = await api.get(`/creds/quota/${encodeURIComponent(email)}`, {
-        params: { mode: "antigravity" },
-      });
+      const res = await api.get(`/creds/quota/${encodeURIComponent(email)}`);
       if (res.data.success) {
         const aggregated = aggregateQuota(res.data.quotaGroups || []);
         setQuotaCache((prev) => ({ ...prev, [email]: aggregated }));
@@ -172,7 +181,7 @@ export default function Credentials() {
     } catch (err) {
       setQuotaCache((prev) => ({
         ...prev,
-        [email]: { error: err.response?.data?.detail || "获取额度失败" },
+        [email]: { error: err.response?.data?.detail || err.response?.data?.error || "获取额度失败" },
       }));
       return false;
     } finally {
@@ -247,7 +256,6 @@ export default function Credentials() {
   const exportCredential = async (email) => {
     try {
       const res = await api.get(`/creds/export/${encodeURIComponent(email)}`, {
-        params: { mode: "antigravity" },
         responseType: "blob",
       });
       const url = URL.createObjectURL(res.data);
@@ -266,7 +274,6 @@ export default function Credentials() {
     setBusy("__batch__", true);
     try {
       const res = await api.get("/creds/download-all", {
-        params: { mode: "antigravity" },
         responseType: "blob",
       });
       const url = URL.createObjectURL(res.data);
@@ -284,9 +291,7 @@ export default function Credentials() {
 
   const openErrors = async (email) => {
     try {
-      const res = await api.get(`/creds/errors/${encodeURIComponent(email)}`, {
-        params: { mode: "antigravity" },
-      });
+      const res = await api.get(`/creds/errors/${encodeURIComponent(email)}`);
       setErrorModal(res.data);
     } catch (err) {
       showMessage("error", err.response?.data?.detail || "获取错误信息失败");
@@ -336,27 +341,15 @@ export default function Credentials() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* 消息 */}
+      {/* 消息弹窗 */}
       {message && (
-        <div
-          className={`p-3 sm:p-4 rounded-xl border whitespace-pre-wrap text-sm ${
-            message.type === "success"
-              ? "bg-green-500/10 border-green-500/30 text-green-400"
-              : message.type === "error"
-              ? "bg-red-500/10 border-red-500/30 text-red-400"
-              : "bg-blue-500/10 border-blue-500/30 text-blue-400"
-          }`}
+        <Modal
+          type={message.type}
+          title={message.title}
+          onClose={() => setMessage(null)}
         >
-          <div className="flex items-start justify-between gap-2">
-            <span className="break-all">{message.text}</span>
-            <button
-              onClick={() => setMessage(null)}
-              className="text-gray-400 hover:text-white flex-shrink-0"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+          <span className="whitespace-pre-wrap">{message.text}</span>
+        </Modal>
       )}
 
       {/* 状态统计 */}

@@ -34,7 +34,6 @@ export default function UploadPage() {
       files.forEach((f) => formData.append("files", f));
 
       const res = await api.post("/creds/upload", formData, {
-        params: { mode: "antigravity" },
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResults(res.data);
