@@ -1,4 +1,4 @@
-full_hash=93bba4c526c6e4d09b6ea7c3d23b6c735b4a2db8
-short_hash=93bba4c
-message=project_id获取失败回退aicode-consumers
-date=2026-10-23 16:19:49 +0800
+full_hash=95b3604178a4dc6388fc96651bb2057a35996f6d
+short_hash=95b3604
+message=抗截断前缀改为抗截断-
+date=2026-10-23 16:22:11 +0800
