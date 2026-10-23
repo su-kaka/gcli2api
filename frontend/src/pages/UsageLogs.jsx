@@ -11,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Modal from "../components/Modal";
 import Select from "../components/Select";
 import api from "../api";
 
@@ -184,14 +185,11 @@ export default function UsageLogs() {
         </button>
       </div>
 
-      {/* 消息 */}
+      {/* 消息弹窗 */}
       {message && (
-        <div className={`p-3 rounded-lg border text-sm ${message.type === "success" ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
-          <div className="flex items-center justify-between">
-            <span>{message.text}</span>
-            <button onClick={() => setMessage(null)} className="text-gray-400 hover:text-white">✕</button>
-          </div>
-        </div>
+        <Modal type={message.type} title={message.type === "success" ? "操作成功" : "操作失败"} onClose={() => setMessage(null)}>
+          <span className="whitespace-pre-wrap break-all">{message.text}</span>
+        </Modal>
       )}
 
       {/* 筛选器 */}

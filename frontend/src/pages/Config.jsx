@@ -1,5 +1,6 @@
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState } from "react";
+import Modal from "../components/Modal";
 import Select from "../components/Select";
 import api from "../api";
 
@@ -104,13 +105,13 @@ export default function Config() {
     loadConfig();
   }, []);
 
-  const loadConfig = async () => {
+  const loadConfig = async ({ silent = false } = {}) => {
     setLoading(true);
     try {
       const res = await api.get("/config/get");
       setConfig(res.data.config || {});
       setEnvLocked(res.data.env_locked || []);
-      setMessage(null);
+      if (!silent) setMessage(null);
     } catch (err) {
       setMessage({ type: "error", text: err.response?.data?.detail || "加载配置失败" });
     } finally {
@@ -123,7 +124,8 @@ export default function Config() {
     try {
       const res = await api.post("/config/save", { config });
       setMessage({ type: "success", text: res.data.message || "配置保存成功" });
-      loadConfig();
+      // 静默刷新配置（不清空刚显示的弹窗消息）
+      await loadConfig({ silent: true });
     } catch (err) {
       setMessage({ type: "error", text: err.response?.data?.detail || "保存配置失败" });
     } finally {
@@ -257,8 +259,9 @@ export default function Config() {
 
   return (
     <div className="space-y-6">
-      {/* 操作按钮 */}
-      <div className="flex items-center gap-2">
+      {/* 操作按钮（sticky 常驻视口顶部） */}
+      <div className="sticky top-0 z-30 -mx-1 px-1 py-2 bg-dark-950/95 backdrop-blur border-b border-dark-700 rounded-lg">
+        <div className="flex items-center gap-2">
         <button
           onClick={loadConfig}
           disabled={loading}
@@ -275,27 +278,14 @@ export default function Config() {
           {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
           {saving ? "保存中..." : "保存配置"}
         </button>
+        </div>
       </div>
 
-      {/* 消息 */}
+      {/* 消息弹窗 */}
       {message && (
-        <div
-          className={`p-4 rounded-xl border ${
-            message.type === "success"
-              ? "bg-green-500/10 border-green-500/30 text-green-400"
-              : "bg-red-500/10 border-red-500/30 text-red-400"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span>{message.text}</span>
-            <button
-              onClick={() => setMessage(null)}
-              className="text-gray-400 hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        <Modal type={message.type} title={message.type === "success" ? "操作成功" : "操作失败"} onClose={() => setMessage(null)}>
+          <span className="whitespace-pre-wrap break-all">{message.text}</span>
+        </Modal>
       )}
 
       {loading ? (

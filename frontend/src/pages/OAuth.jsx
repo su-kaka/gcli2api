@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Copy, ExternalLink, Loader2, Rocket } from "lucide-react";
 import { useState } from "react";
+import Modal from "../components/Modal";
 import api from "../api";
 
 export default function OAuth() {
@@ -106,27 +107,15 @@ export default function OAuth() {
         </p>
       </div>
 
-      {/* 消息提示 */}
+      {/* 消息提示弹窗 */}
       {message && (
-        <div
-          className={`p-4 rounded-xl border ${
-            message.type === "success"
-              ? "bg-green-500/10 border-green-500/30 text-green-400"
-              : message.type === "error"
-              ? "bg-red-500/10 border-red-500/30 text-red-400"
-              : "bg-blue-500/10 border-blue-500/30 text-blue-400"
-          }`}
+        <Modal
+          type={message.type}
+          title={message.type === "success" ? "操作成功" : message.type === "error" ? "操作失败" : "提示"}
+          onClose={() => setMessage(null)}
         >
-          <div className="flex items-center justify-between">
-            <span>{message.text}</span>
-            <button
-              onClick={() => setMessage(null)}
-              className="text-gray-400 hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+          <span className="whitespace-pre-wrap break-all">{message.text}</span>
+        </Modal>
       )}
 
       {/* 获取认证链接按钮 */}
