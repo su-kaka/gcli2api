@@ -1787,8 +1787,9 @@ async function toggleAntigravityQuotaDetails(pathId) {
                 if (response.ok && data.success) {
                     // 成功时渲染美化的额度信息
                     const models = data.models || {};
+                    const quotaGroups = data.quotaGroups || [];
 
-                    if (Object.keys(models).length === 0) {
+                    if (Object.keys(models).length === 0 && quotaGroups.length === 0) {
                         contentDiv.innerHTML = `
                             <div style="text-align: center; padding: 20px; color: #999;">
                                 <div style="font-size: 48px; margin-bottom: 10px;">📊</div>
@@ -1796,8 +1797,8 @@ async function toggleAntigravityQuotaDetails(pathId) {
                             </div>
                         `;
                     } else {
-                        // antigravity 分组配额（retrieveUserQuotaSummary）带 window/group 字段
-                        const isGrouped = Object.values(models).some(q => q.window || q.group);
+                        // antigravity 分组配额优先使用 quotaGroups（保留原始分组名，如 Claude/GPT、Gemini、Argon）
+                        const isGrouped = quotaGroups.length > 0 || Object.values(models).some(q => q.window || q.group);
 
                         let quotaHTML = `
                             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 15px; border-radius: 8px 8px 0 0; margin: -10px -10px 15px -10px;">
@@ -1810,62 +1811,83 @@ async function toggleAntigravityQuotaDetails(pathId) {
                         `;
 
                         if (isGrouped) {
-                            // 分组显示名：gemini models → Gemini，claude and gpt models → Claude / GPT
-                            const prettyGroup = (g) => {
-                                const s = (g || '').toLowerCase();
-                                if (s.includes('gemini')) return 'Gemini';
-                                if (s.includes('claude') || s.includes('gpt')) return 'Claude / GPT';
-                                return g || '其他';
-                            };
-                            // 窗口显示名：weekly → 周额度，5h → 5小时
+                            // 窗口显示名：weekly → 📅 周限额，5h → ⏱️ 5小时限额
                             const prettyWindow = (w) => {
                                 const s = (w || '').toLowerCase();
-                                if (s.includes('week')) return '周额度';
-                                if (s.includes('5h') || s.includes('five') || s.includes('pt5')) return '5小时';
+                                if (s.includes('week')) return '📅 周限额';
+                                if (s.includes('5h') || s.includes('five') || s.includes('pt5')) return '⏱️ 5小时限额';
                                 return w || '';
                             };
+                            // 判断是否为周窗口（用于着色）
+                            const isWeeklyWin = (w) => (w || '').toLowerCase().includes('week');
+                            // 剩余量配色：≥80 绿 / ≥40 黄 / ≥20 橙 / <20 红
+                            const quotaColor = (remainingPct) => {
+                                if (remainingPct >= 80) return '#22c55e';
+                                if (remainingPct >= 40) return '#eab308';
+                                if (remainingPct >= 20) return '#f97316';
+                                return '#ef4444';
+                            };
+                            // 重置时间本地化：ISO 原始值（quotaGroups）转为 本地 MM-DD HH:mm；已是格式化字符串则原样显示
+                            const formatReset = (t) => {
+                                if (!t || t === 'N/A') return '';
+                                if (t.includes('T')) {
+                                    try {
+                                        const d = new Date(t);
+                                        if (!isNaN(d.getTime())) {
+                                            const p = (n) => String(n).padStart(2, '0');
+                                            return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+                                        }
+                                    } catch (e) { /* 解析失败原样返回 */ }
+                                }
+                                return t;
+                            };
 
-                            // 按组聚合
+                            // 优先使用 quotaGroups（原始分组名 + 描述），否则从 models 重建分组
                             const groups = new Map();
-                            for (const quotaData of Object.values(models)) {
-                                const g = quotaData.group || '其他';
-                                if (!groups.has(g)) groups.set(g, []);
-                                groups.get(g).push(quotaData);
+                            if (quotaGroups.length > 0) {
+                                for (const group of quotaGroups) {
+                                    const g = group.displayName || '其他';
+                                    if (!groups.has(g)) groups.set(g, { description: group.description || '', buckets: [] });
+                                    groups.get(g).buckets.push(...(group.buckets || []));
+                                }
+                            } else {
+                                for (const quotaData of Object.values(models)) {
+                                    const g = quotaData.group || '其他';
+                                    if (!groups.has(g)) groups.set(g, { description: '', buckets: [] });
+                                    groups.get(g).buckets.push(quotaData);
+                                }
                             }
 
                             const groupColors = ['#667eea', '#f59e0b', '#10b981', '#ef4444'];
                             let colorIdx = 0;
-                            for (const [groupName, buckets] of groups) {
-                                // 周额度排前面，5小时在后
+                            for (const [groupName, entry] of groups) {
+                                // 周限额排前面，5小时在后
                                 const weeklyFirst = (q) => (q.window || '').toLowerCase().includes('week') ? 0 : 1;
-                                buckets.sort((a, b) => weeklyFirst(a) - weeklyFirst(b));
+                                entry.buckets.sort((a, b) => weeklyFirst(a) - weeklyFirst(b));
 
                                 quotaHTML += `
                                     <div style="background: white; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 10px;">
-                                        <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #333; font-size: 13px; margin-bottom: 10px;">
+                                        <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #333; font-size: 13px; margin-bottom: 2px;">
                                             <span style="width: 8px; height: 8px; border-radius: 50%; background: ${groupColors[colorIdx % groupColors.length]};"></span>
-                                            ${prettyGroup(groupName)}
+                                            ${groupName}
                                         </div>
+                                        ${entry.description ? `<div style="font-size: 10px; color: #999; margin: 0 0 8px 14px;">${entry.description}</div>` : ''}
                                 `;
 
-                                buckets.forEach((quotaData, idx) => {
-                                    const remainingFraction = quotaData.remaining || 0;
-                                    const resetTime = (quotaData.resetTime && quotaData.resetTime !== 'N/A') ? quotaData.resetTime : '';
-                                    const usedPercentage = Math.round((1 - remainingFraction) * 100);
-                                    const remainingPercentage = Math.round(remainingFraction * 100);
-
-                                    let barColor = '#28a745';
-                                    if (usedPercentage >= 90) barColor = '#dc3545';
-                                    else if (usedPercentage >= 70) barColor = '#ffc107';
-                                    else if (usedPercentage >= 50) barColor = '#17a2b8';
+                                entry.buckets.forEach((quotaData, idx) => {
+                                    const remainingFraction = quotaData.remainingFraction != null ? quotaData.remainingFraction : (quotaData.remaining || 0);
+                                    const rawReset = quotaData.resetTimeRaw || quotaData.resetTime || '';
+                                    const resetTime = formatReset(rawReset);
+                                    const remainingPercentage = Math.round(remainingFraction * 1000) / 10;
+                                    const barColor = quotaColor(remainingPercentage);
 
                                     quotaHTML += `
-                                        <div style="display: flex; align-items: center; gap: 8px;${idx < buckets.length - 1 ? ' margin-bottom: 10px;' : ''}">
-                                            <span style="font-size: 11px; color: #555; width: 52px; flex-shrink: 0;">${prettyWindow(quotaData.window)}</span>
+                                        <div style="display: flex; align-items: center; gap: 8px;${idx < entry.buckets.length - 1 ? ' margin-bottom: 10px;' : ''}">
+                                            <span style="font-size: 11px; color: ${isWeeklyWin(quotaData.window) ? '#6d28d9' : '#0e7490'}; width: 86px; flex-shrink: 0;">${prettyWindow(quotaData.window)}</span>
                                             <div style="flex: 1; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden;">
-                                                <div style="width: ${usedPercentage}%; height: 100%; background-color: ${barColor}; transition: width 0.3s ease;"></div>
+                                                <div style="width: ${Math.min(remainingPercentage, 100)}%; height: 100%; background-color: ${barColor}; transition: width 0.3s ease;"></div>
                                             </div>
-                                            <span style="font-size: 12px; font-weight: bold; color: ${barColor}; width: 38px; text-align: right;">${remainingPercentage}%</span>
+                                            <span style="font-size: 12px; font-weight: bold; color: ${barColor}; width: 46px; text-align: right;">${remainingPercentage.toFixed(1)}%</span>
                                             <span style="font-size: 10px; color: #999; width: 88px; text-align: right; flex-shrink: 0;">${resetTime ? '🔄 ' + resetTime : ''}</span>
                                         </div>
                                     `;
@@ -1881,13 +1903,13 @@ async function toggleAntigravityQuotaDetails(pathId) {
                             for (const [modelName, quotaData] of Object.entries(models)) {
                                 const remainingFraction = quotaData.remaining || 0;
                                 const resetTime = quotaData.resetTime || 'N/A';
-                                const usedPercentage = Math.round((1 - remainingFraction) * 100);
-                                const remainingPercentage = Math.round(remainingFraction * 100);
+                                const remainingPercentage = Math.round(remainingFraction * 1000) / 10;
 
-                                let percentageColor = '#28a745';
-                                if (usedPercentage >= 90) percentageColor = '#dc3545';
-                                else if (usedPercentage >= 70) percentageColor = '#ffc107';
-                                else if (usedPercentage >= 50) percentageColor = '#17a2b8';
+                                // 剩余量配色：≥80 绿 / ≥40 黄 / ≥20 橙 / <20 红
+                                let percentageColor = '#22c55e';
+                                if (remainingPercentage < 20) percentageColor = '#ef4444';
+                                else if (remainingPercentage < 40) percentageColor = '#f97316';
+                                else if (remainingPercentage < 80) percentageColor = '#eab308';
 
                                 quotaHTML += `
                                     <div style="background: white; border-left: 4px solid ${percentageColor}; border-radius: 4px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
@@ -1896,11 +1918,11 @@ async function toggleAntigravityQuotaDetails(pathId) {
                                                 ${modelName}
                                             </div>
                                             <div style="font-size: 13px; font-weight: bold; color: ${percentageColor}; white-space: nowrap;">
-                                                ${remainingPercentage}%
+                                                ${remainingPercentage.toFixed(1)}%
                                             </div>
                                         </div>
                                         <div style="width: 100%; height: 8px; background-color: #e9ecef; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
-                                            <div style="width: ${usedPercentage}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
+                                            <div style="width: ${Math.min(remainingPercentage, 100)}%; height: 100%; background-color: ${percentageColor}; transition: width 0.3s ease;"></div>
                                         </div>
                                         <div style="font-size: 10px; color: #666; text-align: right;">
                                             ${resetTime !== 'N/A' ? '🔄 ' + resetTime : ''}
