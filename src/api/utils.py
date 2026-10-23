@@ -17,7 +17,7 @@ from config import (
     get_retry_429_max_retries,
 )
 from log import log
-from src.credential_manager import CredentialManager
+from src.credential_manager import record_api_call_result, set_cred_disabled
 
 
 # ==================== 错误检查与处理 ====================
@@ -30,19 +30,14 @@ async def check_should_auto_ban(status_code: int) -> bool:
     )
 
 
-async def handle_auto_ban(
-    credential_manager: CredentialManager,
-    status_code: int,
-    email: str,
-) -> None:
+async def handle_auto_ban(status_code: int, email: str) -> None:
     """处理自动封禁：直接禁用凭证"""
-    if credential_manager and email:
+    if email:
         log.warning(f"[AUTO_BAN] Status {status_code} triggers auto-ban for credential: {email}")
-        await credential_manager.set_cred_disabled(email, True)
+        await set_cred_disabled(email, True)
 
 
 async def handle_error_with_retry(
-    credential_manager: CredentialManager,
     status_code: int,
     email: str,
     retry_enabled: bool,
@@ -64,7 +59,7 @@ async def handle_error_with_retry(
     """
     # 优先检查自动封禁
     if await check_should_auto_ban(status_code):
-        await handle_auto_ban(credential_manager, status_code, email)
+        await handle_auto_ban(status_code, email)
 
         # 自动封禁后，仍然尝试重试（会在下次循环中自动获取新凭证）
         if retry_enabled and attempt < max_retries:
@@ -102,19 +97,17 @@ async def get_retry_config() -> Dict[str, Any]:
 # ==================== API调用结果记录 ====================
 
 async def record_api_call_success(
-    credential_manager: CredentialManager,
     email: str,
     model_name: Optional[str] = None,
 ) -> None:
     """记录API调用成功"""
-    if credential_manager and email:
-        await credential_manager.record_api_call_result(
+    if email:
+        await record_api_call_result(
             email, True, model_name=model_name
         )
 
 
 async def record_api_call_error(
-    credential_manager: CredentialManager,
     email: str,
     status_code: int,
     cooldown_until: Optional[float] = None,
@@ -122,8 +115,8 @@ async def record_api_call_error(
     error_message: Optional[str] = None,
 ) -> None:
     """记录API调用错误"""
-    if credential_manager and email:
-        await credential_manager.record_api_call_result(
+    if email:
+        await record_api_call_result(
             email,
             False,
             status_code,

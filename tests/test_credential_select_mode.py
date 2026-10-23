@@ -23,7 +23,10 @@ async def test_credential_select_modes():
 
     from src.storage.database import get_database, close_database
     from src import session_cache
-    from src.credential_manager import CredentialManager
+    from src.credential_manager import (
+    _reset_sticky,
+    get_valid_credential,
+)
 
     database = await get_database()
 
@@ -109,13 +112,10 @@ async def test_credential_select_modes():
 
     # ===== 4. cache 模式: 命中绑定复用同一凭证 =====
     config._config_cache["credential_select_mode"] = "cache"
-    cm = CredentialManager()
-    await cm._ensure_initialized()
-
     session_key = "auto:" + "x" * 32
     picked = []
     for _ in range(5):
-        result = await cm.get_valid_credential(model_name="gemini-2.5-pro", session_key=session_key)
+        result = await get_valid_credential(model_name="gemini-2.5-pro", session_key=session_key)
         assert result is not None
         picked.append(result[0])
     assert all(p == picked[0] for p in picked), f"cache 模式应始终复用同一凭证: {picked}"
@@ -126,7 +126,7 @@ async def test_credential_select_modes():
     # 绑定凭证进入 CD -> 自动解绑切换
     cd_group = "gemini"
     await database.set_model_cooldown(picked[0], cd_group, time.time() + 3600)
-    result = await cm.get_valid_credential(model_name="gemini-2.5-pro", session_key=session_key)
+    result = await get_valid_credential(model_name="gemini-2.5-pro", session_key=session_key)
     assert result is not None and result[0] != picked[0], "CD 后应切换到其他凭证"
     new_bound = await session_cache.get_session_binding(session_key)
     assert new_bound == result[0], "应重新绑定到新凭证"
@@ -135,12 +135,10 @@ async def test_credential_select_modes():
 
     # ===== 5. sticky 模式: 所有请求同一凭证, CD 后切换 =====
     config._config_cache["credential_select_mode"] = "sticky"
-    cm2 = CredentialManager()
-    await cm2._ensure_initialized()
-
+    _reset_sticky()
     picked2 = []
     for _ in range(8):
-        result = await cm2.get_valid_credential(model_name="gemini-2.5-pro")
+        result = await get_valid_credential(model_name="gemini-2.5-pro")
         assert result is not None
         picked2.append(result[0])
     assert all(p == picked2[0] for p in picked2), f"sticky 模式应锁定同一凭证: {picked2}"
@@ -148,19 +146,19 @@ async def test_credential_select_modes():
 
     # sticky 凭证 CD -> 切换
     await database.set_model_cooldown(picked2[0], cd_group, time.time() + 3600)
-    result = await cm2.get_valid_credential(model_name="gemini-2.5-pro")
+    result = await get_valid_credential(model_name="gemini-2.5-pro")
     assert result is not None and result[0] != picked2[0], "sticky CD 后应切换"
-    assert cm2._sticky_email == result[0]
+    import src.credential_manager as _cm
+    assert _cm._sticky_email == result[0]
     await database.set_model_cooldown(picked2[0], cd_group, time.time() - 1)
     print(f"PASS: sticky mode switches after CD (->{result[0]})")
 
     # ===== 6. random 模式: 不记录亲和, 每次随机 =====
     config._config_cache["credential_select_mode"] = "random"
-    cm3 = CredentialManager()
-    await cm3._ensure_initialized()
+    _reset_sticky()
     random_picked = set()
     for _ in range(20):
-        result = await cm3.get_valid_credential(model_name="gemini-2.5-pro", session_key="auto:yyy")
+        result = await get_valid_credential(model_name="gemini-2.5-pro", session_key="auto:yyy")
         assert result is not None
         random_picked.add(result[0])
     # 20 次随机应命中多个凭证（2 个凭证, 概率 2^-20 全中一个, 安全断言 >=1）

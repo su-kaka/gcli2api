@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from log import log
 
 # Import managers and utilities
-from src.credential_manager import credential_manager
+# credential_manager 已重构为无状态函数模块（无需初始化/关闭）
 
 # Import all routers
 from src.router.antigravity.openai import router as antigravity_openai_router
@@ -37,13 +37,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"配置缓存初始化失败: {e}")
 
-    # 初始化全局凭证管理器（通过单例工厂）
+    # 预热数据库连接（提前暴露配置问题）
     try:
-        # 预先触发初始化以便在启动时检测错误
-        await credential_manager.initialize()
-        log.info("凭证管理器初始化成功")
+        from src.storage.database import get_database
+        await get_database()
+        log.info("数据库连接就绪")
     except Exception as e:
-        log.error(f"凭证管理器初始化失败: {e}")
+        log.error(f"数据库初始化失败: {e}")
 
     # 初始化会话凭证缓存（Redis 可选，未配置时使用内存后端）
     try:
@@ -73,12 +73,6 @@ async def lifespan(app: FastAPI):
         log.error(f"关闭异步任务时出错: {e}")
 
     # 关闭凭证管理器与数据库
-    try:
-        await credential_manager.close()
-        log.info("凭证管理器已关闭")
-    except Exception as e:
-        log.error(f"关闭凭证管理器时出错: {e}")
-
     try:
         from src.storage.database import close_database
         await close_database()

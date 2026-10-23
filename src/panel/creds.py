@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Respons
 from fastapi.responses import JSONResponse
 
 from log import log
-from src.credential_manager import credential_manager
+from src.credential_manager import (
+    add_credential,
+    remove_credential,
+    set_cred_disabled,
+)
 from src.models import (
     CredFileActionRequest,
     CredFileBatchActionRequest
@@ -117,7 +121,7 @@ async def _import_single_credential(data: Dict[str, Any]) -> Dict[str, Any]:
             "tier": tier,
         }
 
-        await credential_manager.add_credential(email, credential_data)
+        await add_credential(email, credential_data)
         return {
             "status": "success",
             "email": email,
@@ -499,19 +503,19 @@ async def creds_action(
         database = await get_database()
 
         if action == "enable":
-            result = await credential_manager.set_cred_disabled(email, False)
+            result = await set_cred_disabled(email, False)
             if result:
                 return JSONResponse(content={"message": f"已启用凭证 {email}"})
             raise HTTPException(status_code=500, detail="启用凭证失败，可能凭证不存在")
 
         elif action == "disable":
-            result = await credential_manager.set_cred_disabled(email, True)
+            result = await set_cred_disabled(email, True)
             if result:
                 return JSONResponse(content={"message": f"已禁用凭证 {email}"})
             raise HTTPException(status_code=500, detail="禁用凭证失败，可能凭证不存在")
 
         elif action == "delete":
-            success = await credential_manager.remove_credential(email)
+            success = await remove_credential(email)
             if success:
                 return JSONResponse(content={"message": f"已删除凭证 {email}"})
             raise HTTPException(status_code=500, detail="删除凭证失败")
@@ -547,13 +551,13 @@ async def creds_batch_action(
         for email in emails:
             try:
                 if action == "enable":
-                    await credential_manager.set_cred_disabled(email, False)
+                    await set_cred_disabled(email, False)
                     success_count += 1
                 elif action == "disable":
-                    await credential_manager.set_cred_disabled(email, True)
+                    await set_cred_disabled(email, True)
                     success_count += 1
                 elif action == "delete":
-                    if await credential_manager.remove_credential(email):
+                    if await remove_credential(email):
                         success_count += 1
                     else:
                         errors.append(f"{email}: 删除失败")
