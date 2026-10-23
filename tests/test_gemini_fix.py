@@ -1,4 +1,4 @@
-from src.converter.gemini_fix import _ensure_empty_tool_schema_for_claude
+from src.converter.antigravity_fix import _ensure_empty_tool_schema_for_claude
 
 
 def test_antigravity_claude_tools_keep_schema_in_parameters():
@@ -17,7 +17,7 @@ def test_antigravity_claude_tools_keep_schema_in_parameters():
         }
     ]
 
-    result = _ensure_empty_tool_schema_for_claude(tools, "claude-opus-4-6-thinking", "antigravity")
+    result = _ensure_empty_tool_schema_for_claude(tools, "claude-opus-4-6-thinking")
     declaration = result[0]["functionDeclarations"][0]
 
     assert declaration["parameters"]["type"] == "object"

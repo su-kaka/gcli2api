@@ -79,7 +79,7 @@ Chunk #2:
   类型: str
   长度: 0
   内容预览: ''
-E:\projects\gcli2api\src\api\geminicli.py:491: RuntimeWarning: coroutine 'get_auto_ban_error_codes' was never awaited      
+E:\projects\agy2api\src\api\geminicli.py:491: RuntimeWarning: coroutine 'get_auto_ban_error_codes' was never awaited      
   async for chunk in stream_request(body=test_body, native=False):
 RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 
@@ -108,7 +108,7 @@ RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 [2026-01-10 09:55:38] [INFO] [DB] 准备commit，总更新行数=1
 [2026-01-10 09:55:38] [INFO] [DB] commit 完成
 [2026-01-10 09:55:38] [INFO] [DB] update_credential_state 结束: success=True, updated_count=1
-E:\projects\gcli2api\src\api\geminicli.py:530: RuntimeWarning: coroutine 'get_auto_ban_error_codes' was never awaited      
+E:\projects\agy2api\src\api\geminicli.py:530: RuntimeWarning: coroutine 'get_auto_ban_error_codes' was never awaited      
   response = await non_stream_request(body=test_body)
 RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 非流式响应数据:

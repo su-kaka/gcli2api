@@ -1,0 +1,675 @@
+import {
+  AlertCircle,
+  Ban,
+  CheckCircle,
+  Clock,
+  Download,
+  Loader2,
+  RefreshCw,
+  Shield,
+  Snowflake,
+  Trash2,
+  Zap,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import api from "../api";
+
+export default function Credentials() {
+  const [items, setItems] = useState([]);
+  const [stats, setStats] = useState({ total: 0, normal: 0, disabled: 0 });
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [errorCodeFilter, setErrorCodeFilter] = useState("all");
+  const [cooldownFilter, setCooldownFilter] = useState("all");
+  const [tierFilter, setTierFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(new Set());
+  const [message, setMessage] = useState(null);
+  const [errorModal, setErrorModal] = useState(null);
+  const [busyFiles, setBusyFiles] = useState(new Set());
+  const [now, setNow] = useState(Date.now() / 1000);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const fetchCreds = useCallback(async () => {
+    setLoading(true);
+    try {
+      const offset = (page - 1) * pageSize;
+      const res = await api.get("/creds/status", {
+        params: {
+          offset,
+          limit: pageSize,
+          status_filter: statusFilter,
+          error_code_filter: errorCodeFilter,
+          cooldown_filter: cooldownFilter,
+          tier_filter: tierFilter,
+          mode: "antigravity",
+        },
+      });
+      setItems(res.data.items);
+      setTotal(res.data.total);
+      setStats(res.data.stats || { total: 0, normal: 0, disabled: 0 });
+      setSelected(new Set());
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "加载凭证失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, statusFilter, errorCodeFilter, cooldownFilter, tierFilter]);
+
+  useEffect(() => {
+    fetchCreds();
+  }, [fetchCreds]);
+
+  const showMessage = useCallback((type, text) => {
+    setMessage({ type, text });
+    setTimeout(() => setMessage(null), 5000);
+  }, []);
+
+  const setBusy = (email, busy) => {
+    setBusyFiles((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(email);
+      else next.delete(email);
+      return next;
+    });
+  };
+
+  const doAction = async (email, action) => {
+    setBusy(email, true);
+    try {
+      const res = await api.post("/creds/action", { filename: email, action }, { params: { mode: "antigravity" } });
+      showMessage("success", res.data.message);
+      fetchCreds();
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "操作失败");
+    } finally {
+      setBusy(email, false);
+    }
+  };
+
+  const doBatchAction = async (action) => {
+    if (selected.size === 0) return;
+    setBusy("__batch__", true);
+    try {
+      const res = await api.post(
+        "/creds/batch-action",
+        { action, filenames: Array.from(selected) },
+        { params: { mode: "antigravity" } }
+      );
+      showMessage(res.data.errors?.length ? "error" : "success", res.data.message);
+      fetchCreds();
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "批量操作失败");
+    } finally {
+      setBusy("__batch__", false);
+    }
+  };
+
+  const verifyProject = async (email) => {
+    setBusy(email, true);
+    try {
+      const res = await api.post(`/creds/verify-project/${encodeURIComponent(email)}`, null, {
+        params: { mode: "antigravity" },
+      });
+      if (res.data.success) {
+        showMessage(
+          "success",
+          `检验成功: Project=${res.data.project_id}, Tier=${res.data.subscription_tier}`
+        );
+      } else {
+        showMessage("error", res.data.message || "检验失败");
+      }
+      fetchCreds();
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "检验失败");
+    } finally {
+      setBusy(email, false);
+    }
+  };
+
+  const testCredential = async (email) => {
+    setBusy(email, true);
+    try {
+      await api.post(`/creds/test/${encodeURIComponent(email)}`, null, {
+        params: { mode: "antigravity" },
+      });
+      showMessage("success", "凭证测试通过");
+      fetchCreds();
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail || err.response?.data?.message || "测试失败";
+      showMessage(status === 429 ? "info" : "error", `HTTP ${status}: ${detail}`);
+    } finally {
+      setBusy(email, false);
+    }
+  };
+
+  const fetchQuota = async (email) => {
+    setBusy(email, true);
+    try {
+      const res = await api.get(`/creds/quota/${encodeURIComponent(email)}`, {
+        params: { mode: "antigravity" },
+      });
+      if (res.data.success) {
+        const models = res.data.models || {};
+        const lines = Object.entries(models).map(
+          ([model, quota]) => `${model}: ${JSON.stringify(quota)}`
+        );
+        showMessage("info", `额度信息:\n${lines.join("\n") || "无数据"}`);
+      } else {
+        showMessage("error", res.data.error || "获取额度失败");
+      }
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "获取额度失败");
+    } finally {
+      setBusy(email, false);
+    }
+  };
+
+  const exportCredential = async (email) => {
+    try {
+      const res = await api.get(`/creds/export/${encodeURIComponent(email)}`, {
+        params: { mode: "antigravity" },
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${email}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showMessage("success", `已导出 ${email}.json`);
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "导出失败");
+    }
+  };
+
+  const downloadAll = async () => {
+    setBusy("__batch__", true);
+    try {
+      const res = await api.get("/creds/download-all", {
+        params: { mode: "antigravity" },
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "antigravity_credentials.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "下载失败");
+    } finally {
+      setBusy("__batch__", false);
+    }
+  };
+
+  const openErrors = async (email) => {
+    try {
+      const res = await api.get(`/creds/errors/${encodeURIComponent(email)}`, {
+        params: { mode: "antigravity" },
+      });
+      setErrorModal(res.data);
+    } catch (err) {
+      showMessage("error", err.response?.data?.detail || "获取错误信息失败");
+    }
+  };
+
+  const toggleSelect = (email) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === items.length) setSelected(new Set());
+    else setSelected(new Set(items.map((i) => i.email)));
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const formatTime = (ts) => {
+    if (!ts) return "-";
+    return new Date(ts * 1000).toLocaleString();
+  };
+
+  const getCooldownText = (cooldowns) => {
+    const active = Object.entries(cooldowns || {}).filter(
+      ([, until]) => until > now
+    );
+    if (!active.length) return null;
+    const longest = Math.max(...active.map(([, until]) => until));
+    const remain = longest - now;
+    const h = Math.floor(remain / 3600);
+    const m = Math.floor((remain % 3600) / 60);
+    const s = Math.floor(remain % 60);
+    return h > 0 ? `${h}h${m}m` : m > 0 ? `${m}m${s}s` : `${s}s`;
+  };
+
+  const tierStyle = (tier) =>
+    tier === "ultra"
+      ? "bg-red-500/10 text-red-400 border-red-500/30"
+      : tier === "pro"
+      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+      : "bg-blue-500/10 text-blue-400 border-blue-500/30";
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      {/* 消息 */}
+      {message && (
+        <div
+          className={`p-3 sm:p-4 rounded-xl border whitespace-pre-wrap text-sm ${
+            message.type === "success"
+              ? "bg-green-500/10 border-green-500/30 text-green-400"
+              : message.type === "error"
+              ? "bg-red-500/10 border-red-500/30 text-red-400"
+              : "bg-blue-500/10 border-blue-500/30 text-blue-400"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <span className="break-all">{message.text}</span>
+            <button
+              onClick={() => setMessage(null)}
+              className="text-gray-400 hover:text-white flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 状态统计 */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="bg-dark-800 border border-dark-600 rounded-xl p-3 sm:p-4 text-center">
+          <div className="text-xl sm:text-2xl font-bold text-white">{stats.total}</div>
+          <div className="text-xs text-gray-500 mt-0.5">总计</div>
+        </div>
+        <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-xl p-3 sm:p-4 text-center">
+          <div className="text-xl sm:text-2xl font-bold text-emerald-400">{stats.normal}</div>
+          <div className="text-xs text-gray-500 mt-0.5">正常</div>
+        </div>
+        <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-3 sm:p-4 text-center">
+          <div className="text-xl sm:text-2xl font-bold text-red-400">{stats.disabled}</div>
+          <div className="text-xs text-gray-500 mt-0.5">禁用</div>
+        </div>
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={fetchCreds}
+          disabled={loading}
+          className="btn btn-secondary text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-1.5"
+        >
+          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          刷新状态
+        </button>
+        <button
+          onClick={downloadAll}
+          disabled={busyFiles.has("__batch__")}
+          className="btn btn-secondary text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-1.5"
+        >
+          <Download size={15} />
+          打包导出
+        </button>
+      </div>
+
+      {/* 筛选器 */}
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 text-sm">
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
+          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
+        >
+          <option value="all">全部凭证</option>
+          <option value="enabled">仅启用</option>
+          <option value="disabled">仅禁用</option>
+        </select>
+        <select
+          value={errorCodeFilter}
+          onChange={(e) => {
+            setErrorCodeFilter(e.target.value);
+            setPage(1);
+          }}
+          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
+        >
+          <option value="all">错误码: 全部</option>
+          <option value="none">无错误</option>
+          <option value="400">400</option>
+          <option value="403">403</option>
+          <option value="429">429</option>
+          <option value="500">500</option>
+        </select>
+        <select
+          value={cooldownFilter}
+          onChange={(e) => {
+            setCooldownFilter(e.target.value);
+            setPage(1);
+          }}
+          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
+        >
+          <option value="all">冷却: 全部</option>
+          <option value="in_cooldown">CD中</option>
+          <option value="no_cooldown">未CD</option>
+        </select>
+        <select
+          value={tierFilter}
+          onChange={(e) => {
+            setTierFilter(e.target.value);
+            setPage(1);
+          }}
+          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
+        >
+          <option value="all">Tier: 全部</option>
+          <option value="free">Free</option>
+          <option value="pro">Pro</option>
+          <option value="ultra">Ultra</option>
+        </select>
+        <select
+          value={pageSize}
+          onChange={(e) => {
+            setPageSize(Number(e.target.value));
+            setPage(1);
+          }}
+          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
+        >
+          {[20, 50, 100, 200, 500, 1000].map((n) => (
+            <option key={n} value={n}>
+              每页 {n}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 批量操作 */}
+      <div className="card p-3 sm:p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <label className="flex items-center gap-2 text-gray-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={selected.size === items.length && items.length > 0}
+              onChange={toggleSelectAll}
+              className="accent-purple-600 w-4 h-4"
+            />
+            全选
+          </label>
+          <span className="text-gray-500 text-xs">已选 {selected.size} 项</span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => doBatchAction("enable")}
+              disabled={selected.size === 0 || busyFiles.has("__batch__")}
+              className="btn btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
+            >
+              批量启用
+            </button>
+            <button
+              onClick={() => doBatchAction("disable")}
+              disabled={selected.size === 0 || busyFiles.has("__batch__")}
+              className="btn btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
+            >
+              批量禁用
+            </button>
+            <button
+              onClick={() => doBatchAction("delete")}
+              disabled={selected.size === 0 || busyFiles.has("__batch__")}
+              className="btn btn-danger text-xs px-3 py-1.5 disabled:opacity-40"
+            >
+              批量删除
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 凭证卡片列表 */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="animate-spin text-purple-500" size={28} />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="card text-center py-12 text-gray-500 text-sm">
+          没有凭证。请先通过 OAuth 认证或批量导入添加凭证。
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:gap-4">
+          {items.map((cred) => {
+            const cooldownText = getCooldownText(cred.model_cooldowns);
+            const busy = busyFiles.has(cred.email);
+            return (
+              <div
+                key={cred.email}
+                className={`card p-3 sm:p-4 space-y-3 transition-colors ${
+                  cred.disabled ? "border-red-500/30" : ""
+                }`}
+              >
+                {/* 头部：选择框 + 邮箱 + 状态标签 */}
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(cred.email)}
+                    onChange={() => toggleSelect(cred.email)}
+                    className="accent-purple-600 w-4 h-4 flex-shrink-0 mt-1"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-white break-all">
+                      {cred.email}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full border ${tierStyle(cred.tier)}`}
+                    >
+                      {cred.tier || "pro"}
+                    </span>
+                    {cred.disabled ? (
+                      <span className="text-red-400 text-xs flex items-center gap-1">
+                        <Ban size={12} /> 禁用
+                      </span>
+                    ) : (
+                      <span className="text-emerald-400 text-xs flex items-center gap-1">
+                        <CheckCircle size={12} /> 启用
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 信息区 */}
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                  <div className="flex items-center gap-1">
+                    {cooldownText ? (
+                      <span className="text-cyan-400 flex items-center gap-1">
+                        <Snowflake size={12} /> CD {cooldownText}
+                      </span>
+                    ) : (
+                      <span className="text-gray-600 flex items-center gap-1">
+                        <Clock size={12} /> 无CD
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {cred.error_codes?.length ? (
+                      <button
+                        onClick={() => openErrors(cred.email)}
+                        className="text-red-400 hover:text-red-300 flex items-center gap-1"
+                      >
+                        <AlertCircle size={12} />
+                        {cred.error_codes.join(",")}
+                      </button>
+                    ) : (
+                      <span className="text-gray-600 flex items-center gap-1">
+                        <CheckCircle size={12} /> 无错误
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-gray-500 col-span-2 sm:col-span-1">
+                    <Clock size={12} className="flex-shrink-0" />
+                    <span className="truncate" title={formatTime(cred.last_success)}>
+                      {formatTime(cred.last_success)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-dark-700">
+                  {busy ? (
+                    <Loader2 size={16} className="animate-spin text-purple-400" />
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => verifyProject(cred.email)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        title="检验 Project ID / Tier（可修复 403）"
+                      >
+                        <Shield size={13} /> 检验
+                      </button>
+                      <button
+                        onClick={() => testCredential(cred.email)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        title="测试凭证"
+                      >
+                        <Zap size={13} /> 测试
+                      </button>
+                      <button
+                        onClick={() => fetchQuota(cred.email)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        title="查询额度"
+                      >
+                        <Clock size={13} /> 额度
+                      </button>
+                      <button
+                        onClick={() => exportCredential(cred.email)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        title="导出凭证（邮箱.json）"
+                      >
+                        <Download size={13} /> 导出
+                      </button>
+                      <button
+                        onClick={() =>
+                          doAction(cred.email, cred.disabled ? "enable" : "disable")
+                        }
+                        className={`text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 ${
+                          cred.disabled
+                            ? "bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400"
+                            : "bg-amber-600/20 hover:bg-amber-600/30 text-amber-400"
+                        }`}
+                      >
+                        {cred.disabled ? <CheckCircle size={13} /> : <Ban size={13} />}
+                        {cred.disabled ? "启用" : "禁用"}
+                      </button>
+                      <button
+                        onClick={() => doAction(cred.email, "delete")}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 flex items-center gap-1"
+                        title="删除"
+                      >
+                        <Trash2 size={13} /> 删除
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 分页 */}
+      {total > pageSize && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-500 text-xs sm:text-sm">
+            共 {total} 个凭证，第 {page}/{totalPages} 页
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="btn btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
+            >
+              上一页
+            </button>
+            <span className="text-gray-400 text-xs sm:text-sm">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="btn btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 错误详情弹窗 */}
+      {errorModal && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"
+          onClick={() => setErrorModal(null)}
+        >
+          <div
+            className="bg-dark-900 border border-dark-600 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-dark-700">
+              <h3 className="font-semibold flex items-center gap-2 text-sm sm:text-base break-all">
+                <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
+                错误详情 - {errorModal.email}
+              </h3>
+              <button
+                onClick={() => setErrorModal(null)}
+                className="text-gray-400 hover:text-white flex-shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+              <div>
+                <div className="text-sm text-gray-400 mb-1">错误码</div>
+                <div className="text-red-400 text-sm">
+                  {(errorModal.error_codes || []).join(", ") || "无"}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-400 mb-1">错误信息</div>
+                <pre className="bg-dark-800 border border-dark-600 rounded-lg p-3 sm:p-4 text-xs text-gray-300 overflow-auto max-h-56 whitespace-pre-wrap">
+                  {JSON.stringify(errorModal.error_messages, null, 2)}
+                </pre>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    verifyProject(errorModal.email);
+                    setErrorModal(null);
+                  }}
+                  className="btn btn-primary text-sm"
+                >
+                  检验修复（重新获取Project ID）
+                </button>
+                <button
+                  onClick={() => {
+                    testCredential(errorModal.email);
+                    setErrorModal(null);
+                  }}
+                  className="btn btn-secondary text-sm"
+                >
+                  测试凭证
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

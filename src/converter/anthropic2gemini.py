@@ -806,7 +806,7 @@ def gemini_to_anthropic_response(
     if not (200 <= status_code < 300):
         return gemini_response
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # 处理 Antigravity 的 response 包装格式
     if "response" in gemini_response:
         response_data = gemini_response["response"]
     else:
@@ -1013,7 +1013,7 @@ async def gemini_stream_to_anthropic_stream(
                 log.warning(f"[GEMINI_TO_ANTHROPIC] JSON parse error: {e}")
                 continue
 
-            # 处理 GeminiCLI 的 response 包装格式
+            # 处理 Antigravity 的 response 包装格式
             if "response" in data:
                 response = data["response"]
             else:

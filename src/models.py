@@ -1,40 +1,40 @@
-from typing import Any, Dict, List, Optional, Union
+"""
+数据模型
+- 聊天 API：OpenAI / Gemini / Claude 请求体解析模型
+- 面板 API：登录、认证、凭证操作、配置保存模型
+"""
 
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel
 
 
-# Pydantic v1/v2 兼容性辅助函数
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
-    """
-    兼容 Pydantic v1 和 v2 的模型转字典方法，排除 None 值
-    - v1: model.dict(exclude_none=True)
-    - v2: model.model_dump(exclude_none=True)
-    """
-    if hasattr(model, 'model_dump'):
-        # Pydantic v2
+    """Pydantic 模型 -> dict（兼容 v1/v2）"""
+    if hasattr(model, "model_dump"):
         return model.model_dump(exclude_none=True)
-    else:
-        # Pydantic v1
-        return model.dict(exclude_none=True)
+    return model.dict(exclude_none=True)
 
 
-# Common Models
+# ==================== 模型列表 ====================
+
 class Model(BaseModel):
     id: str
     object: str = "model"
-    created: Optional[int] = None
-    owned_by: Optional[str] = "google"
+    created: int = 0
+    owned_by: str = "google"
 
 
 class ModelList(BaseModel):
-    object: str = "list"
     data: List[Model]
 
 
-# OpenAI Models
+# ==================== OpenAI 请求 ====================
+
 class OpenAIToolFunction(BaseModel):
     name: str
-    arguments: str  # JSON string
+    description: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
 
 
 class OpenAIToolCall(BaseModel):
@@ -45,182 +45,121 @@ class OpenAIToolCall(BaseModel):
 
 class OpenAITool(BaseModel):
     type: str = "function"
-    function: Dict[str, Any]
+    function: OpenAIToolFunction
 
 
 class OpenAIChatMessage(BaseModel):
     role: str
-    content: Union[str, List[Dict[str, Any]], None] = None
-    reasoning_content: Optional[str] = None
+    content: Any = None
     name: Optional[str] = None
     tool_calls: Optional[List[OpenAIToolCall]] = None
-    tool_call_id: Optional[str] = None  # for role="tool"
+    tool_call_id: Optional[str] = None
 
 
 class OpenAIChatCompletionRequest(BaseModel):
     model: str
     messages: List[OpenAIChatMessage]
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_tokens: Optional[int] = None
     stream: bool = False
-    temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
-    top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
-    max_tokens: Optional[int] = Field(None, ge=1)
-    stop: Optional[Union[str, List[str]]] = None
-    frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
-    presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
-    n: Optional[int] = Field(1, ge=1, le=128)
-    seed: Optional[int] = None
-    response_format: Optional[Dict[str, Any]] = None
-    top_k: Optional[int] = Field(None, ge=1)
     tools: Optional[List[OpenAITool]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
-
-    class Config:
-        extra = "allow"  # Allow additional fields not explicitly defined
-
-
-# 通用的聊天完成请求模型（兼容OpenAI和其他格式）
-ChatCompletionRequest = OpenAIChatCompletionRequest
+    tool_choice: Optional[Any] = None
+    stop: Optional[List[str]] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    user: Optional[str] = None
 
 
-class OpenAIChatCompletionChoice(BaseModel):
-    index: int
-    message: OpenAIChatMessage
-    finish_reason: Optional[str] = None
-    logprobs: Optional[Dict[str, Any]] = None
+# ==================== Gemini 请求 ====================
 
-
-class OpenAIChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[OpenAIChatCompletionChoice]
-    usage: Optional[Dict[str, Any]] = None
-    system_fingerprint: Optional[str] = None
-
-
-class OpenAIDelta(BaseModel):
-    role: Optional[str] = None
-    content: Optional[str] = None
-    reasoning_content: Optional[str] = None
-
-
-class OpenAIChatCompletionStreamChoice(BaseModel):
-    index: int
-    delta: OpenAIDelta
-    finish_reason: Optional[str] = None
-    logprobs: Optional[Dict[str, Any]] = None
-
-
-class OpenAIChatCompletionStreamResponse(BaseModel):
-    id: str
-    object: str = "chat.completion.chunk"
-    created: int
-    model: str
-    choices: List[OpenAIChatCompletionStreamChoice]
-    system_fingerprint: Optional[str] = None
-
-
-# Gemini Models
 class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
+    inline_data: Optional[Dict[str, Any]] = None
+    functionCall: Optional[Dict[str, Any]] = None
+    functionResponse: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
-    thought: Optional[bool] = None  # 改为 None，避免序列化时包含 False
-    
+    thought: Optional[bool] = None
     class Config:
-        extra = "allow"  # 允许额外字段（如 functionCall, functionResponse）
+        extra = "allow"
 
 
 class GeminiContent(BaseModel):
-    role: str
+    role: Optional[str] = None
     parts: List[GeminiPart]
+    class Config:
+        extra = "allow"
 
 
 class GeminiSystemInstruction(BaseModel):
-    parts: List[GeminiPart]
+    parts: Optional[List[GeminiPart]] = None
 
 
 class GeminiImageConfig(BaseModel):
-    """图片生成配置"""
-    aspect_ratio: Optional[str] = None  # "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
-    image_size: Optional[str] = None  # "1K", "2K", "4K"
+    aspectRatio: Optional[str] = None
+    imageSize: Optional[str] = None
 
 
 class GeminiGenerationConfig(BaseModel):
-    temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
-    topP: Optional[float] = Field(None, ge=0.0, le=1.0)
-    topK: Optional[int] = Field(None, ge=1)
-    maxOutputTokens: Optional[int] = Field(None, ge=1)
+    temperature: Optional[float] = None
+    topP: Optional[float] = None
+    top_p: Optional[float] = None
+    topK: Optional[float] = None
+    top_k: Optional[float] = None
+    maxOutputTokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    candidateCount: Optional[int] = None
     stopSequences: Optional[List[str]] = None
+    stop_sequences: Optional[List[str]] = None
     responseMimeType: Optional[str] = None
-    responseSchema: Optional[Dict[str, Any]] = None
-    candidateCount: Optional[int] = Field(None, ge=1, le=8)
-    seed: Optional[int] = None
-    frequencyPenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
-    presencePenalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
+    response_mime_type: Optional[str] = None
     thinkingConfig: Optional[Dict[str, Any]] = None
-    # 图片生成相关参数
-    response_modalities: Optional[List[str]] = None  # ["TEXT", "IMAGE"]
-    image_config: Optional[GeminiImageConfig] = None
+    responseModalities: Optional[List[str]] = None
+    imageConfig: Optional[GeminiImageConfig] = None
+    class Config:
+        extra = "allow"
 
 
 class GeminiSafetySetting(BaseModel):
-    category: str
-    threshold: str
+    category: Optional[str] = None
+    threshold: Optional[str] = None
 
 
 class GeminiRequest(BaseModel):
     contents: List[GeminiContent]
     systemInstruction: Optional[GeminiSystemInstruction] = None
+    system_instruction: Optional[GeminiSystemInstruction] = None
     generationConfig: Optional[GeminiGenerationConfig] = None
+    generation_config: Optional[GeminiGenerationConfig] = None
     safetySettings: Optional[List[GeminiSafetySetting]] = None
+    safety_settings: Optional[List[GeminiSafetySetting]] = None
     tools: Optional[List[Dict[str, Any]]] = None
     toolConfig: Optional[Dict[str, Any]] = None
-    cachedContent: Optional[str] = None
-
+    tool_config: Optional[Dict[str, Any]] = None
+    sessionId: Optional[str] = None
     class Config:
-        extra = "allow"  # 允许透传未定义的字段
+        extra = "allow"
 
 
-class GeminiCandidate(BaseModel):
-    content: GeminiContent
-    finishReason: Optional[str] = None
-    index: int = 0
-    safetyRatings: Optional[List[Dict[str, Any]]] = None
-    citationMetadata: Optional[Dict[str, Any]] = None
-    tokenCount: Optional[int] = None
+# ==================== Claude 请求 ====================
 
-
-class GeminiUsageMetadata(BaseModel):
-    promptTokenCount: Optional[int] = None
-    candidatesTokenCount: Optional[int] = None
-    totalTokenCount: Optional[int] = None
-    cachedContentTokenCount: Optional[int] = None
-    thoughtsTokenCount: Optional[int] = None
-
-
-class GeminiResponse(BaseModel):
-    candidates: List[GeminiCandidate]
-    usageMetadata: Optional[GeminiUsageMetadata] = None
-    modelVersion: Optional[str] = None
-
-
-# Claude Models
 class ClaudeContentBlock(BaseModel):
-    type: str  # "text", "image", "tool_use", "tool_result"
+    type: str
     text: Optional[str] = None
-    source: Optional[Dict[str, Any]] = None  # for image type
-    id: Optional[str] = None  # for tool_use
-    name: Optional[str] = None  # for tool_use
-    input: Optional[Dict[str, Any]] = None  # for tool_use
-    tool_use_id: Optional[str] = None  # for tool_result
-    content: Optional[Union[str, List[Dict[str, Any]]]] = None  # for tool_result
+    id: Optional[str] = None
+    name: Optional[str] = None
+    input: Optional[Dict[str, Any]] = None
+    source: Optional[Dict[str, Any]] = None
+    thinking: Optional[Dict[str, Any]] = None
+    signature: Optional[str] = None
+    class Config:
+        extra = "allow"
 
 
 class ClaudeMessage(BaseModel):
-    role: str  # "user" or "assistant"
-    content: Union[str, List[ClaudeContentBlock]]
+    role: str
+    content: Any
 
 
 class ClaudeTool(BaseModel):
@@ -236,147 +175,48 @@ class ClaudeMetadata(BaseModel):
 class ClaudeRequest(BaseModel):
     model: str
     messages: List[ClaudeMessage]
-    max_tokens: int = Field(..., ge=1)
-    system: Optional[Union[str, List[Dict[str, Any]]]] = None
-    temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
-    top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
-    top_k: Optional[int] = Field(None, ge=1)
-    stop_sequences: Optional[List[str]] = None
+    system: Optional[Any] = None
+    max_tokens: int = 8192
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
     stream: bool = False
-    metadata: Optional[ClaudeMetadata] = None
+    stop_sequences: Optional[List[str]] = None
     tools: Optional[List[ClaudeTool]] = None
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
-
+    tool_choice: Optional[Dict[str, Any]] = None
+    metadata: Optional[ClaudeMetadata] = None
+    thinking: Optional[Dict[str, Any]] = None
     class Config:
         extra = "allow"
 
 
-class ClaudeUsage(BaseModel):
-    input_tokens: int
-    output_tokens: int
-    cache_creation_input_tokens: Optional[int] = None
-    cache_read_input_tokens: Optional[int] = None
+# ==================== 面板 API 模型 ====================
 
-
-class ClaudeResponse(BaseModel):
-    id: str
-    type: str = "message"
-    role: str = "assistant"
-    content: List[ClaudeContentBlock]
-    model: str
-    stop_reason: Optional[str] = None
-    stop_sequence: Optional[str] = None
-    usage: ClaudeUsage
-
-
-class ClaudeStreamEvent(BaseModel):
-    type: str  # "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
-    message: Optional[ClaudeResponse] = None
-    index: Optional[int] = None
-    content_block: Optional[ClaudeContentBlock] = None
-    delta: Optional[Dict[str, Any]] = None
-    usage: Optional[ClaudeUsage] = None
-
-    class Config:
-        extra = "allow"
-
-
-# Error Models
-class APIError(BaseModel):
-    message: str
-    type: str = "api_error"
-    code: Optional[int] = None
-
-
-class ErrorResponse(BaseModel):
-    error: APIError
-
-
-# Control Panel Models
-class SystemStatus(BaseModel):
-    status: str
-    timestamp: str
-    credentials: Dict[str, int]
-    config: Dict[str, Any]
-    current_credential: str
-
-
-class CredentialInfo(BaseModel):
-    filename: str
-    project_id: Optional[str] = None
-    status: Dict[str, Any]
-    size: Optional[int] = None
-    modified_time: Optional[str] = None
-    error: Optional[str] = None
-
-
-class LogEntry(BaseModel):
-    timestamp: str
-    level: str
-    message: str
-    module: Optional[str] = None
-
-
-class ConfigValue(BaseModel):
-    key: str
-    value: Any
-    env_locked: bool = False
-    description: Optional[str] = None
-
-
-# Authentication Models
-class AuthRequest(BaseModel):
-    project_id: Optional[str] = None
-    user_session: Optional[str] = None
-
-
-class AuthResponse(BaseModel):
-    success: bool
-    auth_url: Optional[str] = None
-    state: Optional[str] = None
-    error: Optional[str] = None
-    credentials: Optional[Dict[str, Any]] = None
-    file_path: Optional[str] = None
-    requires_manual_project_id: Optional[bool] = None
-    requires_project_selection: Optional[bool] = None
-    available_projects: Optional[List[Dict[str, str]]] = None
-
-
-class CredentialStatus(BaseModel):
-    disabled: bool = False
-    error_codes: List[int] = []
-    last_success: Optional[str] = None
-
-
-# Web Routes Models
 class LoginRequest(BaseModel):
     password: str
 
 
 class AuthStartRequest(BaseModel):
-    project_id: Optional[str] = None  # 现在是可选的
-    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
+    project_id: Optional[str] = None
 
 
 class AuthCallbackRequest(BaseModel):
-    project_id: Optional[str] = None  # 现在是可选的
-    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
+    project_id: Optional[str] = None
 
 
 class AuthCallbackUrlRequest(BaseModel):
-    callback_url: str  # OAuth回调完整URL
-    project_id: Optional[str] = None  # 可选的项目ID
-    mode: Optional[str] = "geminicli"  # 凭证模式: geminicli 或 antigravity
+    callback_url: str
+    project_id: Optional[str] = None
 
 
 class CredFileActionRequest(BaseModel):
-    filename: str
+    email: str
     action: str  # enable, disable, delete
 
 
 class CredFileBatchActionRequest(BaseModel):
     action: str  # "enable", "disable", "delete"
-    filenames: List[str]  # 批量操作的文件名列表
+    emails: List[str]
 
 
 class ConfigSaveRequest(BaseModel):

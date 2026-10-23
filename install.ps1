@@ -20,12 +20,12 @@ scoop install git uv
 if (Test-Path -LiteralPath "./web.py") {
     # Already in target directory; skip clone and cd
 }
-elseif (Test-Path -LiteralPath "./gcli2api/web.py") {
-    Set-Location ./gcli2api
+elseif (Test-Path -LiteralPath "./agy2api/web.py") {
+    Set-Location ./agy2api
 }
 else {
-    git clone https://github.com/su-kaka/gcli2api.git
-    Set-Location ./gcli2api
+    git clone https://github.com/su-kaka/agy2api.git
+    Set-Location ./agy2api
 }
 # Create relocatable virtual environment to ensure portability
 $env:UV_VENV_CLEAR = "1"

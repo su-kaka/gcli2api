@@ -132,13 +132,13 @@ fi
 if [ -f "./web.py" ]; then
     # Already in target directory; skip clone and cd
     echo "已在目标目录中，跳过克隆操作"
-elif [ -f "./gcli2api/web.py" ]; then
-    echo "进入已存在的 gcli2api 目录"
-    cd ./gcli2api
+elif [ -f "./agy2api/web.py" ]; then
+    echo "进入已存在的 agy2api 目录"
+    cd ./agy2api
 else
     echo "克隆项目仓库..."
-    git clone https://github.com/su-kaka/gcli2api.git
-    cd ./gcli2api
+    git clone https://github.com/su-kaka/agy2api.git
+    cd ./agy2api
 fi
 
 echo "强制同步项目代码，忽略本地修改..."

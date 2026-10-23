@@ -3,17 +3,13 @@ Main Web Integration - Integrates all routers and modules
 集合router并开启主服务
 """
 
-import asyncio
-import ctypes
-import gc
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import get_server_host, get_server_port
 from log import log
 
 # Import managers and utilities
@@ -24,84 +20,14 @@ from src.router.antigravity.openai import router as antigravity_openai_router
 from src.router.antigravity.gemini import router as antigravity_gemini_router
 from src.router.antigravity.anthropic import router as antigravity_anthropic_router
 from src.router.antigravity.model_list import router as antigravity_model_list_router
-from src.router.geminicli.openai import router as geminicli_openai_router
-from src.router.geminicli.gemini import router as geminicli_gemini_router
-from src.router.geminicli.anthropic import router as geminicli_anthropic_router
-from src.router.geminicli.model_list import router as geminicli_model_list_router
 from src.task_manager import shutdown_all_tasks
 from src.panel import router as panel_router
-from src.keeplive import keepalive_service
-
-# 全局凭证管理器
-global_credential_manager = None
-
-# ==================== 内存管理 ====================
-
-# 尝试获取 libc 的 malloc_trim 函数
-_libc = None
-_malloc_trim = None
-try:
-    _libc = ctypes.CDLL("libc.so.6")
-    _malloc_trim = _libc.malloc_trim
-    _malloc_trim.argtypes = [ctypes.c_size_t]
-    _malloc_trim.restype = ctypes.c_int
-except (OSError, AttributeError):
-    pass  # 非 Linux 或不支持 malloc_trim
-
-
-def _get_rss_mb() -> float:
-    """获取当前进程的 RSS（MB），仅 Linux 可用"""
-    try:
-        with open("/proc/self/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    return int(line.split()[1]) / 1024
-    except Exception:
-        pass
-    return 0.0
-
-
-async def _memory_trim_loop():
-    """
-    定期执行 GC + malloc_trim，将 glibc 堆中的空闲页归还给操作系统。
-    glibc 的 malloc 默认不会主动归还内存，导致 Python 进程的 RSS 持续增长。
-    每 60 秒执行一次，每次开销极低（< 1ms）。
-    """
-    while True:
-        try:
-            await asyncio.sleep(60)
-
-            rss_before = _get_rss_mb()
-
-            # 强制 GC 回收循环引用
-            gc.collect()
-
-            # 调用 malloc_trim 归还空闲内存给 OS
-            if _malloc_trim is not None:
-                _malloc_trim(0)
-
-            rss_after = _get_rss_mb()
-            freed = rss_before - rss_after
-
-            if freed > 10:  # 只在释放了 >10MB 时记录
-                log.info(f"[MEM] malloc_trim: {rss_before:.0f}MB → {rss_after:.0f}MB (释放 {freed:.0f}MB)")
-            elif rss_after > 500:  # RSS > 500MB 时始终记录
-                log.debug(f"[MEM] malloc_trim: {rss_before:.0f}MB → {rss_after:.0f}MB")
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            log.warning(f"[MEM] malloc_trim 异常: {e}")
-
-_memory_trim_task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global global_credential_manager
-
-    log.info("启动 GCLI2API 主服务")
+    log.info("启动 AGY2API 主服务")
 
     # 初始化配置缓存（优先执行）
     try:
@@ -119,44 +45,13 @@ async def lifespan(app: FastAPI):
         log.info("凭证管理器初始化成功")
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
-        global_credential_manager = None
 
     # OAuth回调服务器将在需要时按需启动
-
-    # 启动保活服务（未配置URL时自动跳过，零开销）
-    try:
-        await keepalive_service.start()
-    except Exception as e:
-        log.error(f"保活服务启动失败: {e}")
-
-    # 启动内存回收任务（定期 GC + malloc_trim）
-    global _memory_trim_task
-    _memory_trim_task = asyncio.create_task(
-        _memory_trim_loop(), name="memory_trim"
-    )
-    if _malloc_trim is not None:
-        log.info("[MEM] 内存回收任务已启动（每60秒执行 gc.collect + malloc_trim）")
-    else:
-        log.info("[MEM] 内存回收任务已启动（仅 gc.collect，malloc_trim 不可用）")
 
     yield
 
     # 清理资源
-    log.info("开始关闭 GCLI2API 主服务")
-
-    # 停止保活服务
-    try:
-        await keepalive_service.stop()
-    except Exception as e:
-        log.error(f"关闭保活服务时出错: {e}")
-
-    # 停止内存回收任务
-    if _memory_trim_task and not _memory_trim_task.done():
-        _memory_trim_task.cancel()
-        try:
-            await _memory_trim_task
-        except asyncio.CancelledError:
-            pass
+    log.info("开始关闭 AGY2API 主服务")
 
     # 首先关闭所有异步任务
     try:
@@ -165,20 +60,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"关闭异步任务时出错: {e}")
 
-    # 然后关闭凭证管理器（使用单例实例而非未赋值的全局变量）
+    # 关闭凭证管理器与数据库
     try:
         await credential_manager.close()
         log.info("凭证管理器已关闭")
     except Exception as e:
         log.error(f"关闭凭证管理器时出错: {e}")
 
-    log.info("GCLI2API 主服务已停止")
+    try:
+        from src.storage.database import close_database
+        await close_database()
+        log.info("数据库已关闭")
+    except Exception as e:
+        log.error(f"关闭数据库时出错: {e}")
+
+    log.info("AGY2API 主服务已停止")
 
 
 # 创建FastAPI应用
 app = FastAPI(
-    title="GCLI2API",
-    description="Gemini API proxy with OpenAI compatibility",
+    title="AGY2API",
+    description="Antigravity API proxy with OpenAI / Gemini / Claude compatibility",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -193,15 +95,6 @@ app.add_middleware(
 )
 
 # 挂载路由器
-# OpenAI兼容路由 - 处理OpenAI格式请求
-app.include_router(geminicli_openai_router, prefix="", tags=["Geminicli OpenAI API"])
-
-# Gemini原生路由 - 处理Gemini格式请求
-app.include_router(geminicli_gemini_router, prefix="", tags=["Geminicli Gemini API"])
-
-# Geminicli模型列表路由 - 处理Gemini格式的模型列表请求
-app.include_router(geminicli_model_list_router, prefix="", tags=["Geminicli Model List"])
-
 # Antigravity路由 - 处理OpenAI格式请求并转换为Antigravity API
 app.include_router(antigravity_openai_router, prefix="", tags=["Antigravity OpenAI API"])
 
@@ -214,75 +107,37 @@ app.include_router(antigravity_model_list_router, prefix="", tags=["Antigravity 
 # Antigravity Anthropic Messages 路由 - Anthropic Messages 格式兼容
 app.include_router(antigravity_anthropic_router, prefix="", tags=["Antigravity Anthropic Messages"])
 
-# Geminicli Anthropic Messages 路由 - Anthropic Messages 格式兼容 (Geminicli)
-app.include_router(geminicli_anthropic_router, prefix="", tags=["Geminicli Anthropic Messages"])
-
 # Panel路由 - 包含认证、凭证管理和控制面板功能
 app.include_router(panel_router, prefix="", tags=["Panel Interface"])
 
-# 静态文件路由 - 服务docs目录下的文件
-app.mount("/docs", StaticFiles(directory="docs"), name="docs")
+# 静态文件路由 - 服务docs目录下的文件（目录不存在时跳过）
+if os.path.isdir("docs"):
+    app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 
-# 静态文件路由 - 服务front目录下的文件（HTML、JS、CSS等）
-app.mount("/front", StaticFiles(directory="front"), name="front")
-
-
-# 保活接口（仅响应 HEAD）
-@app.head("/keepalive")
-async def keepalive() -> Response:
-    return Response(status_code=200)
 
 def main():
-    """主启动函数"""
-    from hypercorn.asyncio import serve
-    from hypercorn.config import Config
-    from hypercorn.run import run
+    """主启动函数：uvicorn 直接运行 ASGI 应用"""
+    import uvicorn
 
+    port = int(os.environ.get("PORT", 7861))
+    host = os.environ.get("HOST", "0.0.0.0")
     workers = int(os.environ.get("WORKERS", 1))
 
-    async def _run():
-        port = await get_server_port()
-        host = await get_server_host()
-
-        log.info("=" * 60)
-        log.info("启动 GCLI2API")
-        log.info("=" * 60)
-        log.info(f"控制面板: http://127.0.0.1:{port}")
-        if workers > 1:
-            log.info(f"Worker 数量: {workers}")
-        log.info("=" * 60)
-
-        config = Config()
-        config.bind = [f"{host}:{port}"]
-        config.accesslog = "-"
-        config.errorlog = "-"
-        config.loglevel = "INFO"
-
-        await serve(app, config)
-
-    if workers == 1:
-        asyncio.run(_run())
-    else:
-        # 多 worker 模式下 hypercorn run 自行管理进程，先同步获取配置
-        port = int(os.environ.get("PORT", 7861))
-        host = os.environ.get("HOST", "0.0.0.0")
-
-        log.info("=" * 60)
-        log.info("启动 GCLI2API")
-        log.info("=" * 60)
-        log.info(f"控制面板: http://127.0.0.1:{port}")
+    log.info("=" * 60)
+    log.info("启动 AGY2API")
+    log.info("=" * 60)
+    log.info(f"控制面板: http://127.0.0.1:{port}")
+    if workers > 1:
         log.info(f"Worker 数量: {workers}")
-        log.info("=" * 60)
+    log.info("=" * 60)
 
-        config = Config()
-        config.bind = [f"{host}:{port}"]
-        config.accesslog = "-"
-        config.errorlog = "-"
-        config.loglevel = "INFO"
-        config.workers = workers
-        config.application_path = "web:app"
-
-        run(config)
+    uvicorn.run(
+        "web:app",
+        host=host,
+        port=port,
+        workers=workers if workers > 1 else None,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":

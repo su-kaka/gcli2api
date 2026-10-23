@@ -30,11 +30,11 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ -f "./web.py" ]; then
     # 已经在目标目录
     :
-elif [ -f "./gcli2api/web.py" ]; then
-    cd ./gcli2api
+elif [ -f "./agy2api/web.py" ]; then
+    cd ./agy2api
 else
-    git clone https://github.com/su-kaka/gcli2api.git
-    cd ./gcli2api
+    git clone https://github.com/su-kaka/agy2api.git
+    cd ./agy2api
 fi
 
 # 拉取最新代码

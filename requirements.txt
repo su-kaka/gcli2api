@@ -2,13 +2,13 @@ fastapi>=0.116.1
 httpx[socks]>=0.28.1
 pydantic>=2.11.7
 python-dotenv>=1.1.1
-hypercorn>=0.17.3
+uvicorn>=0.30.0
 aiofiles>=24.1.0
 python-multipart>=0.0.20
 PyJWT>=2.10.1
 oauthlib>=3.3.1
-motor>=3.7.1
+SQLAlchemy[asyncio]>=2.0.30
+greenlet>=3.0.0
 aiosqlite>=0.20.0
 pypinyin>=0.51.0
-redis>=4.2.0
 asyncpg

@@ -1,7 +1,7 @@
 [project]
-name = "gcli2api"
+name = "agy2api"
 version = "0.1.0"
-description = "Convert GeminiCLI to OpenAI and Gemini API interfaces"
+description = "Convert Google Antigravity to OpenAI, Gemini and Claude API interfaces"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "CNC-1.0"}
@@ -20,16 +20,16 @@ dependencies = [
     "aiofiles>=24.1.0",
     "fastapi>=0.116.1",
     "httpx[socks]>=0.28.1",
-    "hypercorn>=0.17.3",
-    "motor>=3.7.1",
     "oauthlib>=3.3.1",
     "pydantic>=2.11.7",
     "pyjwt>=2.10.1",
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
     "pypinyin>=0.51.0",
+    "uvicorn>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "greenlet>=3.0.0",
     "aiosqlite>=0.20.0",
-    "redis>=7.2.0",
     "asyncpg>=0.31.0",
 ]
 

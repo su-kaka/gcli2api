@@ -54,7 +54,7 @@ async def start_auth(request: AuthStartRequest, token: str = Depends(verify_pane
         # 使用认证令牌作为用户会话标识
         user_session = token if token else None
         result = await create_auth_url(
-            project_id, user_session, mode=request.mode
+            project_id, user_session
         )
 
         if result["success"]:
@@ -87,7 +87,7 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
         user_session = token if token else None
         # 异步等待OAuth回调完成
         result = await asyncio_complete_auth_flow(
-            project_id, user_session, mode=request.mode
+            project_id, user_session
         )
 
         if result["success"]:
@@ -138,7 +138,7 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
 
         # 从回调URL完成认证
         result = await complete_auth_flow_from_callback_url(
-            request.callback_url, request.project_id, mode=request.mode
+            request.callback_url, request.project_id
         )
 
         if result["success"]:

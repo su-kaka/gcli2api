@@ -1,6 +1,6 @@
-# Contributing to gcli2api
+# Contributing to agy2api
 
-First off, thank you for considering contributing to gcli2api! It's people like you that make gcli2api such a great tool.
+First off, thank you for considering contributing to agy2api! It's people like you that make agy2api such a great tool.
 
 ## Code of Conduct
 
@@ -47,8 +47,8 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/gcli2api.git
-cd gcli2api
+git clone https://github.com/YOUR_USERNAME/agy2api.git
+cd agy2api
 
 # Install development dependencies
 make install-dev
@@ -111,7 +111,7 @@ make lint
 ## Project Structure
 
 ```
-gcli2api/
+agy2api/
 ├── src/                    # Main source code
 │   ├── auth.py            # Authentication and OAuth
 │   ├── credential_manager.py  # Credential rotation
@@ -152,7 +152,7 @@ gcli2api/
 
 ## License
 
-By contributing to gcli2api, you agree that your contributions will be licensed under the CNC-1.0 license. This is a strict anti-commercial license - see [LICENSE](LICENSE) for details.
+By contributing to agy2api, you agree that your contributions will be licensed under the CNC-1.0 license. This is a strict anti-commercial license - see [LICENSE](LICENSE) for details.
 
 ### Important License Restrictions
 

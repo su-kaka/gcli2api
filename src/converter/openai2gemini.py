@@ -1616,7 +1616,7 @@ def convert_gemini_to_openai_response(
         except Exception:
             return {"error": "Invalid response format"}
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # 处理 Antigravity 的 response 包装格式
     if "response" in gemini_response:
         gemini_response = gemini_response["response"]
 
@@ -1789,7 +1789,7 @@ def convert_gemini_to_openai_stream(
         # 解析失败,跳过此块
         return None
 
-    # 处理 GeminiCLI 的 response 包装格式
+    # 处理 Antigravity 的 response 包装格式
     if "response" in gemini_chunk:
         gemini_response = gemini_chunk["response"]
     else:

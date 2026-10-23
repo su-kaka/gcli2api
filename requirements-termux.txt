@@ -2,13 +2,13 @@ fastapi
 httpx[socks]
 pydantic==1.10.22
 python-dotenv
-hypercorn
 aiofiles
 python-multipart
 PyJWT
 oauthlib
-motor
-pypinyin
+SQLAlchemy[asyncio]
+greenlet
 aiosqlite
-redis
+pypinyin
 asyncpg
+uvicorn

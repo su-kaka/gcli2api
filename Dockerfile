@@ -1,4 +1,4 @@
-# Multi-stage build for gcli2api
+# Multi-stage build for agy2api
 FROM python:3.13-slim as base
 
 # Set environment variables
@@ -37,5 +37,5 @@ COPY . .
 # Expose port
 EXPOSE 7861
 
-# Default command
-CMD ["python", "web.py"]
+# uvicorn 直接运行 ASGI 应用，性能更好
+CMD ["python", "-m", "uvicorn", "web:app", "--host", "0.0.0.0", "--port", "7861"]

@@ -1,0 +1,17 @@
+# Docker ignore
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+.pytest_cache/
+frontend/node_modules/
+creds/
+*.log
+log.txt
+.env
+tests/

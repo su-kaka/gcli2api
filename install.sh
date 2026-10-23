@@ -233,22 +233,22 @@ fi
 log_info "Checking project directory..."
 if [ -f "./web.py" ]; then
     log_info "Already in target directory"
-elif [ -f "./gcli2api/web.py" ]; then
-    log_info "Changing to gcli2api directory"
-    cd ./gcli2api || exit 1
+elif [ -f "./agy2api/web.py" ]; then
+    log_info "Changing to agy2api directory"
+    cd ./agy2api || exit 1
 else
     log_info "Cloning repository..."
-    if [ -d "./gcli2api" ]; then
-        log_warn "gcli2api directory exists but web.py not found. Removing and re-cloning..."
-        rm -rf ./gcli2api
+    if [ -d "./agy2api" ]; then
+        log_warn "agy2api directory exists but web.py not found. Removing and re-cloning..."
+        rm -rf ./agy2api
     fi
     
-    if ! git clone https://github.com/su-kaka/gcli2api.git; then
+    if ! git clone https://github.com/su-kaka/agy2api.git; then
         log_error "Failed to clone repository"
         exit 1
     fi
     
-    cd ./gcli2api || exit 1
+    cd ./agy2api || exit 1
 fi
 
 # Update repository if it's a git repo

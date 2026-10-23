@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-dark-950 text-gray-100;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dark-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-dark-500;
+}
+
+/* 输入框聚焦样式 */
+input:focus,
+textarea:focus,
+select:focus {
+  @apply outline-none ring-2 ring-purple-500/50;
+}
+
+/* 按钮基础样式 */
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+}
+
+.btn-primary {
+  @apply bg-purple-600 hover:bg-purple-700 text-white;
+}
+
+.btn-secondary {
+  @apply bg-dark-700 hover:bg-dark-600 text-gray-200;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white;
+}
+
+/* 卡片样式 */
+.card {
+  @apply bg-dark-900 border border-dark-700 rounded-xl p-6;
+}
+
+/* 表格样式 */
+.table-container {
+  @apply overflow-x-auto rounded-lg border border-dark-700;
+}
+
+table {
+  @apply w-full;
+}
+
+th {
+  @apply bg-dark-800 px-4 py-3 text-left text-sm font-medium text-gray-400;
+}
+
+td {
+  @apply px-4 py-3 text-sm border-t border-dark-700;
+}
+
+tr:hover td {
+  @apply bg-dark-800/50;
+}

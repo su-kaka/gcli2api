@@ -23,6 +23,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!front/dist/
+!front/dist/**
 downloads/
 eggs/
 .eggs/
@@ -38,6 +40,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Node (frontend)
+frontend/node_modules/
 
 # PyInstaller
 *.manifest

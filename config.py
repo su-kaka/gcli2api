@@ -22,7 +22,6 @@ AUTO_BAN_ERROR_CODES = [403]
 # 统一维护环境变量名和配置键名的映射关系
 # 格式: "环境变量名": "配置键名"
 ENV_MAPPINGS = {
-    "CODE_ASSIST_ENDPOINT": "code_assist_endpoint",
     "CREDENTIALS_DIR": "credentials_dir",
     "PROXY": "proxy",
     "OAUTH_PROXY_URL": "oauth_proxy_url",
@@ -36,17 +35,12 @@ ENV_MAPPINGS = {
     "RETRY_429_ENABLED": "retry_429_enabled",
     "RETRY_429_INTERVAL": "retry_429_interval",
     "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
-    "COMPATIBILITY_MODE": "compatibility_mode_enabled",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
-    "ANTIGRAVITY_STREAM2NOSTREAM": "antigravity_stream2nostream",
     "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
     "PANEL_PASSWORD": "panel_password",
-    "PASSWORD": "password",
-    "KEEPALIVE_URL": "keepalive_url",
-    "KEEPALIVE_INTERVAL": "keepalive_interval",
 }
 
 
@@ -60,9 +54,9 @@ async def init_config():
         return
 
     try:
-        from src.storage_adapter import get_storage_adapter
-        storage_adapter = await get_storage_adapter()
-        _config_cache = await storage_adapter.get_all_config()
+        from src.storage.database import get_database
+        database = await get_database()
+        _config_cache = await database.get_all_config()
         _config_initialized = True
     except Exception:
         # 初始化失败时使用空缓存
@@ -75,15 +69,14 @@ async def reload_config():
     global _config_cache, _config_initialized
 
     try:
-        from src.storage_adapter import get_storage_adapter
-        storage_adapter = await get_storage_adapter()
+        from src.storage.database import get_database
+        database = await get_database()
 
-        # 如果后端支持 reload_config_cache，调用它
-        if hasattr(storage_adapter._backend, 'reload_config_cache'):
-            await storage_adapter._backend.reload_config_cache()
+        # 重新加载数据库配置缓存
+        await database.reload_config_cache()
 
         # 重新加载配置缓存
-        _config_cache = await storage_adapter.get_all_config()
+        _config_cache = await database.get_all_config()
         _config_initialized = True
     except Exception:
         pass
@@ -236,15 +229,9 @@ async def get_api_password() -> str:
 
     Environment variable: API_PASSWORD
     Database config key: api_password
-    Default: Uses PASSWORD env var for compatibility, otherwise 'pwd'
+    Default: pwd
     """
-    # 优先使用 API_PASSWORD，如果没有则使用通用 PASSWORD 保证兼容性
-    api_password = await get_config_value("api_password", None, "API_PASSWORD")
-    if api_password is not None:
-        return str(api_password)
-
-    # 兼容性：使用通用密码
-    return str(await get_config_value("password", "pwd", "PASSWORD"))
+    return str(await get_config_value("api_password", "pwd", "API_PASSWORD"))
 
 
 async def get_panel_password() -> str:
@@ -253,26 +240,9 @@ async def get_panel_password() -> str:
 
     Environment variable: PANEL_PASSWORD
     Database config key: panel_password
-    Default: Uses PASSWORD env var for compatibility, otherwise 'pwd'
-    """
-    # 优先使用 PANEL_PASSWORD，如果没有则使用通用 PASSWORD 保证兼容性
-    panel_password = await get_config_value("panel_password", None, "PANEL_PASSWORD")
-    if panel_password is not None:
-        return str(panel_password)
-
-    # 兼容性：使用通用密码
-    return str(await get_config_value("password", "pwd", "PASSWORD"))
-
-
-async def get_server_password() -> str:
-    """
-    Get server password setting (deprecated, use get_api_password or get_panel_password).
-
-    Environment variable: PASSWORD
-    Database config key: password
     Default: pwd
     """
-    return str(await get_config_value("password", "pwd", "PASSWORD"))
+    return str(await get_config_value("panel_password", "pwd", "PANEL_PASSWORD"))
 
 
 async def get_credentials_dir() -> str:
@@ -284,40 +254,6 @@ async def get_credentials_dir() -> str:
     Default: ./creds
     """
     return str(await get_config_value("credentials_dir", "./creds", "CREDENTIALS_DIR"))
-
-
-async def get_code_assist_endpoint() -> str:
-    """
-    Get Code Assist endpoint setting.
-
-    Environment variable: CODE_ASSIST_ENDPOINT
-    Database config key: code_assist_endpoint
-    Default: https://cloudcode-pa.googleapis.com
-    """
-    return str(
-        await get_config_value(
-            "code_assist_endpoint", "https://cloudcode-pa.googleapis.com", "CODE_ASSIST_ENDPOINT"
-        )
-    )
-
-
-async def get_compatibility_mode_enabled() -> bool:
-    """
-    Get compatibility mode setting.
-
-    兼容性模式：启用后所有system消息全部转换成user，停用system_instructions。
-    该选项可能会降低模型理解能力，但是能避免流式空回的情况。
-
-    Environment variable: COMPATIBILITY_MODE
-    Database config key: compatibility_mode_enabled
-    Default: False
-    """
-    env_value = os.getenv("COMPATIBILITY_MODE")
-    if env_value:
-        return env_value.lower() in ("true", "1", "yes", "on")
-
-    return bool(await get_config_value("compatibility_mode_enabled", False))
-
 
 async def get_return_thoughts_to_frontend() -> bool:
     """
@@ -335,25 +271,6 @@ async def get_return_thoughts_to_frontend() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("return_thoughts_to_frontend", True))
-
-
-async def get_antigravity_stream2nostream() -> bool:
-    """
-    Get use stream for non-stream setting.
-
-    控制antigravity非流式请求是否使用流式API并收集为完整响应。
-    启用后，非流式请求将在后端使用流式API，然后收集所有块后再返回完整响应。
-
-    Environment variable: ANTIGRAVITY_STREAM2NOSTREAM
-    Database config key: antigravity_stream2nostream
-    Default: True
-    """
-    env_value = os.getenv("ANTIGRAVITY_STREAM2NOSTREAM")
-    if env_value:
-        return env_value.lower() in ("true", "1", "yes", "on")
-
-    return bool(await get_config_value("antigravity_stream2nostream", True))
-
 
 async def get_antigravity_switch_credential_enabled() -> bool:
     """
@@ -460,37 +377,3 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
-
-
-async def get_keepalive_url() -> str:
-    """
-    Get keep-alive URL setting.
-
-    配置后保活服务会定期向该URL发送GET请求。
-    留空表示禁用保活服务。
-
-    Environment variable: KEEPALIVE_URL
-    Database config key: keepalive_url
-    Default: "" (disabled)
-    """
-    return str(await get_config_value("keepalive_url", "", "KEEPALIVE_URL"))
-
-
-async def get_keepalive_interval() -> int:
-    """
-    Get keep-alive interval in seconds.
-
-    保活请求发送间隔（秒）。
-
-    Environment variable: KEEPALIVE_INTERVAL
-    Database config key: keepalive_interval
-    Default: 60
-    """
-    env_value = os.getenv("KEEPALIVE_INTERVAL")
-    if env_value:
-        try:
-            return int(env_value)
-        except ValueError:
-            pass
-
-    return int(await get_config_value("keepalive_interval", 60))

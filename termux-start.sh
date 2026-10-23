@@ -9,4 +9,4 @@ if [ -n "$PYTHON_VERSION" ]; then
 fi
 uv add -r requirements-termux.txt
 source .venv/bin/activate
-pm2 start .venv/bin/python --name gcli2api -- web.py
+pm2 start .venv/bin/python --name agy2api -- web.py

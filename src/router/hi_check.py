@@ -104,7 +104,7 @@ def create_health_check_response(format: str = "openai", **kwargs) -> dict:
         return {
             "candidates": [{
                 "content": {
-                    "parts": [{"text": "gcli2api工作中"}],
+                    "parts": [{"text": "agy2api工作中"}],
                     "role": "model"
                 },
                 "finishReason": "STOP",

@@ -306,7 +306,7 @@ def _normalize_tools_for_internal_api(tools: Any) -> Any:
     return normalized_tools
 
 
-def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str, mode: str = "antigravity") -> Any:
+def _ensure_empty_tool_schema_for_claude(tools: Any, model_name: str) -> Any:
     if not isinstance(tools, list):
         return tools
 
@@ -834,7 +834,7 @@ async def normalize_antigravity_request(
     if "tools" in result:
         tools = _normalize_tools_for_internal_api(result.get("tools"))
         # Claude: functionDeclarations + parameters；Gemini: 只保留 parameters，避免与 parametersJsonSchema 冲突
-        result["tools"] = _ensure_empty_tool_schema_for_claude(tools, upstream, "antigravity")
+        result["tools"] = _ensure_empty_tool_schema_for_claude(tools, upstream)
 
     # ========== 公共处理 ==========
     generation_config.pop("presencePenalty", None)
