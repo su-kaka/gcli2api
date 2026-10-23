@@ -1,4 +1,4 @@
-full_hash=272c21701a5b58638caa612808cf6a0ea00bc534
-short_hash=272c217
-message=新增IP白名单配置 敏感词过滤默认关闭 开关开启才展开输入框
-date=2026-10-23 22:52:52 +0800
+full_hash=4601b427215bda9f272034821c3c62a41dff864d
+short_hash=4601b42
+message=ip白名单配置
+date=2026-10-23 23:32:05 +0800
