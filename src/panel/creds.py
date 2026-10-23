@@ -757,7 +757,7 @@ async def test_credential(
         if not project_id:
             raise HTTPException(status_code=400, detail="凭证中没有项目ID")
 
-        test_model = "gemini-2.5-flash"
+        test_model = "gemini-2.5-flash-lite"
 
         api_base_url = await get_antigravity_api_url()
         headers = build_antigravity_headers(access_token)
@@ -768,8 +768,7 @@ async def test_credential(
                 "model": test_model,
                 "project": project_id,
                 "request": {
-                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
-                    "generationConfig": {"maxOutputTokens": 1}
+                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}]
                 }
             },
             headers=headers,
