@@ -39,11 +39,11 @@ ENV_MAPPINGS = {
     "RETRY_429_INTERVAL": "retry_429_interval",
     "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
-    "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
     "SENSITIVE_WORDS": "sensitive_words",
     "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
     "USAGE_LOG_ENABLED": "usage_log_enabled",
     "USAGE_LOG_RETENTION_DAYS": "usage_log_retention_days",
+    "CREDENTIAL_SELECT_MODE": "credential_select_mode",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -293,23 +293,6 @@ async def get_return_thoughts_to_frontend() -> bool:
 
     return bool(await get_config_value("return_thoughts_to_frontend", True))
 
-async def get_antigravity_switch_credential_enabled() -> bool:
-    """
-    Get antigravity switch credential setting.
-
-    控制antigravity在重试时是否切换凭证。
-    禁用时会持续使用当前凭证，直到该凭证对当前模型进入CD或被禁用。
-
-    Environment variable: ANTIGRAVITY_SWITCH_CREDENTIAL
-    Database config key: antigravity_switch_credential_enabled
-    Default: False
-    """
-    env_value = os.getenv("ANTIGRAVITY_SWITCH_CREDENTIAL")
-    if env_value:
-        return env_value.lower() in ("true", "1", "yes", "on")
-
-    return bool(await get_config_value("antigravity_switch_credential_enabled", False))
-
 
 # ====================== 敏感词过滤 ======================
 
@@ -442,6 +425,31 @@ async def get_usage_log_retention_days() -> int:
         return max(0, int(await get_config_value("usage_log_retention_days", 30)))
     except (ValueError, TypeError):
         return 30
+
+
+# ====================== 凭证选择模式 ======================
+
+# 合法的凭证选择模式
+CREDENTIAL_SELECT_MODES = ("random", "cache", "sticky")
+
+
+async def get_credential_select_mode() -> str:
+    """
+    凭证选择模式:
+    - random: 完全随机负载均衡（无亲和）
+    - cache:  会话缓存匹配（默认）——相同会话内容复用同一凭证，命中上游 prompt cache
+    - sticky: 凭证粘性——尽量保持同一凭证直到其进入 CD 或被禁用
+
+    Environment variable: CREDENTIAL_SELECT_MODE
+    Database config key: credential_select_mode
+    Default: cache
+    """
+    value = await get_config_value("credential_select_mode", "cache", "CREDENTIAL_SELECT_MODE")
+    value = str(value).strip().lower()
+    if value not in CREDENTIAL_SELECT_MODES:
+        log.warning(f"无效的凭证选择模式: {value}，回落为 cache")
+        return "cache"
+    return value
 
 
 async def get_oauth_proxy_url() -> str:

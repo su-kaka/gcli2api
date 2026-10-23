@@ -1,5 +1,6 @@
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState } from "react";
+import Select from "../components/Select";
 import api from "../api";
 
 const CONFIG_GROUPS = [
@@ -45,10 +46,30 @@ const CONFIG_GROUPS = [
     ],
   },
   {
-    title: "兼容性配置",
+    title: "凭证选择模式",
+    fields: [
+      {
+        key: "credential_select_mode",
+        label: "选择模式",
+        type: "select",
+        note: "决定每次 API 请求如何挑选凭证",
+        options: [
+          { value: "random", label: "完全随机" },
+          { value: "cache", label: "缓存匹配（推荐）" },
+          { value: "sticky", label: "凭证不变直到 CD" },
+        ],
+        descriptions: {
+          random: "完全随机负载均衡：每次请求从可用凭证中随机挑选一个，最均匀地分摊负载，但相同会话可能命中不同凭证，无法利用上游 prompt cache。",
+          cache: "缓存匹配（默认推荐）：以\"模型 + system 指令（或首条 user 消息）\"哈希出会话 key，相同会话始终复用同一凭证——命中 Google 上游的 prompt cache，长对话更快、更省 token。凭证进入 CD 后自动切换并重新绑定。建议搭配 Redis（REDIS_URL）实现多实例共享。",
+          sticky: "凭证粘性：所有请求锁定同一个凭证，直到该凭证进入冷却（CD）或被禁用才切换到下一个。适合最大化单凭证的缓存命中，但负载不均——单凭证扛满全量请求，其余凭证闲置。",
+        },
+      },
+    ],
+  },
+  {
+    title: "响应配置",
     fields: [
       { key: "return_thoughts_to_frontend", label: "返回思维链到前端", type: "bool", note: "启用后思维链会在响应中返回；禁用后过滤掉" },
-      { key: "antigravity_switch_credential_enabled", label: "Antigravity 切换凭证", type: "bool", note: "启用后重试时切换凭证；禁用时保持当前凭证直到 CD 或被禁用" },
     ],
   },
   {
@@ -182,6 +203,25 @@ export default function Config() {
           </button>
           <span className="text-sm text-gray-300">{value ? "已启用" : "已禁用"}</span>
         </label>
+      );
+    }
+
+    if (field.type === "select") {
+      const current = field.options.find((o) => o.value === value) || field.options[0];
+      return (
+        <div className="space-y-2">
+          <Select
+            value={current?.value ?? ""}
+            onChange={(v) => setField(field.key, v)}
+            options={field.options}
+            className="w-full sm:w-64"
+          />
+          {field.descriptions && current && (
+            <div className="bg-dark-800/60 border border-dark-600 rounded-lg p-3 text-xs sm:text-sm text-gray-300 leading-relaxed">
+              {field.descriptions[current.value]}
+            </div>
+          )}
+        </div>
       );
     }
 

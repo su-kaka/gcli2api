@@ -217,6 +217,18 @@ async def _switch_credential_for_retry(
 
 # ==================== 新的流式和非流式请求函数 ====================
 
+def _derive_session_key(model_name: str, body: Dict[str, Any]) -> Optional[str]:
+    """从 API 请求体派生会话 key（凭证亲和 cache 模式使用）
+
+    body 格式: {"model": ..., "request": <Gemini 规范化请求>}
+    hash(模型 + systemInstruction 或 第一条 user 消息) —— 后者必须是经过所有格式处理后的内容
+    """
+    from src.session_cache import derive_session_key
+
+    inner = body.get("request") if isinstance(body.get("request"), dict) else body
+    return derive_session_key(model_name, inner)
+
+
 def _base_log_entry(
     model_name: str,
     email: str,
@@ -265,8 +277,13 @@ async def stream_request(
     log_entry = _base_log_entry(model_name, "", True, log_ctx)
     log_start_time = time.time()
 
+    # 凭证亲和: 从请求内容派生会话 key
+    session_key = _derive_session_key(model_name, body)
+
     # 1. 获取有效凭证
-    cred_result = await credential_manager.get_valid_credential(model_name=model_name)
+    cred_result = await credential_manager.get_valid_credential(
+        model_name=model_name, session_key=session_key
+    )
 
     if not cred_result:
         # 如果返回值是None，直接返回错误500
@@ -319,7 +336,9 @@ async def stream_request(
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
     async def refresh_credential_fast():
         nonlocal current_file, access_token, auth_headers, project_id, final_payload
-        cred_result = await credential_manager.get_valid_credential(model_name=model_name)
+        cred_result = await credential_manager.get_valid_credential(
+            model_name=model_name, session_key=session_key
+        )
         if not cred_result:
             return None
         current_file, credential_data = cred_result
@@ -395,7 +414,9 @@ async def stream_request(
                         # 预热下一个凭证
                         if next_cred_task is None and attempt < max_retries:
                             next_cred_task = asyncio.create_task(
-                                credential_manager.get_valid_credential(model_name=model_name)
+                                credential_manager.get_valid_credential(
+                                    model_name=model_name, session_key=session_key
+                                )
                             )
 
                         # 记录错误并切换凭证
@@ -564,8 +585,13 @@ async def non_stream_request(
         })
         await record_usage_log(log_entry)
 
+    # 凭证亲和: 从请求内容派生会话 key
+    session_key = _derive_session_key(model_name, body)
+
     # 1. 获取有效凭证
-    cred_result = await credential_manager.get_valid_credential(model_name=model_name)
+    cred_result = await credential_manager.get_valid_credential(
+        model_name=model_name, session_key=session_key
+    )
 
     if not cred_result:
         # 如果返回值是None，直接返回错误500
@@ -611,7 +637,9 @@ async def non_stream_request(
     # 内部函数：快速更新凭证(只更新token和project_id,避免重建整个请求)
     async def refresh_credential_fast():
         nonlocal current_file, access_token, auth_headers, project_id, final_payload
-        cred_result = await credential_manager.get_valid_credential(model_name=model_name)
+        cred_result = await credential_manager.get_valid_credential(
+            model_name=model_name, session_key=session_key
+        )
         if not cred_result:
             return None
         current_file, credential_data = cred_result
@@ -708,8 +736,10 @@ async def non_stream_request(
                     # 并行预热下一个凭证,不阻塞当前处理
                     if next_cred_task is None and attempt < max_retries:
                         next_cred_task = asyncio.create_task(
-                            credential_manager.get_valid_credential(model_name=model_name)
-                        )
+                                credential_manager.get_valid_credential(
+                                    model_name=model_name, session_key=session_key
+                                )
+                            )
 
                     # 记录错误并切换凭证
                     await record_api_call_error(credential_manager, current_file, status_code, cooldown_until, model_name=model_name,

@@ -391,6 +391,30 @@ class Database:
                 return row.email, _row_to_credential_dict(row)
             return None
 
+    async def get_available_credential_by_email(
+        self, email: str, model_name: Optional[str] = None
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        按指定 email 获取可用凭证（凭证亲和/粘性模式使用）。
+        凭证不存在/被禁用/该模型家族冷却中 -> None。
+        """
+        if not email:
+            return None
+        current_time = time.time()
+        cd_group = get_cooldown_group(model_name) if model_name else None
+        async with self.session() as s:
+            row = await s.scalar(
+                select(AntigravityCredential).where(AntigravityCredential.email == email)
+            )
+            if not row or row.disabled:
+                return None
+            if cd_group:
+                cooldowns = _load_json(row.model_cooldowns, {})
+                cd = cooldowns.get(cd_group)
+                if cd is not None and current_time < cd:
+                    return None
+            return row.email, _row_to_credential_dict(row)
+
     # ---------- 状态管理 ----------
 
     async def update_credential_state(

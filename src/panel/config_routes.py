@@ -53,9 +53,6 @@ async def get_config(token: str = Depends(verify_panel_token)):
         # 思维链返回配置
         current_config["return_thoughts_to_frontend"] = await config.get_return_thoughts_to_frontend()
 
-        # Antigravity流式转非流式配置
-        current_config["antigravity_switch_credential_enabled"] = await config.get_antigravity_switch_credential_enabled()
-
         # 敏感词过滤配置
         current_config["sensitive_words_enabled"] = await config.get_sensitive_words_enabled()
         current_config["sensitive_words"] = await config.get_sensitive_words()
@@ -63,6 +60,9 @@ async def get_config(token: str = Depends(verify_panel_token)):
         # 请求日志配置
         current_config["usage_log_enabled"] = await config.get_usage_log_enabled()
         current_config["usage_log_retention_days"] = await config.get_usage_log_retention_days()
+
+        # 凭证选择模式
+        current_config["credential_select_mode"] = await config.get_credential_select_mode()
 
         # 服务器配置
         current_config["host"] = await config.get_server_host()
@@ -133,10 +133,6 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
             if not isinstance(new_config["return_thoughts_to_frontend"], bool):
                 raise HTTPException(status_code=400, detail="思维链返回开关必须是布尔值")
 
-        if "antigravity_switch_credential_enabled" in new_config:
-            if not isinstance(new_config["antigravity_switch_credential_enabled"], bool):
-                raise HTTPException(status_code=400, detail="Antigravity切换凭证开关必须是布尔值")
-
         # 验证敏感词过滤配置
         if "sensitive_words_enabled" in new_config:
             if not isinstance(new_config["sensitive_words_enabled"], bool):
@@ -171,6 +167,12 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
             days = new_config["usage_log_retention_days"]
             if not isinstance(days, int) or days < 0 or days > 3650:
                 raise HTTPException(status_code=400, detail="日志保留天数必须是 0-3650 之间的整数（0 = 永久保留）")
+
+        # 验证凭证选择模式
+        if "credential_select_mode" in new_config:
+            mode = new_config["credential_select_mode"]
+            if mode not in ("random", "cache", "sticky"):
+                raise HTTPException(status_code=400, detail="凭证选择模式必须是 random / cache / sticky")
 
         # 验证服务器配置
         if "host" in new_config:

@@ -209,7 +209,6 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 
 **响应行为配置**
 - `RETURN_THOUGHTS_TO_FRONTEND`: 返回思维链到前端（默认：true）
-- `ANTIGRAVITY_SWITCH_CREDENTIAL`: 重试时切换凭证（默认：false）
 
 **敏感词过滤配置**
 - `SENSITIVE_WORDS_ENABLED`: 启用敏感词过滤（默认：true）
@@ -218,6 +217,13 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 **请求日志配置**
 - `USAGE_LOG_ENABLED`: 启用请求日志（默认：true）。记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库
 - `USAGE_LOG_RETENTION_DAYS`: 日志保留天数（默认：30，0 = 永久保留）。启动时自动清理过期日志
+
+**凭证选择模式**
+- `CREDENTIAL_SELECT_MODE`: 凭证选择模式（默认：cache）
+  - `random` — 完全随机负载均衡，每次请求随机挑选凭证
+  - `cache` — 缓存匹配（推荐）：以"模型 + system 指令（或首条 user 消息）"哈希会话 key，相同会话复用同一凭证，命中 Google 上游 prompt cache；凭证 CD 后自动切换并重新绑定
+  - `sticky` — 凭证粘性：所有请求锁定同一凭证，直到其进入 CD 或被禁用
+- `REDIS_URL`: Redis 连接串（可选）。设置后缓存匹配的会话绑定存入 Redis，多实例共享；未设置时使用进程内存后端
 
 **日志配置**
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）

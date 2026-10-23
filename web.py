@@ -59,6 +59,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning(f"清理过期请求日志失败（不影响启动）: {e}")
 
+    # 初始化会话凭证缓存（Redis 可选，未配置时使用内存后端）
+    try:
+        import os as os_module
+        from src import session_cache
+
+        redis_url = os_module.getenv("REDIS_URL", "")
+        if redis_url:
+            await session_cache.init_redis(redis_url)
+        else:
+            log.info("未配置 REDIS_URL，会话凭证缓存使用内存后端")
+    except Exception as e:
+        log.warning(f"会话凭证缓存初始化失败（使用内存后端）: {e}")
+
     # OAuth回调服务器将在需要时按需启动
 
     yield
@@ -86,6 +99,13 @@ async def lifespan(app: FastAPI):
         log.info("数据库已关闭")
     except Exception as e:
         log.error(f"关闭数据库时出错: {e}")
+
+    # 关闭会话凭证缓存
+    try:
+        from src import session_cache
+        await session_cache.close()
+    except Exception as e:
+        log.debug(f"关闭会话缓存时出错: {e}")
 
     log.info("AGY2API 主服务已停止")
 

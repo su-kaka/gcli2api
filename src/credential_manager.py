@@ -9,8 +9,14 @@ from typing import Any, Dict, Optional, Tuple
 
 from log import log
 
+from config import get_credential_select_mode
 from src.google_oauth_api import Credentials
 from src.storage.database import get_database
+
+try:
+    from src import session_cache
+except ImportError:  # 允许独立导入 credential_manager（测试场景）
+    session_cache = None
 
 
 class CredentialManager:
@@ -19,6 +25,7 @@ class CredentialManager:
     def __init__(self):
         self._initialized = False
         self._database = None
+        self._sticky_email: Optional[str] = None  # sticky 模式的当前粘性凭证
 
     async def _ensure_initialized(self):
         if not self._initialized or self._database is None:
@@ -38,17 +45,72 @@ class CredentialManager:
     # ---------- 凭证选取 ----------
 
     async def get_valid_credential(
-        self, model_name: Optional[str] = None
+        self,
+        model_name: Optional[str] = None,
+        session_key: Optional[str] = None,
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
-        获取可用凭证：随机负载均衡，自动跳过禁用/冷却凭证。
+        获取可用凭证：按凭证选择模式选取，自动跳过禁用/冷却凭证。
         Token 失效时自动刷新；刷新失败（凭证永久失效）自动禁用并尝试下一个。
+
+        凭证选择模式（config: credential_select_mode）:
+        - random: 完全随机负载均衡（忽略 session_key）
+        - cache:  会话缓存匹配——session_key 命中绑定时复用该凭证（prompt cache 亲和）
+        - sticky: 粘性——维护进程内"当前凭证"指针，同一凭证直到 CD/禁用才更换
+
+        Args:
+            model_name: 模型名（用于家族级 CD 过滤）
+            session_key: 会话 key（cache 模式使用，由请求内容派生）
 
         Returns:
             (email, credential_data) 或 None
         """
         await self._ensure_initialized()
 
+        mode = await get_credential_select_mode()
+
+        # cache 模式：先查会话绑定
+        if mode == "cache" and session_key:
+            bound_email = await session_cache.get_session_binding(session_key)
+            if bound_email:
+                result = await self._database.get_available_credential_by_email(
+                    bound_email, model_name=model_name
+                )
+                if result:
+                    log.debug(f"会话缓存命中: {bound_email}")
+                    email, credential_data = result
+                    final = await self._validate_or_next(
+                        email, credential_data, model_name
+                    )
+                    if final is None:
+                        # 绑定凭证 token 永久失效等，解绑走正常选取
+                        await session_cache.delete_session_binding(session_key)
+                    return final
+                else:
+                    # 绑定凭证不可用（禁用/CD/删除），解绑
+                    await session_cache.delete_session_binding(session_key)
+
+        # sticky 模式：优先当前粘性凭证
+        if mode == "sticky":
+            sticky_email = getattr(self, "_sticky_email", None)
+            if sticky_email:
+                result = await self._database.get_available_credential_by_email(
+                    sticky_email, model_name=model_name
+                )
+                if result:
+                    email, credential_data = result
+                    final = await self._validate_or_next(
+                        email, credential_data, model_name
+                    )
+                    if final is not None:
+                        return final
+                    # 粘性凭证失效（token 永久失效），清除指针换新
+                    self._sticky_email = None
+                else:
+                    # 粘性凭证 CD/禁用，清除指针
+                    self._sticky_email = None
+
+        # 通用随机选取（random 模式 / cache 未命中 / sticky 无可用粘性凭证）
         max_retries = 3
         for attempt in range(max_retries):
             result = await self._database.get_next_available_credential(model_name=model_name)
@@ -64,16 +126,43 @@ class CredentialManager:
                 log.debug(f"Token需要刷新: {email}")
                 refreshed = await self._refresh_token(credential_data, email)
                 if refreshed:
-                    return email, refreshed
+                    final = (email, refreshed)
+                    await self._after_picked(mode, final[0], session_key)
+                    return final
                 log.warning(
                     f"Token刷新失败，尝试下一个凭证: {email} (attempt={attempt + 1}/{max_retries})"
                 )
                 continue
 
-            return email, credential_data
+            final = (email, credential_data)
+            await self._after_picked(mode, final[0], session_key)
+            return final
 
         log.error(f"重试{max_retries}次后仍无可用凭证 (model_name={model_name})")
         return None
+
+    async def _validate_or_next(
+        self, email: str, credential_data: Dict[str, Any], model_name: Optional[str]
+    ) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """对已选中的凭证做 token 校验；需要刷新则刷新并返回，永久失效返回 None"""
+        if await self._should_refresh_token(credential_data):
+            refreshed = await self._refresh_token(credential_data, email)
+            if refreshed is None:
+                return None
+            credential_data = refreshed
+        return email, credential_data
+
+    async def _after_picked(
+        self, mode: str, email: str, session_key: Optional[str]
+    ) -> None:
+        """凭证选取成功后的模式相关处理"""
+        try:
+            if mode == "cache" and session_key:
+                await session_cache.set_session_binding(session_key, email)
+            elif mode == "sticky":
+                self._sticky_email = email
+        except Exception as e:
+            log.debug(f"记录凭证亲和失败（不影响请求）: {e}")
 
     # ---------- 凭证增删改 ----------
 

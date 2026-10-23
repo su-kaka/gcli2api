@@ -329,7 +329,6 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 
 **Response Behavior Configuration**
 - `RETURN_THOUGHTS_TO_FRONTEND`: Return thinking chain to the frontend (default: true)
-- `ANTIGRAVITY_SWITCH_CREDENTIAL`: Switch credentials on retry (default: false)
 
 **Sensitive Word Filtering**
 - `SENSITIVE_WORDS_ENABLED`: Enable sensitive word filtering (default: true)
@@ -338,6 +337,13 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 **Usage Log**
 - `USAGE_LOG_ENABLED`: Enable request logging (default: true). Records every API request (model, credential, token usage, latency, status) to the database
 - `USAGE_LOG_RETENTION_DAYS`: Log retention days (default: 30, 0 = keep forever). Expired logs are cleaned up at startup
+
+**Credential Select Mode**
+- `CREDENTIAL_SELECT_MODE`: Credential selection mode (default: cache)
+  - `random` — Fully random load balancing, each request picks a random credential
+  - `cache` — Cache affinity (recommended): hashes "model + system instruction (or first user message)" into a session key; the same session reuses the same credential, hitting Google's upstream prompt cache; automatically switches and rebinds after credential cooldown
+  - `sticky` — Sticky: all requests lock onto one credential until it enters cooldown or gets disabled
+- `REDIS_URL`: Redis connection string (optional). When set, cache-mode session bindings are stored in Redis for multi-instance sharing; otherwise an in-process memory backend is used
 
 **Storage Configuration**
 
