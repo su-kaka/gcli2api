@@ -209,7 +209,6 @@ async def stream_generate_content(
             stream_request_wrapper,
             anti_truncation_payload,
             max_attempts,
-            enable_prefill_mode=("claude" not in str(api_request.get("model", "")).lower()),
         )
 
         # 迭代 process_stream() 生成器，并展开 response 包装
