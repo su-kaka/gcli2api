@@ -1,4 +1,4 @@
-full_hash=95c76313115996b531cd6b86863ceaed10e32c4b
-short_hash=95c7631
-message=修复凭证上传旧函数名残留
-date=2026-10-23 16:43:13 +0800
+full_hash=33b8bbc5b598743e8bd12d9109f7c33f01e982ef
+short_hash=33b8bbc
+message=credential_manager 重构为无状态函数模块
+date=2026-10-23 16:46:54 +0800
