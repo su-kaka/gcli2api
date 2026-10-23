@@ -57,6 +57,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["sensitive_words_enabled"] = await config.get_sensitive_words_enabled()
         current_config["sensitive_words"] = await config.get_sensitive_words()
 
+        # IP 白名单配置
+        current_config["ip_whitelist_enabled"] = await config.get_ip_whitelist_enabled()
+        current_config["ip_whitelist"] = await config.get_ip_whitelist()
+
         # 请求日志配置
         current_config["usage_log_enabled"] = await config.get_usage_log_enabled()
 
@@ -156,6 +160,29 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                     raise HTTPException(status_code=400, detail=f"无效的敏感词: {word!r}")
                 cleaned_words.append(word)
             new_config["sensitive_words"] = cleaned_words
+
+        # 验证 IP 白名单配置（每行一条，支持单 IP / CIDR / 起止范围，IPv4 / IPv6）
+        if "ip_whitelist_enabled" in new_config:
+            if not isinstance(new_config["ip_whitelist_enabled"], bool):
+                raise HTTPException(status_code=400, detail="IP 白名单开关必须是布尔值")
+
+        if "ip_whitelist" in new_config:
+            entries = new_config["ip_whitelist"]
+            if not isinstance(entries, list):
+                raise HTTPException(status_code=400, detail="IP 白名单必须是数组（每行一条）")
+            cleaned_entries = []
+            for entry in entries:
+                if not isinstance(entry, str):
+                    raise HTTPException(status_code=400, detail=f"IP 白名单条目必须是字符串: {entry!r}")
+                entry = entry.strip()
+                if not entry:
+                    continue
+                try:
+                    config.parse_ip_whitelist_line(entry)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail=f"无效的 IP 白名单条目: {entry!r}")
+                cleaned_entries.append(entry)
+            new_config["ip_whitelist"] = cleaned_entries
 
         # 验证请求日志配置
         if "usage_log_enabled" in new_config:

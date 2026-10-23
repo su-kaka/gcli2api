@@ -308,6 +308,10 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 - `API_PASSWORD`: Chat API access password (default: pwd)
 - `PANEL_PASSWORD`: Control panel access password (default: pwd)
 
+**Access Control Configuration**
+- `IP_WHITELIST_ENABLED`: Enable IP whitelist (default: false, no restriction)
+- `IP_WHITELIST`: IP whitelist, comma or newline separated (default: empty). Each entry supports a single IP (`192.168.1.1`), CIDR range (`192.168.1.0/24`), or start-end range (`10.0.0.1-10.0.0.100`), for both IPv4 / IPv6. Once enabled, only whitelisted IPs can access the panel and API; all others get 403. Effective immediately after panel save
+
 **Performance and Stability Configuration**
 - `RETRY_429_ENABLED`: Enable 429 error automatic retry (default: true)
 - `RETRY_429_MAX_RETRIES`: Maximum retry attempts for 429 errors (default: 5)
@@ -331,7 +335,7 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 - `RETURN_THOUGHTS_TO_FRONTEND`: Return thinking chain to the frontend (default: true)
 
 **Sensitive Word Filtering**
-- `SENSITIVE_WORDS_ENABLED`: Enable sensitive word filtering (default: true)
+- `SENSITIVE_WORDS_ENABLED`: Enable sensitive word filtering (default: false)
 - `SENSITIVE_WORDS`: Sensitive word list, comma or newline separated (default: empty). Matches are replaced with empty string, case-insensitive, Chinese supported, effective immediately after panel save
 
 **Usage Log**

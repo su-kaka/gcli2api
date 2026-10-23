@@ -6,6 +6,7 @@ Centralizes all configuration to avoid duplication across modules.
 - 修改配置时调用 reload_config() 重新从数据库加载
 """
 
+import ipaddress
 import os
 import re
 from typing import Any, Optional
@@ -41,6 +42,8 @@ ENV_MAPPINGS = {
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
     "SENSITIVE_WORDS": "sensitive_words",
     "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
+    "IP_WHITELIST": "ip_whitelist",
+    "IP_WHITELIST_ENABLED": "ip_whitelist_enabled",
     "USAGE_LOG_ENABLED": "usage_log_enabled",
     "CREDENTIAL_SELECT_MODE": "credential_select_mode",
     "HOST": "host",
@@ -305,13 +308,13 @@ async def get_sensitive_words_enabled() -> bool:
 
     Environment variable: SENSITIVE_WORDS_ENABLED
     Database config key: sensitive_words_enabled
-    Default: True
+    Default: False
     """
     env_value = os.getenv("SENSITIVE_WORDS_ENABLED")
     if env_value:
         return env_value.lower() in ("true", "1", "yes", "on")
 
-    return bool(await get_config_value("sensitive_words_enabled", True))
+    return bool(await get_config_value("sensitive_words_enabled", False))
 
 
 async def get_sensitive_words() -> list:
@@ -386,6 +389,140 @@ async def get_sensitive_word_filter():
     if not words:
         return False, []
     return True, compile_sensitive_words(words)
+
+
+# ====================== IP 白名单 ======================
+
+# IP 白名单规则缓存: (原始条目指纹, 解析结果 (rules, invalid))
+_ip_whitelist_cache: dict = {"fingerprint": None, "result": ([], [])}
+
+
+def parse_ip_whitelist_line(line: str):
+    """
+    解析单条白名单条目为 (lo, hi, version) 网络对象；无效时抛出 ValueError。
+
+    支持格式（IPv4 / IPv6）：
+    - 单个 IP: 192.168.1.1 / ::1
+    - CIDR 网段: 192.168.1.0/24 / 2001:db8::/32
+    - IP 起止范围（- 或 ~ 分隔）: 192.168.1.1-192.168.1.100 / ::1-::10
+    """
+    line = str(line).strip()
+    if not line:
+        raise ValueError("空条目")
+
+    for sep in ("~", "-"):
+        if sep in line:
+            start_str, _, end_str = line.partition(sep)
+            if start_str.strip() and end_str.strip():
+                start = ipaddress.ip_address(start_str.strip())
+                end = ipaddress.ip_address(end_str.strip())
+                if start.version != end.version:
+                    raise ValueError(f"起止 IP 版本不一致: {line}")
+                if int(start) > int(end):
+                    start, end = end, start
+                return start, end, start.version
+
+    if "/" in line:
+        net = ipaddress.ip_network(line, strict=False)
+        return net.network_address, net.broadcast_address, net.version
+
+    addr = ipaddress.ip_address(line)
+    return addr, addr, addr.version
+
+
+def compile_ip_whitelist(entries: list):
+    """
+    解析白名单条目列表为规则列表（带缓存）。
+
+    Returns:
+        (rules, invalid)——rules 为 [(lo, hi, version), ...]，invalid 为解析失败的原始条目。
+    """
+    fingerprint = tuple(str(e) for e in entries)
+    if _ip_whitelist_cache["fingerprint"] == fingerprint:
+        return _ip_whitelist_cache["result"]
+
+    rules = []
+    invalid = []
+    for entry in entries:
+        entry = str(entry).strip()
+        if not entry:
+            continue
+        try:
+            rules.append(parse_ip_whitelist_line(entry))
+        except ValueError:
+            invalid.append(entry)
+
+    result = (rules, invalid)
+    _ip_whitelist_cache["fingerprint"] = fingerprint
+    _ip_whitelist_cache["result"] = result
+    return result
+
+
+def ip_in_whitelist(client_ip: str, rules: list) -> bool:
+    """判断客户端 IP 是否命中白名单规则（IPv4/IPv6 均支持）"""
+    if not client_ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return any(lo.version == addr.version and lo <= addr <= hi for lo, hi, _ in rules)
+
+
+async def get_ip_whitelist_enabled() -> bool:
+    """
+    IP 白名单开关。
+
+    Environment variable: IP_WHITELIST_ENABLED
+    Database config key: ip_whitelist_enabled
+    Default: False
+    """
+    env_value = os.getenv("IP_WHITELIST_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("ip_whitelist_enabled", False))
+
+
+async def get_ip_whitelist() -> list:
+    """
+    IP 白名单列表，每行一条；空列表表示不限制。
+
+    支持单个 IP、CIDR 网段、起止范围（- 或 ~ 分隔），IPv4/IPv6 均可。
+    仅在开关开启时生效，命中白名单以外 IP 的所有请求（面板 + API）将直接返回 403。
+
+    Environment variable: IP_WHITELIST (逗号或换行分隔)
+    Database config key: ip_whitelist
+    Default: []
+    """
+    env_value = os.getenv("IP_WHITELIST")
+    if env_value is not None and env_value.strip():
+        return [e.strip() for e in re.split(r"[,\n]", env_value) if e.strip()]
+
+    value = await get_config_value("ip_whitelist")
+    if isinstance(value, list):
+        return [str(e).strip() for e in value if str(e).strip()]
+    if isinstance(value, str) and value.strip():
+        return [e.strip() for e in re.split(r"[,\n]", value) if e.strip()]
+    return []
+
+
+async def get_ip_whitelist_rules():
+    """
+    获取生效的 IP 白名单规则（供请求拦截中间件调用）。
+
+    Returns:
+        (enabled, rules)；开关关闭或白名单为空时不启用限制。
+    """
+    if not await get_ip_whitelist_enabled():
+        return False, []
+    entries = await get_ip_whitelist()
+    if not entries:
+        return False, []
+    rules, invalid = compile_ip_whitelist(entries)
+    if invalid:
+        log.warning(f"IP 白名单中存在无效条目（已跳过）: {invalid}")
+    return bool(rules), rules
 
 
 # ====================== 请求日志 ======================

@@ -187,6 +187,10 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `API_PASSWORD`: 聊天 API 访问密码（默认：pwd）
 - `PANEL_PASSWORD`: 控制面板访问密码（默认：pwd）
 
+**访问控制配置**
+- `IP_WHITELIST_ENABLED`: 启用 IP 白名单（默认：false，不限制）
+- `IP_WHITELIST`: IP 白名单列表，逗号或换行分隔（默认：空）。每条支持单个 IP（`192.168.1.1`）、CIDR 网段（`192.168.1.0/24`）、起止范围（`10.0.0.1-10.0.0.100`），IPv4 / IPv6 均可。开启后仅白名单内 IP 可访问面板和 API，其余 IP 直接 403；面板保存后立即生效
+
 **存储配置**
 - `CREDENTIALS_DIR`: 凭证数据库目录（默认：./creds）
 - `POSTGRESQL_URI`: PostgreSQL 连接字符串（设置后启用 PostgreSQL 模式）
@@ -211,7 +215,7 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `RETURN_THOUGHTS_TO_FRONTEND`: 返回思维链到前端（默认：true）
 
 **敏感词过滤配置**
-- `SENSITIVE_WORDS_ENABLED`: 启用敏感词过滤（默认：true）
+- `SENSITIVE_WORDS_ENABLED`: 启用敏感词过滤（默认：false）
 - `SENSITIVE_WORDS`: 敏感词列表，逗号或换行分隔（默认：空）。命中后整词替换为空，不区分大小写，支持中文，面板保存后立即生效
 
 **请求日志配置**

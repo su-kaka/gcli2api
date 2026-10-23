@@ -15,6 +15,13 @@ const CONFIG_GROUPS = [
     ],
   },
   {
+    title: "IP 白名单",
+    fields: [
+      { key: "ip_whitelist_enabled", label: "启用 IP 白名单", type: "bool", note: "开启后仅白名单内的 IP 可访问面板和 API，其余 IP 直接 403。留空列表或关闭开关则不限制。保存后立即生效（热更新）" },
+      { key: "ip_whitelist", label: "IP 白名单列表", type: "textarea", showIf: (cfg) => !!cfg.ip_whitelist_enabled, note: "每行一条，支持单个 IP、CIDR 网段、起止范围（- 或 ~ 分隔），IPv4 / IPv6 均可", placeholder: "例如：\n127.0.0.1\n192.168.1.0/24\n10.0.0.1-10.0.0.100\n::1\n2001:db8::/32" },
+    ],
+  },
+  {
     title: "基础配置",
     fields: [
       { key: "credentials_dir", label: "凭证目录路径", type: "text", note: "存储认证文件的目录路径" },
@@ -83,7 +90,7 @@ const CONFIG_GROUPS = [
     title: "敏感词过滤",
     fields: [
       { key: "sensitive_words_enabled", label: "启用敏感词过滤", type: "bool", note: "请求中命中敏感词的内容会被替换为空，避免触发 Google API 端点的敏感词拦截" },
-      { key: "sensitive_words", label: "敏感词列表", type: "textarea", note: "每行一个词或短语，不区分大小写，支持中文。命中后整词替换为空。保存后立即生效（热更新）", placeholder: "例如：\nsensitive word\n敏感词\n另一个词" },
+      { key: "sensitive_words", label: "敏感词列表", type: "textarea", showIf: (cfg) => !!cfg.sensitive_words_enabled, note: "每行一个词或短语，不区分大小写，支持中文。命中后整词替换为空。保存后立即生效（热更新）", placeholder: "例如：\nsensitive word\n敏感词\n另一个词" },
     ],
   },
   {
@@ -320,17 +327,19 @@ export default function Config() {
               )}
 
               <div className="space-y-5">
-                {group.fields.map((field) => (
-                  <div key={field.key}>
-                    <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                      {field.label}
-                    </label>
-                    {renderField(field)}
-                    {field.note && (
-                      <p className="text-xs text-gray-500 mt-1.5">{field.note}</p>
-                    )}
-                  </div>
-                ))}
+                {group.fields
+                  .filter((field) => !field.showIf || field.showIf(config))
+                  .map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                        {field.label}
+                      </label>
+                      {renderField(field)}
+                      {field.note && (
+                        <p className="text-xs text-gray-500 mt-1.5">{field.note}</p>
+                      )}
+                    </div>
+                  ))}
               </div>
             </div>
           ))}
