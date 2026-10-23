@@ -42,6 +42,8 @@ ENV_MAPPINGS = {
     "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
     "SENSITIVE_WORDS": "sensitive_words",
     "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
+    "USAGE_LOG_ENABLED": "usage_log_enabled",
+    "USAGE_LOG_RETENTION_DAYS": "usage_log_retention_days",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -402,6 +404,44 @@ async def get_sensitive_word_filter():
     if not words:
         return False, []
     return True, compile_sensitive_words(words)
+
+
+# ====================== 请求日志 ======================
+
+async def get_usage_log_enabled() -> bool:
+    """
+    请求日志（usage_log）开关。
+
+    Environment variable: USAGE_LOG_ENABLED
+    Database config key: usage_log_enabled
+    Default: True
+    """
+    env_value = os.getenv("USAGE_LOG_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("usage_log_enabled", True))
+
+
+async def get_usage_log_retention_days() -> int:
+    """
+    日志保留天数（0 = 永久保留）。
+
+    Environment variable: USAGE_LOG_RETENTION_DAYS
+    Database config key: usage_log_retention_days
+    Default: 30
+    """
+    env_value = os.getenv("USAGE_LOG_RETENTION_DAYS")
+    if env_value:
+        try:
+            return max(0, int(env_value))
+        except ValueError:
+            pass
+
+    try:
+        return max(0, int(await get_config_value("usage_log_retention_days", 30)))
+    except (ValueError, TypeError):
+        return 30
 
 
 async def get_oauth_proxy_url() -> str:

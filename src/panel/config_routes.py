@@ -60,6 +60,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["sensitive_words_enabled"] = await config.get_sensitive_words_enabled()
         current_config["sensitive_words"] = await config.get_sensitive_words()
 
+        # 请求日志配置
+        current_config["usage_log_enabled"] = await config.get_usage_log_enabled()
+        current_config["usage_log_retention_days"] = await config.get_usage_log_retention_days()
+
         # 服务器配置
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
@@ -157,6 +161,16 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                     raise HTTPException(status_code=400, detail=f"无效的敏感词: {word!r}")
                 cleaned_words.append(word)
             new_config["sensitive_words"] = cleaned_words
+
+        # 验证请求日志配置
+        if "usage_log_enabled" in new_config:
+            if not isinstance(new_config["usage_log_enabled"], bool):
+                raise HTTPException(status_code=400, detail="请求日志开关必须是布尔值")
+
+        if "usage_log_retention_days" in new_config:
+            days = new_config["usage_log_retention_days"]
+            if not isinstance(days, int) or days < 0 or days > 3650:
+                raise HTTPException(status_code=400, detail="日志保留天数必须是 0-3650 之间的整数（0 = 永久保留）")
 
         # 验证服务器配置
         if "host" in new_config:

@@ -81,6 +81,43 @@ class ConfigItem(Base):
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
+class UsageLog(Base):
+    """请求日志表：每次 API 调用记录一条（成功与失败均记录）"""
+    __tablename__ = "usage_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time, index=True)
+
+    # 请求来源
+    api_format: Mapped[str] = mapped_column(String(16), default="")        # openai / gemini / anthropic
+    client_ip: Mapped[str] = mapped_column(String(64), default="")
+    request_id: Mapped[str] = mapped_column(String(64), default="")
+
+    # 调用信息
+    model_name: Mapped[str] = mapped_column(String(128), default="")             # 客户端请求的模型名（原始，可能带功能前缀）
+    upstream_model_name: Mapped[str] = mapped_column(String(128), default="")   # 后端实际使用的真实模型名（映射后）
+    credential_email: Mapped[str] = mapped_column(String(320), default="")
+    is_stream: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # 结果
+    status_code: Mapped[int] = mapped_column(Integer, default=0)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    use_time: Mapped[float] = mapped_column(Float, default=0.0)            # 耗时（秒）
+
+    # Token 用量
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 失败时的错误摘要
+    error_message: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (
+        Index("idx_ul_created_model", "created_at", "model_name"),
+        Index("idx_ul_created_email", "created_at", "credential_email"),
+    )
+
+
 # ====================== JSON 序列化辅助 ======================
 
 def _dump_json(value: Any) -> str:
@@ -193,15 +230,42 @@ class Database:
             log.info(f"Database initialized (backend={self._backend_type})")
 
     def _create_tables(self, sync_conn) -> None:
-        """建表。旧结构表（以 filename 为键）直接删除重建，不做数据迁移。"""
+        """建表。
+        - 凭证表：结构性变更（键从 filename 变为 email）时删除重建
+        - 其余表：缺列时用 ALTER TABLE ADD COLUMN 补齐，保留原有数据
+        """
         inspector = inspect(sync_conn)
         table_name = AntigravityCredential.__tablename__
         if inspector.has_table(table_name):
             existing_columns = {c["name"] for c in inspector.get_columns(table_name)}
-            # 旧结构以 filename 为键、无 email 列 —— 删除重建
+            # 旧结构以 filename 为键、无 email 列 —— 删除重建（数据无法迁移）
             if "filename" in existing_columns or "email" not in existing_columns:
                 log.info("检测到旧版凭证表结构（filename 键），重建为 email 键结构")
                 sync_conn.execute(text(f"DROP TABLE {table_name}"))
+
+        # 已存在的表补齐缺失列（ALTER TABLE ADD COLUMN，保留数据）
+        for orm_model in (UsageLog,):
+            table = orm_model.__table__
+            if not inspector.has_table(table.name):
+                continue
+            existing_columns = {c["name"] for c in inspector.get_columns(table.name)}
+            dialect = inspector.bind.dialect
+            for column in table.columns:
+                if column.name in existing_columns:
+                    continue
+                column_type = column.type.compile(dialect)
+                # 补列：有 server_default 用之；有 Python default 用字面量；否则 DEFAULT NULL
+                if column.server_default is not None:
+                    default_clause = f" DEFAULT {column.server_default.arg}"
+                elif column.default is not None and column.default.is_scalar:
+                    default_clause = f" DEFAULT {column.default.arg!r}"
+                else:
+                    default_clause = " DEFAULT NULL"
+                sync_conn.execute(
+                    text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}{default_clause}")
+                )
+                log.info(f"表 {table.name} 补充列 {column.name} ({column_type})")
+
         Base.metadata.create_all(sync_conn)
 
     async def close(self) -> None:
@@ -634,6 +698,183 @@ class Database:
                 self._config_cache.pop(key, None)
                 return True
             return False
+
+    # ---------- 请求日志（usage_log） ----------
+
+    async def insert_usage_log(self, entry: Dict[str, Any]) -> bool:
+        """写入一条请求日志（失败仅告警，不影响主流程）"""
+        try:
+            async with self.session() as s:
+                s.add(UsageLog(
+                    created_at=entry.get("created_at") or time.time(),
+                    api_format=str(entry.get("api_format", "")),
+                    client_ip=str(entry.get("client_ip", "")),
+                    request_id=str(entry.get("request_id", "")),
+                    model_name=str(entry.get("model_name", "")),
+                    upstream_model_name=str(entry.get("upstream_model_name", "")),
+                    credential_email=str(entry.get("credential_email", "")),
+                    is_stream=bool(entry.get("is_stream", False)),
+                    status_code=int(entry.get("status_code", 0) or 0),
+                    success=bool(entry.get("success", False)),
+                    use_time=float(entry.get("use_time", 0.0) or 0.0),
+                    prompt_tokens=int(entry.get("prompt_tokens", 0) or 0),
+                    completion_tokens=int(entry.get("completion_tokens", 0) or 0),
+                    total_tokens=int(entry.get("total_tokens", 0) or 0),
+                    error_message=str(entry.get("error_message", ""))[:2000],
+                ))
+                return True
+        except SQLAlchemyError as e:
+            log.warning(f"写入请求日志失败: {e}")
+            return False
+
+    async def query_usage_logs(
+        self,
+        offset: int = 0,
+        limit: int = 50,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        model_name: str = "",
+        credential_email: str = "",
+        api_format: str = "",
+        status: str = "all",  # all / success / error
+        is_stream: Optional[bool] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """分页查询请求日志，返回 (日志列表, 总数)，新 -> 旧"""
+        stmt = select(UsageLog)
+        count_stmt = select(func.count()).select_from(UsageLog)
+
+        if start_timestamp:
+            stmt = stmt.where(UsageLog.created_at >= start_timestamp)
+            count_stmt = count_stmt.where(UsageLog.created_at >= start_timestamp)
+        if end_timestamp:
+            stmt = stmt.where(UsageLog.created_at <= end_timestamp)
+            count_stmt = count_stmt.where(UsageLog.created_at <= end_timestamp)
+        if model_name:
+            stmt = stmt.where(UsageLog.model_name == model_name)
+            count_stmt = count_stmt.where(UsageLog.model_name == model_name)
+        if credential_email:
+            stmt = stmt.where(UsageLog.credential_email == credential_email)
+            count_stmt = count_stmt.where(UsageLog.credential_email == credential_email)
+        if api_format:
+            stmt = stmt.where(UsageLog.api_format == api_format)
+            count_stmt = count_stmt.where(UsageLog.api_format == api_format)
+        if status == "success":
+            stmt = stmt.where(UsageLog.success.is_(True))
+            count_stmt = count_stmt.where(UsageLog.success.is_(True))
+        elif status == "error":
+            stmt = stmt.where(UsageLog.success.is_(False))
+            count_stmt = count_stmt.where(UsageLog.success.is_(False))
+        if is_stream is not None:
+            stmt = stmt.where(UsageLog.is_stream.is_(is_stream))
+            count_stmt = count_stmt.where(UsageLog.is_stream.is_(is_stream))
+
+        async with self.session() as s:
+            total = (await s.execute(count_stmt)).scalar() or 0
+            rows = (
+                (
+                    await s.execute(
+                        stmt.order_by(UsageLog.created_at.desc(), UsageLog.id.desc())
+                        .offset(offset)
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        items = [
+            {
+                "id": r.id,
+                "created_at": r.created_at,
+                "api_format": r.api_format or "",
+                "client_ip": r.client_ip or "",
+                "request_id": r.request_id or "",
+                "model_name": r.model_name or "",
+                "upstream_model_name": r.upstream_model_name or "",
+                "credential_email": r.credential_email or "",
+                "is_stream": r.is_stream,
+                "status_code": r.status_code,
+                "success": r.success,
+                "use_time": r.use_time,
+                "prompt_tokens": r.prompt_tokens,
+                "completion_tokens": r.completion_tokens,
+                "total_tokens": r.total_tokens,
+                "error_message": r.error_message or "",
+            }
+            for r in rows
+        ]
+        return items, total
+
+    async def usage_log_stats(
+        self,
+        start_timestamp: Optional[float] = None,
+        end_timestamp: Optional[float] = None,
+        model_name: str = "",
+        credential_email: str = "",
+        api_format: str = "",
+    ) -> Dict[str, Any]:
+        """聚合统计：总请求数 / 成功数 / 失败数 / token 汇总 / 平均耗时 / 每模型聚合"""
+        conditions = []
+        if start_timestamp:
+            conditions.append(UsageLog.created_at >= start_timestamp)
+        if end_timestamp:
+            conditions.append(UsageLog.created_at <= end_timestamp)
+        if model_name:
+            conditions.append(UsageLog.model_name == model_name)
+        if credential_email:
+            conditions.append(UsageLog.credential_email == credential_email)
+        if api_format:
+            conditions.append(UsageLog.api_format == api_format)
+
+        success_cond = func.cast(UsageLog.success, Integer).label("success_int")
+
+        agg = select(
+            func.count().label("total_requests"),
+            func.coalesce(func.sum(success_cond), 0).label("success_count"),
+            func.coalesce(func.sum(UsageLog.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(UsageLog.completion_tokens), 0).label("completion_tokens"),
+            func.coalesce(func.sum(UsageLog.total_tokens), 0).label("total_tokens"),
+            func.coalesce(func.avg(UsageLog.use_time), 0).label("avg_use_time"),
+        ).where(*conditions)
+
+        by_model = (
+            select(
+                UsageLog.model_name.label("model_name"),
+                func.count().label("count"),
+                func.coalesce(func.sum(UsageLog.total_tokens), 0).label("total_tokens"),
+            )
+            .where(*conditions)
+            .group_by(UsageLog.model_name)
+            .order_by(func.count().desc())
+            .limit(50)
+        )
+
+        async with self.session() as s:
+            row = (await s.execute(agg)).one()
+            model_rows = (await s.execute(by_model)).all()
+
+        return {
+            "total_requests": row.total_requests or 0,
+            "success_count": row.success_count or 0,
+            "error_count": (row.total_requests or 0) - (row.success_count or 0),
+            "prompt_tokens": row.prompt_tokens or 0,
+            "completion_tokens": row.completion_tokens or 0,
+            "total_tokens": row.total_tokens or 0,
+            "avg_use_time": round(float(row.avg_use_time or 0), 2),
+            "by_model": [
+                {"model_name": m.model_name or "(unknown)", "count": m.count, "total_tokens": m.total_tokens}
+                for m in model_rows
+            ],
+        }
+
+    async def delete_usage_logs_before(self, before_timestamp: float) -> int:
+        """删除指定时间之前的日志，返回删除条数"""
+        async with self.session() as s:
+            result = await s.execute(
+                text("DELETE FROM usage_log WHERE created_at < :ts"),
+                {"ts": before_timestamp},
+            )
+            return result.rowcount or 0
 
     # ---------- 后端信息 ----------
 

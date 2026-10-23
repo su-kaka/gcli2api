@@ -55,6 +55,7 @@ router = APIRouter()
 @router.post("/v1/models/{model:path}:generateContent")
 async def generate_content(
     gemini_request: "GeminiRequest",
+    request: Request,
     model: str = Path(..., description="Model name"),
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
@@ -99,7 +100,14 @@ async def generate_content(
 
     # 调用 API 层的非流式请求
     from src.api.antigravity import non_stream_request
-    response = await non_stream_request(body=api_request)
+    response = await non_stream_request(
+        body=api_request,
+        log_ctx={
+            "api_format": "gemini",
+            "client_ip": request.client.host if request.client else "",
+            "client_model": model,
+        },
+    )
 
     # 解包装响应：Antigravity API 可能返回的格式有额外的 response 包装层
     # 需要提取并返回标准 Gemini 格式
@@ -121,6 +129,7 @@ async def generate_content(
 @router.post("/v1/models/{model:path}:streamGenerateContent")
 async def stream_generate_content(
     gemini_request: GeminiRequest,
+    request: Request,
     model: str = Path(..., description="Model name"),
     api_key: str = Depends(authenticate_gemini_flexible),
 ):
@@ -144,6 +153,13 @@ async def stream_generate_content(
     # 更新模型名为真实模型名
     normalized_dict["model"] = real_model
 
+    # 请求日志上下文（api_format + 客户端 IP + 客户端原始模型名）
+    log_ctx = {
+        "api_format": "gemini",
+        "client_ip": request.client.host if request.client else "",
+        "client_model": model,
+    }
+
     # ========== 流式抗截断生成器 ==========
     async def anti_truncation_generator():
         from src.converter.antigravity_fix import normalize_antigravity_request
@@ -166,7 +182,7 @@ async def stream_generate_content(
         # 首先对payload应用反截断指令
         anti_truncation_payload = apply_anti_truncation(api_request)
 
-        first_attempt_stream = stream_request(body=anti_truncation_payload, native=False)
+        first_attempt_stream = stream_request(body=anti_truncation_payload, native=False, log_ctx=log_ctx)
         try:
             first_chunk = await read_first_async_item(first_attempt_stream)
         except StopAsyncIteration:
@@ -185,7 +201,7 @@ async def stream_generate_content(
                 first_attempt_pending = False
                 stream_gen = prepend_async_item(first_chunk, first_attempt_stream)
             else:
-                stream_gen = stream_request(body=payload, native=False)
+                stream_gen = stream_request(body=payload, native=False, log_ctx=log_ctx)
             return StreamingResponse(stream_gen, media_type="text/event-stream")
 
         # 创建反截断处理器
@@ -249,7 +265,7 @@ async def stream_generate_content(
 
         # 所有流式请求都使用非 native 模式（SSE格式）并展开 response 包装
         log.debug(f"[ANTIGRAVITY] 使用非native模式，将展开response包装")
-        stream_gen = stream_request(body=api_request, native=False)
+        stream_gen = stream_request(body=api_request, native=False, log_ctx=log_ctx)
         try:
             first_chunk = await read_first_async_item(stream_gen)
         except StopAsyncIteration:

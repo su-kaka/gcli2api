@@ -15,7 +15,7 @@ if str(project_root) not in sys.path:
 import json
 
 # 第三方库
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 # 本地模块 - 配置和日志
@@ -54,6 +54,7 @@ router = APIRouter()
 @router.post("/v1/chat/completions")
 async def chat_completions(
     openai_request: OpenAIChatCompletionRequest,
+    request: Request,
     token: str = Depends(authenticate_bearer)
 ):
     """
@@ -104,11 +105,18 @@ async def chat_completions(
         "request": gemini_dict
     }
 
+    # 请求日志上下文（api_format + 客户端 IP + 客户端原始模型名）
+    log_ctx = {
+        "api_format": "openai",
+        "client_ip": request.client.host if request.client else "",
+        "client_model": openai_request.model,
+    }
+
     # ========== 非流式请求 ==========
     if not is_streaming:
         # 调用 API 层的非流式请求
         from src.api.antigravity import non_stream_request
-        response = await non_stream_request(body=api_request)
+        response = await non_stream_request(body=api_request, log_ctx=log_ctx)
 
         # 检查响应状态码
         status_code = getattr(response, "status_code", 200)
@@ -151,7 +159,7 @@ async def chat_completions(
         # 首先对payload应用反截断指令
         anti_truncation_payload = apply_anti_truncation(api_request)
 
-        first_attempt_stream = stream_request(body=anti_truncation_payload, native=False)
+        first_attempt_stream = stream_request(body=anti_truncation_payload, native=False, log_ctx=log_ctx)
         try:
             first_chunk = await read_first_async_item(first_attempt_stream)
         except StopAsyncIteration:
@@ -170,7 +178,7 @@ async def chat_completions(
                 first_attempt_pending = False
                 stream_gen = prepend_async_item(first_chunk, first_attempt_stream)
             else:
-                stream_gen = stream_request(body=payload, native=False)
+                stream_gen = stream_request(body=payload, native=False, log_ctx=log_ctx)
 
             return StreamingResponse(stream_gen, media_type="text/event-stream")
 
@@ -231,7 +239,7 @@ async def chat_completions(
         import uuid
 
         # 调用 API 层的流式请求（不使用 native 模式）
-        stream_gen = stream_request(body=api_request, native=False)
+        stream_gen = stream_request(body=api_request, native=False, log_ctx=log_ctx)
         try:
             first_chunk = await read_first_async_item(stream_gen)
         except StopAsyncIteration:

@@ -335,6 +335,10 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 - `SENSITIVE_WORDS_ENABLED`: Enable sensitive word filtering (default: true)
 - `SENSITIVE_WORDS`: Sensitive word list, comma or newline separated (default: empty). Matches are replaced with empty string, case-insensitive, Chinese supported, effective immediately after panel save
 
+**Usage Log**
+- `USAGE_LOG_ENABLED`: Enable request logging (default: true). Records every API request (model, credential, token usage, latency, status) to the database
+- `USAGE_LOG_RETENTION_DAYS`: Log retention days (default: 30, 0 = keep forever). Expired logs are cleaned up at startup
+
 **Storage Configuration**
 
 **SQLite (Default)**

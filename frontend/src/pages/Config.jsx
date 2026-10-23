@@ -64,6 +64,13 @@ const CONFIG_GROUPS = [
       { key: "sensitive_words", label: "敏感词列表", type: "textarea", note: "每行一个词或短语，不区分大小写，支持中文。命中后整词替换为空。保存后立即生效（热更新）", placeholder: "例如：\nsensitive word\n敏感词\n另一个词" },
     ],
   },
+  {
+    title: "请求日志",
+    fields: [
+      { key: "usage_log_enabled", label: "启用请求日志", type: "bool", note: "记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库，在\"请求日志\"页面查看" },
+      { key: "usage_log_retention_days", label: "日志保留天数", type: "number", note: "启动时自动清理超过保留期的日志。0 = 永久保留（范围 0-3650）" },
+    ],
+  },
 ];
 
 export default function Config() {

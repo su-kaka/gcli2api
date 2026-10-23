@@ -5,6 +5,7 @@ import {
     KeyRound,
     Upload,
     Info,
+    BarChart3,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import api from "./api";
@@ -14,6 +15,7 @@ import Credentials from "./pages/Credentials";
 import UploadPage from "./pages/Upload";
 import Config from "./pages/Config";
 import About from "./pages/About";
+import UsageLogs from "./pages/UsageLogs";
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(() => !!localStorage.getItem("panelToken"));
@@ -50,6 +52,7 @@ export default function App() {
     { id: "oauth", label: "OAuth 认证", icon: Rocket },
     { id: "credentials", label: "凭证管理", icon: KeyRound },
     { id: "upload", label: "批量导入", icon: Upload },
+    { id: "usage-logs", label: "请求日志", icon: BarChart3 },
     { id: "config", label: "配置管理", icon: Settings },
     { id: "about", label: "项目信息", icon: Info },
   ];
@@ -104,6 +107,7 @@ export default function App() {
         {activeTab === "oauth" && <OAuth />}
         {activeTab === "credentials" && <Credentials />}
         {activeTab === "upload" && <UploadPage />}
+        {activeTab === "usage-logs" && <UsageLogs />}
         {activeTab === "config" && <Config />}
         {activeTab === "about" && <About version={version} onCheckUpdate={checkUpdate} checkingUpdate={checkingUpdate} />}
       </div>

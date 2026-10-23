@@ -46,6 +46,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
 
+    # 启动时清理过期请求日志（按保留天数配置）
+    try:
+        import config as config_module
+        from src.usage_log import clear_usage_logs
+
+        retention_days = await config_module.get_usage_log_retention_days()
+        if retention_days > 0:
+            deleted = await clear_usage_logs(retention_days)
+            if deleted:
+                log.info(f"已清理 {deleted} 条过期请求日志（>{retention_days} 天）")
+    except Exception as e:
+        log.warning(f"清理过期请求日志失败（不影响启动）: {e}")
+
     # OAuth回调服务器将在需要时按需启动
 
     yield

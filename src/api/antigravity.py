@@ -7,6 +7,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Callable, Tuple
@@ -216,10 +217,36 @@ async def _switch_credential_for_retry(
 
 # ==================== 新的流式和非流式请求函数 ====================
 
+def _base_log_entry(
+    model_name: str,
+    email: str,
+    is_stream: bool,
+    log_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """构建请求日志条目的公共字段
+
+    model_name: 后端实际使用的真实模型名（映射后）
+    log_ctx.client_model: 客户端请求的原始模型名（可能带功能前缀）
+    """
+    from src.usage_log import new_request_id
+
+    ctx = log_ctx or {}
+    return {
+        "request_id": ctx.get("request_id") or new_request_id(),
+        "api_format": ctx.get("api_format", ""),
+        "client_ip": ctx.get("client_ip", ""),
+        "model_name": ctx.get("client_model") or model_name,
+        "upstream_model_name": model_name,
+        "credential_email": email,
+        "is_stream": is_stream,
+    }
+
+
 async def stream_request(
     body: Dict[str, Any],
     native: bool = False,
     headers: Optional[Dict[str, str]] = None,
+    log_ctx: Optional[Dict[str, Any]] = None,
 ):
     """
     流式请求函数
@@ -234,12 +261,22 @@ async def stream_request(
     """
     model_name = body.get("model", "")
 
+    # 请求日志：开始时间与基础条目（成功/失败均会记录一次）
+    log_entry = _base_log_entry(model_name, "", True, log_ctx)
+    log_start_time = time.time()
+
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(model_name=model_name)
 
     if not cred_result:
         # 如果返回值是None，直接返回错误500
         log.error("[ANTIGRAVITY STREAM] 当前无可用凭证")
+        log_entry.update({
+            "status_code": 500, "success": False,
+            "error_message": "当前无可用凭证", "use_time": time.time() - log_start_time,
+        })
+        from src.usage_log import record_usage_log
+        await record_usage_log(log_entry)
         yield Response(
             content=json.dumps({"error": "当前无可用凭证"}),
             status_code=500,
@@ -248,6 +285,7 @@ async def stream_request(
         return
 
     current_file, credential_data = cred_result
+    log_entry["credential_email"] = current_file
     access_token = credential_data.get("access_token") or credential_data.get("token")
     project_id = credential_data.get("project_id", "")
 
@@ -308,6 +346,20 @@ async def stream_request(
     for attempt in range(max_retries + 1):
         success_recorded = False  # 标记是否已记录成功
         need_retry = False  # 标记是否需要重试
+        usage_tokens: Dict[str, int] = {}  # 从流中提取的 token 用量
+
+        async def _log_stream_result(status_code: int, success: bool, error_message: str = "") -> None:
+            """写入请求日志（流式，仅在最终结果确定时调用一次）"""
+            from src.usage_log import record_usage_log
+
+            log_entry.update({
+                "status_code": status_code,
+                "success": success,
+                "use_time": time.time() - log_start_time,
+                "error_message": error_message[:500],
+                **usage_tokens,
+            })
+            await record_usage_log(log_entry)
 
         try:
             async for chunk in stream_post_async(
@@ -360,6 +412,7 @@ async def stream_request(
                         else:
                             # 不重试，直接返回原始错误
                             log.error(f"[ANTIGRAVITY STREAM] 达到最大重试次数或不应重试，返回原始错误")
+                            await _log_stream_result(status_code, False, error_body[:500] or f"HTTP {status_code}")
                             yield chunk
                             return
                     else:
@@ -368,6 +421,7 @@ async def stream_request(
                         await record_api_call_error(credential_manager, current_file, status_code, None, model_name=model_name,
                             error_message=error_body
                         )
+                        await _log_stream_result(status_code, False, error_body[:500] or f"HTTP {status_code}")
                         yield chunk
                         return
                 else:
@@ -377,6 +431,14 @@ async def stream_request(
                         await record_api_call_success(credential_manager, current_file, model_name=model_name)
                         success_recorded = True
                         log.debug(f"[ANTIGRAVITY STREAM] 开始接收流式响应，模型: {model_name}")
+
+                    # 从流块中提取 token 用量（通常在最后一个数据块带 usageMetadata）
+                    if not usage_tokens and native is False:
+                        from src.usage_log import extract_usage_tokens
+
+                        extracted = extract_usage_tokens(chunk)
+                        if extracted:
+                            usage_tokens = extracted
 
                     # 记录原始chunk内容（用于调试）
                     if isinstance(chunk, bytes):
@@ -389,6 +451,7 @@ async def stream_request(
             # 流式请求完成，检查结果
             if success_recorded:
                 log.debug(f"[ANTIGRAVITY STREAM] 流式响应完成，模型: {model_name}")
+                await _log_stream_result(200, True)
                 return
             elif not need_retry:
                 # 没有收到任何数据（空回复），需要重试
@@ -401,6 +464,7 @@ async def stream_request(
                     need_retry = True
                 else:
                     log.error(f"[ANTIGRAVITY STREAM] 空回复达到最大重试次数")
+                    await _log_stream_result(200, False, "Empty response from API")
                     yield Response(
                         content=json.dumps({"error": "服务返回空回复"}),
                         status_code=500,
@@ -421,6 +485,7 @@ async def stream_request(
                 )
                 if not switched:
                     log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证或令牌")
+                    await _log_stream_result(500, False, "当前无可用凭证")
                     yield Response(
                         content=json.dumps({"error": "当前无可用凭证"}),
                         status_code=500,
@@ -438,6 +503,7 @@ async def stream_request(
             else:
                 # 所有重试都失败，返回最后一次的错误（如果有）
                 log.error(f"[ANTIGRAVITY STREAM] 所有重试均失败，最后异常: {e}")
+                await _log_stream_result(500, False, f"异常: {e}")
                 if last_error_response:
                     yield last_error_response
                 else:
@@ -451,6 +517,7 @@ async def stream_request(
 
     # 所有重试均已耗尽（for循环正常结束），返回最后记录的错误
     log.error("[ANTIGRAVITY STREAM] 所有重试均失败")
+    await _log_stream_result(429, False, "所有重试均已耗尽")
     if last_error_response:
         yield last_error_response
     else:
@@ -464,6 +531,7 @@ async def stream_request(
 async def non_stream_request(
     body: Dict[str, Any],
     headers: Optional[Dict[str, str]] = None,
+    log_ctx: Optional[Dict[str, Any]] = None,
 ) -> Response:
     """
     非流式请求函数
@@ -471,11 +539,30 @@ async def non_stream_request(
     Args:
         body: 请求体
         headers: 额外的请求头
+        log_ctx: 请求日志上下文（api_format / client_ip / request_id）
 
     Returns:
         Response对象
     """
     model_name = body.get("model", "")
+
+    # 请求日志：开始时间与基础条目（成功/失败均会记录一次）
+    log_entry = _base_log_entry(model_name, "", False, log_ctx)
+    log_start_time = time.time()
+
+    async def _log_result(status_code: int, success: bool, response_content: Any = None, error_message: str = "") -> None:
+        """写入请求日志（仅在最终结果确定时调用一次）"""
+        from src.usage_log import record_usage_log, extract_usage_tokens
+
+        tokens = extract_usage_tokens(response_content) if success else {}
+        log_entry.update({
+            "status_code": status_code,
+            "success": success,
+            "use_time": time.time() - log_start_time,
+            "error_message": error_message[:500],
+            **tokens,
+        })
+        await record_usage_log(log_entry)
 
     # 1. 获取有效凭证
     cred_result = await credential_manager.get_valid_credential(model_name=model_name)
@@ -483,6 +570,7 @@ async def non_stream_request(
     if not cred_result:
         # 如果返回值是None，直接返回错误500
         log.error("[ANTIGRAVITY] 当前无可用凭证")
+        await _log_result(500, False, error_message="当前无可用凭证")
         return Response(
             content=json.dumps({"error": "当前无可用凭证"}),
             status_code=500,
@@ -490,6 +578,7 @@ async def non_stream_request(
         )
 
     current_file, credential_data = cred_result
+    log_entry["credential_email"] = current_file
     access_token = credential_data.get("access_token") or credential_data.get("token")
     project_id = credential_data.get("project_id", "")
 
@@ -573,6 +662,7 @@ async def non_stream_request(
                         need_retry = True
                     else:
                         log.error(f"[ANTIGRAVITY] 空回复达到最大重试次数")
+                        await _log_result(200, False, error_message="Empty response from API")
                         return Response(
                             content=json.dumps({"error": "服务返回空回复"}),
                             status_code=500,
@@ -581,6 +671,7 @@ async def non_stream_request(
                 else:
                     # 正常响应
                     await record_api_call_success(credential_manager, current_file, model_name=model_name)
+                    await _log_result(200, True, response_content=response.content)
                     return Response(
                         content=response.content,
                         status_code=200,
@@ -633,6 +724,7 @@ async def non_stream_request(
                     else:
                         # 不重试，直接返回原始错误
                         log.error(f"[ANTIGRAVITY] 达到最大重试次数或不应重试，返回原始错误")
+                        await _log_result(status_code, False, error_message=error_text[:500] or f"HTTP {status_code}")
                         return last_error_response
                 else:
                     # 错误码不在禁用码当中，直接返回，无需重试
@@ -640,6 +732,7 @@ async def non_stream_request(
                     await record_api_call_error(credential_manager, current_file, status_code, None, model_name=model_name,
                         error_message=error_text
                     )
+                    await _log_result(status_code, False, error_message=error_text[:500] or f"HTTP {status_code}")
                     return last_error_response
             
             # 统一处理重试
@@ -655,6 +748,7 @@ async def non_stream_request(
                 )
                 if not switched:
                     log.error("[ANTIGRAVITY] 重试时无可用凭证或令牌")
+                    await _log_result(500, False, error_message="当前无可用凭证")
                     return Response(
                         content=json.dumps({"error": "当前无可用凭证"}),
                         status_code=500,
@@ -671,6 +765,7 @@ async def non_stream_request(
             else:
                 # 所有重试都失败，返回最后一次的错误（如果有）或500错误
                 log.error(f"[ANTIGRAVITY] 所有重试均失败，最后异常: {e}")
+                await _log_result(500, False, error_message=f"异常: {e}")
                 if last_error_response:
                     return last_error_response
                 else:
@@ -682,6 +777,7 @@ async def non_stream_request(
 
     # 所有重试都失败，返回最后一次的原始错误（如果有）或500错误
     log.error("[ANTIGRAVITY] 所有重试均失败")
+    await _log_result(429, False, error_message="所有重试均失败")
     if last_error_response:
         return last_error_response
     else:

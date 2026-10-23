@@ -215,6 +215,10 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `SENSITIVE_WORDS_ENABLED`: 启用敏感词过滤（默认：true）
 - `SENSITIVE_WORDS`: 敏感词列表，逗号或换行分隔（默认：空）。命中后整词替换为空，不区分大小写，支持中文，面板保存后立即生效
 
+**请求日志配置**
+- `USAGE_LOG_ENABLED`: 启用请求日志（默认：true）。记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库
+- `USAGE_LOG_RETENTION_DAYS`: 日志保留天数（默认：30，0 = 永久保留）。启动时自动清理过期日志
+
 **日志配置**
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
 - `ENABLE_LOG`: 完全静默，不打印任何日志（设为 0 启用静默，默认：1）
