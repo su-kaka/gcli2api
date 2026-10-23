@@ -1,4 +1,4 @@
-full_hash=68214eb6278e9b7f59d07e16d736ef5a9614b42f
-short_hash=68214eb
-message=移除userAgent字段 测试端点用flash-lite
-date=2026-10-23 17:09:47 +0800
+full_hash=67b0df94e1f5c6d745712ebd0e641e5ec50c2677
+short_hash=67b0df9
+message=全部消息改为弹窗 配置按钮sticky 保存后静默刷新
+date=2026-10-23 17:16:40 +0800
