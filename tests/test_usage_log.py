@@ -34,7 +34,7 @@ async def test_usage_log_flow():
         "api_format": "openai",
         "client_ip": "127.0.0.1",
         "request_id": "test001",
-        "model_name": "抗截断/claude-sonnet-4-5",
+        "model_name": "抗截断-claude-sonnet-4-5",
         "upstream_model_name": "claude-sonnet-4-5",
         "credential_email": "user1@example.com",
         "is_stream": True,
@@ -89,8 +89,8 @@ async def test_usage_log_flow():
     items, _ = await database.query_usage_logs(limit=10, status="error")
     assert all(i["success"] is False for i in items) and len(items) >= 1
 
-    items, _ = await database.query_usage_logs(limit=10, model_name="抗截断/claude-sonnet-4-5")
-    assert len(items) == 1 and items[0]["model_name"] == "抗截断/claude-sonnet-4-5"
+    items, _ = await database.query_usage_logs(limit=10, model_name="抗截断-claude-sonnet-4-5")
+    assert len(items) == 1 and items[0]["model_name"] == "抗截断-claude-sonnet-4-5"
     assert items[0]["upstream_model_name"] == "claude-sonnet-4-5"
 
     items, _ = await database.query_usage_logs(limit=10, api_format="anthropic")
@@ -107,7 +107,7 @@ async def test_usage_log_flow():
     assert stats["error_count"] >= 1
     assert stats["total_tokens"] >= 165
     assert stats["avg_use_time"] > 0
-    assert any(m["model_name"] == "抗截断/claude-sonnet-4-5" for m in stats["by_model"])
+    assert any(m["model_name"] == "抗截断-claude-sonnet-4-5" for m in stats["by_model"])
     print("PASS stats:", {k: v for k, v in stats.items() if k != "by_model"})
 
     # 5. extract_usage_tokens

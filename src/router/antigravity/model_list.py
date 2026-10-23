@@ -61,7 +61,7 @@ async def get_antigravity_models_with_features():
         models.append(base_model)
         
         # 抗截断模型 (前缀格式)
-        models.append(f"抗截断/{base_model}")
+        models.append(f"抗截断-{base_model}")
     
     log.info(f"[ANTIGRAVITY MODEL LIST] 生成了 {len(models)} 个模型（包含功能前缀）")
     return models

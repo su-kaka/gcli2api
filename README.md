@@ -117,7 +117,7 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 ### 🌊 流式传输和响应处理
 
 - 真正的实时流式响应（SSE）
-- 流式抗截断功能（防止回答被截断，通过"抗截断/"前缀启用）
+- 流式抗截断功能（防止回答被截断，通过"抗截断-"前缀启用）
 - 思维链（Thinking）内容分离
 
 ### 🎛️ Web 管理控制台
@@ -138,8 +138,8 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - **Gemini 系列**：`gemini-2.5-flash`、`gemini-3-flash-preview` 等
 
 **特殊功能变体：**
-- **抗截断模式**：在模型名称前添加 `抗截断/` 前缀
-  - 例：`抗截断/gemini-2.5-pro`
+- **抗截断模式**：在模型名称前添加 `抗截断-` 前缀
+  - 例：`抗截断-gemini-2.5-pro`
   - 通过合成工具调用绕过截断限制，确保完整回答（流式和非流式均有效）
 - **图像生成模型**支持分辨率（`-2k`、`-4k`）和比例（`-16x9`、`-9x16` 等）后缀
 

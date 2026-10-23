@@ -75,7 +75,7 @@ const CONFIG_GROUPS = [
   {
     title: "抗截断配置",
     fields: [
-      { key: "anti_truncation_max_attempts", label: "抗截断最大重试次数", type: "number", note: "检测到输出截断时的最大续传尝试次数（1-10）。使用'抗截断/'前缀的模型生效" },
+      { key: "anti_truncation_max_attempts", label: "抗截断最大重试次数", type: "number", note: "检测到输出截断时的最大续传尝试次数（1-10）。使用'抗截断-'前缀的模型生效" },
     ],
   },
   {

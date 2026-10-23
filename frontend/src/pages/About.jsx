@@ -114,7 +114,7 @@ export default function About({ version, onCheckUpdate, checkingUpdate }) {
           <div className="space-y-3">
             <div className="text-gray-300">
               <span className="text-red-400">✂️</span>{" "}
-              <strong>抗截断：</strong>"抗截断/" 前缀模型自动续传截断的响应
+              <strong>抗截断：</strong>"抗截断-" 前缀模型自动续传截断的响应
             </div>
             <div className="text-gray-300">
               <span className="text-emerald-400">📊</span>{" "}

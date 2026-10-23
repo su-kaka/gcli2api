@@ -498,7 +498,7 @@ if __name__ == "__main__":
     def test_anti_truncation_stream_request():
         """测试流式抗截断请求"""
         print("\n" + "=" * 80)
-        print("【测试5】流式抗截断请求 (POST /v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent)")
+        print("【测试5】流式抗截断请求 (POST /v1/models/抗截断-gemini-2.5-flash:streamGenerateContent)")
         print("=" * 80)
         print(f"请求体: {json.dumps(test_request_body, indent=2, ensure_ascii=False)}\n")
 
@@ -507,7 +507,7 @@ if __name__ == "__main__":
 
         with client.stream(
             "POST",
-            "/v1/models/流式抗截断/gemini-2.5-flash:streamGenerateContent",
+            "/v1/models/抗截断-gemini-2.5-flash:streamGenerateContent",
             json=test_request_body,
             params={"key": test_api_key}
         ) as response:

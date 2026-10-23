@@ -101,7 +101,7 @@ async def test_anti_truncation_logging():
         },
     }
     anti_truncation_payload = apply_anti_truncation(api_request)
-    log_ctx = {"api_format": "openai", "client_ip": "127.0.0.1", "client_model": "抗截断/gemini-2.5-pro"}
+    log_ctx = {"api_format": "openai", "client_ip": "127.0.0.1", "client_model": "抗截断-gemini-2.5-pro"}
 
     # 清空日志表
     await database.delete_usage_logs_before(99999999999)
@@ -133,7 +133,7 @@ async def test_anti_truncation_logging():
     assert total == 3, f"3 次上游调用应各记 1 条, 实际 {total}"
     for it in items:
         assert it["success"] is True
-        assert it["model_name"] == "抗截断/gemini-2.5-pro"
+        assert it["model_name"] == "抗截断-gemini-2.5-pro"
         assert it["upstream_model_name"] == "gemini-2.5-pro"
         assert it["credential_email"] == "test@example.com"
         assert it["prompt_tokens"] == 50 and it["total_tokens"] == 80
