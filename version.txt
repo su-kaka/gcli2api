@@ -1,4 +1,4 @@
-full_hash=ecb2a27e4eb2f4de383b8d71455f34f535156de5
-short_hash=ecb2a27
-message=增加敏感词过滤 避免429
-date=2026-10-23 15:22:57 +0800
+full_hash=f8c03a0803665d979f1a8f88c79939eaf35bb0fe
+short_hash=f8c03a0
+message=API端点改用配置读取 删除路由测试代码和测试文件
+date=2026-10-23 15:29:53 +0800
