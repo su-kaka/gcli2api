@@ -1,12 +1,15 @@
 """
-日志模块 - 纯控制台输出
+日志模块 - 纯控制台输出（无状态函数风格）
 - LOG_LEVEL 控制级别（debug/info/warning/error/critical，默认 info）
 - ENABLE_LOG=0 彻底静默（不打印任何日志）
+- log.debug/info/warning/error/critical(message) 记录日志
+- set_log_level 动态调整级别，get_log_level 读取当前级别
 """
 
 import os
 import sys
 from datetime import datetime
+from types import SimpleNamespace
 
 # 日志级别定义
 LOG_LEVELS = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
@@ -58,37 +61,24 @@ def set_log_level(level: str):
     return True
 
 
-class Logger:
-    """支持 log('info', 'msg') 和 log.info('msg') 两种调用方式"""
-
-    def __call__(self, level: str, message: str):
-        _log(level, message)
-
-    def debug(self, message: str):
-        _log("debug", message)
-
-    def info(self, message: str):
-        _log("info", message)
-
-    def warning(self, message: str):
-        _log("warning", message)
-
-    def error(self, message: str):
-        _log("error", message)
-
-    def critical(self, message: str):
-        _log("critical", message)
-
-    def get_current_level(self) -> str:
-        current = _cached_log_level
-        for name, value in LOG_LEVELS.items():
-            if value == current:
-                return name
-        return "info"
+def get_log_level() -> str:
+    """获取当前日志级别名称"""
+    current = _cached_log_level
+    for name, value in LOG_LEVELS.items():
+        if value == current:
+            return name
+    return "info"
 
 
-# 导出全局日志实例
-log = Logger()
+# 日志接口：log.debug/info/warning/error/critical(message)
+log = SimpleNamespace(
+    debug=lambda message: _log("debug", message),
+    info=lambda message: _log("info", message),
+    warning=lambda message: _log("warning", message),
+    error=lambda message: _log("error", message),
+    critical=lambda message: _log("critical", message),
+)
+
 
 # 导出的公共接口
-__all__ = ["log", "set_log_level", "LOG_LEVELS"]
+__all__ = ["log", "set_log_level", "get_log_level", "LOG_LEVELS"]

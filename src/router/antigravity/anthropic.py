@@ -40,9 +40,6 @@ from src.router.stream_passthrough import (
 # 本地模块 - 数据模型
 from src.models import ClaudeRequest, model_to_dict
 
-# 本地模块 - 任务管理
-from src.task_manager import create_managed_task
-
 # 本地模块 - Token估算
 from src.token_estimator import estimate_input_tokens
 

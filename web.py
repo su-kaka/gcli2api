@@ -21,7 +21,6 @@ from src.router.antigravity.openai import router as antigravity_openai_router
 from src.router.antigravity.gemini import router as antigravity_gemini_router
 from src.router.antigravity.anthropic import router as antigravity_anthropic_router
 from src.router.antigravity.model_list import router as antigravity_model_list_router
-from src.task_manager import shutdown_all_tasks
 from src.panel import router as panel_router
 
 
@@ -65,13 +64,6 @@ async def lifespan(app: FastAPI):
 
     # 清理资源
     log.info("开始关闭 AGY2API 主服务")
-
-    # 首先关闭所有异步任务
-    try:
-        await shutdown_all_tasks(timeout=10.0)
-        log.info("所有异步任务已关闭")
-    except Exception as e:
-        log.error(f"关闭异步任务时出错: {e}")
 
     # 关闭凭证管理器与数据库
     try:
