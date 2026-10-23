@@ -1,4 +1,4 @@
-full_hash=4d73322a271a4f7d44c702911130039d9f153a70
-short_hash=4d73322
-message=Update anti_truncation.py
-date=2026-10-22 11:09:04 +0800
+full_hash=e4c4b2b78a8f88b6bcc9a67780706373dd6f767d
+short_hash=e4c4b2b
+message=修正额度显示
+date=2026-10-23 08:54:13 +0800
