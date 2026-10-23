@@ -1,4 +1,4 @@
-full_hash=67b0df94e1f5c6d745712ebd0e641e5ec50c2677
-short_hash=67b0df9
-message=全部消息改为弹窗 配置按钮sticky 保存后静默刷新
-date=2026-10-23 17:16:40 +0800
+full_hash=7e1bed118577be7f2e66b3c07ab0a3c4d7f37c28
+short_hash=7e1bed1
+message=凭证管理改卡片网格布局
+date=2026-10-23 17:23:51 +0800
