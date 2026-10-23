@@ -1,4 +1,4 @@
-full_hash=5d4baf4ee1ab41c8f3a2d2f59d981a8bccd98c30
-short_hash=5d4baf4
-message=修复抗截断残留参数 验证抗截断日志记录
-date=2026-10-23 15:55:23 +0800
+full_hash=2b412cf8b0493004540ab8b363ba1ce68b40b17a
+short_hash=2b412cf
+message=三套凭证选择模式 随机/缓存匹配/粘性 会话亲和Redis+内存双后端
+date=2026-10-23 16:13:43 +0800
