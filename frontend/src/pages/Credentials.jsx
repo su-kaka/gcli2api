@@ -498,7 +498,7 @@ export default function Credentials() {
           没有凭证。请先通过 OAuth 认证或批量导入添加凭证。
         </div>
       ) : (
-        <div className="grid gap-3 sm:gap-4">
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
           {items.map((cred) => {
             const cooldownText = getCooldownText(cred.model_cooldowns);
             const busy = busyFiles.has(cred.email);
@@ -510,39 +510,39 @@ export default function Credentials() {
                 }`}
               >
                 {/* 头部：选择框 + 邮箱 + 状态标签 */}
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-2.5">
                   <input
                     type="checkbox"
                     checked={selected.has(cred.email)}
                     onChange={() => toggleSelect(cred.email)}
-                    className="accent-purple-600 w-4 h-4 flex-shrink-0 mt-1"
+                    className="accent-purple-600 w-4 h-4 flex-shrink-0 mt-0.5"
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white break-all">
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="text-sm font-medium text-white break-all leading-snug">
                       {cred.email}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full border ${tierStyle(cred.tier)}`}
-                    >
-                      {cred.tier || "pro"}
-                    </span>
-                    {cred.disabled ? (
-                      <span className="text-red-400 text-xs flex items-center gap-1">
-                        <Ban size={12} /> 禁用
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border ${tierStyle(cred.tier)}`}
+                      >
+                        {cred.tier || "pro"}
                       </span>
-                    ) : (
-                      <span className="text-emerald-400 text-xs flex items-center gap-1">
-                        <CheckCircle size={12} /> 启用
-                      </span>
-                    )}
+                      {cred.disabled ? (
+                        <span className="text-red-400 text-xs flex items-center gap-1">
+                          <Ban size={12} /> 禁用
+                        </span>
+                      ) : (
+                        <span className="text-emerald-400 text-xs flex items-center gap-1">
+                          <CheckCircle size={12} /> 启用
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* 信息区 */}
-                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1.5 text-xs">
-                  <div className="flex items-center gap-1">
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between gap-2">
                     {cooldownText ? (
                       <span className="text-cyan-400 flex items-center gap-1">
                         <Snowflake size={12} /> CD {cooldownText}
@@ -552,8 +552,6 @@ export default function Credentials() {
                         <Clock size={12} /> 无CD
                       </span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1">
                     {cred.error_codes?.length ? (
                       <button
                         onClick={() => openErrors(cred.email)}
@@ -568,7 +566,7 @@ export default function Credentials() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 text-gray-500 col-span-2 sm:col-span-1">
+                  <div className="flex items-center gap-1 text-gray-500">
                     <Clock size={12} className="flex-shrink-0" />
                     <span className="truncate" title={formatTime(cred.last_success)}>
                       {formatTime(cred.last_success)}
@@ -576,22 +574,24 @@ export default function Credentials() {
                   </div>
                 </div>
 
-                {/* 操作按钮 */}
-                <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-dark-700">
+                {/* 操作按钮（2×3 网格铺满卡片） */}
+                <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-dark-700">
                   {busy ? (
-                    <Loader2 size={16} className="animate-spin text-purple-400" />
+                    <div className="col-span-3 flex items-center justify-center py-1.5">
+                      <Loader2 size={16} className="animate-spin text-purple-400" />
+                    </div>
                   ) : (
                     <>
                       <button
                         onClick={() => verifyProject(cred.email)}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center justify-center gap-1"
                         title="检验 Project ID / Tier（可修复 403）"
                       >
                         <Shield size={13} /> 检验
                       </button>
                       <button
                         onClick={() => testCredential(cred.email)}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center justify-center gap-1"
                         title="测试凭证"
                       >
                         <Zap size={13} /> 测试
@@ -599,14 +599,14 @@ export default function Credentials() {
                       <button
                         onClick={() => openQuotaModal(cred.email)}
                         disabled={cred.disabled}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1 disabled:opacity-40"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center justify-center gap-1 disabled:opacity-40"
                         title="查看额度"
                       >
                         <BarChart3 size={13} /> 额度
                       </button>
                       <button
                         onClick={() => exportCredential(cred.email)}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center justify-center gap-1"
                         title="导出凭证（邮箱.json）"
                       >
                         <Download size={13} /> 导出
@@ -615,7 +615,7 @@ export default function Credentials() {
                         onClick={() =>
                           doAction(cred.email, cred.disabled ? "enable" : "disable")
                         }
-                        className={`text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 ${
+                        className={`text-xs px-2 py-1.5 rounded-lg flex items-center justify-center gap-1 ${
                           cred.disabled
                             ? "bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400"
                             : "bg-amber-600/20 hover:bg-amber-600/30 text-amber-400"
@@ -626,7 +626,7 @@ export default function Credentials() {
                       </button>
                       <button
                         onClick={() => doAction(cred.email, "delete")}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 flex items-center gap-1"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 flex items-center justify-center gap-1"
                         title="删除"
                       >
                         <Trash2 size={13} /> 删除
