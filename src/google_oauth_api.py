@@ -599,13 +599,15 @@ async def fetch_project_id_and_tier(
             return project_id, subscription_tier
 
         log.error("[fetch_project_id_and_tier] Failed to get project_id from both loadCodeAssist and onboardUser")
-        return None, subscription_tier
 
     except Exception as e:
         log.error(f"[fetch_project_id_and_tier] onboardUser failed: {type(e).__name__}: {e}")
         import traceback
         log.debug(f"[fetch_project_id_and_tier] Traceback: {traceback.format_exc()}")
-        return None, subscription_tier
+
+    # 步骤 3: 所有方式均失败 -> 使用固定回退值，避免空 project_id 写入数据库
+    log.warning("[fetch_project_id_and_tier] 使用回退 project_id: aicode-consumers")
+    return "aicode-consumers", subscription_tier
 
 
 async def _try_load_code_assist(

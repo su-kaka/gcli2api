@@ -97,7 +97,7 @@ class _OAuthLibPatcher:
 # 全局状态管理 - 严格限制大小
 auth_flows = {}  # 存储进行中的认证流程
 MAX_AUTH_FLOWS = 20  # 严格限制最大认证流程数
-DEFAULT_PROJECT_ID = "gemini-pro-1751713012-07fc4dfd"
+DEFAULT_PROJECT_ID = "aicode-consumers"  # 获取不到 project_id 时的回退值
 
 
 def cleanup_auth_flows_for_memory():

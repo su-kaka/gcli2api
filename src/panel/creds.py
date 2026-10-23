@@ -102,12 +102,17 @@ async def _import_single_credential(data: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 log.warning(f"自动获取 project_id/tier 失败: {e}")
 
+        # project_id 获取失败时回退为 aicode-consumers，避免空值入库
+        if not project_id:
+            log.warning(f"导入凭证 {email}: project_id 获取失败，使用回退值 aicode-consumers")
+            project_id = "aicode-consumers"
+
         credential_data = {
             "access_token": creds.access_token,
             "refresh_token": refresh_token,
             "client_id": ANTIGRAVITY_CLIENT_ID,
             "client_secret": ANTIGRAVITY_CLIENT_SECRET,
-            "project_id": project_id or "",
+            "project_id": project_id,
             "expiry": creds.expires_at.isoformat() if creds.expires_at else "",
             "tier": tier,
         }
@@ -397,8 +402,12 @@ async def verify_credential_project_common(email: str) -> JSONResponse:
         api_base_url=api_base_url,
     )
 
-    if project_id:
-        credential_data["project_id"] = project_id
+    # project_id 获取失败时回退，避免空值入库
+    if not project_id:
+        log.warning(f"校验凭证 {email}: project_id 获取失败，使用回退值 aicode-consumers")
+        project_id = "aicode-consumers"
+
+    credential_data["project_id"] = project_id
 
     if project_id or subscription_tier:
         await database.store_credential(email, credential_data)
