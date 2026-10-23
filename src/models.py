@@ -1,19 +1,17 @@
 """
-数据模型
+数据模型（Pydantic v2）
 - 聊天 API：OpenAI / Gemini / Claude 请求体解析模型
 - 面板 API：登录、认证、凭证操作、配置保存模型
 """
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 def model_to_dict(model: BaseModel) -> Dict[str, Any]:
-    """Pydantic 模型 -> dict（兼容 v1/v2）"""
-    if hasattr(model, "model_dump"):
-        return model.model_dump(exclude_none=True)
-    return model.dict(exclude_none=True)
+    """Pydantic 模型 -> dict"""
+    return model.model_dump(exclude_none=True)
 
 
 # ==================== 模型列表 ====================
@@ -74,6 +72,8 @@ class OpenAIChatCompletionRequest(BaseModel):
 # ==================== Gemini 请求 ====================
 
 class GeminiPart(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     text: Optional[str] = None
     inlineData: Optional[Dict[str, Any]] = None
     inline_data: Optional[Dict[str, Any]] = None
@@ -81,15 +81,13 @@ class GeminiPart(BaseModel):
     functionResponse: Optional[Dict[str, Any]] = None
     fileData: Optional[Dict[str, Any]] = None
     thought: Optional[bool] = None
-    class Config:
-        extra = "allow"
 
 
 class GeminiContent(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     role: Optional[str] = None
     parts: List[GeminiPart]
-    class Config:
-        extra = "allow"
 
 
 class GeminiSystemInstruction(BaseModel):
@@ -102,6 +100,8 @@ class GeminiImageConfig(BaseModel):
 
 
 class GeminiGenerationConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     temperature: Optional[float] = None
     topP: Optional[float] = None
     top_p: Optional[float] = None
@@ -117,8 +117,6 @@ class GeminiGenerationConfig(BaseModel):
     thinkingConfig: Optional[Dict[str, Any]] = None
     responseModalities: Optional[List[str]] = None
     imageConfig: Optional[GeminiImageConfig] = None
-    class Config:
-        extra = "allow"
 
 
 class GeminiSafetySetting(BaseModel):
@@ -127,6 +125,8 @@ class GeminiSafetySetting(BaseModel):
 
 
 class GeminiRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     contents: List[GeminiContent]
     systemInstruction: Optional[GeminiSystemInstruction] = None
     system_instruction: Optional[GeminiSystemInstruction] = None
@@ -138,13 +138,13 @@ class GeminiRequest(BaseModel):
     toolConfig: Optional[Dict[str, Any]] = None
     tool_config: Optional[Dict[str, Any]] = None
     sessionId: Optional[str] = None
-    class Config:
-        extra = "allow"
 
 
 # ==================== Claude 请求 ====================
 
 class ClaudeContentBlock(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     type: str
     text: Optional[str] = None
     id: Optional[str] = None
@@ -153,8 +153,6 @@ class ClaudeContentBlock(BaseModel):
     source: Optional[Dict[str, Any]] = None
     thinking: Optional[Dict[str, Any]] = None
     signature: Optional[str] = None
-    class Config:
-        extra = "allow"
 
 
 class ClaudeMessage(BaseModel):
@@ -173,6 +171,8 @@ class ClaudeMetadata(BaseModel):
 
 
 class ClaudeRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str
     messages: List[ClaudeMessage]
     system: Optional[Any] = None
@@ -186,8 +186,6 @@ class ClaudeRequest(BaseModel):
     tool_choice: Optional[Dict[str, Any]] = None
     metadata: Optional[ClaudeMetadata] = None
     thinking: Optional[Dict[str, Any]] = None
-    class Config:
-        extra = "allow"
 
 
 # ==================== 面板 API 模型 ====================
