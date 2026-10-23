@@ -1,4 +1,4 @@
-full_hash=95b3604178a4dc6388fc96651bb2057a35996f6d
-short_hash=95b3604
-message=抗截断前缀改为抗截断-
-date=2026-10-23 16:22:11 +0800
+full_hash=95c76313115996b531cd6b86863ceaed10e32c4b
+short_hash=95c7631
+message=修复凭证上传旧函数名残留
+date=2026-10-23 16:43:13 +0800
