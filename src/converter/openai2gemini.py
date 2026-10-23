@@ -46,6 +46,12 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Optional[Dict[str
     """
     将Gemini的usageMetadata转换为OpenAI格式的usage字段
 
+    语义对齐（Gemini -> OpenAI）:
+    - Gemini promptTokenCount 已包含缓存 token -> OpenAI prompt_tokens 同样包含缓存 token
+    - Gemini candidatesTokenCount 不包含推理 token -> OpenAI completion_tokens 包含推理 token
+      （completion_tokens = candidatesTokenCount + thoughtsTokenCount）
+    - 明细字段: prompt_tokens_details.cached_tokens / completion_tokens_details.reasoning_tokens
+
     Args:
         usage_metadata: Gemini API的usageMetadata字段
 
@@ -55,14 +61,16 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Optional[Dict[str
     if not usage_metadata:
         return None
 
-    prompt_tokens_total = int(usage_metadata.get("promptTokenCount", 0) or 0)
+    prompt_tokens = int(usage_metadata.get("promptTokenCount", 0) or 0)
     cached_tokens = int(usage_metadata.get("cachedContentTokenCount", 0) or 0)
-    prompt_tokens = max(prompt_tokens_total - cached_tokens, 0)
-    completion_tokens = int(usage_metadata.get("candidatesTokenCount", 0) or 0)
-    raw_total_tokens = int(
+    reasoning_tokens = int(usage_metadata.get("thoughtsTokenCount", 0) or 0)
+    completion_tokens = (
+        int(usage_metadata.get("candidatesTokenCount", 0) or 0) + reasoning_tokens
+    )
+    total_tokens = int(
         usage_metadata.get(
             "totalTokenCount",
-            prompt_tokens_total + completion_tokens + int(usage_metadata.get("thoughtsTokenCount", 0) or 0),
+            prompt_tokens + completion_tokens,
         )
         or 0
     )
@@ -70,13 +78,12 @@ def _convert_usage_metadata(usage_metadata: Dict[str, Any]) -> Optional[Dict[str
     usage = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
-        "total_tokens": max(raw_total_tokens - cached_tokens, prompt_tokens + completion_tokens),
+        "total_tokens": total_tokens,
     }
 
     if cached_tokens > 0:
         usage["prompt_tokens_details"] = {"cached_tokens": cached_tokens}
 
-    reasoning_tokens = int(usage_metadata.get("thoughtsTokenCount", 0) or 0)
     if reasoning_tokens > 0:
         usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
 
