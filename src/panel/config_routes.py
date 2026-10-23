@@ -56,6 +56,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
         # Antigravity流式转非流式配置
         current_config["antigravity_switch_credential_enabled"] = await config.get_antigravity_switch_credential_enabled()
 
+        # 敏感词过滤配置
+        current_config["sensitive_words_enabled"] = await config.get_sensitive_words_enabled()
+        current_config["sensitive_words"] = await config.get_sensitive_words()
+
         # 服务器配置
         current_config["host"] = await config.get_server_host()
         current_config["port"] = await config.get_server_port()
@@ -128,6 +132,31 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         if "antigravity_switch_credential_enabled" in new_config:
             if not isinstance(new_config["antigravity_switch_credential_enabled"], bool):
                 raise HTTPException(status_code=400, detail="Antigravity切换凭证开关必须是布尔值")
+
+        # 验证敏感词过滤配置
+        if "sensitive_words_enabled" in new_config:
+            if not isinstance(new_config["sensitive_words_enabled"], bool):
+                raise HTTPException(status_code=400, detail="敏感词过滤开关必须是布尔值")
+
+        if "sensitive_words" in new_config:
+            words = new_config["sensitive_words"]
+            if not isinstance(words, list):
+                raise HTTPException(status_code=400, detail="敏感词列表必须是数组（每行一个词）")
+            import re as _re
+
+            cleaned_words = []
+            for word in words:
+                if not isinstance(word, str):
+                    raise HTTPException(status_code=400, detail=f"敏感词必须是字符串: {word!r}")
+                word = word.strip()
+                if not word:
+                    continue
+                try:
+                    _re.compile(_re.escape(word), _re.IGNORECASE | _re.UNICODE)
+                except _re.error:
+                    raise HTTPException(status_code=400, detail=f"无效的敏感词: {word!r}")
+                cleaned_words.append(word)
+            new_config["sensitive_words"] = cleaned_words
 
         # 验证服务器配置
         if "host" in new_config:

@@ -10,10 +10,6 @@
 
 > **⚠️ Important Change**: The GeminiCLI endpoint has been deprecated by Google. All GeminiCLI-related code has been completely removed; only the Antigravity mode remains.
 
-## 🚀 Quick Deploy
-
----
-
 ## Installation Guide
 
 ### Termux Environment
@@ -83,10 +79,6 @@ docker run -d \
   -e PORT=7861 \
   -v "$(pwd)/data/creds":/app/creds \
   ghcr.io/su-kaka/agy2api:latest
-```
--e PORT=7861 \
--v $(pwd)/data/creds:/app/creds \
-ghcr.io/su-kaka/agy2api:latest
 ```
 
 **Docker Compose Run Command**
@@ -160,8 +152,8 @@ ghcr.io/su-kaka/agy2api:latest
 - Load balancing and concurrent request support
 - Automatic failure detection and credential disabling
 - Credential usage statistics and quota management
-- Support for manual enable/disable credential files
-- Batch credential file operations (enable, disable, delete)
+- Credentials keyed by email (unique); re-importing the same email overwrites automatically
+- Batch operations (enable, disable, delete)
 
 **Credential Status Monitoring**
 - Real-time credential health checks
@@ -179,14 +171,12 @@ ghcr.io/su-kaka/agy2api:latest
 - Thinking chain content separation
 - Reasoning process (reasoning_content) handling
 - Multi-turn conversation context management
-- Compatibility mode (converts system messages to user messages)
 
 ### 🎛️ Web Management Console
 
 **Full-featured Web Interface**
 - Antigravity OAuth authentication flow (with callback URL shortcut)
 - Credential file upload, download, and management
-- Real-time log viewing (WebSocket)
 - System configuration management
 - Usage statistics and monitoring dashboard
 - Mobile-friendly interface
@@ -197,13 +187,6 @@ ghcr.io/su-kaka/agy2api:latest
 - Batch user email retrieval
 - Batch configuration management
 - Unified batch upload interface for all credential types
-
-### 📈 Usage Monitoring
-
-**Real-time Monitoring**
-- WebSocket real-time log streams
-- System status monitoring
-- Credential health status
 
 ### 🔧 Advanced Configuration and Customization
 
@@ -219,9 +202,7 @@ ghcr.io/su-kaka/agy2api:latest
 
 **Logging and Debugging**
 - Multi-level logging system (DEBUG, INFO, WARNING, ERROR)
-- Log file management
-- Real-time log streams
-- Log download and clearing
+- Console-only logging (`ENABLE_LOG=0` for full silence)
 
 ### 🔄 Environment Variables and Configuration Management
 
@@ -307,9 +288,15 @@ agy2api supports two storage backends: **Local SQLite (Default)** and **PostgreS
 
 **Default Storage Method**
 - No configuration required, works out of the box
-- Data is stored in a local SQLite database
+- Data is stored in a local SQLite database (`creds/credentials.db`)
 - Suitable for single-machine deployment and personal use
-- Automatically creates and manages database files
+
+**Credential Structure**
+
+Credentials are stored as structured database columns (no JSON blobs), keyed uniquely by **email**:
+`email`, `access_token`, `refresh_token`, `client_id`, `client_secret`, `project_id`, `expiry`, `tier`
+
+Import/export uses a standardized JSON format: `{"refresh_token": "...", "email": "...", "tier": "...", "project_id": "..."}` (only `refresh_token` is required; the rest are fetched automatically).
 
 ### Environment Variable Configuration
 
@@ -323,34 +310,33 @@ agy2api supports two storage backends: **Local SQLite (Default)** and **PostgreS
 
 **Performance and Stability Configuration**
 - `RETRY_429_ENABLED`: Enable 429 error automatic retry (default: true)
-- `RETRY_429_MAX_RETRIES`: Maximum retry attempts for 429 errors (default: 3)
+- `RETRY_429_MAX_RETRIES`: Maximum retry attempts for 429 errors (default: 5)
 - `RETRY_429_INTERVAL`: Retry interval for 429 errors, in seconds (default: 1.0)
 - `ANTI_TRUNCATION_MAX_ATTEMPTS`: Maximum retry attempts for anti-truncation (default: 3)
 
 **Network and Proxy Configuration**
-- `PROXY`: HTTP/HTTPS proxy address (format: `http://host:port`)
+- `PROXY`: Proxy address (supports `http://`, `https://`, `socks5://`, `socks5h://`, optionally with credentials `user:pass@host:port`)
 - `OAUTH_PROXY_URL`: OAuth authentication proxy endpoint
 - `GOOGLEAPIS_PROXY_URL`: Google APIs proxy endpoint
-- `METADATA_SERVICE_URL`: Metadata service proxy endpoint
 
 **Automation Configuration**
-- `AUTO_BAN`: Enable automatic credential banning (default: true)
-- `AUTO_LOAD_ENV_CREDS`: Automatically load environment variable credentials at startup (default: false)
-
-**Compatibility Configuration**
-- `COMPATIBILITY_MODE`: Enable compatibility mode, converts system messages to user messages (default: false)
+- `AUTO_BAN`: Enable automatic credential banning (default: false)
+- `AUTO_BAN_ERROR_CODES`: Error codes that trigger automatic banning (default: 403)
 
 **Logging Configuration**
 - `LOG_LEVEL`: Log level (DEBUG/INFO/WARNING/ERROR, default: INFO)
 - `ENABLE_LOG`: Full silence, no log output (set to 0 to enable, default: 1)
 
+**Response Behavior Configuration**
+- `RETURN_THOUGHTS_TO_FRONTEND`: Return thinking chain to the frontend (default: true)
+- `ANTIGRAVITY_SWITCH_CREDENTIAL`: Switch credentials on retry (default: false)
+
 **Storage Configuration**
 
-**SQLite Configuration (Default)**
-- No configuration required, automatically uses local SQLite database
-- Database files are automatically created in the project directory
+**SQLite (Default)**
+- No configuration required, database file created in `creds/` automatically
 
-**PostgreSQL Configuration (Optional Cloud Storage)
+**PostgreSQL (Optional Cloud Storage)**
 - `POSTGRESQL_URI`: PostgreSQL connection string (enables PostgreSQL mode when set)
 
 **Docker Usage Example**
@@ -361,8 +347,6 @@ docker run -d --name agy2api \
   -e PORT=7861 \
   ghcr.io/su-kaka/agy2api:latest
 ```
-
-Note: When credential environment variables are set, the system will prioritize using credentials from environment variables and ignore files in the `creds` directory.
 
 ### API Usage Methods
 
@@ -546,25 +530,16 @@ for part in response.candidates[0].content.parts:
 **Credential Management Endpoints**
 - `POST /creds/upload` - Batch upload credential files (supports JSON and ZIP)
 - `GET /creds/status` - Get credential status list (supports pagination and filtering)
-- `GET /creds/detail/{filename}` - Get single credential details
+- `GET /creds/detail/{email}` - Get single credential details
 - `POST /creds/action` - Single credential operation (enable/disable/delete)
 - `POST /creds/batch-action` - Batch credential operations
-- `GET /creds/download/{filename}` - Download single credential file
-- `GET /creds/download-all` - Package download all credentials
-- `POST /creds/fetch-email/{filename}` - Get user email
-- `POST /creds/refresh-all-emails` - Batch refresh user emails
-- `POST /creds/deduplicate-by-email` - Deduplicate credentials by email
-- `POST /creds/verify-project/{filename}` - Verify credential Project ID
-- `GET /creds/quota/{filename}` - Get credential quota information (Antigravity only)
+- `GET /creds/export/{email}` - Export single credential as standardized JSON
+- `GET /creds/download-all` - Package download all credentials (standardized JSON, one file per email)
+- `GET /creds/quota/{email}` - Get credential quota information
 
 **Configuration Management Endpoints**
 - `GET /config/get` - Get current configuration
 - `POST /config/save` - Save configuration
-
-**Log Management Endpoints**
-- `POST /logs/clear` - Clear logs
-- `GET /logs/download` - Download log file
-- `WebSocket /logs/stream` - Real-time log stream
 
 **Version Information Endpoints**
 - `GET /version/info` - Get version information (optional `check_update=true` parameter to check for updates)
@@ -626,14 +601,20 @@ Response will include separated thinking content:
 }
 ```
 
-**Compatibility Mode**
-```bash
-# Enable compatibility mode
-export COMPATIBILITY_MODE=true
-```
-In this mode, all `system` messages are converted to `user` messages, improving compatibility with certain clients.
-
 ---
+
+## 🛠️ Frontend Development
+
+The panel frontend source lives in `frontend/` (React + Vite + Tailwind CSS):
+
+```bash
+cd frontend
+npm install
+npm run dev     # Development mode, port 3000, proxies backend API
+npm run build    # Build to dist/ (used in production)
+```
+
+The backend serves the compiled static files under `dist/` directly; no Node.js runtime required.
 
 ## 💬 Community
 

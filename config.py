@@ -7,7 +7,10 @@ Centralizes all configuration to avoid duplication across modules.
 """
 
 import os
+import re
 from typing import Any, Optional
+
+from log import log
 
 # 全局配置缓存
 _config_cache: dict[str, Any] = {}
@@ -37,6 +40,8 @@ ENV_MAPPINGS = {
     "ANTI_TRUNCATION_MAX_ATTEMPTS": "anti_truncation_max_attempts",
     "RETURN_THOUGHTS_TO_FRONTEND": "return_thoughts_to_frontend",
     "ANTIGRAVITY_SWITCH_CREDENTIAL": "antigravity_switch_credential_enabled",
+    "SENSITIVE_WORDS": "sensitive_words",
+    "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
     "HOST": "host",
     "PORT": "port",
     "API_PASSWORD": "api_password",
@@ -107,9 +112,23 @@ async def get_config_value(key: str, default: Any = None, env_var: Optional[str]
 
 # Configuration getters - all async
 async def get_proxy_config():
-    """Get proxy configuration."""
+    """Get proxy configuration, validating the URL format.
+
+    Supports http://, https://, socks5://, socks5h:// schemes, all with
+    optional embedded credentials (user:pass@host:port).
+    """
     proxy_url = await get_config_value("proxy", env_var="PROXY")
-    return proxy_url if proxy_url else None
+    if not proxy_url:
+        return None
+
+    proxy_url = proxy_url.strip()
+    scheme = proxy_url.split("://", 1)[0].lower()
+    if scheme not in ("http", "https", "socks5", "socks5h"):
+        log.warning(
+            f"不支持的代理协议: {scheme}://（支持 http/https/socks5/socks5h），已忽略代理"
+        )
+        return None
+    return proxy_url
 
 
 async def get_auto_ban_enabled() -> bool:
@@ -288,6 +307,101 @@ async def get_antigravity_switch_credential_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("antigravity_switch_credential_enabled", False))
+
+
+# ====================== 敏感词过滤 ======================
+
+# 敏感词正则编译缓存: (原始词表指纹, 编译后的 pattern 列表)
+_sensitive_words_cache: dict = {"fingerprint": None, "patterns": []}
+
+
+async def get_sensitive_words_enabled() -> bool:
+    """
+    敏感词过滤开关。
+
+    Environment variable: SENSITIVE_WORDS_ENABLED
+    Database config key: sensitive_words_enabled
+    Default: True
+    """
+    env_value = os.getenv("SENSITIVE_WORDS_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("sensitive_words_enabled", True))
+
+
+async def get_sensitive_words() -> list:
+    """
+    敏感词列表（支持正则），每行一个；空列表表示不过滤。
+
+    Environment variable: SENSITIVE_WORDS (逗号或换行分隔)
+    Database config key: sensitive_words
+    Default: []
+    """
+    env_value = os.getenv("SENSITIVE_WORDS")
+    if env_value:
+        words = [w.strip() for w in re.split(r"[,\n]", env_value) if w.strip()]
+        return words
+
+    value = await get_config_value("sensitive_words")
+    if isinstance(value, list):
+        return [str(w) for w in value if str(w).strip()]
+    if isinstance(value, str) and value.strip():
+        return [w.strip() for w in re.split(r"[,\n]", value) if w.strip()]
+    return []
+
+
+def compile_sensitive_words(words: list):
+    """
+    编译敏感词为大小写不敏感的正则列表（带缓存）。
+
+    每个词按字面量转义后编译（用户输入的是词/短语而非正则语法），
+    触发后整词替换为空。支持中文（re.UNICODE 默认开启）。
+
+    Returns:
+        编译后的 Pattern 列表；无效条目跳过并告警。
+    """
+    fingerprint = tuple(words)
+    if _sensitive_words_cache["fingerprint"] == fingerprint:
+        return _sensitive_words_cache["patterns"]
+
+    patterns = []
+    for word in words:
+        word = str(word).strip()
+        if not word:
+            continue
+        try:
+            patterns.append(re.compile(re.escape(word), re.IGNORECASE | re.UNICODE))
+        except re.error as e:
+            log.warning(f"敏感词编译失败，已跳过: {word!r} ({e})")
+
+    _sensitive_words_cache["fingerprint"] = fingerprint
+    _sensitive_words_cache["patterns"] = patterns
+    return patterns
+
+
+def apply_sensitive_word_filter(text: str, patterns) -> str:
+    """将文本中命中的敏感词（大小写不敏感）替换为空"""
+    if not text or not patterns:
+        return text
+    for pattern in patterns:
+        text = pattern.sub("", text)
+    return text
+
+
+async def get_sensitive_word_filter():
+    """
+    获取生效的敏感词过滤条件（供请求处理管道调用）。
+
+    Returns:
+        (enabled, patterns)；未启用时 patterns 为空列表。
+    """
+    if not await get_sensitive_words_enabled():
+        return False, []
+    words = await get_sensitive_words()
+    if not words:
+        return False, []
+    return True, compile_sensitive_words(words)
 
 
 async def get_oauth_proxy_url() -> str:

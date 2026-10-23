@@ -10,10 +10,6 @@
 
 > **⚠️ 重要变更**：GeminiCLI 端点已被谷歌抛弃，本项目已完全移除 GeminiCLI 相关代码，仅保留 Antigravity 模式。
 
-## 🚀 快速部署
-
----
-
 ## 安装指南
 
 ### Termux 环境
@@ -111,19 +107,18 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 ### 📊 智能凭证管理系统
 
 - 多个 Google OAuth 凭证自动轮换（随机负载均衡）
-- 模型级冷却（429 错误自动设置对应模型的 CD）
+- 模型级冷却（429 错误自动设置对应模型家族的 CD：argon / gemini / claude+gpt 共享冷却）
 - 自动故障检测和凭证禁用
 - 凭证使用统计和配额/额度查询
 - 批量操作（启用、禁用、删除）
-- 按邮箱一键去重
-- 自动获取 Google 账户邮箱地址
+- 以邮箱为唯一键，重复导入自动覆盖去重
+- 自动获取 Google 账户邮箱地址、订阅等级（Tier）和 Project ID
 
 ### 🌊 流式传输和响应处理
 
 - 真正的实时流式响应（SSE）
 - 流式抗截断功能（防止回答被截断，通过"抗截断/"前缀启用）
 - 思维链（Thinking）内容分离
-- 非流式请求可选使用流式 API 收集完整响应（更稳定）
 
 ### 🎛️ Web 管理控制台
 
@@ -177,10 +172,10 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 
 ### 凭证数据结构
 
-凭证使用结构化字段存储（不再使用 JSON blob）：
-`access_token`、`refresh_token`、`client_id`、`client_secret`、`project_id`、`expiry`
+凭证以**邮箱（email）为唯一键**存储，字段为结构化数据库列（不再使用 JSON blob）：
+`email`、`access_token`、`refresh_token`、`client_id`、`client_secret`、`project_id`、`expiry`、`tier`
 
-首次启动时自动从旧版 `credential_data` JSON 格式迁移，无需手动操作。
+凭证导入/导出使用规范 JSON 格式：`{"refresh_token": "...", "email": "...", "tier": "...", "project_id": "..."}`（仅 `refresh_token` 必填，其余字段可自动获取）。
 
 ### 环境变量配置
 
@@ -197,7 +192,7 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `POSTGRESQL_URI`: PostgreSQL 连接字符串（设置后启用 PostgreSQL 模式）
 
 **网络和代理配置**
-- `PROXY`: HTTP/HTTPS 代理地址（格式：`http://host:port`）
+- `PROXY`: 代理地址（支持 `http://`、`https://`、`socks5://`、`socks5h://`，可带账号密码 `user:pass@host:port`）
 - `OAUTH_PROXY_URL`: OAuth 认证代理端点
 - `GOOGLEAPIS_PROXY_URL`: Google APIs 代理端点
 - `ANTIGRAVITY_API_URL`: Antigravity API 端点
@@ -212,10 +207,8 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `AUTO_BAN`: 启用凭证自动封禁（默认：false）
 - `AUTO_BAN_ERROR_CODES`: 触发自动封禁的错误码（默认：403）
 
-**兼容性配置**
-- `COMPATIBILITY_MODE`: 启用兼容性模式，将 system 消息转为 user 消息（默认：false）
+**响应行为配置**
 - `RETURN_THOUGHTS_TO_FRONTEND`: 返回思维链到前端（默认：true）
-- `ANTIGRAVITY_STREAM2NOSTREAM`: 非流式请求使用流式 API 收集完整响应（默认：true）
 - `ANTIGRAVITY_SWITCH_CREDENTIAL`: 重试时切换凭证（默认：false）
 
 **日志配置**

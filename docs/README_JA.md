@@ -8,10 +8,6 @@
 
 [中文](../README.md) | [English](README_EN.md) | 日本語
 
-## 🚀 クイックデプロイ
-
----
-
 ## インストールガイド
 
 ### Termux環境
@@ -173,14 +169,12 @@ ghcr.io/su-kaka/agy2api:latest
 - 思考チェーン内容の分離
 - 推論プロセス（reasoning_content）の処理
 - マルチターン会話のコンテキスト管理
-- 互換モード（systemメッセージをuserメッセージに変換）
 
 ### 🎛️ Web管理コンソール
 
 **フル機能のWebインターフェース**
 - Antigravity OAuth認証フロー（コールバックURLショートカット対応）
 - クレデンシャルファイルのアップロード、ダウンロード、管理
-- リアルタイムログ表示（WebSocket）
 - システム設定管理
 - 使用統計と監視ダッシュボード
 - モバイル対応インターフェース
@@ -191,13 +185,6 @@ ghcr.io/su-kaka/agy2api:latest
 - ユーザーメールの一括取得
 - 設定の一括管理
 - 全クレデンシャルタイプ統合一括アップロードインターフェース
-
-### 📈 使用状況モニタリング
-
-**リアルタイム監視**
-- WebSocketリアルタイムログストリーム
-- システムステータス監視
-- クレデンシャルヘルスステータス
 
 ### 🔧 高度な設定とカスタマイズ
 
@@ -213,9 +200,7 @@ ghcr.io/su-kaka/agy2api:latest
 
 **ログとデバッグ**
 - マルチレベルログシステム（DEBUG、INFO、WARNING、ERROR）
-- ログファイル管理
-- リアルタイムログストリーム
-- ログのダウンロードとクリア
+- コンソールのみのログ出力（`ENABLE_LOG=0` で完全サイレント）
 
 ### 🔄 環境変数と設定管理
 
@@ -299,9 +284,15 @@ agy2apiは2つのストレージバックエンドに対応: **ローカルSQLit
 
 **デフォルトストレージ方式**
 - 設定不要、すぐに利用可能
-- データはローカルSQLiteデータベースに保存
+- データはローカルSQLiteデータベース（`creds/credentials.db`）に保存
 - 単一マシンデプロイおよび個人利用に最適
-- データベースファイルの自動作成・管理
+
+**クレデンシャル構造**
+
+クレデンシャルは**メールアドレス（email）を一意キー**として構造化データベースカラムで保存されます（JSON blobは不使用）:
+`email`、`access_token`、`refresh_token`、`client_id`、`client_secret`、`project_id`、`expiry`、`tier`
+
+インポート/エクスポートは標準化JSON形式: `{"refresh_token": "...", "email": "...", "tier": "...", "project_id": "..."}`（`refresh_token` のみ必須、残りは自動取得）。
 
 ### 環境変数設定
 
@@ -315,32 +306,34 @@ agy2apiは2つのストレージバックエンドに対応: **ローカルSQLit
 
 **パフォーマンスと安定性の設定**
 - `RETRY_429_ENABLED`: 429エラー自動リトライの有効化（デフォルト: true）
-- `RETRY_429_MAX_RETRIES`: 429エラーの最大リトライ回数（デフォルト: 3）
+- `RETRY_429_MAX_RETRIES`: 429エラーの最大リトライ回数（デフォルト: 5）
 - `RETRY_429_INTERVAL`: 429エラーのリトライ間隔、秒単位（デフォルト: 1.0）
 - `ANTI_TRUNCATION_MAX_ATTEMPTS`: 途切れ防止の最大リトライ回数（デフォルト: 3）
 
 **ネットワークとプロキシ設定**
-- `PROXY`: HTTP/HTTPSプロキシアドレス（形式: `http://host:port`）
+- `PROXY`: プロキシアドレス（`http://`、`https://`、`socks5://`、`socks5h://` 対応、`user:pass@host:port` 形式の認証情報付きも可）
 - `OAUTH_PROXY_URL`: OAuth認証プロキシエンドポイント
 - `GOOGLEAPIS_PROXY_URL`: Google APIsプロキシエンドポイント
-- `METADATA_SERVICE_URL`: メタデータサービスプロキシエンドポイント
 
 **自動化設定**
-- `AUTO_BAN`: クレデンシャル自動BANの有効化（デフォルト: true）
-- `AUTO_LOAD_ENV_CREDS`: 起動時に環境変数クレデンシャルを自動ロード（デフォルト: false）
-
-**互換性設定**
-- `COMPATIBILITY_MODE`: 互換モードの有効化、systemメッセージをuserメッセージに変換（デフォルト: false）
+- `AUTO_BAN`: クレデンシャル自動BANの有効化（デフォルト: false）
+- `AUTO_BAN_ERROR_CODES`: 自動BANをトリガーするエラーコード（デフォルト: 403）
 
 **ログ設定**
 - `LOG_LEVEL`: ログレベル（DEBUG/INFO/WARNING/ERROR、デフォルト: INFO）
 - `ENABLE_LOG`: 完全サイレント（0で無効化、デフォルト: 1）
 
+**レスポンス動作設定**
+- `RETURN_THOUGHTS_TO_FRONTEND`: 思考チェーンをフロントエンドに返す（デフォルト: true）
+- `ANTIGRAVITY_SWITCH_CREDENTIAL`: リトライ時にクレデンシャルを切り替える（デフォルト: false）
+
 **ストレージ設定**
 
-**SQLite設定（デフォルト）**
-- 設定不要、自動的にローカルSQLiteデータベースを使用
-- データベースファイルはプロジェクトディレクトリに自動作成
+**SQLite（デフォルト）**
+- 設定不要、`creds/` にデータベースファイルを自動作成
+
+**PostgreSQL（オプションのクラウドストレージ）**
+- `POSTGRESQL_URI`: PostgreSQL接続文字列（設定するとPostgreSQLモードが有効）
 
 
 **Docker使用例**
@@ -351,8 +344,6 @@ docker run -d --name agy2api \
   -e PORT=7861 \
   ghcr.io/su-kaka/agy2api:latest
 ```
-
-注意: クレデンシャル環境変数が設定されている場合、システムは環境変数のクレデンシャルを優先的に使用し、`creds` ディレクトリ内のファイルを無視します。
 
 ### API使用方法
 
@@ -536,25 +527,18 @@ for part in response.candidates[0].content.parts:
 **クレデンシャル管理エンドポイント**
 - `POST /creds/upload` - クレデンシャルファイルの一括アップロード（JSONおよびZIP対応）
 - `GET /creds/status` - クレデンシャルステータス一覧の取得（ページネーションとフィルタリング対応）
-- `GET /creds/detail/{filename}` - 単一クレデンシャルの詳細取得
+- `GET /creds/detail/{email}` - 単一クレデンシャルの詳細取得
 - `POST /creds/action` - 単一クレデンシャル操作（有効化/無効化/削除）
 - `POST /creds/batch-action` - クレデンシャルの一括操作
-- `GET /creds/download/{filename}` - 単一クレデンシャルファイルのダウンロード
+- `GET /creds/export/{email}` - 単一クレデンシャルを標準化JSONでエクスポート
 - `GET /creds/download-all` - 全クレデンシャルの一括ダウンロード
-- `POST /creds/fetch-email/{filename}` - ユーザーメールの取得
 - `POST /creds/refresh-all-emails` - ユーザーメールの一括更新
 - `POST /creds/deduplicate-by-email` - メールによるクレデンシャルの重複排除
-- `POST /creds/verify-project/{filename}` - クレデンシャルのProject ID検証
-- `GET /creds/quota/{filename}` - クレデンシャルのクォータ情報取得（Antigravityのみ）
+- `GET /creds/quota/{email}` - クレデンシャルのクォータ情報取得
 
 **設定管理エンドポイント**
 - `GET /config/get` - 現在の設定の取得
 - `POST /config/save` - 設定の保存
-
-**ログ管理エンドポイント**
-- `POST /logs/clear` - ログのクリア
-- `GET /logs/download` - ログファイルのダウンロード
-- `WebSocket /logs/stream` - リアルタイムログストリーム
 
 **バージョン情報エンドポイント**
 - `GET /version/info` - バージョン情報の取得（オプション `check_update=true` パラメータで更新確認）
@@ -616,14 +600,20 @@ for part in response.candidates[0].content.parts:
 }
 ```
 
-**互換モード**
-```bash
-# 互換モードを有効化
-export COMPATIBILITY_MODE=true
-```
-このモードでは、すべての `system` メッセージが `user` メッセージに変換され、特定のクライアントとの互換性が向上します。
-
 ---
+
+## 🛠️ フロントエンド開発
+
+パネルのフロントエンドソースは `frontend/` にあります（React + Vite + Tailwind CSS）:
+
+```bash
+cd frontend
+npm install
+npm run dev     # 開発モード、ポート3000、バックエンドAPIをプロキシ
+npm run build    # dist/ にビルド（本番で使用）
+```
+
+バックエンドは `dist/` のコンパイル済み静的ファイルを直接配信します。Node.jsランタイムは不要です。
 
 ## 💬 コミュニティ
 
@@ -631,7 +621,7 @@ QQグループへの参加をお待ちしています！
 
 **QQグループ: 1083250744**
 
-<img src="qq-group.jpg" width="200" alt="QQグループQRコード">
+<img src="../docs/qq-group.jpg" width="200" alt="QQグループQRコード">
 
 ---
 

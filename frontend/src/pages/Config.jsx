@@ -16,7 +16,7 @@ const CONFIG_GROUPS = [
     title: "基础配置",
     fields: [
       { key: "credentials_dir", label: "凭证目录路径", type: "text", note: "存储认证文件的目录路径" },
-      { key: "proxy", label: "代理设置", type: "text", note: "HTTP/HTTPS/SOCKS5 代理，留空不使用（重启生效）", placeholder: "http://proxy:port 或 socks5://proxy:port" },
+      { key: "proxy", label: "代理设置", type: "text", note: "支持 http/https/socks5/socks5h，可带账号密码（user:pass@host:port），留空不使用（重启生效）", placeholder: "http://user:pass@proxy:port 或 socks5h://proxy:port" },
     ],
   },
   {
@@ -55,6 +55,13 @@ const CONFIG_GROUPS = [
     title: "抗截断配置",
     fields: [
       { key: "anti_truncation_max_attempts", label: "抗截断最大重试次数", type: "number", note: "检测到输出截断时的最大续传尝试次数（1-10）。使用'抗截断/'前缀的模型生效" },
+    ],
+  },
+  {
+    title: "敏感词过滤",
+    fields: [
+      { key: "sensitive_words_enabled", label: "启用敏感词过滤", type: "bool", note: "请求中命中敏感词的内容会被替换为空，避免触发 Google API 端点的敏感词拦截" },
+      { key: "sensitive_words", label: "敏感词列表", type: "textarea", note: "每行一个词或短语，不区分大小写，支持中文。命中后整词替换为空。保存后立即生效（热更新）", placeholder: "例如：\nsensitive word\n敏感词\n另一个词" },
     ],
   },
 ];
@@ -168,6 +175,21 @@ export default function Config() {
           </button>
           <span className="text-sm text-gray-300">{value ? "已启用" : "已禁用"}</span>
         </label>
+      );
+    }
+
+    if (field.type === "textarea") {
+      return (
+        <textarea
+          value={Array.isArray(value) ? value.join("\n") : value || ""}
+          onChange={(e) => {
+            const lines = e.target.value === "" ? [] : e.target.value.split("\n");
+            setField(field.key, lines.map((w) => w.replace(/\s+$/, "")).filter((w) => w.trim() !== ""))
+          }}
+          placeholder={field.placeholder}
+          rows={6}
+          className="w-full px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono"
+        />
       );
     }
 
