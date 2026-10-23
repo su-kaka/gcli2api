@@ -19,7 +19,6 @@ import config
 async def test_usage_log_flow():
     # 环境干净
     os.environ.pop("USAGE_LOG_ENABLED", None)
-    os.environ.pop("USAGE_LOG_RETENTION_DAYS", None)
     config._config_cache.clear()
 
     from src.storage.database import get_database
@@ -146,9 +145,8 @@ async def test_usage_log_flow():
 
     # 8. 配置默认值
     assert await config.get_usage_log_enabled() is True
-    assert await config.get_usage_log_retention_days() == 30
-    config._config_cache["usage_log_retention_days"] = 0
-    assert await config.get_usage_log_retention_days() == 0
+    config._config_cache["usage_log_enabled"] = False
+    assert await config.get_usage_log_enabled() is False
     config._config_cache.clear()
     print("PASS config defaults")
 

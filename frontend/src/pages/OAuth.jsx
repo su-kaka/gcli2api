@@ -39,7 +39,7 @@ export default function OAuth() {
       setCredsContent(JSON.stringify(res.data.credentials, null, 2));
       setMessage({
         type: "success",
-        text: `认证成功！凭证已保存为 ${res.data.file_path}`,
+        text: `认证成功！凭证已保存：${res.data.email || "未知邮箱"}`,
       });
     } catch (err) {
       setMessage({
@@ -65,7 +65,7 @@ export default function OAuth() {
       setCredsContent(JSON.stringify(res.data.credentials, null, 2));
       setMessage({
         type: "success",
-        text: `认证成功！凭证已保存为 ${res.data.file_path}`,
+        text: `认证成功！凭证已保存：${res.data.email || "未知邮箱"}`,
       });
     } catch (err) {
       setMessage({

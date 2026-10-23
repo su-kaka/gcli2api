@@ -2,6 +2,8 @@ import {
   AlertCircle,
   Ban,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Download,
   Loader2,
@@ -31,6 +33,9 @@ export default function Credentials() {
   const [errorModal, setErrorModal] = useState(null);
   const [busyFiles, setBusyFiles] = useState(new Set());
   const [now, setNow] = useState(Date.now() / 1000);
+  // 额度预览相关状态
+  const [expandedQuota, setExpandedQuota] = useState(null); // 当前展开的凭证 email
+  const [quotaCache, setQuotaCache] = useState({}); // 缓存额度数据 { email: { claude, gemini } | { error } }
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now() / 1000), 1000);
@@ -158,18 +163,84 @@ export default function Credentials() {
         params: { mode: "antigravity" },
       });
       if (res.data.success) {
-        const models = res.data.models || {};
-        const lines = Object.entries(models).map(
-          ([model, quota]) => `${model}: ${JSON.stringify(quota)}`
-        );
-        showMessage("info", `额度信息:\n${lines.join("\n") || "无数据"}`);
-      } else {
-        showMessage("error", res.data.error || "获取额度失败");
+        const aggregated = aggregateQuota(res.data.quotaGroups || []);
+        setQuotaCache((prev) => ({ ...prev, [email]: aggregated }));
+        return true;
       }
+      setQuotaCache((prev) => ({ ...prev, [email]: { error: res.data.error || "获取额度失败" } }));
+      return false;
     } catch (err) {
-      showMessage("error", err.response?.data?.detail || "获取额度失败");
+      setQuotaCache((prev) => ({
+        ...prev,
+        [email]: { error: err.response?.data?.detail || "获取额度失败" },
+      }));
+      return false;
     } finally {
       setBusy(email, false);
+    }
+  };
+
+  // 聚合额度分组 -> Claude / Gemini 各自的剩余百分比（多组取平均，组内取 weekly/5h 较小值）
+  const aggregateQuota = (groups) => {
+    const result = {
+      claude: { remaining: 0, count: 0, resetTime: "" },
+      gemini: { remaining: 0, count: 0, resetTime: "" },
+    };
+
+    groups.forEach((group) => {
+      const name = (group.displayName || "").toLowerCase();
+      const target = name.includes("claude") ? result.claude : result.gemini;
+      target.count += 1;
+
+      // 每组取 weekly / 5h 中较小的 remainingFraction（短板效应）
+      let minPct = null;
+      let minResetTime = "";
+      (group.buckets || []).forEach((bucket) => {
+        const pct = (bucket.remainingFraction || 0) * 100;
+        if (minPct === null || pct < minPct) {
+          minPct = pct;
+          minResetTime = bucket.resetTime || "";
+        }
+      });
+
+      if (minPct !== null) {
+        target.remaining += Math.round(minPct * 10) / 10;
+        if (!target.resetTime && minResetTime) {
+          try {
+            target.resetTime = new Date(minResetTime).toLocaleString("zh-CN");
+          } catch {
+            target.resetTime = minResetTime;
+          }
+        }
+      }
+    });
+
+    // 多组时取平均值
+    if (result.claude.count > 1)
+      result.claude.remaining = Math.round(result.claude.remaining / result.claude.count);
+    if (result.gemini.count > 1)
+      result.gemini.remaining = Math.round(result.gemini.remaining / result.gemini.count);
+
+    return result;
+  };
+
+  // 额度进度条颜色
+  const getQuotaColor = (remaining) => {
+    if (remaining >= 80) return { bar: "bg-green-500", text: "text-green-400" };
+    if (remaining >= 40) return { bar: "bg-yellow-500", text: "text-yellow-400" };
+    if (remaining >= 20) return { bar: "bg-orange-500", text: "text-orange-400" };
+    return { bar: "bg-red-500", text: "text-red-400" };
+  };
+
+  // 切换额度预览展开/收起（无缓存时自动加载）
+  const toggleQuotaPreview = async (email) => {
+    if (expandedQuota === email) {
+      setExpandedQuota(null);
+      return;
+    }
+    setExpandedQuota(email);
+    if (!quotaCache[email]) {
+      await fetchQuota(email);
     }
   };
 
@@ -523,6 +594,118 @@ export default function Credentials() {
                   </div>
                 </div>
 
+                {/* 额度预览区域 - 可折叠 */}
+                <div>
+                  <button
+                    onClick={() => !cred.disabled && toggleQuotaPreview(cred.email)}
+                    disabled={cred.disabled}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                      cred.disabled
+                        ? "bg-dark-800 text-gray-600 cursor-not-allowed"
+                        : "bg-dark-700 hover:bg-dark-600 cursor-pointer"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>📊</span>
+                      <span className="text-gray-400">
+                        {busyFiles.has(cred.email) && expandedQuota === cred.email
+                          ? "加载中..."
+                          : quotaCache[cred.email]
+                            ? "额度信息"
+                            : "点击查看额度"}
+                      </span>
+                    </span>
+                    {!cred.disabled &&
+                      (expandedQuota === cred.email ? (
+                        <ChevronUp size={16} className="text-gray-500" />
+                      ) : (
+                        <ChevronDown size={16} className="text-gray-500" />
+                      ))}
+                  </button>
+
+                  {/* 展开的额度详情 */}
+                  {expandedQuota === cred.email && !cred.disabled && (
+                    <div className="mt-2 space-y-2 px-1">
+                      {busyFiles.has(cred.email) ? (
+                        <div className="flex items-center justify-center py-4 text-gray-500">
+                          <RefreshCw size={16} className="animate-spin mr-2" />
+                          加载额度中...
+                        </div>
+                      ) : quotaCache[cred.email]?.error ? (
+                        <div className="text-center py-3 text-red-400 text-sm">
+                          {quotaCache[cred.email].error}
+                        </div>
+                      ) : quotaCache[cred.email] ? (
+                        <>
+                          {/* Claude 额度 */}
+                          {quotaCache[cred.email].claude?.count > 0 && (
+                            <div className="flex items-center gap-3">
+                              <span className="text-purple-400 w-16 text-sm shrink-0">Claude</span>
+                              <div className="flex-1 bg-dark-600 rounded-full h-2">
+                                <div
+                                  className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.email].claude.remaining).bar}`}
+                                  style={{
+                                    width: `${Math.min(quotaCache[cred.email].claude.remaining, 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className={`text-sm font-medium w-14 text-right shrink-0 ${getQuotaColor(quotaCache[cred.email].claude.remaining).text}`}>
+                                {quotaCache[cred.email].claude.remaining.toFixed(1)}%
+                              </span>
+                            </div>
+                          )}
+                          {/* Gemini 额度 */}
+                          {quotaCache[cred.email].gemini?.count > 0 && (
+                            <div className="flex items-center gap-3">
+                              <span className="text-cyan-400 w-16 text-sm shrink-0">Gemini</span>
+                              <div className="flex-1 bg-dark-600 rounded-full h-2">
+                                <div
+                                  className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.email].gemini.remaining).bar}`}
+                                  style={{
+                                    width: `${Math.min(quotaCache[cred.email].gemini.remaining, 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className={`text-sm font-medium w-14 text-right shrink-0 ${getQuotaColor(quotaCache[cred.email].gemini.remaining).text}`}>
+                                {quotaCache[cred.email].gemini.remaining.toFixed(1)}%
+                              </span>
+                            </div>
+                          )}
+                          {/* 无数据提示 */}
+                          {!quotaCache[cred.email].claude?.count &&
+                            !quotaCache[cred.email].gemini?.count && (
+                              <div className="text-center py-2 text-gray-500 text-sm">
+                                暂无额度数据
+                              </div>
+                            )}
+                          {/* 重置时间 */}
+                          {(quotaCache[cred.email].claude?.resetTime ||
+                            quotaCache[cred.email].gemini?.resetTime) && (
+                            <div className="text-xs text-gray-500 text-right mt-1">
+                              重置:{" "}
+                              {quotaCache[cred.email].claude?.resetTime ||
+                                quotaCache[cred.email].gemini?.resetTime}
+                            </div>
+                          )}
+                          {/* 刷新按钮 */}
+                          <button
+                            onClick={() => fetchQuota(cred.email)}
+                            disabled={busyFiles.has(cred.email)}
+                            className="w-full text-xs text-gray-400 hover:text-white py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <RefreshCw size={12} className={busyFiles.has(cred.email) ? "animate-spin" : ""} />
+                            刷新额度
+                          </button>
+                        </>
+                      ) : (
+                        <div className="text-center py-3 text-gray-500 text-sm">
+                          点击加载额度信息
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* 操作按钮 */}
                 <div className="flex items-center flex-wrap gap-1.5 pt-1 border-t border-dark-700">
                   {busy ? (
@@ -542,13 +725,6 @@ export default function Credentials() {
                         title="测试凭证"
                       >
                         <Zap size={13} /> 测试
-                      </button>
-                      <button
-                        onClick={() => fetchQuota(cred.email)}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 flex items-center gap-1"
-                        title="查询额度"
-                      >
-                        <Clock size={13} /> 额度
                       </button>
                       <button
                         onClick={() => exportCredential(cred.email)}

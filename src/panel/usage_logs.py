@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from config import get_usage_log_enabled, get_usage_log_retention_days
+from config import get_usage_log_enabled
 from log import log
 from src.storage.database import get_database
 from src.usage_log import clear_usage_logs
@@ -137,8 +137,7 @@ async def truncate_logs(token: str = Depends(verify_panel_token)):
 
 @router.get("/config")
 async def get_usage_log_config(token: str = Depends(verify_panel_token)):
-    """获取日志开关与保留天数配置"""
+    """获取日志开关配置"""
     return JSONResponse(content={
         "enabled": await get_usage_log_enabled(),
-        "retention_days": await get_usage_log_retention_days(),
     })

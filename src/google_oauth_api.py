@@ -562,14 +562,12 @@ async def fetch_project_id_and_tier(
 
         tier_mapping = {
             "g1-ultra-tier": "ultra",
-            "ws-ai-ultra-business-tier": "ultra",
             "g1-pro-tier": "pro",
-            "helium-tier": "pro",
-            "standard-tier": "pro",
+            "standard-tier": "free",
             "free-tier": "free",
         }
 
-        return tier_mapping.get(raw_tier.lower(), "pro")
+        return tier_mapping.get(raw_tier.lower(), "free")
 
     subscription_tier = None
 
@@ -693,11 +691,11 @@ async def _try_onboard_user(
     """
     request_url = f"{api_base_url.rstrip('/')}/v1internal:onboardUser"
 
-    # 首先需要获取用户的 tier 信息
+    # 首先需要获取用户的 tier 信息；获取失败时回退 LEGACY 继续尝试
     tier_id = await _get_onboard_tier(api_base_url, headers)
     if not tier_id:
-        log.error("[onboardUser] Failed to determine user tier")
-        return None
+        log.warning("[onboardUser] Failed to determine user tier, falling back to LEGACY")
+        tier_id = "LEGACY"
 
     log.info(f"[onboardUser] User tier: {tier_id}")
 
@@ -764,7 +762,14 @@ async def _try_onboard_user(
         else:
             log.warning(f"[onboardUser] Failed: HTTP {response.status_code}")
             log.warning(f"[onboardUser] Response body: {response.text[:500]}")
-            raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
+            # 400/403 是永久性错误，不无脑轮询；tierId 无效时回退 LEGACY 再试一次
+            if response.status_code == 400 and tier_id != "LEGACY":
+                log.warning("[onboardUser] tierId 可能无效，回退 LEGACY 重试")
+                tier_id = "LEGACY"
+                request_body["tierId"] = "LEGACY"
+                await asyncio.sleep(1)
+                continue
+            return None
 
     log.error("[onboardUser] Timeout: Operation did not complete within 10 seconds")
     return None

@@ -42,7 +42,6 @@ ENV_MAPPINGS = {
     "SENSITIVE_WORDS": "sensitive_words",
     "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
     "USAGE_LOG_ENABLED": "usage_log_enabled",
-    "USAGE_LOG_RETENTION_DAYS": "usage_log_retention_days",
     "CREDENTIAL_SELECT_MODE": "credential_select_mode",
     "HOST": "host",
     "PORT": "port",
@@ -404,27 +403,6 @@ async def get_usage_log_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("usage_log_enabled", True))
-
-
-async def get_usage_log_retention_days() -> int:
-    """
-    日志保留天数（0 = 永久保留）。
-
-    Environment variable: USAGE_LOG_RETENTION_DAYS
-    Database config key: usage_log_retention_days
-    Default: 30
-    """
-    env_value = os.getenv("USAGE_LOG_RETENTION_DAYS")
-    if env_value:
-        try:
-            return max(0, int(env_value))
-        except ValueError:
-            pass
-
-    try:
-        return max(0, int(await get_config_value("usage_log_retention_days", 30)))
-    except (ValueError, TypeError):
-        return 30
 
 
 # ====================== 凭证选择模式 ======================

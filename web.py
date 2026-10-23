@@ -39,25 +39,11 @@ async def lifespan(app: FastAPI):
 
     # 初始化全局凭证管理器（通过单例工厂）
     try:
-        # credential_manager 会在第一次调用时自动初始化
-        # 这里预先触发初始化以便在启动时检测错误
-        await credential_manager._get_or_create()
+        # 预先触发初始化以便在启动时检测错误
+        await credential_manager.initialize()
         log.info("凭证管理器初始化成功")
     except Exception as e:
         log.error(f"凭证管理器初始化失败: {e}")
-
-    # 启动时清理过期请求日志（按保留天数配置）
-    try:
-        import config as config_module
-        from src.usage_log import clear_usage_logs
-
-        retention_days = await config_module.get_usage_log_retention_days()
-        if retention_days > 0:
-            deleted = await clear_usage_logs(retention_days)
-            if deleted:
-                log.info(f"已清理 {deleted} 条过期请求日志（>{retention_days} 天）")
-    except Exception as e:
-        log.warning(f"清理过期请求日志失败（不影响启动）: {e}")
 
     # 初始化会话凭证缓存（Redis 可选，未配置时使用内存后端）
     try:

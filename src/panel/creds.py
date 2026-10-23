@@ -117,7 +117,7 @@ async def _import_single_credential(data: Dict[str, Any]) -> Dict[str, Any]:
             "tier": tier,
         }
 
-        await credential_manager.add_antigravity_credential(email, credential_data)
+        await credential_manager.add_credential(email, credential_data)
         return {
             "status": "success",
             "email": email,

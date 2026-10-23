@@ -88,8 +88,7 @@ const CONFIG_GROUPS = [
   {
     title: "请求日志",
     fields: [
-      { key: "usage_log_enabled", label: "启用请求日志", type: "bool", note: "记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库，在\"请求日志\"页面查看" },
-      { key: "usage_log_retention_days", label: "日志保留天数", type: "number", note: "启动时自动清理超过保留期的日志。0 = 永久保留（范围 0-3650）" },
+      { key: "usage_log_enabled", label: "启用请求日志", type: "bool", note: "记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库，在\"请求日志\"页面查看。日志不自动清理，可在该页面手动清理或清空" },
     ],
   },
 ];

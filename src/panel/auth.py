@@ -95,7 +95,8 @@ async def auth_callback(request: AuthCallbackRequest, token: str = Depends(verif
             return JSONResponse(
                 content={
                     "credentials": result["credentials"],
-                    "file_path": result["file_path"],
+                    "email": result.get("email", ""),
+                    "tier": result.get("tier"),
                     "message": "认证成功，凭证已保存",
                     "auto_detected_project": result.get("auto_detected_project", False),
                 }
@@ -146,7 +147,8 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
             return JSONResponse(
                 content={
                     "credentials": result["credentials"],
-                    "file_path": result["file_path"],
+                    "email": result.get("email", ""),
+                    "tier": result.get("tier"),
                     "message": "从回调URL认证成功，凭证已保存",
                     "auto_detected_project": result.get("auto_detected_project", False),
                 }

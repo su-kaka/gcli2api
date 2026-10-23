@@ -381,6 +381,11 @@ async def _save_antigravity_credential(
         project_id = DEFAULT_PROJECT_ID
         log.warning(f"无法从API获取project_id，使用默认project_id: {project_id}")
 
+    # tier 获取失败时兜底为 free（避免 None 入库）
+    if not subscription_tier:
+        subscription_tier = "free"
+        log.warning("无法从API获取订阅等级，tier 兜底为 free")
+
     # 保存凭证（email 为唯一键，同邮箱自动覆盖去重）
     database = await get_database()
     creds_data = _prepare_credentials_data(
