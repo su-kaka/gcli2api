@@ -30,7 +30,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../front/dist",
+    outDir: "../dist",
     emptyOutDir: true,
   },
 });

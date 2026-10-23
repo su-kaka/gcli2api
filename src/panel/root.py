@@ -16,7 +16,6 @@ router = APIRouter(tags=["root"])
 # 编译后的前端目录
 FRONTEND_DIST_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "front",
     "dist",
 )
 

@@ -120,7 +120,7 @@ agy2api/
 │   ├── openai_transfer.py # Format conversion
 │   ├── storage/           # Storage backends (Redis, MongoDB, Postgres, File)
 │   └── ...
-├── front/                 # Frontend static files
+├── dist/                  # Compiled frontend static files
 ├── tests/                 # Test directory (to be created)
 ├── test_*.py             # Test files (root level)
 ├── web.py                # Main application entry point

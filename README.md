@@ -308,10 +308,10 @@ for part in response.candidates[0].content.parts:
 cd frontend
 npm install
 npm run dev     # 开发模式，端口 3000，代理后端 API
-npm run build    # 构建到 front/dist/（生产模式使用）
+npm run build    # 构建到 dist/（生产模式使用）
 ```
 
-后端直接托管 `front/dist/` 下编译后的静态文件，无需 Node.js 运行时。
+后端直接托管 `dist/` 下编译后的静态文件，无需 Node.js 运行时。
 
 ## 💬 交流群
 
