@@ -161,7 +161,7 @@ else
 fi
 
 echo "安装 Python 依赖..."
-uv add -r requirements-termux.txt
+uv add -r requirements.txt
 
 echo "激活虚拟环境并启动服务..."
 source .venv/bin/activate

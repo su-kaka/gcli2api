@@ -7,6 +7,6 @@ if [ -n "$PYTHON_VERSION" ]; then
     echo "检测到 Python $PYTHON_VERSION，固定版本..."
     uv python pin "$PYTHON_VERSION"
 fi
-uv add -r requirements-termux.txt
+uv add -r requirements.txt
 source .venv/bin/activate
 pm2 start .venv/bin/python --name agy2api -- web.py
