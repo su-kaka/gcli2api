@@ -411,38 +411,34 @@ async def verify_credential_project_common(email: str) -> JSONResponse:
         log.warning(f"校验凭证 {email}: project_id 获取失败，使用回退值 aicode-consumers")
         project_id = "aicode-consumers"
 
+    # tier 获取失败时保留数据库原值，不覆盖为 None
+    if not subscription_tier:
+        old_state = await database.get_credential_state(email)
+        subscription_tier = old_state.get("tier") or "pro"
+        log.warning(f"校验凭证 {email}: tier 获取失败，保留原值 {subscription_tier}")
+
     credential_data["project_id"] = project_id
 
-    if project_id or subscription_tier:
-        await database.store_credential(email, credential_data)
+    await database.store_credential(email, credential_data)
 
-        state_update = {
-            "disabled": False,
-            "error_codes": [],
-            "tier": subscription_tier,
-            "project_id": project_id,
-        }
+    state_update = {
+        "disabled": False,
+        "error_codes": [],
+        "tier": subscription_tier,
+        "project_id": project_id,
+    }
 
-        await database.update_credential_state(email, state_update)
+    await database.update_credential_state(email, state_update)
 
-        log.info(f"检验凭证成功: {email} - Project ID: {project_id}, Tier: {subscription_tier}")
+    log.info(f"检验凭证成功: {email} - Project ID: {project_id}, Tier: {subscription_tier}")
 
-        return JSONResponse(content={
-            "success": True,
-            "email": email,
-            "project_id": project_id,
-            "subscription_tier": subscription_tier,
-            "message": "检验成功！已解除禁用状态并清除错误码",
-        })
-    else:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "email": email,
-                "message": "检验失败：无法获取Project ID，请检查凭证是否有效",
-            }
-        )
+    return JSONResponse(content={
+        "success": True,
+        "email": email,
+        "project_id": project_id,
+        "subscription_tier": subscription_tier,
+        "message": "检验成功！已解除禁用状态并清除错误码",
+    })
 
 
 # =============================================================================
