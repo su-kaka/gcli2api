@@ -1,4 +1,4 @@
-full_hash=7fd20c49949257c5c69c38e2e0fe99259bacbcbe
-short_hash=7fd20c4
-message=请求日志系统 usage_log
-date=2026-10-23 15:50:10 +0800
+full_hash=5d4baf4ee1ab41c8f3a2d2f59d981a8bccd98c30
+short_hash=5d4baf4
+message=修复抗截断残留参数 验证抗截断日志记录
+date=2026-10-23 15:55:23 +0800
