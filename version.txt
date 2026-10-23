@@ -1,4 +1,4 @@
-full_hash=81cf21a4172414180db87766bc9478ba177dacc9
-short_hash=81cf21a
-message=路径修正
-date=2026-10-23 15:12:48 +0800
+full_hash=ecb2a27e4eb2f4de383b8d71455f34f535156de5
+short_hash=ecb2a27
+message=增加敏感词过滤 避免429
+date=2026-10-23 15:22:57 +0800
