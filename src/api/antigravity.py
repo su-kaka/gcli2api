@@ -13,12 +13,10 @@ from typing import Any, Dict, List, Optional, Callable, Tuple
 
 from fastapi import Response
 from config import (
+    get_antigravity_api_url,
     get_auto_ban_error_codes,
 )
 from log import log
-
-# Antigravity API 固定端点
-CODE_ASSIST_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com"
 
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
@@ -262,8 +260,8 @@ async def stream_request(
         )
         return
 
-    # 2. 构建URL和请求头
-    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:streamGenerateContent?alt=sse"
+    # 2. 构建URL和请求头（端点来自配置，支持面板热更新）
+    target_url = f"{await get_antigravity_api_url()}/v1internal:streamGenerateContent?alt=sse"
 
     auth_headers = build_antigravity_headers(access_token, headers, model_name)
 
@@ -503,8 +501,8 @@ async def non_stream_request(
             media_type="application/json"
         )
 
-    # 2. 构建URL和请求头
-    target_url = f"{CODE_ASSIST_ENDPOINT}/v1internal:generateContent"
+    # 2. 构建URL和请求头（端点来自配置，支持面板热更新）
+    target_url = f"{await get_antigravity_api_url()}/v1internal:generateContent"
 
     auth_headers = build_antigravity_headers(access_token, headers, model_name)
 
@@ -738,7 +736,7 @@ async def fetch_available_models() -> List[Dict[str, Any]]:
     try:
         # 使用 POST 请求获取模型列表
         response = await post_async(
-            url=f"{CODE_ASSIST_ENDPOINT}/v1internal:fetchAvailableModels",
+            url=f"{await get_antigravity_api_url()}/v1internal:fetchAvailableModels",
             json={},  # 空的请求体
             headers=headers
         )
@@ -828,7 +826,7 @@ async def fetch_quota_info(access_token: str, project_id: str = "") -> Dict[str,
 
     headers = build_antigravity_headers(access_token, model_name="agent")
 
-    url = f"{CODE_ASSIST_ENDPOINT}/v1internal:retrieveUserQuotaSummary"
+    url = f"{await get_antigravity_api_url()}/v1internal:retrieveUserQuotaSummary"
     payload: Dict[str, Any] = {}
     if project_id:
         payload["project"] = project_id

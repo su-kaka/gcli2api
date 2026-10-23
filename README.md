@@ -211,6 +211,10 @@ docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PAS
 - `RETURN_THOUGHTS_TO_FRONTEND`: 返回思维链到前端（默认：true）
 - `ANTIGRAVITY_SWITCH_CREDENTIAL`: 重试时切换凭证（默认：false）
 
+**敏感词过滤配置**
+- `SENSITIVE_WORDS_ENABLED`: 启用敏感词过滤（默认：true）
+- `SENSITIVE_WORDS`: 敏感词列表，逗号或换行分隔（默认：空）。命中后整词替换为空，不区分大小写，支持中文，面板保存后立即生效
+
 **日志配置**
 - `LOG_LEVEL`: 日志级别（DEBUG/INFO/WARNING/ERROR，默认：INFO）
 - `ENABLE_LOG`: 完全静默，不打印任何日志（设为 0 启用静默，默认：1）

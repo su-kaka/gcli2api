@@ -12,7 +12,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # 标准库
-import asyncio
 import json
 
 # 第三方库

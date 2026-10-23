@@ -331,6 +331,10 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 - `RETURN_THOUGHTS_TO_FRONTEND`: Return thinking chain to the frontend (default: true)
 - `ANTIGRAVITY_SWITCH_CREDENTIAL`: Switch credentials on retry (default: false)
 
+**Sensitive Word Filtering**
+- `SENSITIVE_WORDS_ENABLED`: Enable sensitive word filtering (default: true)
+- `SENSITIVE_WORDS`: Sensitive word list, comma or newline separated (default: empty). Matches are replaced with empty string, case-insensitive, Chinese supported, effective immediately after panel save
+
 **Storage Configuration**
 
 **SQLite (Default)**
