@@ -1,4 +1,4 @@
-full_hash=2b412cf8b0493004540ab8b363ba1ce68b40b17a
-short_hash=2b412cf
-message=三套凭证选择模式 随机/缓存匹配/粘性 会话亲和Redis+内存双后端
-date=2026-10-23 16:13:43 +0800
+full_hash=93bba4c526c6e4d09b6ea7c3d23b6c735b4a2db8
+short_hash=93bba4c
+message=project_id获取失败回退aicode-consumers
+date=2026-10-23 16:19:49 +0800
