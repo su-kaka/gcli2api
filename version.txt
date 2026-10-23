@@ -1,4 +1,4 @@
-full_hash=33b8bbc5b598743e8bd12d9109f7c33f01e982ef
-short_hash=33b8bbc
-message=credential_manager 重构为无状态函数模块
-date=2026-10-23 16:46:54 +0800
+full_hash=0acf43c0774772e0608bc8ae1268110715e8e47c
+short_hash=0acf43c
+message=Merge branch 'master' of https://github.com/su-kaka/gcli2api
+date=2026-10-23 16:57:49 +0800
