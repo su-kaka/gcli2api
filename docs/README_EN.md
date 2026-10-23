@@ -312,6 +312,10 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 - `IP_WHITELIST_ENABLED`: Enable IP whitelist (default: false, no restriction)
 - `IP_WHITELIST`: IP whitelist, comma or newline separated (default: empty). Each entry supports a single IP (`192.168.1.1`), CIDR range (`192.168.1.0/24`), or start-end range (`10.0.0.1-10.0.0.100`), for both IPv4 / IPv6. Once enabled, only whitelisted IPs can access the panel and API; all others get 403. Effective immediately after panel save
 
+**Model Name Rewrite**
+- `MODEL_REWRITE_ENABLED`: Enable model name rewriting (default: false)
+- `MODEL_REWRITE_RULES`: Rewrite rules, each `[match regex, replacement model name]` (default: empty). First match from top wins; replacements support regex backreferences (e.g. `\1`). Example: map `gpt-4o` to `gemini-2.5-pro`. Effective immediately after panel save
+
 **Performance and Stability Configuration**
 - `RETRY_429_ENABLED`: Enable 429 error automatic retry (default: true)
 - `RETRY_429_MAX_RETRIES`: Maximum retry attempts for 429 errors (default: 5)

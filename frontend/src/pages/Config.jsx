@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw, Save } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import Modal from "../components/Modal";
 import Select from "../components/Select";
@@ -91,6 +91,19 @@ const CONFIG_GROUPS = [
     fields: [
       { key: "sensitive_words_enabled", label: "启用敏感词过滤", type: "bool", note: "请求中命中敏感词的内容会被替换为空，避免触发 Google API 端点的敏感词拦截" },
       { key: "sensitive_words", label: "敏感词列表", type: "textarea", showIf: (cfg) => !!cfg.sensitive_words_enabled, note: "每行一个词或短语，不区分大小写，支持中文。命中后整词替换为空。保存后立即生效（热更新）", placeholder: "例如：\nsensitive word\n敏感词\n另一个词" },
+    ],
+  },
+  {
+    title: "模型名复写",
+    fields: [
+      { key: "model_rewrite_enabled", label: "启用模型名复写", type: "bool", note: "开启后按规则匹配请求中的模型名（支持正则），命中则替换为规则指定的模型名。常用于把客户端固定模型名映射到实际可用的上游模型。保存后立即生效（热更新）" },
+      {
+        key: "model_rewrite_rules",
+        label: "复写规则",
+        type: "rules",
+        showIf: (cfg) => !!cfg.model_rewrite_enabled,
+        note: "每行一条规则：匹配正则 + 替换模型名。自上而下首条命中即生效，替换支持正则反向引用（如 \\1）",
+      },
     ],
   },
   {
@@ -229,6 +242,67 @@ export default function Config() {
               {field.descriptions[current.value]}
             </div>
           )}
+        </div>
+      );
+    }
+
+    if (field.type === "rules") {
+      const rules = Array.isArray(value)
+        ? value.map((r) => (Array.isArray(r) ? [String(r[0] ?? ""), String(r[1] ?? "")] : ["", ""]))
+        : [];
+      const updateRule = (idx, col, val) => {
+        const next = rules.map((r) => [...r]);
+        next[idx][col] = val;
+        setField(field.key, next);
+      };
+      const removeRule = (idx) => {
+        setField(field.key, rules.filter((_, i) => i !== idx));
+      };
+      const addRule = () => {
+        setField(field.key, [...rules, ["", ""]]);
+      };
+      return (
+        <div className="space-y-2">
+          {rules.length === 0 && (
+            <div className="text-xs text-gray-500 bg-dark-800/60 border border-dark-700 rounded-lg px-3 py-2">
+              暂无规则，点击下方按钮新增
+            </div>
+          )}
+          {rules.map((rule, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={rule[0]}
+                onChange={(e) => updateRule(idx, 0, e.target.value)}
+                placeholder="匹配正则，如 ^gpt-4$"
+                className="flex-1 min-w-0 px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono"
+              />
+              <span className="text-gray-500 text-sm shrink-0">→</span>
+              <input
+                type="text"
+                value={rule[1]}
+                onChange={(e) => updateRule(idx, 1, e.target.value)}
+                placeholder="替换模型名，如 gemini-2.5-pro"
+                className="flex-1 min-w-0 px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => removeRule(idx)}
+                className="shrink-0 p-2 text-gray-500 hover:text-red-400 transition-colors"
+                title="删除该规则"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addRule}
+            className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5"
+          >
+            <Plus size={14} />
+            新增规则
+          </button>
         </div>
       );
     }

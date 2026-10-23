@@ -61,6 +61,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
         current_config["ip_whitelist_enabled"] = await config.get_ip_whitelist_enabled()
         current_config["ip_whitelist"] = await config.get_ip_whitelist()
 
+        # 模型名复写配置
+        current_config["model_rewrite_enabled"] = await config.get_model_rewrite_enabled()
+        current_config["model_rewrite_rules"] = await config.get_model_rewrite_rules_config()
+
         # 请求日志配置
         current_config["usage_log_enabled"] = await config.get_usage_log_enabled()
 
@@ -183,6 +187,34 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                     raise HTTPException(status_code=400, detail=f"无效的 IP 白名单条目: {entry!r}")
                 cleaned_entries.append(entry)
             new_config["ip_whitelist"] = cleaned_entries
+
+        # 验证模型名复写配置（每条规则 [pattern, replacement]，pattern 支持正则）
+        if "model_rewrite_enabled" in new_config:
+            if not isinstance(new_config["model_rewrite_enabled"], bool):
+                raise HTTPException(status_code=400, detail="模型名复写开关必须是布尔值")
+
+        if "model_rewrite_rules" in new_config:
+            import re as _re_rw
+
+            rules = new_config["model_rewrite_rules"]
+            if not isinstance(rules, list):
+                raise HTTPException(status_code=400, detail="模型名复写规则必须是数组（每条 [匹配正则, 替换模型名]）")
+            cleaned_rules = []
+            for rule in rules:
+                if not (isinstance(rule, (list, tuple)) and len(rule) == 2 and all(isinstance(x, str) for x in rule)):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"每条规则必须是 [匹配正则, 替换模型名] 的字符串二元组: {rule!r}",
+                    )
+                pattern, replacement = rule[0].strip(), rule[1].strip()
+                if not pattern or not replacement:
+                    raise HTTPException(status_code=400, detail=f"规则的正则和替换模型名均不能为空: {rule!r}")
+                try:
+                    _re_rw.compile(pattern)
+                except _re_rw.error:
+                    raise HTTPException(status_code=400, detail=f"无效的正则表达式: {pattern!r}")
+                cleaned_rules.append([pattern, replacement])
+            new_config["model_rewrite_rules"] = cleaned_rules
 
         # 验证请求日志配置
         if "usage_log_enabled" in new_config:

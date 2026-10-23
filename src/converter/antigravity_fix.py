@@ -9,12 +9,9 @@ Antigravity Format Utilities - 独立的 Antigravity 请求处理和转换工具
 按项目要求:
 - 使用 print 输出 warning/error，去掉 debug 日志
 """
-import copy
-import hashlib
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.converter.thoughtSignature_fix import SKIP_THOUGHT_SIGNATURE_VALIDATOR
@@ -602,6 +599,13 @@ _UPSTREAM_ALIASES: Dict[str, str] = {
 }
 
 
+async def _get_model_rewrite_rules():
+    """读取生效的模型名复写规则；未启用时返回 None"""
+    from config import get_model_rewrite_filter
+    enabled, rules = await get_model_rewrite_filter()
+    return rules if enabled and rules else None
+
+
 def resolve_profile(model: str) -> ModelProfile:
     """
     按关键词匹配模型，自上而下第一个命中的规则生效:
@@ -845,6 +849,7 @@ async def normalize_antigravity_request(
 
     处理逻辑:
     0. 敏感词过滤（contents / systemInstruction，面板可配，热更新）
+    0.5 模型名复写（面板可配，热更新，支持正则与反向引用）
     1. 按模型名取 profile (关键词匹配)
     2. 图片模型走独立路径
     3. 模型映射 + thinkingConfig (按 profile.thinking)
@@ -863,6 +868,18 @@ async def normalize_antigravity_request(
 
     # 项目固定为 True（原版从 config 读取 return_thoughts，本项目无此配置项）
     return_thoughts = True
+
+    # ========== 0.5 模型名复写（面板可配，热更新） ==========
+    # 在抗截断前缀剥离之后、profile 解析之前应用：
+    # 命中规则的模型名被替换为规则指定的模型名（支持正则与反向引用）
+    rewrite_rules = await _get_model_rewrite_rules()
+    if rewrite_rules and model:
+        from config import rewrite_model_name
+        rewritten = rewrite_model_name(model, rewrite_rules)
+        if rewritten != model:
+            result["model"] = rewritten
+            print(f"[ANTIGRAVITY] 模型名复写: {model} -> {rewritten}", flush=True)
+        model = rewritten
 
     profile = resolve_profile(model)
 
@@ -925,179 +942,3 @@ async def normalize_antigravity_request(
         result["generationConfig"] = generation_config
 
     return result
-
-
-# ==================== 请求构建 & Antigravity payload 准备 ====================
-# 以下函数原位于 app/services/antigravity_client.py，属于纯格式转换职责，
-# 现统一下沉到 converter 层，client 只保留 HTTP/流式/心跳逻辑。
-
-
-def build_gemini_request(
-    model: str,
-    contents: Any,
-    generation_config: Optional[Dict[str, Any]] = None,
-    system_instruction: Optional[Dict[str, Any]] = None,
-    tools: Optional[list] = None,
-    tool_config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    构建 Gemini 请求格式（按需添加可选字段）。
-
-    采用“存在才添加”而非“先全量再排除”的策略，避免把 None/空字段
-    透传给上游导致不必要的校验问题。
-    """
-    gemini_request: Dict[str, Any] = {
-        "model": model,
-        "contents": contents,
-        "generationConfig": generation_config or {},
-    }
-    if system_instruction:
-        gemini_request["systemInstruction"] = system_instruction
-    if tools:
-        gemini_request["tools"] = tools
-    if tool_config:
-        gemini_request["toolConfig"] = tool_config
-    return gemini_request
-
-
-def _extract_first_user_text(request_payload: Dict[str, Any]) -> str:
-    contents = request_payload.get("contents", [])
-    if not isinstance(contents, list):
-        return ""
-    for content in contents:
-        if not isinstance(content, dict) or content.get("role") != "user":
-            continue
-        parts = content.get("parts", [])
-        if not isinstance(parts, list):
-            continue
-        for part in parts:
-            if isinstance(part, dict) and part.get("text"):
-                return str(part["text"])
-    return ""
-
-
-def _generate_stable_session_id(request_payload: Dict[str, Any]) -> str:
-    first_user_text = _extract_first_user_text(request_payload)
-    if first_user_text:
-        digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
-        value = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
-        return f"-{value}"
-
-    value = uuid.uuid4().int % 9_000_000_000_000_000_000
-    return f"-{value}"
-
-
-def _ensure_antigravity_session_id(payload: Dict[str, Any], model_name: str) -> None:
-    if "image" in (model_name or "").lower():
-        return
-
-    request_payload = payload.get("request")
-    if not isinstance(request_payload, dict):
-        return
-
-    if request_payload.get("sessionId"):
-        return
-
-    request_payload["sessionId"] = _generate_stable_session_id(request_payload)
-
-
-def _build_labels(model_name: str, trajectory_id: str, step: int) -> Dict[str, str]:
-    used_claude = "claude" in (model_name or "").lower()
-    return {
-        "last_step_index": str(step),
-        "model_enum": model_name or "",
-        "trajectory_id": trajectory_id,
-        "used_claude": str(used_claude).lower(),
-        "used_claude_conservative": str(used_claude).lower(),
-    }
-
-
-def prepare_antigravity_payload(payload: Dict[str, Any], model_name: str) -> Dict[str, Any]:
-    """
-    对 Antigravity 上游 payload 做最终的格式准备：
-    - 设置 userAgent / requestType / requestId
-    - 确保 sessionId / labels
-    - 移除 safetySettings（由 normalize 阶段统一覆盖）
-    - 规范化 toolConfig
-    """
-    payload = copy.deepcopy(payload)
-    if "image" in (model_name or "").lower():
-        payload["requestType"] = "image_gen"
-        payload.setdefault(
-            "requestId",
-            f"image_gen/{int(datetime.now(timezone.utc).timestamp() * 1000)}/{uuid.uuid4()}/12",
-        )
-    else:
-        payload["requestType"] = "agent"
-        trajectory_id = str(uuid.uuid4())
-        step = 1
-        payload.setdefault(
-            "requestId",
-            f"agent/{uuid.uuid4()}/{int(datetime.now(timezone.utc).timestamp() * 1000)}/{trajectory_id}/{step}",
-        )
-
-    request_payload = payload.get("request")
-    if not isinstance(request_payload, dict):
-        return payload
-
-    _ensure_antigravity_session_id(payload, model_name)
-    request_payload.pop("safetySettings", None)
-
-    if "image" not in (model_name or "").lower() and not request_payload.get("labels"):
-        request_payload["labels"] = _build_labels(
-            model_name,
-            str(request_payload.get("sessionId") or trajectory_id),
-            step,
-        )
-
-    # tools 已在 normalize_antigravity_request 阶段统一规范化，此处不再重复处理
-
-    if "image" not in (model_name or "").lower():
-        tool_config = request_payload.get("toolConfig")
-        if not isinstance(tool_config, dict):
-            tool_config = {}
-            request_payload["toolConfig"] = tool_config
-
-        function_config = tool_config.get("functionCallingConfig")
-        if not isinstance(function_config, dict):
-            function_config = {}
-            tool_config["functionCallingConfig"] = function_config
-
-        function_config["mode"] = "VALIDATED"
-
-    return payload
-
-
-async def build_antigravity_payload(
-    model: str,
-    contents: Any,
-    generation_config: Optional[Dict[str, Any]] = None,
-    system_instruction: Optional[Dict[str, Any]] = None,
-    tools: Optional[list] = None,
-    tool_config: Optional[Dict[str, Any]] = None,
-    *,
-    project_id: str = "",
-) -> Tuple[str, Dict[str, Any]]:
-    """
-    一站式构建 Antigravity 上游 payload。
-
-    串联三个步骤：
-      build_gemini_request → normalize_antigravity_request → prepare_antigravity_payload
-    并合并 client 侧 build_request_payload 的 project 逻辑。
-
-    Returns:
-        (final_model, payload) — 最终模型名（经过映射）与可直接发送的上游 payload。
-    """
-    gemini_request = build_gemini_request(
-        model, contents, generation_config, system_instruction, tools, tool_config
-    )
-    normalized = await normalize_antigravity_request(gemini_request)
-    final_model = normalized.pop("model")
-
-    payload: Dict[str, Any] = {
-        "model": final_model,
-        "project": project_id,
-        "request": normalized,
-    }
-
-    return final_model, prepare_antigravity_payload(payload, final_model)

@@ -7,6 +7,7 @@ Centralizes all configuration to avoid duplication across modules.
 """
 
 import ipaddress
+import json
 import os
 import re
 from typing import Any, Optional
@@ -44,6 +45,8 @@ ENV_MAPPINGS = {
     "SENSITIVE_WORDS_ENABLED": "sensitive_words_enabled",
     "IP_WHITELIST": "ip_whitelist",
     "IP_WHITELIST_ENABLED": "ip_whitelist_enabled",
+    "MODEL_REWRITE_ENABLED": "model_rewrite_enabled",
+    "MODEL_REWRITE_RULES": "model_rewrite_rules",
     "USAGE_LOG_ENABLED": "usage_log_enabled",
     "CREDENTIAL_SELECT_MODE": "credential_select_mode",
     "HOST": "host",
@@ -523,6 +526,138 @@ async def get_ip_whitelist_rules():
     if invalid:
         log.warning(f"IP 白名单中存在无效条目（已跳过）: {invalid}")
     return bool(rules), rules
+
+
+# ====================== 模型名复写 ======================
+
+# 模型名复写规则缓存: (指纹, (编译后的规则列表, 无效规则列表))
+_model_rewrite_cache: dict = {"fingerprint": None, "result": ([], [])}
+
+
+async def get_model_rewrite_enabled() -> bool:
+    """
+    模型名复写开关。
+
+    Environment variable: MODEL_REWRITE_ENABLED
+    Database config key: model_rewrite_enabled
+    Default: False
+    """
+    env_value = os.getenv("MODEL_REWRITE_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("model_rewrite_enabled", False))
+
+
+async def get_model_rewrite_rules_config() -> list:
+    """
+    模型名复写规则列表，每条为 [pattern, replacement]。
+
+    pattern 支持正则（对模型名做全匹配搜索，命中任意一处即替换），
+    replacement 中可使用正则反向引用（如 \\1）。
+
+    Environment variable: MODEL_REWRITE_RULES (JSON 数组，如 [["gpt-4","gemini-2.5-pro"]]；也支持 "pat->rep" 逗号分隔的简化格式)
+    Database config key: model_rewrite_rules
+    Default: []
+    """
+    env_value = os.getenv("MODEL_REWRITE_RULES")
+    if env_value is not None and env_value.strip():
+        parsed = _parse_model_rewrite_rules_value(env_value)
+        if parsed is not None:
+            return parsed
+
+    value = await get_config_value("model_rewrite_rules")
+    return _parse_model_rewrite_rules_value(value) or []
+
+
+def _parse_model_rewrite_rules_value(value: Any) -> Optional[list]:
+    """将配置值解析为 [[pattern, replacement], ...]；无法解析时返回 None"""
+    if isinstance(value, list):
+        rules = []
+        for item in value:
+            if isinstance(item, (list, tuple)) and len(item) == 2 and all(isinstance(x, str) for x in item):
+                rules.append([item[0], item[1]])
+            elif isinstance(item, dict) and isinstance(item.get("pattern"), str) and isinstance(item.get("replacement"), str):
+                rules.append([item["pattern"], item["replacement"]])
+        return rules
+    if isinstance(value, str) and value.strip():
+        # 优先尝试 JSON 数组格式（环境变量推荐格式）
+        if value.strip().startswith("["):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    inner = _parse_model_rewrite_rules_value(parsed)
+                    if inner is not None:
+                        return inner
+            except (json.JSONDecodeError, ValueError):
+                pass
+        # 兼容 "pat->rep,pat->rep" 简化格式
+        rules = []
+        for pair in value.split(","):
+            pair = pair.strip()
+            if "->" in pair:
+                pat, _, rep = pair.partition("->")
+                rules.append([pat.strip(), rep.strip()])
+        return rules or None
+    return None
+
+
+def compile_model_rewrite_rules(rules: list):
+    """
+    编译复写规则为 (pattern, replacement) 元组列表（带缓存）。
+
+    Returns:
+        (compiled, invalid)——invalid 为编译失败的原始规则。
+    """
+    fingerprint = tuple(tuple(r) for r in rules)
+    if _model_rewrite_cache["fingerprint"] == fingerprint:
+        return _model_rewrite_cache["result"]
+
+    compiled = []
+    invalid = []
+    for rule in rules:
+        if not (isinstance(rule, (list, tuple)) and len(rule) == 2):
+            continue
+        pattern, replacement = rule[0], rule[1]
+        try:
+            compiled.append((re.compile(str(pattern)), str(replacement)))
+        except re.error:
+            invalid.append(rule)
+
+    result = (compiled, invalid)
+    _model_rewrite_cache["fingerprint"] = fingerprint
+    _model_rewrite_cache["result"] = result
+    return result
+
+
+def rewrite_model_name(model_name: str, compiled_rules: list) -> str:
+    """
+    按规则顺序应用模型名复写（命中第一条即停止）。
+
+    使用 re.sub 全字符串搜索替换；replacement 支持 \\1 等反向引用。
+    """
+    for pattern, replacement in compiled_rules:
+        if pattern.search(model_name):
+            return pattern.sub(replacement, model_name)
+    return model_name
+
+
+async def get_model_rewrite_filter():
+    """
+    获取生效的模型名复写规则（供请求处理管道调用）。
+
+    Returns:
+        (enabled, compiled_rules)；未启用时 compiled_rules 为空列表。
+    """
+    if not await get_model_rewrite_enabled():
+        return False, []
+    rules = await get_model_rewrite_rules_config()
+    if not rules:
+        return False, []
+    compiled, invalid = compile_model_rewrite_rules(rules)
+    if invalid:
+        log.warning(f"模型名复写规则中存在无效正则（已跳过）: {invalid}")
+    return bool(compiled), compiled
 
 
 # ====================== 请求日志 ======================
