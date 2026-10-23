@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Select from "../components/Select";
 import api from "../api";
 
 export default function Credentials() {
@@ -325,72 +326,74 @@ export default function Credentials() {
 
       {/* 筛选器 */}
       <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 text-sm">
-        <select
+        <Select
           value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
+          onChange={(v) => {
+            setStatusFilter(v);
             setPage(1);
           }}
-          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
-        >
-          <option value="all">全部凭证</option>
-          <option value="enabled">仅启用</option>
-          <option value="disabled">仅禁用</option>
-        </select>
-        <select
+          className="w-full sm:w-32"
+          options={[
+            { value: "all", label: "全部凭证" },
+            { value: "enabled", label: "仅启用" },
+            { value: "disabled", label: "仅禁用" },
+          ]}
+        />
+        <Select
           value={errorCodeFilter}
-          onChange={(e) => {
-            setErrorCodeFilter(e.target.value);
+          onChange={(v) => {
+            setErrorCodeFilter(v);
             setPage(1);
           }}
-          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
-        >
-          <option value="all">错误码: 全部</option>
-          <option value="none">无错误</option>
-          <option value="400">400</option>
-          <option value="403">403</option>
-          <option value="429">429</option>
-          <option value="500">500</option>
-        </select>
-        <select
+          className="w-full sm:w-32"
+          options={[
+            { value: "all", label: "错误码: 全部" },
+            { value: "none", label: "无错误" },
+            { value: "400", label: "400" },
+            { value: "403", label: "403" },
+            { value: "429", label: "429" },
+            { value: "500", label: "500" },
+          ]}
+        />
+        <Select
           value={cooldownFilter}
-          onChange={(e) => {
-            setCooldownFilter(e.target.value);
+          onChange={(v) => {
+            setCooldownFilter(v);
             setPage(1);
           }}
-          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
-        >
-          <option value="all">冷却: 全部</option>
-          <option value="in_cooldown">CD中</option>
-          <option value="no_cooldown">未CD</option>
-        </select>
-        <select
+          className="w-full sm:w-32"
+          options={[
+            { value: "all", label: "冷却: 全部" },
+            { value: "in_cooldown", label: "CD中" },
+            { value: "no_cooldown", label: "未CD" },
+          ]}
+        />
+        <Select
           value={tierFilter}
-          onChange={(e) => {
-            setTierFilter(e.target.value);
+          onChange={(v) => {
+            setTierFilter(v);
             setPage(1);
           }}
-          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
-        >
-          <option value="all">Tier: 全部</option>
-          <option value="free">Free</option>
-          <option value="pro">Pro</option>
-          <option value="ultra">Ultra</option>
-        </select>
-        <select
+          className="w-full sm:w-32"
+          options={[
+            { value: "all", label: "Tier: 全部" },
+            { value: "free", label: "Free" },
+            { value: "pro", label: "Pro" },
+            { value: "ultra", label: "Ultra" },
+          ]}
+        />
+        <Select
           value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value));
+          onChange={(v) => {
+            setPageSize(Number(v));
             setPage(1);
           }}
-          className="w-full sm:w-32 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm"
-        >
-          {[20, 50, 100, 200, 500, 1000].map((n) => (
-            <option key={n} value={n}>
-              每页 {n}
-            </option>
-          ))}
-        </select>
+          className="w-full sm:w-32"
+          options={[20, 50, 100, 200, 500, 1000].map((n) => ({
+            value: n,
+            label: `每页 ${n}`,
+          }))}
+        />
       </div>
 
       {/* 批量操作 */}
