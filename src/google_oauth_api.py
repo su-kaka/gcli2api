@@ -13,8 +13,6 @@ import jwt
 from config import (
     get_googleapis_proxy_url,
     get_oauth_proxy_url,
-    get_resource_manager_api_url,
-    get_service_usage_api_url,
 )
 from log import log
 
@@ -402,135 +400,6 @@ async def validate_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def enable_required_apis(credentials: Credentials, project_id: str) -> bool:
-    """自动启用必需的API服务"""
-    try:
-        # 确保凭证有效
-        if credentials.is_expired() and credentials.refresh_token:
-            await credentials.refresh()
-
-        headers = {
-            "Authorization": f"Bearer {credentials.access_token}",
-            "Content-Type": "application/json",
-            "User-Agent": "geminicli-oauth/1.0",
-        }
-
-        # 需要启用的服务列表
-        required_services = [
-            "geminicloudassist.googleapis.com",  # Gemini Cloud Assist API
-            "cloudaicompanion.googleapis.com",  # Gemini for Google Cloud API
-        ]
-
-        for service in required_services:
-            log.info(f"正在检查并启用服务: {service}")
-
-            # 检查服务是否已启用
-            service_usage_base_url = await get_service_usage_api_url()
-            check_url = (
-                f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}"
-            )
-            try:
-                check_response = await get_async(check_url, headers=headers)
-                if check_response.status_code == 200:
-                    service_data = check_response.json()
-                    if service_data.get("state") == "ENABLED":
-                        log.info(f"服务 {service} 已启用")
-                        continue
-            except Exception as e:
-                log.debug(f"检查服务状态失败，将尝试启用: {e}")
-
-            # 启用服务
-            enable_url = f"{service_usage_base_url.rstrip('/')}/v1/projects/{project_id}/services/{service}:enable"
-            try:
-                enable_response = await post_async(enable_url, headers=headers, json={})
-
-                if enable_response.status_code in [200, 201]:
-                    log.info(f"✅ 成功启用服务: {service}")
-                elif enable_response.status_code == 400:
-                    error_data = enable_response.json()
-                    if "already enabled" in error_data.get("error", {}).get("message", "").lower():
-                        log.info(f"✅ 服务 {service} 已经启用")
-                    else:
-                        log.warning(f"⚠️ 启用服务 {service} 时出现警告: {error_data}")
-                else:
-                    log.warning(
-                        f"⚠️ 启用服务 {service} 失败: {enable_response.status_code} - {enable_response.text}"
-                    )
-
-            except Exception as e:
-                log.warning(f"⚠️ 启用服务 {service} 时发生异常: {e}")
-
-        return True
-
-    except Exception as e:
-        log.error(f"启用API服务时发生错误: {e}")
-        return False
-
-
-async def get_user_projects(credentials: Credentials) -> List[Dict[str, Any]]:
-    """获取用户可访问的Google Cloud项目列表"""
-    try:
-        # 确保凭证有效
-        if credentials.is_expired() and credentials.refresh_token:
-            await credentials.refresh()
-
-        headers = {
-            "Authorization": f"Bearer {credentials.access_token}",
-            "User-Agent": "geminicli-oauth/1.0",
-        }
-
-        # 使用Resource Manager API的正确域名和端点
-        resource_manager_base_url = await get_resource_manager_api_url()
-        url = f"{resource_manager_base_url.rstrip('/')}/v1/projects"
-        log.info(f"正在调用API: {url}")
-        response = await get_async(url, headers=headers)
-
-        log.info(f"API响应状态码: {response.status_code}")
-        if response.status_code != 200:
-            log.error(f"API响应内容: {response.text}")
-
-        if response.status_code == 200:
-            data = response.json()
-            projects = data.get("projects", [])
-            # 只返回活跃的项目
-            active_projects = [
-                project for project in projects if project.get("lifecycleState") == "ACTIVE"
-            ]
-            log.info(f"获取到 {len(active_projects)} 个活跃项目")
-            return active_projects
-        else:
-            log.warning(f"获取项目列表失败: {response.status_code} - {response.text}")
-            return []
-
-    except Exception as e:
-        log.error(f"获取用户项目列表失败: {e}")
-        return []
-
-
-async def select_default_project(projects: List[Dict[str, Any]]) -> Optional[str]:
-    """从项目列表中选择默认项目"""
-    if not projects:
-        return None
-
-    # 策略1：查找显示名称或项目ID包含"default"的项目
-    for project in projects:
-        display_name = project.get("displayName", "").lower()
-        # Google API returns projectId in camelCase
-        project_id = project.get("projectId", "")
-        if "default" in display_name or "default" in project_id.lower():
-            log.info(f"选择默认项目: {project_id} ({project.get('displayName', project_id)})")
-            return project_id
-
-    # 策略2：选择第一个项目
-    first_project = projects[0]
-    # Google API returns projectId in camelCase
-    project_id = first_project.get("projectId", "")
-    log.info(
-        f"选择第一个项目作为默认: {project_id} ({first_project.get('displayName', project_id)})"
-    )
-    return project_id
-
-
 async def fetch_project_id_and_tier(
     access_token: str,
     user_agent: str,
@@ -563,7 +432,6 @@ async def fetch_project_id_and_tier(
         tier_mapping = {
             "g1-ultra-tier": "ultra",
             "g1-pro-tier": "pro",
-            "standard-tier": "free",
             "free-tier": "free",
         }
 
