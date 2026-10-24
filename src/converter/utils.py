@@ -108,11 +108,14 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
     remaining_messages = []
     collecting_system = True
 
+    # developer 角色与 system 同语义处理（OpenAI 新版指令角色），上游仅支持 user/model
+    instruction_roles = ("system", "developer")
+
     for message in messages:
         role = message.get("role", "")
         content = message.get("content", "")
 
-        if role == "system" and collecting_system:
+        if role in instruction_roles and collecting_system:
             # 提取 system 消息的文本内容
             if isinstance(content, str):
                 if content.strip():
@@ -128,7 +131,7 @@ async def merge_system_messages(request_body: Dict[str, Any]) -> Dict[str, Any]:
         else:
             # 遇到非 system 消息，停止收集
             collecting_system = False
-            if role == "system":
+            if role in instruction_roles:
                 # 将后续的 system 消息转换为 user 消息
                 converted_message = message.copy()
                 converted_message["role"] = "user"

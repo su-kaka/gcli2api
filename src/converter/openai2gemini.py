@@ -1334,8 +1334,8 @@ async def convert_openai_to_gemini_request(openai_request: Dict[str, Any]) -> Di
         # 遇到非 tool 消息时，先 flush 累积的 tool parts
         flush_pending_tool_parts()
 
-        # system 消息已经由 merge_system_messages 处理，这里跳过
-        if role == "system":
+        # system/developer 消息已经由 merge_system_messages 处理，这里跳过
+        if role in ("system", "developer"):
             continue
 
         # 将OpenAI角色映射到Gemini角色
