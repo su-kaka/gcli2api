@@ -1,4 +1,4 @@
-full_hash=9e546600952a08cb0144b25aa838a77da4e21285
-short_hash=9e54660
-message=log改为无状态函数 删除无用的task_manager
-date=2026-10-23 23:58:29 +0800
+full_hash=7ed9b38c2e3f1adf553336675e1cc3b7915de538
+short_hash=7ed9b38
+message=详细日志开关
+date=2026-10-24 12:14:03 +0800
