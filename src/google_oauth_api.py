@@ -425,17 +425,19 @@ async def fetch_project_id_and_tier(
     }
 
     def _map_raw_tier(raw_tier: Optional[str]) -> Optional[str]:
-        """将 loadCodeAssist 返回的 raw tier 映射为统一 tier。"""
+        """将 loadCodeAssist 返回的 raw tier 按关键词映射为统一 tier。"""
         if not raw_tier:
             return None
 
-        tier_mapping = {
-            "g1-ultra-tier": "ultra",
-            "g1-pro-tier": "pro",
-            "free-tier": "free",
-        }
+        lowered = raw_tier.lower()
+        if "ultra" in lowered:
+            return "ultra"
+        if "pro" in lowered:
+            return "pro"
+        if "free" in lowered:
+            return "free"
 
-        return tier_mapping.get(raw_tier.lower(), "free")
+        return "free"
 
     subscription_tier = None
 
