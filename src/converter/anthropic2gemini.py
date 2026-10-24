@@ -454,8 +454,8 @@ def convert_messages_to_contents(
     for msg in messages:
         role = msg.get("role", "user")
         
-        # system 消息已经由 merge_system_messages 处理，这里跳过
-        if role == "system":
+        # system/developer 消息已经由 merge_system_messages 处理，这里跳过
+        if role in ("system", "developer"):
             continue
         
         # 支持 'assistant' 和 'model' 角色（Google history usage）
