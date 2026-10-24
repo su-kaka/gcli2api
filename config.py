@@ -48,6 +48,8 @@ ENV_MAPPINGS = {
     "MODEL_REWRITE_ENABLED": "model_rewrite_enabled",
     "MODEL_REWRITE_RULES": "model_rewrite_rules",
     "USAGE_LOG_ENABLED": "usage_log_enabled",
+    "REQUEST_LOG_ENABLED": "request_log_enabled",
+    "REQUEST_LOG_ERROR_CODES": "request_log_error_codes",
     "CREDENTIAL_SELECT_MODE": "credential_select_mode",
     "HOST": "host",
     "PORT": "port",
@@ -675,6 +677,42 @@ async def get_usage_log_enabled() -> bool:
         return env_value.lower() in ("true", "1", "yes", "on")
 
     return bool(await get_config_value("usage_log_enabled", True))
+
+
+async def get_request_log_enabled() -> bool:
+    """
+    请求体详细日志开关。
+
+    Environment variable: REQUEST_LOG_ENABLED
+    Database config key: request_log_enabled
+    Default: False
+    """
+    env_value = os.getenv("REQUEST_LOG_ENABLED")
+    if env_value:
+        return env_value.lower() in ("true", "1", "yes", "on")
+
+    return bool(await get_config_value("request_log_enabled", False))
+
+
+async def get_request_log_error_codes() -> list:
+    """
+    请求体详细日志记录的错误码列表（仅命中时写盘）。
+
+    Environment variable: REQUEST_LOG_ERROR_CODES (逗号分隔, 如 "400,429")
+    Database config key: request_log_error_codes
+    Default: [400]
+    """
+    env_value = os.getenv("REQUEST_LOG_ERROR_CODES")
+    if env_value:
+        try:
+            return [int(code.strip()) for code in env_value.split(",") if code.strip()]
+        except ValueError:
+            pass
+
+    codes = await get_config_value("request_log_error_codes")
+    if codes and isinstance(codes, list):
+        return codes
+    return [400]
 
 
 # ====================== 凭证选择模式 ======================

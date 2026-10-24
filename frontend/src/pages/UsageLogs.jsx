@@ -5,6 +5,7 @@ import {
   Clock,
   Cpu,
   Database,
+  FileText,
   Loader2,
   RefreshCw,
   Trash2,
@@ -30,6 +31,15 @@ function formatTokens(n) {
   return String(n);
 }
 
+function formatMaybeJson(text) {
+  if (typeof text !== "string") return JSON.stringify(text ?? null, null, 2);
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
 export default function UsageLogs() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -39,10 +49,13 @@ export default function UsageLogs() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
+  const [statusCodeFilter, setStatusCodeFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [message, setMessage] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [detailBody, setDetailBody] = useState(null);
+  const [detailBodyLoading, setDetailBodyLoading] = useState(false);
 
   // 时间范围（小时）
   const [rangeHours, setRangeHours] = useState(24);
@@ -57,6 +70,8 @@ export default function UsageLogs() {
       };
       if (formatFilter) params.api_format = formatFilter;
       if (modelFilter.trim()) params.model_name = modelFilter.trim();
+      const code = parseInt(statusCodeFilter, 10);
+      if (statusCodeFilter.trim() !== "" && Number.isInteger(code)) params.status_code = code;
       if (rangeHours > 0) params.start_timestamp = Math.floor(Date.now() / 1000) - rangeHours * 3600;
 
       const res = await api.get("/usage-logs/list", { params });
@@ -67,7 +82,7 @@ export default function UsageLogs() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, formatFilter, modelFilter, rangeHours]);
+  }, [page, pageSize, statusFilter, formatFilter, modelFilter, statusCodeFilter, rangeHours]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -96,10 +111,10 @@ export default function UsageLogs() {
   };
 
   const clearLogs = async () => {
-    if (!window.confirm("确定要清理 30 天前的日志吗？此操作不可恢复。")) return;
+    if (!window.confirm("确定要清理 3 天前的日志吗？此操作不可恢复。")) return;
     setClearing(true);
     try {
-      const res = await api.post("/usage-logs/clear", null, { params: { days: 30 } });
+      const res = await api.post("/usage-logs/clear", null, { params: { days: 3 } });
       setMessage({ type: "success", text: res.data.message || "清理成功" });
       refresh();
     } catch (err) {
@@ -124,6 +139,31 @@ export default function UsageLogs() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // 请求体详细日志：按索引从磁盘读取
+  const openRequestBody = async () => {
+    if (!detail?.request_log_file) return;
+    setDetailBodyLoading(true);
+    try {
+      const res = await api.get("/usage-logs/request-body", { params: { path: detail.request_log_file } });
+      setDetailBody(res.data);
+    } catch (err) {
+      // 文件可能已被清理或手动删除，仅在详情弹窗内提示，不弹全局错误
+      setDetailBody({ __missing: true, __message: err.response?.data?.detail || "详细日志文件不存在或已清理" });
+    } finally {
+      setDetailBodyLoading(false);
+    }
+  };
+
+  const copyDetailBody = async () => {
+    if (!detailBody || detailBody.__missing) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(detailBody, null, 2));
+      setMessage({ type: "success", text: "已复制详细日志 JSON" });
+    } catch {
+      setMessage({ type: "error", text: "复制失败" });
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -177,7 +217,7 @@ export default function UsageLogs() {
         </button>
         <button onClick={clearLogs} disabled={clearing} className="btn btn-secondary text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-1.5">
           {clearing ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-          清理30天前日志
+          清理3天前日志
         </button>
         <button onClick={truncateLogs} disabled={clearing} className="btn btn-danger text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-1.5">
           <Trash2 size={15} />
@@ -234,6 +274,13 @@ export default function UsageLogs() {
           placeholder="模型名筛选"
           className="w-full sm:w-40 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm placeholder-gray-500"
         />
+        <input
+          value={statusCodeFilter}
+          onChange={(e) => { setStatusCodeFilter(e.target.value); setPage(1); }}
+          placeholder="错误码筛选"
+          inputMode="numeric"
+          className="w-full sm:w-28 bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-xs sm:text-sm placeholder-gray-500"
+        />
         <Select
           value={pageSize}
           onChange={(v) => { setPageSize(Number(v)); setPage(1); }}
@@ -254,7 +301,7 @@ export default function UsageLogs() {
           {items.map((item) => (
             <button
               key={item.id}
-              onClick={() => setDetail(item)}
+              onClick={() => { setDetail(item); setDetailBody(null); }}
               className="card p-3 sm:p-4 w-full text-left hover:border-purple-500/40 transition-colors cursor-pointer"
             >
               <div className="flex items-start justify-between gap-2">
@@ -271,6 +318,7 @@ export default function UsageLogs() {
                         {item.api_format === "openai" ? "OpenAI" : item.api_format === "gemini" ? "Gemini" : item.api_format === "anthropic" ? "Claude" : item.api_format || "?"}
                       </span>
                       {item.is_stream && <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">流式</span>}
+                      {item.request_log_file && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">详细</span>}
                     </div>
                   <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                     <span className="flex items-center gap-1"><Clock size={11} />{formatTime(item.created_at)}</span>
@@ -351,7 +399,81 @@ export default function UsageLogs() {
                   </div>
                 </div>
               )}
+              {detail.request_log_file && (
+                <div className="pt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-gray-500">请求体详细日志</div>
+                    <button
+                      onClick={openRequestBody}
+                      disabled={detailBodyLoading}
+                      className="btn btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5"
+                    >
+                      {detailBodyLoading ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+                      查看详细内容
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    命中指定错误码时保存了发往上游的完整请求头与请求体，用于排查请求体错误（如 400）
+                  </p>
+                </div>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 请求体详细日志弹窗 */}
+      {detailBody && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70" onClick={() => setDetailBody(null)}>
+          <div className="card max-w-4xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {detailBody.__missing ? (
+              <div className="py-8 text-center text-sm text-gray-400">
+                <AlertTriangle size={28} className="mx-auto mb-3 text-amber-400" />
+                <div>{detailBody.__message}</div>
+                <div className="text-xs text-gray-500 mt-2">磁盘上的详细日志文件可能已被清理或手动删除</div>
+              </div>
+            ) : (
+              <>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-purple-400">请求体详细日志</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={copyDetailBody} className="btn btn-secondary text-xs px-3 py-1.5">
+                  复制 JSON
+                </button>
+                <button onClick={() => setDetailBody(null)} className="text-gray-400 hover:text-white">✕</button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              命中指定错误码时保存，用于排查请求体错误：完整记录发往上游的请求头（已脱敏）与请求体。响应体为上游返回的原始错误。
+            </p>
+            <div className="space-y-3 text-xs">
+              <div>
+                <div className="text-gray-400 mb-1">请求 URL</div>
+                <pre className="bg-dark-800 border border-dark-600 rounded-lg p-2.5 overflow-x-auto text-gray-200 whitespace-pre-wrap break-all">{detailBody.url || "-"}</pre>
+              </div>
+              <div>
+                <div className="text-gray-400 mb-1">请求头（已脱敏）</div>
+                <pre className="bg-dark-800 border border-dark-600 rounded-lg p-2.5 overflow-x-auto text-gray-200">{JSON.stringify(detailBody.request_headers || {}, null, 2)}</pre>
+              </div>
+              <div>
+                <div className="text-gray-400 mb-1">请求体</div>
+                <pre className="bg-dark-800 border border-dark-600 rounded-lg p-2.5 overflow-x-auto text-gray-200">{JSON.stringify(detailBody.request_body ?? {}, null, 2)}</pre>
+              </div>
+              {detailBody.response_body && (
+                <div>
+                  <div className="text-gray-400 mb-1">上游响应</div>
+                  <pre className="bg-dark-800 border border-dark-600 rounded-lg p-2.5 overflow-x-auto text-gray-200 whitespace-pre-wrap break-all">{formatMaybeJson(detailBody.response_body)}</pre>
+                </div>
+              )}
+              {detailBody.error_message && (
+                <div>
+                  <div className="text-gray-400 mb-1">错误摘要</div>
+                  <pre className="bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 overflow-x-auto text-red-300 whitespace-pre-wrap break-all">{detailBody.error_message}</pre>
+                </div>
+              )}
+            </div>
+              </>
+            )}
           </div>
         </div>
       )}

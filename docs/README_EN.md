@@ -65,7 +65,7 @@ bash start.sh
 
 **Docker Run Command**
 ```bash
-docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/agy2api:latest
+docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds -v $(pwd)/data/request_logs:/app/data/request_logs ghcr.io/su-kaka/agy2api:latest
 ```
 
 **Docker Mac**
@@ -78,6 +78,7 @@ docker run -d \
   -e PANEL_PASSWORD=panel_pwd \
   -e PORT=7861 \
   -v "$(pwd)/data/creds":/app/creds \
+  -v "$(pwd)/data/request_logs":/app/data/request_logs \
   ghcr.io/su-kaka/agy2api:latest
 ```
 
@@ -99,6 +100,7 @@ docker run -d \
           - PORT=7861
         volumes:
           - ./data/creds:/app/creds
+          - ./data/request_logs:/app/data/request_logs
         healthcheck:
           test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('API_PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
           interval: 30s
@@ -344,6 +346,10 @@ Import/export uses a standardized JSON format: `{"refresh_token": "...", "email"
 
 **Usage Log**
 - `USAGE_LOG_ENABLED`: Enable request logging (default: true). Records every API request (model, credential, token usage, latency, status) to the database. No automatic cleanup; use the panel to clear logs manually
+
+**Request Body Debug Log**
+- `REQUEST_LOG_ENABLED`: Enable request body debug logging (default: false). When enabled and the final status code matches the configured codes, the full request headers (redacted) and body sent upstream are saved as JSON files under `data/request_logs/`. Only the file index is stored in the database; view it from the request log detail modal. Mainly for debugging request body errors (e.g. 400); clearing/truncating logs also deletes these files (mount `./data/request_logs:/app/data/request_logs` in Docker to persist)
+- `REQUEST_LOG_ERROR_CODES`: Status codes that trigger debug logging, comma separated (default: 400)
 
 **Credential Select Mode**
 - `CREDENTIAL_SELECT_MODE`: Credential selection mode (default: cache)

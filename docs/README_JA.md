@@ -63,7 +63,7 @@ bash start.sh
 
 **Docker Runコマンド**
 ```bash
-docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds ghcr.io/su-kaka/agy2api:latest
+docker run -d --name agy2api --network host -e API_PASSWORD=api_pwd -e PANEL_PASSWORD=panel_pwd -e PORT=7861 -v $(pwd)/data/creds:/app/creds -v $(pwd)/data/request_logs:/app/data/request_logs ghcr.io/su-kaka/agy2api:latest
 ```
 
 **Docker Mac**
@@ -76,6 +76,7 @@ docker run -d \
 -e PANEL_PASSWORD=panel_pwd \
 -e PORT=7861 \
 -v $(pwd)/data/creds:/app/creds \
+-v $(pwd)/data/request_logs:/app/data/request_logs \
 ghcr.io/su-kaka/agy2api:latest
 ```
 
@@ -97,6 +98,7 @@ ghcr.io/su-kaka/agy2api:latest
           - PORT=7861
         volumes:
           - ./data/creds:/app/creds
+          - ./data/request_logs:/app/data/request_logs
         healthcheck:
           test: ["CMD-SHELL", "python -c \"import sys, urllib.request, os; port = os.environ.get('PORT', '7861'); req = urllib.request.Request(f'http://localhost:{port}/v1/models', headers={'Authorization': 'Bearer ' + os.environ.get('API_PASSWORD', 'pwd')}); sys.exit(0 if urllib.request.urlopen(req, timeout=5).getcode() == 200 else 1)\""]
           interval: 30s
@@ -340,6 +342,10 @@ agy2apiは2つのストレージバックエンドに対応: **ローカルSQLit
 
 **使用ログ**
 - `USAGE_LOG_ENABLED`: リクエストログの有効化（デフォルト: true）。すべてのAPIリクエスト（モデル、クレデンシャル、トークン使用量、レイテンシ、ステータス）をデータベースに記録。自動削除なし、パネルから手動クリア可能
+
+**リクエストボディデバッグログ**
+- `REQUEST_LOG_ENABLED`: リクエストボディ詳細ログの有効化（デフォルト: false）。有効化すると、最終ステータスコードが指定コードに一致した場合、上流へ送信した完全なリクエストヘッダー（マスク済み）とボディを JSON ファイルとして `data/request_logs/` に保存。データベースにはファイル索引のみ記録し、リクエストログ詳細から閲覧可能。主にリクエストボディエラー（例: 400）のデバッグ用。ログのクリア/全削除時にこれらのファイルも削除（Docker では `./data/request_logs:/app/data/request_logs` をマウントして永続化）
+- `REQUEST_LOG_ERROR_CODES`: デバッグログを記録するステータスコードリスト、カンマ区切り（デフォルト: 400）
 
 **クレデンシャル選択モード**
 - `CREDENTIAL_SELECT_MODE`: クレデンシャル選択モード（デフォルト: cache）

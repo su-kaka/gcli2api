@@ -22,3 +22,4 @@ services:
       # - PROXY=${PROXY}
     volumes:
       - ./data/creds:/app/creds
+      - ./data/request_logs:/app/data/request_logs

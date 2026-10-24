@@ -110,6 +110,8 @@ const CONFIG_GROUPS = [
     title: "请求日志",
     fields: [
       { key: "usage_log_enabled", label: "启用请求日志", type: "bool", note: "记录每次 API 请求（模型、凭证、token 用量、耗时、状态）到数据库，在\"请求日志\"页面查看。日志不自动清理，可在该页面手动清理或清空" },
+      { key: "request_log_enabled", label: "启用请求体详细日志", type: "bool", note: "开启后，当请求命中下方错误码时，把发往上游的完整请求头（已脱敏）与请求体保存为 JSON 文件（data/request_logs/）。主要用于请求体错误时排查 debug；清理/清空日志时会同步删除这些文件" },
+      { key: "request_log_error_codes", label: "详细日志错误码", type: "csv_numbers", showIf: (cfg) => !!cfg.request_log_enabled, note: "仅当最终响应状态码命中此列表时记录详细日志，逗号分隔，如 400, 429。留空默认只记录 400", placeholder: "400, 429" },
     ],
   },
 ];
@@ -243,6 +245,25 @@ export default function Config() {
             </div>
           )}
         </div>
+      );
+    }
+
+    if (field.type === "csv_numbers") {
+      const text = Array.isArray(value) ? value.join(", ") : value || "";
+      return (
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => {
+            const nums = e.target.value
+              .split(/[,\s]+/)
+              .map((x) => parseInt(x, 10))
+              .filter((n) => Number.isInteger(n) && n >= 100 && n <= 599);
+            setField(field.key, [...new Set(nums)]);
+          }}
+          placeholder={field.placeholder}
+          className="w-full sm:w-64 px-3 py-2 bg-dark-800 border border-dark-600 rounded-lg text-sm text-white placeholder-gray-500 font-mono"
+        />
       );
     }
 

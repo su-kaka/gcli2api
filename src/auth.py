@@ -7,6 +7,7 @@ import socket
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
@@ -70,28 +71,25 @@ def _cleanup_auth_flow_server(state: str):
         del auth_flows[state]
 
 
-class _OAuthLibPatcher:
-    """oauthlib参数验证补丁的上下文管理器"""
-    def __init__(self):
-        import oauthlib.oauth2.rfc6749.parameters
-        self.module = oauthlib.oauth2.rfc6749.parameters
-        self.original_validate = None
+@contextmanager
+def _patch_oauthlib_validation():
+    """临时放宽 oauthlib 的 token 参数验证（Warning 不再中断），退出时恢复"""
+    import oauthlib.oauth2.rfc6749.parameters
 
-    def __enter__(self):
-        self.original_validate = self.module.validate_token_parameters
+    module = oauthlib.oauth2.rfc6749.parameters
+    original_validate = module.validate_token_parameters
 
-        def patched_validate(params):
-            try:
-                return self.original_validate(params)
-            except Warning:
-                pass
+    def patched_validate(params):
+        try:
+            return original_validate(params)
+        except Warning:
+            pass
 
-        self.module.validate_token_parameters = patched_validate
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.original_validate:
-            self.module.validate_token_parameters = self.original_validate
+    module.validate_token_parameters = patched_validate
+    try:
+        yield
+    finally:
+        module.validate_token_parameters = original_validate
 
 
 # 全局状态管理 - 严格限制大小
@@ -554,7 +552,7 @@ async def asyncio_complete_auth_flow(
         log.info(f"开始使用授权码获取凭证: code={'***' + auth_code[-4:] if auth_code else 'None'}")
 
         # 使用认证代码获取凭证
-        with _OAuthLibPatcher():
+        with _patch_oauthlib_validation():
             try:
                 log.info("调用flow.exchange_code...")
                 credentials = await flow.exchange_code(auth_code)

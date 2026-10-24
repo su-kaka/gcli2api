@@ -1,8 +1,10 @@
 """
 请求日志路由模块 - 处理 /usage-logs/* 相关的HTTP请求
-查询 usage_log 表：分页列表、聚合统计、清理
+查询 usage_log 表：分页列表、聚合统计、清理、请求体详细日志读取
 """
 
+import asyncio
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from config import get_usage_log_enabled
 from log import log
+from src.request_body_log import clear_request_body_logs, read_request_body_log
 from src.storage.database import get_database
 from src.usage_log import clear_usage_logs
 from src.utils import verify_panel_token
@@ -31,6 +34,7 @@ async def get_usage_logs(
     api_format: str = "",
     status: str = "all",
     is_stream: Optional[bool] = None,
+    status_code: Optional[int] = None,
 ):
     """分页查询请求日志（新 -> 旧）"""
     try:
@@ -50,6 +54,7 @@ async def get_usage_logs(
             api_format=api_format.strip(),
             status=status,
             is_stream=is_stream,
+            status_code=status_code,
         )
         return JSONResponse(content={"items": items, "total": total})
     except HTTPException:
@@ -94,11 +99,24 @@ async def clear_logs(
         if days < 0:
             raise HTTPException(status_code=400, detail="天数不能为负数")
         if days == 0:
-            # 0 = 删除所有（cutoff = now）
+            # 0 = 删除所有（cutoff = now），同步清空请求体详细日志文件
             deleted = await clear_usage_logs(0)
-            return JSONResponse(content={"message": "已清理全部日志", "deleted": deleted})
+            files_deleted = await asyncio.to_thread(clear_request_body_logs)
+            return JSONResponse(content={
+                "message": "已清理全部日志",
+                "deleted": deleted,
+                "files_deleted": files_deleted,
+            })
         deleted = await clear_usage_logs(days)
-        return JSONResponse(content={"message": f"已清理 {days} 天前的日志", "deleted": deleted})
+        # 同步删除 N 天前的请求体详细日志文件
+        files_deleted = await asyncio.to_thread(
+            clear_request_body_logs, time.time() - days * 86400
+        )
+        return JSONResponse(content={
+            "message": f"已清理 {days} 天前的日志",
+            "deleted": deleted,
+            "files_deleted": files_deleted,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -126,12 +144,34 @@ async def truncate_logs(token: str = Depends(verify_panel_token)):
         async with database._engine.begin() as conn:
             await conn.run_sync(database._create_tables)
 
+        # 同步清空全部请求体详细日志文件
+        files_deleted = await asyncio.to_thread(clear_request_body_logs)
+
         return JSONResponse(content={
             "message": "已清空全部日志（表已重建）",
             "deleted": total,
+            "files_deleted": files_deleted,
         })
     except Exception as e:
         log.error(f"清空日志失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/request-body")
+async def get_request_body_log(
+    path: str,
+    token: str = Depends(verify_panel_token),
+):
+    """按文件索引从磁盘读取请求体详细日志（JSON）"""
+    try:
+        data = await asyncio.to_thread(read_request_body_log, path)
+        if data is None:
+            raise HTTPException(status_code=404, detail="详细日志文件不存在或已清理")
+        return JSONResponse(content=data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"读取请求体详细日志失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

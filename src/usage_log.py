@@ -74,7 +74,8 @@ async def record_usage_log(entry: Dict[str, Any]) -> None:
 
     必要字段: model_name, success
     可选字段: api_format, client_ip, request_id, credential_email, is_stream,
-              status_code, use_time, prompt_tokens, completion_tokens, total_tokens, error_message
+              status_code, use_time, prompt_tokens, completion_tokens, total_tokens, error_message,
+              request_log_file（请求体详细日志的磁盘文件索引，空=未记录）
     """
     try:
         import config

@@ -18,6 +18,10 @@ export default defineConfig({
         target: "http://localhost:7861",
         changeOrigin: true,
       },
+      "/usage-logs": {
+        target: "http://localhost:7861",
+        changeOrigin: true,
+      },
       "/logs": {
         target: "http://localhost:7861",
         changeOrigin: true,

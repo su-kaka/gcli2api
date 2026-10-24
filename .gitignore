@@ -6,6 +6,7 @@
 *.toml
 !pyproject.toml
 creds/
+data/
 CLAUDE.md
 GEMINI.md
 .kiro

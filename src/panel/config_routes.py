@@ -68,6 +68,10 @@ async def get_config(token: str = Depends(verify_panel_token)):
         # 请求日志配置
         current_config["usage_log_enabled"] = await config.get_usage_log_enabled()
 
+        # 请求体详细日志配置
+        current_config["request_log_enabled"] = await config.get_request_log_enabled()
+        current_config["request_log_error_codes"] = await config.get_request_log_error_codes()
+
         # 凭证选择模式
         current_config["credential_select_mode"] = await config.get_credential_select_mode()
 
@@ -220,6 +224,23 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         if "usage_log_enabled" in new_config:
             if not isinstance(new_config["usage_log_enabled"], bool):
                 raise HTTPException(status_code=400, detail="请求日志开关必须是布尔值")
+
+        # 验证请求体详细日志配置
+        if "request_log_enabled" in new_config:
+            if not isinstance(new_config["request_log_enabled"], bool):
+                raise HTTPException(status_code=400, detail="请求体详细日志开关必须是布尔值")
+
+        if "request_log_error_codes" in new_config:
+            codes = new_config["request_log_error_codes"]
+            if not isinstance(codes, list):
+                raise HTTPException(status_code=400, detail="详细日志错误码必须是数组，如 [400, 429]")
+            cleaned_codes = []
+            for code in codes:
+                if isinstance(code, bool) or not isinstance(code, int) or code < 100 or code > 599:
+                    raise HTTPException(status_code=400, detail=f"错误码必须是 100-599 的整数: {code!r}")
+                if code not in cleaned_codes:
+                    cleaned_codes.append(code)
+            new_config["request_log_error_codes"] = sorted(cleaned_codes)
 
         # 验证凭证选择模式
         if "credential_select_mode" in new_config:

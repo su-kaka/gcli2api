@@ -112,6 +112,9 @@ class UsageLog(Base):
     # 失败时的错误摘要
     error_message: Mapped[str] = mapped_column(Text, default="")
 
+    # 请求体详细日志文件索引（data/request_logs 相对路径；空=未记录）
+    request_log_file: Mapped[str] = mapped_column(String(512), default="")
+
     __table_args__ = (
         Index("idx_ul_created_model", "created_at", "model_name"),
         Index("idx_ul_created_email", "created_at", "credential_email"),
@@ -745,6 +748,7 @@ class Database:
                     completion_tokens=int(entry.get("completion_tokens", 0) or 0),
                     total_tokens=int(entry.get("total_tokens", 0) or 0),
                     error_message=str(entry.get("error_message", ""))[:2000],
+                    request_log_file=str(entry.get("request_log_file", ""))[:512],
                 ))
                 return True
         except SQLAlchemyError as e:
@@ -762,6 +766,7 @@ class Database:
         api_format: str = "",
         status: str = "all",  # all / success / error
         is_stream: Optional[bool] = None,
+        status_code: Optional[int] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """分页查询请求日志，返回 (日志列表, 总数)，新 -> 旧"""
         stmt = select(UsageLog)
@@ -782,6 +787,9 @@ class Database:
         if api_format:
             stmt = stmt.where(UsageLog.api_format == api_format)
             count_stmt = count_stmt.where(UsageLog.api_format == api_format)
+        if status_code is not None:
+            stmt = stmt.where(UsageLog.status_code == status_code)
+            count_stmt = count_stmt.where(UsageLog.status_code == status_code)
         if status == "success":
             stmt = stmt.where(UsageLog.success.is_(True))
             count_stmt = count_stmt.where(UsageLog.success.is_(True))
@@ -824,6 +832,7 @@ class Database:
                 "completion_tokens": r.completion_tokens,
                 "total_tokens": r.total_tokens,
                 "error_message": r.error_message or "",
+                "request_log_file": r.request_log_file or "",
             }
             for r in rows
         ]
