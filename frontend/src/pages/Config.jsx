@@ -33,8 +33,6 @@ const CONFIG_GROUPS = [
     fields: [
       { key: "oauth_proxy_url", label: "OAuth Endpoint", type: "text", note: "Google OAuth2 端点，用于 token 获取和刷新" },
       { key: "googleapis_proxy_url", label: "Google APIs Endpoint", type: "text", note: "Google APIs 端点" },
-      { key: "resource_manager_api_url", label: "Resource Manager API", type: "text", note: "Google Cloud Resource Manager API 端点" },
-      { key: "service_usage_api_url", label: "Service Usage API", type: "text", note: "Google Cloud Service Usage API 端点" },
       { key: "antigravity_api_url", label: "Antigravity API Endpoint", type: "text", note: "Antigravity API 端点" },
     ],
   },
@@ -164,15 +162,11 @@ export default function Config() {
   const OFFICIAL_ENDPOINTS = {
     oauth_proxy_url: "https://oauth2.googleapis.com",
     googleapis_proxy_url: "https://www.googleapis.com",
-    resource_manager_api_url: "https://cloudresourcemanager.googleapis.com",
-    service_usage_api_url: "https://serviceusage.googleapis.com",
     antigravity_api_url: "https://daily-cloudcode-pa.googleapis.com",
   };
   const MIRROR_PATHS = {
     oauth_proxy_url: "/oauth2",
     googleapis_proxy_url: "/googleapis",
-    resource_manager_api_url: "/cloudresourcemanager",
-    service_usage_api_url: "/serviceusage",
     antigravity_api_url: "/daily-cloudcode-pa",
   };
 
