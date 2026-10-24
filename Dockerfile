@@ -37,5 +37,5 @@ COPY . .
 # Expose port
 EXPOSE 7861
 
-# uvicorn 直接运行 ASGI 应用，性能更好
-CMD ["python", "-m", "uvicorn", "web:app", "--host", "0.0.0.0", "--port", "7861"]
+# 通过 web.py 启动，使 HOST/PORT 环境变量生效
+CMD ["python", "web.py"]
