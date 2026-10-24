@@ -1,4 +1,4 @@
-full_hash=6e2f59423cd4d830d8ef6bf18f8164bae8536a25
-short_hash=6e2f594
-message=Update anthropic2gemini.py
-date=2026-10-25 00:09:05 +0800
+full_hash=4db67404dda164817a8e8700392c70e1754b32c5
+short_hash=4db6740
+message=修复claude格式无日志
+date=2026-10-25 00:19:03 +0800
