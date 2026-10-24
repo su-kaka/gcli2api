@@ -589,6 +589,15 @@ async def stream_request(
                     return
                 continue  # 重试
 
+        except GeneratorExit:
+            # 下游提前关闭了本生成器（转换器断流、抗截断续传、客户端断开等）。
+            # 已收到上游数据却未走到正常收尾时，补记一条成功日志，避免请求
+            # 日志丢失（issue #438）；GeneratorExit 不可吞，必须 re-raise
+            if success_recorded:
+                log.debug("[ANTIGRAVITY STREAM] 生成器被提前关闭，补记成功日志")
+                await _log_stream_result(200, True)
+            raise
+
         except Exception as e:
             log.error(f"[ANTIGRAVITY STREAM] 流式请求异常: {e}, 凭证: {current_file}")
             if attempt < max_retries:

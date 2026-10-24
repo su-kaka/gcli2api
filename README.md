@@ -338,7 +338,7 @@ npm run build    # 构建到 dist/（生产模式使用）
 
 **QQ 群号：1083250744**
 
-![QQ 群二维码](docs/qq-group.jpg)
+<img src="docs/qq-group.jpg" width="200" alt="QQ 群二维码">
 
 ## 许可证与免责声明
 

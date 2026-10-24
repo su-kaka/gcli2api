@@ -974,6 +974,7 @@ async def gemini_stream_to_anthropic_stream(
     cached_input_tokens = 0
     reasoning_tokens = 0
     finish_reason: Optional[str] = None
+    stream_finished = False  # finishReason 收尾块之后只消费不转换（保持上游流走完以记录请求日志）
 
     def _sse_event(event: str, data: Dict[str, Any]) -> bytes:
         """生成 SSE 事件"""
@@ -1017,6 +1018,12 @@ async def gemini_stream_to_anthropic_stream(
             # 记录接收到的原始chunk
             log.debug(f"[GEMINI_TO_ANTHROPIC] Raw chunk: {chunk[:200] if chunk else b''}")
 
+            # finishReason 之后的残余块只消费不转换：
+            # 提前 break 会沿生成器链下发 GeneratorExit，导致底层
+            # stream_request 的成功日志记录代码永远不执行（issue #438）
+            if stream_finished:
+                continue
+
             # 解析 Gemini 流式块
             if not chunk or not chunk.startswith(b"data: "):
                 log.debug(f"[GEMINI_TO_ANTHROPIC] Skipping chunk (not SSE format or empty)")
@@ -1025,7 +1032,10 @@ async def gemini_stream_to_anthropic_stream(
             raw = chunk[6:].strip()
             if raw == b"[DONE]":
                 log.debug(f"[GEMINI_TO_ANTHROPIC] Received [DONE] marker")
-                break
+                # 同 finishReason：不 break，改为消费剩余块直到流自然结束，
+                # 避免向底层 stream_request 下发 GeneratorExit 导致日志丢失
+                stream_finished = True
+                continue
 
             log.debug(f"[GEMINI_TO_ANTHROPIC] Parsing JSON: {raw[:200]}")
 
@@ -1250,7 +1260,9 @@ async def gemini_stream_to_anthropic_stream(
             # 检查是否结束
             if candidate.get("finishReason"):
                 finish_reason = candidate.get("finishReason")
-                break
+                # 不 break：继续消费上游残余块（如 [DONE]），保证底层
+                # stream_request 走正常收尾路径记录请求日志（issue #438）
+                stream_finished = True
 
         # 关闭最后的内容块
         close_evt = _close_block()
